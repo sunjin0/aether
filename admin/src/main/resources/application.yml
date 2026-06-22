@@ -1,0 +1,19 @@
+
+spring:
+  profiles:
+    active: dev
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
+  # 国际化
+  messages:
+    basename: i18n.api
+    encoding: UTF-8
+    # 默认区域，可以写多个，用逗号分隔
+    fallback-to-system-locale: true
+    always-use-message-format: false
+server:
+  port: 8080

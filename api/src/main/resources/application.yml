@@ -1,0 +1,10 @@
+spring:
+  profiles:
+    active: dev
+  # 国际化
+  messages:
+    basename: i18n.api
+    encoding: UTF-8
+    # 默认区域，可以写多个，用逗号分隔
+    fallback-to-system-locale: true
+    always-use-message-format: false

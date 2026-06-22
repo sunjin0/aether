@@ -1,0 +1,29 @@
+package com.aether.config;
+
+import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
+import org.apache.ibatis.reflection.MetaObject;
+import org.springframework.stereotype.Component;
+
+/**
+ * mybatis参数自动填充处理程序
+ *
+ * @author sun
+ * @since 2024/10/08
+ */
+@Component
+public class MyMetaObjectHandler implements MetaObjectHandler {
+
+    @Override
+    public void insertFill(MetaObject metaObject) {
+        this.strictInsertFill(metaObject, "state", () -> 0, Integer.class);
+        this.strictInsertFill(metaObject, "deleted", () -> false, Boolean.class);
+        this.strictInsertFill(metaObject, "createdAt", System::currentTimeMillis, Long.class);
+        this.strictInsertFill(metaObject, "updatedAt", System::currentTimeMillis, Long.class);
+        this.strictInsertFill(metaObject, "sortNum", () -> 1, Integer.class);
+    }
+
+    @Override
+    public void updateFill(MetaObject metaObject) {
+        this.strictUpdateFill(metaObject, "updatedAt", System::currentTimeMillis, Long.class);
+    }
+}
