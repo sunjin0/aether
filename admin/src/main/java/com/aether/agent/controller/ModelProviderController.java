@@ -8,6 +8,7 @@ import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.utils.AesUtil;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -60,6 +61,7 @@ public class ModelProviderController {
         List<ModelProviderVo> list = result.getRecords().stream().map(item -> {
             ModelProviderVo itemVo = new ModelProviderVo();
             BeanUtils.copyProperties(item, itemVo);
+            itemVo.setApiKey(null);
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
@@ -78,6 +80,7 @@ public class ModelProviderController {
         }
         ModelProviderVo vo = new ModelProviderVo();
         BeanUtils.copyProperties(provider, vo);
+        vo.setApiKey(null);
         return WebResponse.OK(vo);
     }
 
@@ -91,6 +94,14 @@ public class ModelProviderController {
     public WebResponse<String> save(@RequestBody ModelProviderDto dto) {
         ModelProvider provider = new ModelProvider();
         BeanUtils.copyProperties(dto, provider);
+        if (StringUtils.isNotBlank(provider.getApiKey())) {
+            provider.setApiKey(AesUtil.encrypt(provider.getApiKey()));
+        }
+        ModelProvider one = modelProviderService.getOne(Wrappers.<ModelProvider>lambdaQuery()
+                .eq(ModelProvider::getName, provider.getName()));
+        if (one != null && !one.getId().equals(provider.getId())) {
+            throw new ServerException(400, I18nUtils.getMessage("model.provider.name.duplicate"));
+        }
         boolean saved = modelProviderService.save(provider);
         return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), provider.getId());
     }
@@ -106,6 +117,16 @@ public class ModelProviderController {
         ModelProvider provider = new ModelProvider();
         BeanUtils.copyProperties(dto, provider);
         provider.setId(id);
+        if (StringUtils.isNotBlank(provider.getApiKey())) {
+            provider.setApiKey(AesUtil.encrypt(provider.getApiKey()));
+        } else {
+            provider.setApiKey(null);
+        }
+        ModelProvider one = modelProviderService.getOne(Wrappers.<ModelProvider>lambdaQuery()
+                .eq(ModelProvider::getName, provider.getName()));
+        if (one != null && !one.getId().equals(provider.getId())) {
+            throw new ServerException(400, I18nUtils.getMessage("model.provider.name.duplicate"));
+        }
         boolean updated = modelProviderService.updateById(provider);
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }

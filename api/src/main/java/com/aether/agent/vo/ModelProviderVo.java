@@ -21,6 +21,9 @@ public class ModelProviderVo extends BaseEntity {
     @ApiModelProperty(value = "API基础地址")
     private String apiBaseUrl;
 
+    @ApiModelProperty(value = "API Key")
+    private String apiKey;
+
     @ApiModelProperty(value = "默认模型名称")
     private String defaultModel;
 

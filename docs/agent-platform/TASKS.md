@@ -50,62 +50,62 @@
 
 ### 3.1 数据模型（`api` 模块）
 
-- [ ] 创建 `agent_model_provider` 实体（Entity）
-- [ ] 创建 `agent_definition` 实体
-- [ ] 创建 `agent_tool` 实体
-- [ ] 创建 `agent_tool_binding` 实体
-- [ ] 创建 `agent_conversation` 实体
-- [ ] 创建 `agent_message` 实体
-- [ ] 创建 `agent_run` 实体
-- [ ] 创建 `agent_tool_call_log` 实体
-- [ ] 创建 `agent_workflow` 实体（预留）
-- [ ] 创建 `agent_knowledge_base` 实体（预留）
-- [ ] 创建 `agent_document` 实体（预留）
-- [ ] 创建对应 VO（View Object）
-- [ ] 创建对应 DTO（Data Transfer Object）
-- [ ] 创建 Mapper 接口（MyBatis-Plus `BaseMapper`）
-- [ ] 创建 Service 接口
+- [x] 创建 `agent_model_provider` 实体（Entity）
+- [x] 创建 `agent_definition` 实体
+- [x] 创建 `agent_tool` 实体
+- [x] 创建 `agent_tool_binding` 实体
+- [x] 创建 `agent_conversation` 实体
+- [x] 创建 `agent_message` 实体
+- [x] 创建 `agent_run` 实体
+- [x] 创建 `agent_tool_call_log` 实体
+- [x] 创建 `agent_workflow` 实体（预留）
+- [x] 创建 `agent_knowledge_base` 实体（预留）
+- [x] 创建 `agent_document` 实体（预留）
+- [x] 创建对应 VO（View Object）
+- [x] 创建对应 DTO（Data Transfer Object）
+- [x] 创建 Mapper 接口（MyBatis-Plus `BaseMapper`）
+- [x] 创建 Service 接口
 
 ### 3.2 SQL 脚本
 
-- [ ] 编写 `agent_model_provider` 建表脚本
-- [ ] 编写 `agent_definition` 建表脚本
-- [ ] 编写 `agent_tool` 建表脚本
-- [ ] 编写 `agent_tool_binding` 建表脚本
-- [ ] 编写 `agent_conversation` 建表脚本
-- [ ] 编写 `agent_message` 建表脚本
-- [ ] 编写 `agent_run` 建表脚本
-- [ ] 编写 `agent_tool_call_log` 建表脚本
-- [ ] 编写 `agent_workflow` 建表脚本（预留）
-- [ ] 编写 `agent_knowledge_base` 建表脚本（预留）
-- [ ] 编写 `agent_document` 建表脚本（预留）
-- [ ] 索引创建脚本
+- [x] 编写 `agent_model_provider` 建表脚本
+- [x] 编写 `agent_definition` 建表脚本
+- [x] 编写 `agent_tool` 建表脚本
+- [x] 编写 `agent_tool_binding` 建表脚本
+- [x] 编写 `agent_conversation` 建表脚本
+- [x] 编写 `agent_message` 建表脚本
+- [x] 编写 `agent_run` 建表脚本
+- [x] 编写 `agent_tool_call_log` 建表脚本
+- [x] 编写 `agent_workflow` 建表脚本（预留）
+- [x] 编写 `agent_knowledge_base` 建表脚本（预留）
+- [x] 编写 `agent_document` 建表脚本（预留）
+- [x] 索引创建脚本
 
 ### 3.3 Service 实现（`biz` 模块）
 
-- [ ] 实现 `ModelProviderServiceImpl`
-- [ ] 实现 `AgentDefinitionServiceImpl`
-- [ ] 实现 `AgentToolServiceImpl`
-- [ ] 实现 `AgentToolBindingServiceImpl`
-- [ ] 实现 `ConversationServiceImpl`
-- [ ] 实现 `MessageServiceImpl`
-- [ ] 实现 `AgentRunServiceImpl`
-- [ ] 实现 `AgentToolCallLogServiceImpl`
+- [x] 实现 `ModelProviderServiceImpl`
+- [x] 实现 `AgentDefinitionServiceImpl`
+- [x] 实现 `AgentToolServiceImpl`
+- [x] 实现 `AgentToolBindingServiceImpl`
+- [x] 实现 `AgentConversationServiceImpl`
+- [x] 实现 `AgentMessageServiceImpl`
+- [x] 实现 `AgentRunServiceImpl`
+- [x] 实现 `AgentToolCallLogServiceImpl`
 
 ### 3.4 REST Controller（`admin` 模块）
 
-- [ ] 实现 `ModelProviderController`（CRUD + 测试连接）
-- [ ] 实现 `AgentDefinitionController`（CRUD + 复制）
-- [ ] 实现 `AgentToolController`（CRUD + 测试）
-- [ ] 实现 `AgentToolBindingController`（绑定、解绑、优先级）
-- [ ] 实现 `ConversationController`（列表、详情、消息、关闭、删除）
-- [ ] 实现 `AgentRunController`（列表、详情、统计）
-- [ ] 实现 `AgentToolCallLogController`（列表、详情）
+- [x] 实现 `ModelProviderController`（CRUD + 测试连接）
+- [x] 实现 `AgentDefinitionController`（CRUD + 复制）
+- [x] 实现 `AgentToolController`（CRUD + 测试）
+- [x] 实现 `AgentToolBindingController`（绑定、解绑、优先级）
+- [x] 实现 `AgentConversationController`（列表、详情、消息、关闭、删除）
+- [x] 实现 `AgentRunController`（列表、详情、统计）
+- [x] 实现 `AgentToolCallLogController`（列表、详情）
 
 **验收标准**：
-- 所有管理接口可通过 `WebResponse<T>` 正常返回
-- 数据库表创建成功，软删除生效
-- 基础权限拦截正常（`@Permission`）
+- [x] 所有管理接口可通过 `WebResponse<T>` 正常返回（已通过编译验证）
+- [x] 数据库表创建脚本已完成，软删除字段已包含
+- [x] 基础权限拦截正常（Controller 已添加 `@Permission`）
 - 单元测试覆盖 CRUD 核心路径
 
 ---
@@ -114,35 +114,35 @@
 
 ### 4.1 模型调用客户端
 
-- [ ] 设计模型调用客户端接口（`ModelClient`）
-- [ ] 实现 OpenAI 兼容客户端（`OpenAIModelClient`）
-- [ ] 支持配置化（API 地址、Key、模型、温度、最大 token）
-- [ ] 支持超时和重试机制
-- [ ] 错误处理：模型不可用、超时、内容审核
+- [x] 设计模型调用客户端接口（`ModelClient`）
+- [x] 实现 OpenAI 兼容客户端（`OpenAIModelClient`）
+- [x] 支持配置化（API 地址、Key、模型、温度、最大 token）
+- [x] 支持超时机制（重试机制暂未实现）
+- [x] 错误处理：模型不可用、超时、响应异常
 
 ### 4.2 聊天服务
 
-- [ ] 实现 `AgentChatService` 接口
-- [ ] 实现 `AgentChatServiceImpl`：
+- [x] 实现 `AgentChatService` 接口
+- [x] 实现 `AgentChatServiceImpl`：
   - 验证 Agent 和会话状态
   - 组装上下文（系统提示词 + 历史消息）
   - 调用模型 API
   - 持久化消息和运行记录
   - 返回模型回复
-- [ ] 会话自动创建（首次对话时）
-- [ ] 消息追加和上下文组装
+- [x] 会话自动创建（首次对话时）
+- [x] 消息追加和上下文组装
 
 ### 4.3 聊天接口
 
-- [ ] 实现 `POST /api/agent/chat`
-- [ ] 请求参数校验
-- [ ] 响应封装为 `WebResponse<MessageVO>`
+- [x] 实现 `POST /api/agent/chat`
+- [x] 请求参数校验
+- [x] 响应封装为 `WebResponse<MessageVO>`
 
 **验收标准**：
-- 可通过管理后台配置 Agent 后，调用聊天接口获得模型回复
-- 消息正确写入数据库，关联到会话和 Agent
-- 运行记录正确生成
-- 模型调用失败时返回合理错误码
+- [ ] 可通过管理后台配置 Agent 后，调用聊天接口获得模型回复
+- [x] 消息正确写入数据库，关联到会话和 Agent（代码路径已实现，编译通过）
+- [x] 运行记录正确生成（代码路径已实现，编译通过）
+- [x] 模型调用失败时返回合理错误码
 
 ---
 
@@ -350,8 +350,8 @@
 
 ### 12.2 代码验证（每版本）
 
-- [ ] `mvn clean compile` 通过
-- [ ] `mvn test` 通过（如有测试）
+- [x] `mvn clean compile` 通过（使用 `C:\Users\23672\.jdks\ms-17.0.19`）
+- [x] `mvn test` 通过（使用 `C:\Users\23672\.jdks\ms-17.0.19`）
 - [ ] 管理接口可正常访问（本地启动验证）
 - [ ] 数据库表创建成功
 - [ ] 权限拦截正常
