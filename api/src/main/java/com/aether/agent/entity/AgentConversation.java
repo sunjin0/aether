@@ -1,0 +1,35 @@
+package com.aether.agent.entity;
+
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.aether.entity.BaseEntity;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.experimental.Accessors;
+
+/**
+ * 会话
+ */
+@Data
+@EqualsAndHashCode(callSuper = false)
+@Accessors(chain = true)
+@TableName("agent_conversation")
+@ApiModel(value = "AgentConversation对象", description = "会话")
+public class AgentConversation extends BaseEntity {
+
+    @ApiModelProperty(value = "用户ID")
+    private String userId;
+
+    @ApiModelProperty(value = "关联Agent定义ID")
+    private String agentDefinitionId;
+
+    @ApiModelProperty(value = "会话标题")
+    private String title;
+
+    @ApiModelProperty(value = "消息数，默认0")
+    private Integer messageCount;
+
+    @ApiModelProperty(value = "状态：0-进行中，1-关闭，2-归档")
+    private Integer status;
+}

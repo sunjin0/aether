@@ -2,12 +2,6 @@
 spring:
   profiles:
     active: dev
-
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:db/schema.sql
-      data-locations: classpath:db/data.sql
   # 国际化
   messages:
     basename: i18n.api
