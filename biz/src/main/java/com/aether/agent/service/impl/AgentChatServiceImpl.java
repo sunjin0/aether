@@ -1,5 +1,6 @@
 package com.aether.agent.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import com.aether.agent.dto.AgentChatDto;
 import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentDefinition;
@@ -26,12 +27,14 @@ import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Agent聊天服务实现。
@@ -44,6 +47,12 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final int CONVERSATION_STATUS_OPEN = 0;
     private static final int RUN_STATUS_SUCCESS = 0;
     private static final int RUN_STATUS_FAILED = 1;
+    private static final String CONTEXT_CACHE_KEY_PREFIX = "agent:context:";
+    private static final long CONTEXT_CACHE_TTL_MINUTES = 30;
+    private static final String SUMMARY_CACHE_KEY_PREFIX = "agent:summary:";
+    private static final long SUMMARY_CACHE_TTL_HOURS = 24;
+    private static final int SUMMARY_TRIGGER_THRESHOLD = 10; // 超过10轮对话触发摘要
+    private static final int KEEP_RECENT_MESSAGES = 5; // 保留最近5条完整消息
 
     private final AgentDefinitionService agentDefinitionService;
     private final ModelProviderService modelProviderService;
@@ -51,25 +60,28 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentMessageService agentMessageService;
     private final AgentRunService agentRunService;
     private final ModelClientFactory modelClientFactory;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
                                 ModelProviderService modelProviderService,
                                 AgentConversationService agentConversationService,
                                 AgentMessageService agentMessageService,
                                 AgentRunService agentRunService,
-                                ModelClientFactory modelClientFactory) {
+                                ModelClientFactory modelClientFactory,
+                                RedisTemplate<String, Object> redisTemplate) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
         this.agentRunService = agentRunService;
         this.modelClientFactory = modelClientFactory;
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
     public AgentMessageVo chat(AgentChatDto dto) {
         validateRequest(dto);
-        String userId = getCurrentUserId();
+        String userId = getCurrentUserId(dto);
         long startTime = System.currentTimeMillis();
 
         AgentDefinition agent = getEnabledAgent(dto.getAgentId());
@@ -78,7 +90,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage());
 
         try {
-            List<ModelChatMessage> context = buildContext(agent, conversation.getId());
+            List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
@@ -105,7 +117,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     @Override
     public void stream(AgentChatDto dto, AgentStreamCallback callback) {
         validateRequest(dto);
-        String userId = getCurrentUserId();
+        String userId = getCurrentUserId(dto);
         long startTime = System.currentTimeMillis();
 
         AgentDefinition agent = getEnabledAgent(dto.getAgentId());
@@ -114,7 +126,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage());
 
         try {
-            List<ModelChatMessage> context = buildContext(agent, conversation.getId());
+            List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
@@ -141,6 +153,10 @@ public class AgentChatServiceImpl implements AgentChatService {
                     return callback.isClosed();
                 }
             });
+            
+            // 当模型未提供token统计时（如Google Gemma流式响应），补充估算值
+            fillDefaultTokens(modelResponse, context, dto.getMessage());
+            
             long latencyMs = System.currentTimeMillis() - startTime;
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
@@ -164,9 +180,14 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
-    private String getCurrentUserId() {
-        HashMap<String, String> currentUser = CurrentUser.getUser();
-        String userId = currentUser == null ? null : currentUser.get("userId");
+    private String getCurrentUserId(AgentChatDto dto) {
+        // 优先使用DTO中传递的userId（适用于异步线程池场景）
+        String userId = dto.getUserId();
+        // 如果DTO中没有，则从CurrentUser获取（适用于同步调用场景）
+        if (StringUtils.isBlank(userId)) {
+            HashMap<String, String> currentUser = CurrentUser.getUser();
+            userId = currentUser == null ? null : currentUser.get("userId");
+        }
         if (StringUtils.isBlank(userId)) {
             throw new ServerException(401, "未授权");
         }
@@ -237,10 +258,46 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setRole("user");
         message.setContent(content);
         agentMessageService.save(message);
+        
+        // 更新缓存：添加用户消息
+        updateContextCache(conversationId, new ModelChatMessage("user", content));
+        
         return message;
     }
 
     private List<ModelChatMessage> buildContext(AgentDefinition agent, String conversationId) {
+        // 1. 尝试从缓存读取
+        String cacheKey = CONTEXT_CACHE_KEY_PREFIX + conversationId;
+        Object cachedContext = redisTemplate.opsForValue().get(cacheKey);
+        if (cachedContext != null) {
+            try {
+                @SuppressWarnings("unchecked")
+                List<ModelChatMessage> context = (List<ModelChatMessage>) cachedContext;
+                if (context != null && !context.isEmpty()) {
+                    return context;
+                }
+            } catch (Exception e) {
+                // 缓存反序列化失败，忽略并重新从数据库构建
+            }
+        }
+        
+        // 2. 缓存未命中，从数据库构建
+        List<ModelChatMessage> context = buildContextFromDb(agent, conversationId);
+        
+        // 3. 写入缓存（30分钟过期）
+        try {
+            redisTemplate.opsForValue().set(cacheKey, context, CONTEXT_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            // 缓存写入失败不影响主流程
+        }
+        
+        return context;
+    }
+
+    /**
+     * 从数据库构建对话上下文。
+     */
+    private List<ModelChatMessage> buildContextFromDb(AgentDefinition agent, String conversationId) {
         List<ModelChatMessage> context = new ArrayList<>();
         if (StringUtils.isNotBlank(agent.getSystemPrompt())) {
             context.add(new ModelChatMessage("system", agent.getSystemPrompt()));
@@ -270,6 +327,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setTotalTokens(modelResponse.getTotalTokens());
         message.setLatencyMs((int) latencyMs);
         agentMessageService.save(message);
+        
+        // 更新缓存：添加助手消息
+        updateContextCache(conversationId, new ModelChatMessage("assistant", modelResponse.getContent()));
+        
         return message;
     }
 
@@ -284,6 +345,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setTotalTokens(modelResponse.getTotalTokens());
         message.setLatencyMs((int) latencyMs);
         agentMessageService.save(message);
+        
+        // 更新缓存：添加助手消息
+        updateContextCache(conversationId, new ModelChatMessage("assistant", modelResponse.getContent()));
+        
         return message;
     }
 
@@ -364,5 +429,206 @@ public class AgentChatServiceImpl implements AgentChatService {
             return message.substring(message.indexOf(':') + 1);
         }
         return StringUtils.defaultIfBlank(message, "模型调用失败");
+    }
+
+    /**
+     * 为ModelStreamResponse补充默认token统计（当模型未提供时）。
+     * 例如Google Gemma等模型的流式响应不包含usage字段。
+     */
+    private void fillDefaultTokens(ModelStreamResponse response, List<ModelChatMessage> context, String inputMessage) {
+        if (response == null) {
+            return;
+        }
+        
+        // 如果已经有token统计，则不需要处理
+        if (response.getPromptTokens() != null || response.getCompletionTokens() != null || response.getTotalTokens() != null) {
+            return;
+        }
+        
+        // 估算prompt tokens（基于完整context：system prompt + 历史消息/摘要 + 当前消息）
+        int promptTokens = estimateTokensFromContext(context);
+        response.setPromptTokens(promptTokens);
+        
+        // 估算completion tokens（基于输出内容）
+        int completionTokens = estimateTokens(response.getContent());
+        response.setCompletionTokens(completionTokens);
+        
+        // 设置total tokens
+        response.setTotalTokens(promptTokens + completionTokens);
+    }
+
+    /**
+     * 基于对话上下文估算prompt token数量。
+     * 累加所有消息内容的字符数后估算token数。
+     */
+    private int estimateTokensFromContext(List<ModelChatMessage> context) {
+        if (context == null || context.isEmpty()) {
+            return 0;
+        }
+        int totalLength = 0;
+        for (ModelChatMessage message : context) {
+            if (StringUtils.isNotBlank(message.getContent())) {
+                totalLength += message.getContent().length();
+            }
+        }
+        return (int) Math.ceil(totalLength / 3.0);
+    }
+
+    /**
+     * 更新会话上下文缓存。
+     * 在保存新消息后调用，将新消息追加到缓存中的context。
+     */
+    private void updateContextCache(String conversationId, ModelChatMessage newMessage) {
+        String cacheKey = CONTEXT_CACHE_KEY_PREFIX + conversationId;
+        try {
+            Object cachedContext = redisTemplate.opsForValue().get(cacheKey);
+            if (cachedContext != null) {
+                @SuppressWarnings("unchecked")
+                List<ModelChatMessage> context = (List<ModelChatMessage>) cachedContext;
+                if (context != null) {
+                    // 追加新消息
+                    context.add(newMessage);
+                    
+                    // 保持最多21条消息（1 system + 20 messages）
+                    if (context.size() > 21) {
+                        // 保留 system prompt 和最后 20 条消息
+                        if (context.get(0).getRole().equals("system")) {
+                            context = new ArrayList<>(context.subList(0, 1)); // system
+                            context.addAll(((List<ModelChatMessage>) cachedContext).subList(
+                                Math.max(1, ((List<ModelChatMessage>) cachedContext).size() - 20),
+                                ((List<ModelChatMessage>) cachedContext).size()
+                            ));
+                        } else {
+                            context = new ArrayList<>(context.subList(context.size() - 21, context.size()));
+                        }
+                    }
+                    
+                    // 更新缓存
+                    redisTemplate.opsForValue().set(cacheKey, context, CONTEXT_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
+                }
+            }
+        } catch (Exception e) {
+            // 缓存更新失败不影响主流程，下次 buildContext 时会从数据库重建
+        }
+    }
+
+    /**
+     * 估算token数量（当模型未提供准确统计时）。
+     * 粗略估算：平均每3个字符约等于1个token。
+     */
+    private int estimateTokens(String content) {
+        if (StringUtils.isBlank(content)) {
+            return 0;
+        }
+        return (int) Math.ceil(content.length() / 3.0);
+    }
+
+    /**
+     * 生成对话历史摘要。
+     * 当对话超过一定轮数时，将早期消息压缩为摘要，减少token消耗。
+     */
+    private String generateSummary(List<AgentMessage> oldMessages, AgentDefinition agent, ModelProvider provider) {
+        if (oldMessages == null || oldMessages.isEmpty()) {
+            return "";
+        }
+
+        try {
+            // 构建摘要请求
+            StringBuilder summaryPrompt = new StringBuilder();
+            summaryPrompt.append("请将以下对话历史总结为关键要点，保留重要信息、用户意图和上下文，200字以内：\n\n");
+            
+            for (AgentMessage msg : oldMessages) {
+                String role = msg.getRole().equals("user") ? "用户" : "助手";
+                summaryPrompt.append(role).append(": ").append(msg.getContent()).append("\n\n");
+            }
+
+            // 调用模型生成摘要
+            ModelChatRequest request = new ModelChatRequest();
+            request.setAgent(agent);
+            request.setProvider(provider);
+            request.setMessages(Collections.singletonList(new ModelChatMessage("user", summaryPrompt.toString())));
+
+            ModelClient modelClient = modelClientFactory.getClient(provider);
+            ModelChatResponse response = modelClient.chat(request);
+            
+            return response.getContent() != null ? response.getContent() : "";
+        } catch (Exception e) {
+            // 摘要生成失败，返回空字符串，降级使用完整消息
+            return "";
+        }
+    }
+
+    /**
+     * 获取或创建会话摘要。
+     * 优先从缓存读取，缓存未命中时调用模型生成。
+     */
+    private String getOrCreateSummary(String conversationId, List<AgentMessage> oldMessages, 
+                                      AgentDefinition agent, ModelProvider provider) {
+        // 1. 尝试从缓存读取
+        String cacheKey = SUMMARY_CACHE_KEY_PREFIX + conversationId;
+        Object cachedSummary = redisTemplate.opsForValue().get(cacheKey);
+        if (cachedSummary != null) {
+            return cachedSummary.toString();
+        }
+
+        // 2. 缓存未命中，生成新摘要
+        String summary = generateSummary(oldMessages, agent, provider);
+
+        // 3. 缓存摘要（24小时过期）
+        if (StringUtils.isNotBlank(summary)) {
+            try {
+                redisTemplate.opsForValue().set(cacheKey, summary, SUMMARY_CACHE_TTL_HOURS, TimeUnit.HOURS);
+            } catch (Exception e) {
+                // 缓存失败不影响主流程
+            }
+        }
+
+        return summary;
+    }
+
+    /**
+     * 构建带摘要的对话上下文。
+     * 当对话超过阈值时，使用摘要+最近消息的模式。
+     */
+    private List<ModelChatMessage> buildContextWithSummary(AgentDefinition agent, ModelProvider provider, 
+                                                           String conversationId) {
+        List<ModelChatMessage> context = new ArrayList<>();
+        
+        // 1. 添加 system prompt
+        if (StringUtils.isNotBlank(agent.getSystemPrompt())) {
+            context.add(new ModelChatMessage("system", agent.getSystemPrompt()));
+        }
+
+        // 2. 查询所有历史消息
+        List<AgentMessage> allMessages = agentMessageService.list(Wrappers.lambdaQuery(AgentMessage.class)
+                .eq(AgentMessage::getConversationId, conversationId)
+                .eq(AgentMessage::getDeleted, false)
+                .in(AgentMessage::getRole, "user", "assistant")
+                .orderByAsc(AgentMessage::getCreatedAt));
+
+        if (allMessages.size() <= SUMMARY_TRIGGER_THRESHOLD) {
+            // 消息较少，直接返回完整消息
+            for (AgentMessage message : allMessages) {
+                context.add(new ModelChatMessage(message.getRole(), message.getContent()));
+            }
+        } else {
+            // 3. 消息较多，使用摘要模式
+            int oldMessageCount = allMessages.size() - KEEP_RECENT_MESSAGES;
+            List<AgentMessage> oldMessages = allMessages.subList(0, oldMessageCount);
+            List<AgentMessage> recentMessages = allMessages.subList(oldMessageCount, allMessages.size());
+
+            // 4. 获取或生成摘要
+            String summary = getOrCreateSummary(conversationId, oldMessages, agent, provider);
+            if (StringUtils.isNotBlank(summary)) {
+                context.add(new ModelChatMessage("system", "【对话历史摘要】" + summary));
+            }
+
+            // 5. 添加最近的完整消息
+            for (AgentMessage message : recentMessages) {
+                context.add(new ModelChatMessage(message.getRole(), message.getContent()));
+            }
+        }
+
+        return context;
     }
 }

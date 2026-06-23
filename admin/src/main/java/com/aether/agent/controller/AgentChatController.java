@@ -81,6 +81,12 @@ public class AgentChatController {
     public SseEmitter stream(@RequestParam("agentId") String agentId,
                              @RequestParam(value = "conversationId", required = false) String conversationId,
                              @RequestParam("message") String message) {
+        // 在主线程中提前获取userId，避免在线程池新线程中无法获取ThreadLocal中的用户信息
+        String userId = CurrentUser.getUser() != null ? CurrentUser.getUser().get("userId") : null;
+        if (StringUtils.isBlank(userId)) {
+            throw new ServerException(401, "未授权");
+        }
+        
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
         AtomicBoolean closed = new AtomicBoolean(false);
         emitter.onCompletion(() -> closed.set(true));
@@ -94,6 +100,7 @@ public class AgentChatController {
         dto.setAgentId(agentId);
         dto.setConversationId(conversationId);
         dto.setMessage(message);
+        dto.setUserId(userId); // 将userId设置到DTO中传递
         streamExecutor.execute(() -> agentChatService.stream(dto, new SseAgentStreamCallback(emitter, closed)));
         return emitter;
     }

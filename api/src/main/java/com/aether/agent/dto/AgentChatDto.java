@@ -17,4 +17,7 @@ public class AgentChatDto {
 
     @ApiModelProperty(value = "消息内容")
     private String message;
+
+    @ApiModelProperty(value = "用户ID（内部传递，不从接口传入）")
+    private String userId;
 }
