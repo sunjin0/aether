@@ -57,11 +57,12 @@ public class AgentToolBindingController {
         List<AgentToolBindingVo> vos = list.stream().map(item -> {
             AgentToolBindingVo vo = new AgentToolBindingVo();
             AgentTool tool = agentToolService.getById(item.getToolId());
+            BeanUtils.copyProperties(item, vo);
             if (tool != null){
                 vo.setToolName(tool.getName());
                 vo.setToolCode(tool.getCode());
+                vo.setStatus(tool.getStatus());
             }
-            BeanUtils.copyProperties(item, vo);
             return vo;
         }).collect(Collectors.toList());
         return WebResponse.OK(vos);
@@ -81,7 +82,7 @@ public class AgentToolBindingController {
                         .eq(AgentToolBinding::getToolId, dto.getToolId())
                         .eq(AgentToolBinding::getDeleted, false)
                         .last("limit 1")).isEmpty()) {
-            return WebResponse.Error(0, I18nUtils.getMessage("bind.tool.exists"), null);
+            return WebResponse.Error(400, I18nUtils.getMessage("bind.tool.exists"), null);
         }
         AgentToolBinding binding = new AgentToolBinding();
         binding.setAgentDefinitionId(agentId);

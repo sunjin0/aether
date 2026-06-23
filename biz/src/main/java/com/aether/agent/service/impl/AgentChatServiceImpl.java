@@ -1,12 +1,21 @@
 package com.aether.agent.service.impl;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONObject;
 import com.aether.agent.dto.AgentChatDto;
 import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
+import com.aether.agent.entity.AgentTool;
+import com.aether.agent.entity.AgentToolBinding;
+import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.entity.ModelProvider;
+import com.aether.agent.executor.ToolExecutionContext;
+import com.aether.agent.executor.ToolExecutionResult;
+import com.aether.agent.executor.ToolExecutor;
+import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
@@ -20,12 +29,17 @@ import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentStreamCallback;
+import com.aether.agent.service.AgentToolBindingService;
+import com.aether.agent.service.AgentToolCallLogService;
+import com.aether.agent.service.AgentToolService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -34,6 +48,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -42,11 +57,17 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class AgentChatServiceImpl implements AgentChatService {
 
+    private static final Logger log = LoggerFactory.getLogger(AgentChatServiceImpl.class);
     private static final int AGENT_STATUS_ENABLED = 1;
     private static final int PROVIDER_STATUS_ENABLED = 1;
     private static final int CONVERSATION_STATUS_OPEN = 0;
     private static final int RUN_STATUS_SUCCESS = 0;
     private static final int RUN_STATUS_FAILED = 1;
+    private static final int TOOL_CALL_STATUS_SUCCESS = 0;
+    private static final int TOOL_CALL_STATUS_FAILED = 1;
+    private static final int TOOL_CALL_STATUS_TIMEOUT = 2;
+    private static final int TOOL_CALL_STATUS_SECURITY_BLOCK = 3;
+    private static final int MAX_TOOL_CALL_ITERATIONS = 5; // 最大工具调用迭代次数
     private static final String CONTEXT_CACHE_KEY_PREFIX = "agent:context:";
     private static final long CONTEXT_CACHE_TTL_MINUTES = 30;
     private static final String SUMMARY_CACHE_KEY_PREFIX = "agent:summary:";
@@ -61,6 +82,10 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentRunService agentRunService;
     private final ModelClientFactory modelClientFactory;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final AgentToolService agentToolService;
+    private final AgentToolBindingService agentToolBindingService;
+    private final AgentToolCallLogService agentToolCallLogService;
+    private final ToolExecutorFactory toolExecutorFactory;
 
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
                                 ModelProviderService modelProviderService,
@@ -68,7 +93,11 @@ public class AgentChatServiceImpl implements AgentChatService {
                                 AgentMessageService agentMessageService,
                                 AgentRunService agentRunService,
                                 ModelClientFactory modelClientFactory,
-                                RedisTemplate<String, Object> redisTemplate) {
+                                RedisTemplate<String, Object> redisTemplate,
+                                AgentToolService agentToolService,
+                                AgentToolBindingService agentToolBindingService,
+                                AgentToolCallLogService agentToolCallLogService,
+                                ToolExecutorFactory toolExecutorFactory) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.agentConversationService = agentConversationService;
@@ -76,6 +105,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.agentRunService = agentRunService;
         this.modelClientFactory = modelClientFactory;
         this.redisTemplate = redisTemplate;
+        this.agentToolService = agentToolService;
+        this.agentToolBindingService = agentToolBindingService;
+        this.agentToolCallLogService = agentToolCallLogService;
+        this.toolExecutorFactory = toolExecutorFactory;
     }
 
     @Override
@@ -98,11 +131,30 @@ public class AgentChatServiceImpl implements AgentChatService {
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelChatResponse modelResponse = modelClient.chat(request);
+            
+            // 处理工具调用
+            String runId = null;
+            int iteration = 0;
+            while (hasToolCalls(modelResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
+                iteration++;
+                List<ToolExecutionResult> toolResults = executeToolCalls(modelResponse, agent, conversation.getId(), userId, runId);
+                
+                // 将工具调用结果添加到上下文
+                for (ToolExecutionResult result : toolResults) {
+                    context.add(new ModelChatMessage("assistant", modelResponse.getContent()));
+                    context.add(new ModelChatMessage("tool", result.getContent()));
+                }
+                
+                // 继续调用模型
+                request.setMessages(context);
+                modelResponse = modelClient.chat(request);
+            }
+            
             long latencyMs = System.currentTimeMillis() - startTime;
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
             updateConversationMessageCount(conversation.getId());
-            saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), modelResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+            runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), modelResponse, latencyMs, RUN_STATUS_SUCCESS, null);
 
             AgentMessageVo vo = new AgentMessageVo();
             BeanUtils.copyProperties(assistantMessage, vo);
@@ -382,7 +434,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         saveRun(agent, provider, userId, conversationId, messageId, input, response, latencyMs, RUN_STATUS_FAILED, e.getMessage());
     }
 
-    private void saveRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
+    private String saveRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                          String messageId, String input, ModelChatResponse response, long latencyMs,
                          Integer status, String errorMsg) {
         AgentRun run = new AgentRun();
@@ -403,6 +455,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         run.setStatus(status);
         run.setErrorMsg(truncate(errorMsg, 1024));
         agentRunService.save(run);
+        return run.getId();
     }
 
     private String truncate(String value, int maxLength) {
@@ -630,5 +683,215 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
 
         return context;
+    }
+
+    /**
+     * 检测模型响应是否包含工具调用
+     */
+    private boolean hasToolCalls(ModelChatResponse response) {
+        if (response == null || StringUtils.isBlank(response.getRawResponse())) {
+            return false;
+        }
+
+        try {
+            JSONObject json = JSONObject.parseObject(response.getRawResponse());
+            JSONArray choices = json.getJSONArray("choices");
+            if (choices == null || choices.isEmpty()) {
+                return false;
+            }
+
+            JSONObject firstChoice = choices.getJSONObject(0);
+            JSONObject message = firstChoice.getJSONObject("message");
+            if (message == null) {
+                return false;
+            }
+
+            JSONArray toolCalls = message.getJSONArray("tool_calls");
+            return toolCalls != null && !toolCalls.isEmpty();
+        } catch (Exception e) {
+            log.warn("解析工具调用失败", e);
+            return false;
+        }
+    }
+
+    /**
+     * 执行工具调用
+     */
+    private List<ToolExecutionResult> executeToolCalls(ModelChatResponse modelResponse, AgentDefinition agent,
+                                                        String conversationId, String userId, String runId) {
+        List<ToolExecutionResult> results = new ArrayList<>();
+
+        try {
+            // 解析工具调用
+            List<ToolCallInfo> toolCalls = parseToolCalls(modelResponse);
+            if (toolCalls.isEmpty()) {
+                return results;
+            }
+
+            // 获取Agent绑定的工具
+            List<AgentTool> boundTools = getBoundTools(agent.getId());
+            Map<String, AgentTool> toolMap = new HashMap<>();
+            for (AgentTool tool : boundTools) {
+                toolMap.put(tool.getCode(), tool);
+            }
+
+            // 执行每个工具调用
+            for (ToolCallInfo toolCall : toolCalls) {
+                AgentTool tool = toolMap.get(toolCall.getName());
+                if (tool == null) {
+                    log.warn("工具未找到: {}", toolCall.getName());
+                    saveToolCallLog(runId, null, agent.getId(), null, null, null,
+                            null, null, null, null, 1, "工具未找到: " + toolCall.getName());
+                    continue;
+                }
+
+                ToolExecutionContext context = new ToolExecutionContext();
+                context.setTool(tool);
+                context.setArguments(toolCall.getArguments());
+                context.setRunId(runId);
+                context.setUserId(userId);
+
+                try {
+                    ToolExecutor executor = toolExecutorFactory.getExecutor(tool.getType());
+                    ToolExecutionResult result = executor.execute(context);
+                    results.add(result);
+
+                    // 保存工具调用日志
+                    saveToolCallLog(
+                            runId,
+                            tool.getId(),
+                            agent.getId(),
+                            tool.getHttpUrl(),
+                            tool.getHttpMethod(),
+                            null,
+                            null,
+                            result.getHttpStatus(),
+                            result.getRawResponse(),
+                            result.getLatencyMs(),
+                            result.getStatus(),
+                            result.getErrorMsg()
+                    );
+                } catch (Exception e) {
+                    log.error("工具执行异常: {}", tool.getCode(), e);
+                    saveToolCallLog(runId, tool.getId(), agent.getId(), tool.getHttpUrl(),
+                            tool.getHttpMethod(), null, null, null, null, null,
+                            1, e.getMessage());
+                    results.add(ToolExecutionResult.failure(e.getMessage(), 1));
+                }
+            }
+        } catch (Exception e) {
+            log.error("工具调用处理失败", e);
+        }
+
+        return results;
+    }
+
+    /**
+     * 解析模型返回的工具调用
+     */
+    private List<ToolCallInfo> parseToolCalls(ModelChatResponse response) {
+        List<ToolCallInfo> toolCalls = new ArrayList<>();
+
+        try {
+            JSONObject json = JSONObject.parseObject(response.getRawResponse());
+            JSONArray choices = json.getJSONArray("choices");
+            if (choices == null || choices.isEmpty()) {
+                return toolCalls;
+            }
+
+            JSONObject firstChoice = choices.getJSONObject(0);
+            JSONObject message = firstChoice.getJSONObject("message");
+            if (message == null) {
+                return toolCalls;
+            }
+
+            JSONArray toolCallsArray = message.getJSONArray("tool_calls");
+            if (toolCallsArray == null || toolCallsArray.isEmpty()) {
+                return toolCalls;
+            }
+
+            for (int i = 0; i < toolCallsArray.size(); i++) {
+                JSONObject toolCall = toolCallsArray.getJSONObject(i);
+                String name = toolCall.getJSONObject("function").getString("name");
+                String argumentsStr = toolCall.getJSONObject("function").getString("arguments");
+
+                Map<String, Object> arguments = new HashMap<>();
+                if (StringUtils.isNotBlank(argumentsStr)) {
+                    arguments = JSON.parseObject(argumentsStr, Map.class);
+                }
+
+                toolCalls.add(new ToolCallInfo(name, arguments));
+            }
+        } catch (Exception e) {
+            log.error("解析工具调用失败", e);
+        }
+
+        return toolCalls;
+    }
+
+    /**
+     * 获取Agent绑定的工具列表
+     */
+    private List<AgentTool> getBoundTools(String agentId) {
+        List<AgentToolBinding> bindings = agentToolBindingService.list(
+                Wrappers.lambdaQuery(AgentToolBinding.class)
+                        .eq(AgentToolBinding::getAgentDefinitionId, agentId)
+                        .eq(AgentToolBinding::getStatus, 1)
+                        .orderByAsc(AgentToolBinding::getPriority)
+        );
+
+        List<AgentTool> tools = new ArrayList<>();
+        for (AgentToolBinding binding : bindings) {
+            AgentTool tool = agentToolService.getById(binding.getToolId());
+            if (tool != null && !Boolean.TRUE.equals(tool.getDeleted()) && Integer.valueOf(1).equals(tool.getStatus())) {
+                tools.add(tool);
+            }
+        }
+
+        return tools;
+    }
+
+    /**
+     * 保存工具调用日志
+     */
+    private void saveToolCallLog(String runId, String toolId, String agentDefinitionId,
+                                 String requestUrl, String requestMethod, String requestHeaders,
+                                 String requestBody, Integer responseStatus, String responseBody,
+                                 Integer latencyMs, Integer status, String errorMsg) {
+        AgentToolCallLog log = new AgentToolCallLog();
+        log.setRunId(runId);
+        log.setToolId(toolId);
+        log.setAgentDefinitionId(agentDefinitionId);
+        log.setRequestUrl(truncate(requestUrl, 2048));
+        log.setRequestMethod(requestMethod);
+        log.setRequestHeaders(requestHeaders);
+        log.setRequestBody(truncate(requestBody, 65536));
+        log.setResponseStatus(responseStatus);
+        log.setResponseBody(truncate(responseBody, 65536));
+        log.setLatencyMs(latencyMs);
+        log.setStatus(status);
+        log.setErrorMsg(truncate(errorMsg, 1024));
+        agentToolCallLogService.save(log);
+    }
+
+    /**
+     * 工具调用信息
+     */
+    private static class ToolCallInfo {
+        private final String name;
+        private final Map<String, Object> arguments;
+
+        public ToolCallInfo(String name, Map<String, Object> arguments) {
+            this.name = name;
+            this.arguments = arguments;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public Map<String, Object> getArguments() {
+            return arguments;
+        }
     }
 }

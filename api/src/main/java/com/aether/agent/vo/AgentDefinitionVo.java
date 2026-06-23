@@ -2,6 +2,7 @@ package com.aether.agent.vo;
 
 import com.aether.entity.BaseEntity;
 import io.swagger.annotations.ApiModelProperty;
+import io.swagger.models.auth.In;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -58,7 +59,7 @@ public class AgentDefinitionVo extends BaseEntity {
     private String remark;
 
     @ApiModelProperty(value = "绑定的工具列表")
-    private List<AgentToolBindingVo> toolBindings;
+    private List<String> toolIds;
 
     private Long current;
     private Long pageSize;

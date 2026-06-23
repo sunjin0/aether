@@ -45,6 +45,12 @@
                 <version>1.0-SNAPSHOT</version>
             </dependency>
 
+            <!-- JSONPath 支持 -->
+            <dependency>
+                <groupId>com.jayway.jsonpath</groupId>
+                <artifactId>json-path</artifactId>
+            </dependency>
+
     </dependencies>
 
     <!-- 构建插件 -->

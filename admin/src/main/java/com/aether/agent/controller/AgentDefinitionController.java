@@ -6,6 +6,7 @@ import com.aether.agent.entity.AgentToolBinding;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.vo.AgentDefinitionVo;
+import com.aether.agent.vo.AgentToolBindingVo;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -25,6 +26,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -83,6 +85,12 @@ public class AgentDefinitionController {
             throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
         }
         AgentDefinitionVo vo = new AgentDefinitionVo();
+        List<String> toolIds = agentToolBindingService.lambdaQuery()
+                .eq(AgentToolBinding::getAgentDefinitionId, id)
+                .eq(AgentToolBinding::getStatus, 1)
+                .list()
+                .stream().map(AgentToolBinding::getToolId).collect(Collectors.toList());
+        vo.setToolIds(toolIds);
         BeanUtils.copyProperties(definition, vo);
         return WebResponse.OK(vo);
     }

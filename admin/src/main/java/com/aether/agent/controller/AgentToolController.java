@@ -2,12 +2,17 @@ package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentToolDto;
 import com.aether.agent.entity.AgentTool;
+import com.aether.agent.executor.ToolExecutionContext;
+import com.aether.agent.executor.ToolExecutionResult;
+import com.aether.agent.executor.ToolExecutor;
+import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.vo.AgentToolVo;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -24,6 +29,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -37,10 +43,13 @@ import java.util.stream.Collectors;
 public class AgentToolController {
 
     private final AgentToolService agentToolService;
+    private final ToolExecutorFactory toolExecutorFactory;
 
     @Autowired
-    public AgentToolController(AgentToolService agentToolService) {
+    public AgentToolController(AgentToolService agentToolService,
+                               ToolExecutorFactory toolExecutorFactory) {
         this.agentToolService = agentToolService;
+        this.toolExecutorFactory = toolExecutorFactory;
     }
 
     @ApiOperation("工具列表")
@@ -129,8 +138,38 @@ public class AgentToolController {
     })
     @Permission(path = "/agent/tool", type = Permission.Type.Write)
     @PostMapping("/{id}/test")
-    public WebResponse<String> testTool(@PathVariable @NotBlank String id, @RequestBody String params) {
-        // TODO: V0.5 实现工具执行器后完善
-        return WebResponse.OK("工具测试待实现");
+    public WebResponse<ToolExecutionResult> testTool(@PathVariable @NotBlank String id,
+                                                      @RequestBody Map<String, Object> params) {
+        // 1. 获取工具配置
+        AgentTool tool = agentToolService.getById(id);
+        if (tool == null || Boolean.TRUE.equals(tool.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+        }
+
+        if (!Integer.valueOf(1).equals(tool.getStatus())) {
+            throw new ServerException(422, "工具未启用");
+        }
+
+        // 2. 构建执行上下文
+        ToolExecutionContext context = new ToolExecutionContext();
+        context.setTool(tool);
+        context.setArguments(params);
+        context.setUserId("test");
+        context.setRunId(null);
+
+        // 3. 执行工具
+        try {
+            ToolExecutor executor = toolExecutorFactory.getExecutor(tool.getType());
+            ToolExecutionResult result = executor.execute(context);
+            
+            if (result.isSuccess()) {
+                return WebResponse.OK("工具测试成功", result);
+            } else {
+                return WebResponse.Error(result.getStatus(), "工具测试失败: " + result.getErrorMsg(), result);
+            }
+        } catch (Exception e) {
+            ToolExecutionResult errorResult = ToolExecutionResult.failure(e.getMessage(), 1);
+            return WebResponse.Error(500, "工具测试异常: " + e.getMessage(), errorResult);
+        }
     }
 }
