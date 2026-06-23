@@ -18,6 +18,15 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -60,6 +69,50 @@ public class OpenAIModelClient implements ModelClient {
         }
     }
 
+    @Override
+    public ModelStreamResponse stream(ModelChatRequest request, ModelStreamCallback callback) {
+        ModelProvider provider = request.getProvider();
+        AgentDefinition agent = request.getAgent();
+        HttpURLConnection connection = null;
+        try {
+            JSONObject body = createBody(agent, request.getMessages(), true);
+            URL url = new URL(buildChatUrl(provider.getApiBaseUrl()));
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", MediaType.APPLICATION_JSON_VALUE);
+            if (StringUtils.isNotBlank(provider.getApiKey())) {
+                connection.setRequestProperty("Authorization", "Bearer " + AesUtil.decrypt(provider.getApiKey()));
+            }
+
+            byte[] payload = body.toJSONString().getBytes(StandardCharsets.UTF_8);
+            connection.setRequestProperty("Content-Length", String.valueOf(payload.length));
+            try (OutputStream outputStream = connection.getOutputStream()) {
+                outputStream.write(payload);
+            }
+
+            int status = connection.getResponseCode();
+            if (status < 200 || status >= 300) {
+                throw new ServerException(500, "模型调用失败");
+            }
+            return parseStream(connection.getInputStream(), agent.getModel(), callback);
+        } catch (SocketTimeoutException e) {
+            throw new ServerException(503, "模型供应商调用超时");
+        } catch (ServerException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new ServerException(503, "模型供应商调用超时");
+        } catch (Exception e) {
+            throw new ServerException(500, "模型调用失败");
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
     private RestTemplate createRestTemplate() {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(DEFAULT_TIMEOUT_MS);
@@ -77,12 +130,16 @@ public class OpenAIModelClient implements ModelClient {
     }
 
     private JSONObject createBody(AgentDefinition agent, List<ModelChatMessage> messages) {
+        return createBody(agent, messages, false);
+    }
+
+    private JSONObject createBody(AgentDefinition agent, List<ModelChatMessage> messages, boolean stream) {
         JSONObject body = new JSONObject();
         body.put("model", StringUtils.defaultIfBlank(agent.getModel(), "gpt-3.5-turbo"));
         body.put("messages", toJsonMessages(messages));
         body.put("temperature", agent.getTemperature());
         body.put("max_tokens", agent.getMaxTokens());
-        body.put("stream", false);
+        body.put("stream", stream);
         return body;
     }
 
@@ -138,5 +195,70 @@ public class OpenAIModelClient implements ModelClient {
         }
         response.setRawResponse(responseBody);
         return response;
+    }
+
+    private ModelStreamResponse parseStream(InputStream inputStream, String defaultModel, ModelStreamCallback callback) throws IOException {
+        StringBuilder content = new StringBuilder();
+        StringBuilder raw = new StringBuilder();
+        ModelStreamResponse response = new ModelStreamResponse();
+        response.setModel(defaultModel);
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (callback != null && callback.isClosed()) {
+                    break;
+                }
+                if (!line.startsWith("data:")) {
+                    continue;
+                }
+                String data = line.substring("data:".length()).trim();
+                if (StringUtils.isBlank(data)) {
+                    continue;
+                }
+                raw.append(data).append('\n');
+                if ("[DONE]".equals(data)) {
+                    break;
+                }
+                parseStreamData(data, defaultModel, callback, content, response);
+            }
+        }
+
+        response.setContent(content.toString());
+        response.setRawResponse(raw.toString());
+        return response;
+    }
+
+    private void parseStreamData(String data, String defaultModel, ModelStreamCallback callback,
+                                 StringBuilder content, ModelStreamResponse response) {
+        JSONObject json = JSONObject.parseObject(data);
+        response.setModel(StringUtils.defaultIfBlank(json.getString("model"), defaultModel));
+        JSONObject usage = json.getJSONObject("usage");
+        if (usage != null) {
+            response.setPromptTokens(usage.getInteger("prompt_tokens"));
+            response.setCompletionTokens(usage.getInteger("completion_tokens"));
+            response.setTotalTokens(usage.getInteger("total_tokens"));
+        }
+
+        JSONArray choices = json.getJSONArray("choices");
+        if (choices == null || choices.isEmpty()) {
+            return;
+        }
+        JSONObject firstChoice = choices.getJSONObject(0);
+        JSONObject delta = firstChoice.getJSONObject("delta");
+        if (delta == null) {
+            return;
+        }
+        String chunk = delta.getString("content");
+        if (StringUtils.isNotEmpty(chunk)) {
+            content.append(chunk);
+            if (callback != null) {
+                callback.onMessage(chunk);
+            }
+        }
+        JSONArray toolCalls = delta.getJSONArray("tool_calls");
+        if (toolCalls != null && !toolCalls.isEmpty() && callback != null) {
+            callback.onToolCall(toolCalls.toJSONString());
+        }
     }
 }

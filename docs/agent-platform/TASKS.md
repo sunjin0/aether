@@ -150,27 +150,27 @@
 
 ### 5.1 SSE 基础设施
 
-- [ ] 研究 Spring Boot SSE 实现方案（`SseEmitter` 或 WebFlux）
-- [ ] 设计 SSE 事件格式（与 `API.md` 草案一致）
-- [ ] 实现 SSE 连接管理（超时、断开、异常）
+- [x] 研究 Spring Boot SSE 实现方案（`SseEmitter` 或 WebFlux）
+- [x] 设计 SSE 事件格式（与 `API.md` 草案一致）
+- [x] 实现 SSE 连接管理（超时、断开、异常）
 
 ### 5.2 流式聊天服务
 
-- [ ] 扩展 `AgentChatService` 支持流式输出
-- [ ] 实现流式消息分片处理
-- [ ] 实现事件发送：`message`、`tool_call`、`error`、`done`
-- [ ] 流式结束后持久化完整消息
+- [x] 扩展 `AgentChatService` 支持流式输出
+- [x] 实现流式消息分片处理
+- [x] 实现事件发送：`message`、`tool_call`、`error`、`done`
+- [x] 流式结束后持久化完整消息
 
 ### 5.3 流式聊天接口
 
-- [ ] 实现 `GET /api/agent/chat/stream`
-- [ ] 支持 Query 参数：`agentId`、`conversationId`、`message`
-- [ ] 返回 `text/event-stream`
+- [x] 实现 `GET /api/agent/chat/stream`
+- [x] 支持 Query 参数：`agentId`、`conversationId`、`message`
+- [x] 返回 `text/event-stream`
 
 **验收标准**：
 - 流式响应延迟 < 500ms（首 token）
-- 事件类型与 `API.md` 草案一致
-- 连接异常时客户端收到 `error` 事件并关闭
+- [x] 事件类型与 `API.md` 草案一致（已通过编译和服务层测试验证）
+- [x] 连接异常时客户端收到 `error` 事件并关闭（代码路径已实现，编译通过）
 - 前端/客户端可正确解析 SSE 事件流
 
 ---

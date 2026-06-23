@@ -8,4 +8,6 @@ public interface ModelClient {
     boolean supports(String providerType);
 
     ModelChatResponse chat(ModelChatRequest request);
+
+    ModelStreamResponse stream(ModelChatRequest request, ModelStreamCallback callback);
 }

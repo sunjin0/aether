@@ -10,12 +10,15 @@ import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.model.ModelClient;
+import com.aether.agent.model.ModelStreamCallback;
+import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.model.ModelClientFactory;
 import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentRunService;
+import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.exception.ServerException;
@@ -96,6 +99,62 @@ public class AgentChatServiceImpl implements AgentChatService {
             long latencyMs = System.currentTimeMillis() - startTime;
             saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), latencyMs, e);
             throw e;
+        }
+    }
+
+    @Override
+    public void stream(AgentChatDto dto, AgentStreamCallback callback) {
+        validateRequest(dto);
+        String userId = getCurrentUserId();
+        long startTime = System.currentTimeMillis();
+
+        AgentDefinition agent = getEnabledAgent(dto.getAgentId());
+        ModelProvider provider = getEnabledProvider(agent.getModelProviderId());
+        AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
+        AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage());
+
+        try {
+            List<ModelChatMessage> context = buildContext(agent, conversation.getId());
+            ModelChatRequest request = new ModelChatRequest();
+            request.setAgent(agent);
+            request.setProvider(provider);
+            request.setMessages(context);
+
+            ModelClient modelClient = modelClientFactory.getClient(provider);
+            ModelStreamResponse modelResponse = modelClient.stream(request, new ModelStreamCallback() {
+                @Override
+                public void onMessage(String chunk) {
+                    if (!callback.isClosed()) {
+                        callback.onMessage(conversation.getId(), chunk);
+                    }
+                }
+
+                @Override
+                public void onToolCall(String toolCallJson) {
+                    if (!callback.isClosed()) {
+                        callback.onToolCall(conversation.getId(), toolCallJson);
+                    }
+                }
+
+                @Override
+                public boolean isClosed() {
+                    return callback.isClosed();
+                }
+            });
+            long latencyMs = System.currentTimeMillis() - startTime;
+
+            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            updateConversationMessageCount(conversation.getId());
+            saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), toChatResponse(modelResponse), latencyMs, RUN_STATUS_SUCCESS, null);
+            if (!callback.isClosed()) {
+                callback.onDone(conversation.getId(), assistantMessage.getId(), modelResponse);
+            }
+        } catch (RuntimeException e) {
+            long latencyMs = System.currentTimeMillis() - startTime;
+            saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), latencyMs, e);
+            if (!callback.isClosed()) {
+                callback.onError(resolveErrorCode(e), resolveErrorMessage(e));
+            }
         }
     }
 
@@ -214,6 +273,33 @@ public class AgentChatServiceImpl implements AgentChatService {
         return message;
     }
 
+    private AgentMessage saveAssistantMessage(String conversationId, ModelStreamResponse modelResponse, long latencyMs) {
+        AgentMessage message = new AgentMessage();
+        message.setConversationId(conversationId);
+        message.setRole("assistant");
+        message.setContent(modelResponse.getContent());
+        message.setModel(modelResponse.getModel());
+        message.setPromptTokens(modelResponse.getPromptTokens());
+        message.setCompletionTokens(modelResponse.getCompletionTokens());
+        message.setTotalTokens(modelResponse.getTotalTokens());
+        message.setLatencyMs((int) latencyMs);
+        agentMessageService.save(message);
+        return message;
+    }
+
+    private ModelChatResponse toChatResponse(ModelStreamResponse streamResponse) {
+        ModelChatResponse response = new ModelChatResponse();
+        if (streamResponse != null) {
+            response.setContent(streamResponse.getContent());
+            response.setModel(streamResponse.getModel());
+            response.setPromptTokens(streamResponse.getPromptTokens());
+            response.setCompletionTokens(streamResponse.getCompletionTokens());
+            response.setTotalTokens(streamResponse.getTotalTokens());
+            response.setRawResponse(streamResponse.getRawResponse());
+        }
+        return response;
+    }
+
     private void updateConversationMessageCount(String conversationId) {
         long count = agentMessageService.count(Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getConversationId, conversationId)
@@ -259,5 +345,24 @@ public class AgentChatServiceImpl implements AgentChatService {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private int resolveErrorCode(RuntimeException e) {
+        String message = e.getMessage();
+        if (StringUtils.isNotBlank(message) && message.indexOf(':') > 0) {
+            String code = message.substring(0, message.indexOf(':'));
+            if (StringUtils.isNumeric(code)) {
+                return Integer.parseInt(code);
+            }
+        }
+        return 500;
+    }
+
+    private String resolveErrorMessage(RuntimeException e) {
+        String message = e.getMessage();
+        if (StringUtils.isNotBlank(message) && message.indexOf(':') > 0) {
+            return message.substring(message.indexOf(':') + 1);
+        }
+        return StringUtils.defaultIfBlank(message, "模型调用失败");
     }
 }

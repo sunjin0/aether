@@ -9,4 +9,6 @@ import com.aether.agent.vo.AgentMessageVo;
 public interface AgentChatService {
 
     AgentMessageVo chat(AgentChatDto dto);
+
+    void stream(AgentChatDto dto, AgentStreamCallback callback);
 }
