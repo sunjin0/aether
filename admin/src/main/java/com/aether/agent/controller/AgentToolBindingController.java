@@ -1,8 +1,10 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentToolBindingDto;
+import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.AgentToolBinding;
 import com.aether.agent.service.AgentToolBindingService;
+import com.aether.agent.service.AgentToolService;
 import com.aether.agent.vo.AgentToolBindingVo;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
@@ -28,15 +30,17 @@ import java.util.stream.Collectors;
 @Api(tags = "工具绑定管理 API")
 @Validated
 @RestController
-@Permission(path = "/agent/tool-binding")
+@Permission(path = "/agent/tool")
 @RequestMapping("/api/agent/definition")
 public class AgentToolBindingController {
 
     private final AgentToolBindingService agentToolBindingService;
+    private final AgentToolService agentToolService;
 
     @Autowired
-    public AgentToolBindingController(AgentToolBindingService agentToolBindingService) {
+    public AgentToolBindingController(AgentToolBindingService agentToolBindingService, AgentToolService agentToolService) {
         this.agentToolBindingService = agentToolBindingService;
+        this.agentToolService = agentToolService;
     }
 
     @ApiOperation("查询Agent的工具绑定")
@@ -52,6 +56,11 @@ public class AgentToolBindingController {
                         .orderByAsc(AgentToolBinding::getPriority));
         List<AgentToolBindingVo> vos = list.stream().map(item -> {
             AgentToolBindingVo vo = new AgentToolBindingVo();
+            AgentTool tool = agentToolService.getById(item.getToolId());
+            if (tool != null){
+                vo.setToolName(tool.getName());
+                vo.setToolCode(tool.getCode());
+            }
             BeanUtils.copyProperties(item, vo);
             return vo;
         }).collect(Collectors.toList());
@@ -62,10 +71,18 @@ public class AgentToolBindingController {
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
-    @Permission(path = "/agent/tool-binding", type = Permission.Type.Write)
+    @Permission(path = "/agent/definition")
     @Transactional(rollbackFor = Exception.class)
     @PostMapping("/{agentId}/tools")
     public WebResponse<Void> bind(@PathVariable @NotBlank String agentId, @RequestBody AgentToolBindingDto dto) {
+        if (!agentToolBindingService.list(
+                Wrappers.lambdaQuery(AgentToolBinding.class)
+                        .eq(AgentToolBinding::getAgentDefinitionId, agentId)
+                        .eq(AgentToolBinding::getToolId, dto.getToolId())
+                        .eq(AgentToolBinding::getDeleted, false)
+                        .last("limit 1")).isEmpty()) {
+            return WebResponse.Error(0, I18nUtils.getMessage("bind.tool.exists"), null);
+        }
         AgentToolBinding binding = new AgentToolBinding();
         binding.setAgentDefinitionId(agentId);
         binding.setToolId(dto.getToolId());
@@ -79,7 +96,7 @@ public class AgentToolBindingController {
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
-    @Permission(path = "/agent/tool-binding", type = Permission.Type.Write)
+    @Permission(path = "/agent/definition")
     @Transactional(rollbackFor = Exception.class)
     @DeleteMapping("/{agentId}/tools/{toolId}")
     public WebResponse<Void> unbind(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String toolId) {
@@ -94,12 +111,12 @@ public class AgentToolBindingController {
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
-    @Permission(path = "/agent/tool-binding", type = Permission.Type.Write)
+    @Permission(path = "/agent/definition")
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{agentId}/tools/{toolId}/priority")
     public WebResponse<Void> updatePriority(@PathVariable @NotBlank String agentId,
-                                              @PathVariable @NotBlank String toolId,
-                                              @RequestBody AgentToolBindingDto dto) {
+                                            @PathVariable @NotBlank String toolId,
+                                            @RequestBody AgentToolBindingDto dto) {
         boolean updated = agentToolBindingService.update(
                 Wrappers.lambdaUpdate(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
