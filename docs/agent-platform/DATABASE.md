@@ -141,6 +141,7 @@
 | `conversation_id` | BIGINT | 关联会话 ID |
 | `role` | VARCHAR(16) | 角色：`user`、`assistant`、`tool` |
 | `content` | LONGTEXT | 消息内容 |
+| `reasoning_content` | LONGTEXT | 推理内容（assistant 角色时） |
 | `tool_calls` | TEXT | 工具调用请求（JSON 格式，assistant 角色时） |
 | `tool_call_id` | VARCHAR(64) | 工具调用 ID（tool 角色时） |
 | `tool_result` | TEXT | 工具调用结果（tool 角色时） |
@@ -148,6 +149,7 @@
 | `prompt_tokens` | INT | 输入 token 数 |
 | `completion_tokens` | INT | 输出 token 数 |
 | `total_tokens` | INT | 总 token 数 |
+| `reasoning_tokens` | INT | 推理 token 数 |
 | `latency_ms` | INT | 响应延迟（毫秒） |
 | *BaseEntity 字段* | - | `created_at`, `updated_at`, `sort_num`, `deleted`, `state` |
 
@@ -329,3 +331,4 @@ agent_definition (N) ─── agent_tool_binding (N) ─── agent_tool (N)
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | V0.1 | 2026-06-22 | 初始草案，定义 11 张表的结构方向 |
+| V0.6 | 2026-07-07 | `agent_message` 增加 `reasoning_content`、`reasoning_tokens`，用于保存推理模型输出 |

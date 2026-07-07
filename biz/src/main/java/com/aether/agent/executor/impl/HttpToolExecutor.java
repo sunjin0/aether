@@ -63,11 +63,11 @@ public class HttpToolExecutor implements ToolExecutor {
 
         try {
             // 1. 安全校验
-            securityValidator.validateUrl(tool.getHttpUrl());
             securityValidator.validateMethod(tool.getHttpMethod());
 
             // 2. 渲染请求头和请求体
             String url = templateRenderer.render(tool.getHttpUrl(), context.getArguments());
+            securityValidator.validateUrl(url);
             Map<String, String> headers = renderHeaders(tool.getHttpHeaders(), context.getArguments());
             String body = renderBody(tool, context.getArguments());
 

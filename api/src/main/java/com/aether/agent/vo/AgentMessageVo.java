@@ -21,6 +21,9 @@ public class AgentMessageVo extends BaseEntity {
     @ApiModelProperty(value = "消息内容")
     private String content;
 
+    @ApiModelProperty(value = "推理内容")
+    private String reasoningContent;
+
     @ApiModelProperty(value = "工具调用请求（JSON格式）")
     private String toolCalls;
 
@@ -41,6 +44,9 @@ public class AgentMessageVo extends BaseEntity {
 
     @ApiModelProperty(value = "总token数")
     private Integer totalTokens;
+
+    @ApiModelProperty(value = "推理token数")
+    private Integer reasoningTokens;
 
     @ApiModelProperty(value = "响应延迟（毫秒）")
     private Integer latencyMs;

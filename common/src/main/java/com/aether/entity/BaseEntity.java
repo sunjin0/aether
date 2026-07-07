@@ -2,6 +2,7 @@ package com.aether.entity;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import io.swagger.annotations.ApiModelProperty;
@@ -29,6 +30,7 @@ public class BaseEntity implements Serializable {
 
     @ApiModelProperty(value = "删除状态")
     @TableField(value = "deleted", fill = FieldFill.INSERT)
+    @TableLogic(value = "0", delval = "1")
     private Boolean deleted;
     /**
      * 默认为0

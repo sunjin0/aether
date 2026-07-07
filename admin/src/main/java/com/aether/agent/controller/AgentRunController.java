@@ -53,6 +53,8 @@ public class AgentRunController {
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentRun::getAgentDefinitionId, vo.getAgentDefinitionId())
                 .eq(StringUtils.isNotBlank(vo.getUserId()), AgentRun::getUserId, vo.getUserId())
                 .eq(vo.getStatus() != null, AgentRun::getStatus, vo.getStatus())
+                .ge(vo.getStartTime() != null, AgentRun::getCreatedAt, vo.getStartTime())
+                .le(vo.getEndTime() != null, AgentRun::getCreatedAt, vo.getEndTime())
                 .eq(AgentRun::getDeleted, false)
                 .orderByDesc(AgentRun::getCreatedAt);
         Page<AgentRun> result = agentRunService.page(page, wrapper);
@@ -88,18 +90,6 @@ public class AgentRunController {
     public WebResponse<AgentRunStatisticsVo> statistics(@RequestParam(required = false) String agentId,
                                                         @RequestParam(required = false) Long startTime,
                                                         @RequestParam(required = false) Long endTime) {
-        // TODO: V0.6 完善统计逻辑
-        AgentRunStatisticsVo vo = new AgentRunStatisticsVo();
-        vo.setAgentDefinitionId(agentId);
-        vo.setTotalCalls(0L);
-        vo.setSuccessCalls(0L);
-        vo.setFailedCalls(0L);
-        vo.setTimeoutCalls(0L);
-        vo.setTotalPromptTokens(0L);
-        vo.setTotalCompletionTokens(0L);
-        vo.setTotalTokens(0L);
-        vo.setAvgLatencyMs(0L);
-        vo.setErrorRate(0.0);
-        return WebResponse.OK(vo);
+        return WebResponse.OK(agentRunService.statistics(agentId, startTime, endTime));
     }
 }

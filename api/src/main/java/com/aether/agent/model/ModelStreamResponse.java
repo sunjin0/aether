@@ -10,6 +10,8 @@ public class ModelStreamResponse {
 
     private String content;
 
+    private String reasoningContent;
+
     private String model;
 
     private Integer promptTokens;
@@ -17,6 +19,8 @@ public class ModelStreamResponse {
     private Integer completionTokens;
 
     private Integer totalTokens;
+
+    private Integer reasoningTokens;
 
     private String rawResponse;
 }

@@ -12,10 +12,14 @@ import com.aether.agent.model.ModelClientFactory;
 import com.aether.agent.model.ModelStreamCallback;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.service.AgentStreamCallback;
+import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentRunService;
+import com.aether.agent.service.AgentToolBindingService;
+import com.aether.agent.service.AgentToolCallLogService;
+import com.aether.agent.service.AgentToolService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.local.CurrentUser;
@@ -26,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -54,6 +59,16 @@ class AgentChatServiceImplTest {
     @Mock
     private ModelClientFactory modelClientFactory;
     @Mock
+    private RedisTemplate<String, Object> redisTemplate;
+    @Mock
+    private AgentToolService agentToolService;
+    @Mock
+    private AgentToolBindingService agentToolBindingService;
+    @Mock
+    private AgentToolCallLogService agentToolCallLogService;
+    @Mock
+    private ToolExecutorFactory toolExecutorFactory;
+    @Mock
     private ModelClient modelClient;
 
     private AgentChatServiceImpl service;
@@ -66,7 +81,12 @@ class AgentChatServiceImplTest {
                 agentConversationService,
                 agentMessageService,
                 agentRunService,
-                modelClientFactory);
+                modelClientFactory,
+                redisTemplate,
+                agentToolService,
+                agentToolBindingService,
+                agentToolCallLogService,
+                toolExecutorFactory);
         HashMap<String, String> user = new HashMap<>();
         user.put("userId", "user-1");
         CurrentUser.set(user);
@@ -95,10 +115,12 @@ class AgentChatServiceImplTest {
 
         ModelChatResponse response = new ModelChatResponse();
         response.setContent("你好，我是助手");
+        response.setReasoningContent("先理解用户问候，再给出简短回应");
         response.setModel("gpt-test");
         response.setPromptTokens(3);
         response.setCompletionTokens(4);
         response.setTotalTokens(7);
+        response.setReasoningTokens(2);
 
         when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
         when(modelProviderService.getById("provider-1")).thenReturn(provider);
@@ -131,6 +153,8 @@ class AgentChatServiceImplTest {
         assertEquals("conversation-1", result.getConversationId());
         assertEquals("assistant", result.getRole());
         assertEquals("你好，我是助手", result.getContent());
+        assertEquals("先理解用户问候，再给出简短回应", result.getReasoningContent());
+        assertEquals(2, result.getReasoningTokens());
 
         ArgumentCaptor<AgentConversation> conversationCaptor = ArgumentCaptor.forClass(AgentConversation.class);
         verify(agentConversationService).save(conversationCaptor.capture());
@@ -146,6 +170,12 @@ class AgentChatServiceImplTest {
         assertEquals("message-assistant-1", runCaptor.getValue().getMessageId());
         assertEquals(0, runCaptor.getValue().getStatus());
         assertEquals(7, runCaptor.getValue().getTotalTokens());
+
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
+        AgentMessage assistantMessage = messageCaptor.getAllValues().get(1);
+        assertEquals("先理解用户问候，再给出简短回应", assistantMessage.getReasoningContent());
+        assertEquals(2, assistantMessage.getReasoningTokens());
     }
 
     @Test
@@ -189,10 +219,12 @@ class AgentChatServiceImplTest {
             callback.onMessage("好");
             ModelStreamResponse response = new ModelStreamResponse();
             response.setContent("你好");
+            response.setReasoningContent("先理解用户问候");
             response.setModel("gpt-test");
             response.setPromptTokens(3);
             response.setCompletionTokens(2);
             response.setTotalTokens(5);
+            response.setReasoningTokens(1);
             return response;
         });
 
@@ -215,7 +247,9 @@ class AgentChatServiceImplTest {
         verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
         assertEquals("assistant", messageCaptor.getAllValues().get(1).getRole());
         assertEquals("你好", messageCaptor.getAllValues().get(1).getContent());
+        assertEquals("先理解用户问候", messageCaptor.getAllValues().get(1).getReasoningContent());
         assertEquals(5, messageCaptor.getAllValues().get(1).getTotalTokens());
+        assertEquals(1, messageCaptor.getAllValues().get(1).getReasoningTokens());
 
         ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
         verify(agentRunService).save(runCaptor.capture());

@@ -1,6 +1,7 @@
 package com.aether.agent.model;
 
 import com.aether.agent.entity.AgentDefinition;
+import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.exception.ServerException;
 import com.aether.utils.AesUtil;
@@ -50,7 +51,7 @@ public class OpenAIModelClient implements ModelClient {
         try {
             RestTemplate restTemplate = createRestTemplate();
             HttpHeaders headers = createHeaders(provider);
-            JSONObject body = createBody(agent, request.getMessages());
+            JSONObject body = createBody(agent, request.getMessages(), request.getTools());
             HttpEntity<String> entity = new HttpEntity<>(body.toJSONString(), headers);
             ResponseEntity<String> response = restTemplate.exchange(
                     buildChatUrl(provider.getApiBaseUrl()),
@@ -75,7 +76,7 @@ public class OpenAIModelClient implements ModelClient {
         AgentDefinition agent = request.getAgent();
         HttpURLConnection connection = null;
         try {
-            JSONObject body = createBody(agent, request.getMessages(), true);
+            JSONObject body = createBody(agent, request.getMessages(), request.getTools(), true);
             URL url = new URL(buildChatUrl(provider.getApiBaseUrl()));
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
@@ -130,16 +131,25 @@ public class OpenAIModelClient implements ModelClient {
     }
 
     private JSONObject createBody(AgentDefinition agent, List<ModelChatMessage> messages) {
-        return createBody(agent, messages, false);
+        return createBody(agent, messages, null, false);
     }
 
-    private JSONObject createBody(AgentDefinition agent, List<ModelChatMessage> messages, boolean stream) {
+    private JSONObject createBody(AgentDefinition agent, List<ModelChatMessage> messages, List<AgentTool> tools) {
+        return createBody(agent, messages, tools, false);
+    }
+
+    private JSONObject createBody(AgentDefinition agent, List<ModelChatMessage> messages, List<AgentTool> tools, boolean stream) {
         JSONObject body = new JSONObject();
         body.put("model", StringUtils.defaultIfBlank(agent.getModel(), "gpt-3.5-turbo"));
         body.put("messages", toJsonMessages(messages));
         body.put("temperature", agent.getTemperature());
         body.put("max_tokens", agent.getMaxTokens());
         body.put("stream", stream);
+        JSONArray toolArray = toJsonTools(tools);
+        if (!toolArray.isEmpty()) {
+            body.put("tools", toolArray);
+            body.put("tool_choice", "auto");
+        }
         return body;
     }
 
@@ -152,6 +162,38 @@ public class OpenAIModelClient implements ModelClient {
             JSONObject item = new JSONObject();
             item.put("role", message.getRole());
             item.put("content", message.getContent());
+            if (StringUtils.isNotBlank(message.getToolCalls())) {
+                item.put("tool_calls", JSONArray.parseArray(message.getToolCalls()));
+            }
+            if (StringUtils.isNotBlank(message.getToolCallId())) {
+                item.put("tool_call_id", message.getToolCallId());
+            }
+            array.add(item);
+        }
+        return array;
+    }
+
+    private JSONArray toJsonTools(List<AgentTool> tools) {
+        JSONArray array = new JSONArray();
+        if (tools == null || tools.isEmpty()) {
+            return array;
+        }
+        for (AgentTool tool : tools) {
+            if (tool == null || StringUtils.isBlank(tool.getCode())) {
+                continue;
+            }
+            JSONObject parameters = new JSONObject();
+            parameters.put("type", "object");
+            parameters.put("additionalProperties", true);
+
+            JSONObject function = new JSONObject();
+            function.put("name", tool.getCode());
+            function.put("description", StringUtils.defaultIfBlank(tool.getDescription(), tool.getName()));
+            function.put("parameters", parameters);
+
+            JSONObject item = new JSONObject();
+            item.put("type", "function");
+            item.put("function", function);
             array.add(item);
         }
         return array;
@@ -180,18 +222,28 @@ public class OpenAIModelClient implements ModelClient {
         JSONObject firstChoice = choices.getJSONObject(0);
         JSONObject message = firstChoice.getJSONObject("message");
         String content = message == null ? null : message.getString("content");
-        if (StringUtils.isBlank(content)) {
+        String reasoningContent = message == null ? null : message.getString("reasoning_content");
+        JSONArray toolCalls = message == null ? null : message.getJSONArray("tool_calls");
+        if (StringUtils.isBlank(content) && StringUtils.isBlank(reasoningContent) && (toolCalls == null || toolCalls.isEmpty())) {
             throw new ServerException(500, "模型响应内容为空");
         }
 
         JSONObject usage = json.getJSONObject("usage");
         ModelChatResponse response = new ModelChatResponse();
-        response.setContent(content);
+        response.setContent(StringUtils.defaultString(content));
+        response.setReasoningContent(reasoningContent);
+        if (toolCalls != null && !toolCalls.isEmpty()) {
+            response.setToolCalls(toolCalls.toJSONString());
+        }
         response.setModel(StringUtils.defaultIfBlank(json.getString("model"), defaultModel));
         if (usage != null) {
             response.setPromptTokens(usage.getInteger("prompt_tokens"));
             response.setCompletionTokens(usage.getInteger("completion_tokens"));
             response.setTotalTokens(usage.getInteger("total_tokens"));
+            JSONObject completionTokensDetails = usage.getJSONObject("completion_tokens_details");
+            if (completionTokensDetails != null) {
+                response.setReasoningTokens(completionTokensDetails.getInteger("reasoning_tokens"));
+            }
         }
         response.setRawResponse(responseBody);
         return response;
@@ -199,6 +251,7 @@ public class OpenAIModelClient implements ModelClient {
 
     private ModelStreamResponse parseStream(InputStream inputStream, String defaultModel, ModelStreamCallback callback) throws IOException {
         StringBuilder content = new StringBuilder();
+        StringBuilder reasoningContent = new StringBuilder();
         StringBuilder raw = new StringBuilder();
         ModelStreamResponse response = new ModelStreamResponse();
         response.setModel(defaultModel);
@@ -220,17 +273,19 @@ public class OpenAIModelClient implements ModelClient {
                 if ("[DONE]".equals(data)) {
                     break;
                 }
-                parseStreamData(data, defaultModel, callback, content, response);
+                parseStreamData(data, defaultModel, callback, content, reasoningContent, response);
             }
         }
 
         response.setContent(content.toString());
+        response.setReasoningContent(reasoningContent.toString());
         response.setRawResponse(raw.toString());
         return response;
     }
 
     private void parseStreamData(String data, String defaultModel, ModelStreamCallback callback,
-                                 StringBuilder content, ModelStreamResponse response) {
+                                 StringBuilder content, StringBuilder reasoningContent,
+                                 ModelStreamResponse response) {
         JSONObject json = JSONObject.parseObject(data);
         response.setModel(StringUtils.defaultIfBlank(json.getString("model"), defaultModel));
         JSONObject usage = json.getJSONObject("usage");
@@ -238,6 +293,10 @@ public class OpenAIModelClient implements ModelClient {
             response.setPromptTokens(usage.getInteger("prompt_tokens"));
             response.setCompletionTokens(usage.getInteger("completion_tokens"));
             response.setTotalTokens(usage.getInteger("total_tokens"));
+            JSONObject completionTokensDetails = usage.getJSONObject("completion_tokens_details");
+            if (completionTokensDetails != null) {
+                response.setReasoningTokens(completionTokensDetails.getInteger("reasoning_tokens"));
+            }
         }
 
         JSONArray choices = json.getJSONArray("choices");
@@ -255,6 +314,10 @@ public class OpenAIModelClient implements ModelClient {
             if (callback != null) {
                 callback.onMessage(chunk);
             }
+        }
+        String reasoningChunk = delta.getString("reasoning_content");
+        if (StringUtils.isNotEmpty(reasoningChunk)) {
+            reasoningContent.append(reasoningChunk);
         }
         JSONArray toolCalls = delta.getJSONArray("tool_calls");
         if (toolCalls != null && !toolCalls.isEmpty() && callback != null) {

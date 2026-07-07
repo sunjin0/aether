@@ -10,6 +10,8 @@ public class ModelChatResponse {
 
     private String content;
 
+    private String reasoningContent;
+
     private String model;
 
     private Integer promptTokens;
@@ -17,6 +19,10 @@ public class ModelChatResponse {
     private Integer completionTokens;
 
     private Integer totalTokens;
+
+    private Integer reasoningTokens;
+
+    private String toolCalls;
 
     private String rawResponse;
 }

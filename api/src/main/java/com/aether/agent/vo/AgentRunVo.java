@@ -59,4 +59,10 @@ public class AgentRunVo extends BaseEntity {
 
     private Long current;
     private Long pageSize;
+
+    @ApiModelProperty(value = "创建时间起始时间戳")
+    private Long startTime;
+
+    @ApiModelProperty(value = "创建时间结束时间戳")
+    private Long endTime;
 }

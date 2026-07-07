@@ -121,6 +121,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         ModelProvider provider = getEnabledProvider(agent.getModelProviderId());
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage());
+        String runId = null;
 
         try {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
@@ -128,21 +129,24 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
+            request.setTools(getBoundTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelChatResponse modelResponse = modelClient.chat(request);
             
             // 处理工具调用
-            String runId = null;
             int iteration = 0;
             while (hasToolCalls(modelResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
+                if (runId == null) {
+                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), modelResponse, 0, RUN_STATUS_SUCCESS, null);
+                }
                 iteration++;
                 List<ToolExecutionResult> toolResults = executeToolCalls(modelResponse, agent, conversation.getId(), userId, runId);
                 
                 // 将工具调用结果添加到上下文
                 for (ToolExecutionResult result : toolResults) {
-                    context.add(new ModelChatMessage("assistant", modelResponse.getContent()));
-                    context.add(new ModelChatMessage("tool", result.getContent()));
+                    context.add(new ModelChatMessage("assistant", modelResponse.getContent(), modelResponse.getToolCalls(), null));
+                    context.add(new ModelChatMessage("tool", result.getContent(), null, result.getToolCallId()));
                 }
                 
                 // 继续调用模型
@@ -154,14 +158,22 @@ public class AgentChatServiceImpl implements AgentChatService {
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
             updateConversationMessageCount(conversation.getId());
-            runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), modelResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+            if (runId == null) {
+                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), modelResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+            } else {
+                updateRun(runId, assistantMessage.getId(), modelResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+            }
 
             AgentMessageVo vo = new AgentMessageVo();
             BeanUtils.copyProperties(assistantMessage, vo);
             return vo;
         } catch (RuntimeException e) {
             long latencyMs = System.currentTimeMillis() - startTime;
-            saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), latencyMs, e);
+            if (runId == null) {
+                saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), latencyMs, e);
+            } else {
+                updateRun(runId, userMessage.getId(), null, latencyMs, RUN_STATUS_FAILED, e.getMessage());
+            }
             throw e;
         }
     }
@@ -373,10 +385,12 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setConversationId(conversationId);
         message.setRole("assistant");
         message.setContent(modelResponse.getContent());
+        message.setReasoningContent(modelResponse.getReasoningContent());
         message.setModel(modelResponse.getModel());
         message.setPromptTokens(modelResponse.getPromptTokens());
         message.setCompletionTokens(modelResponse.getCompletionTokens());
         message.setTotalTokens(modelResponse.getTotalTokens());
+        message.setReasoningTokens(modelResponse.getReasoningTokens());
         message.setLatencyMs((int) latencyMs);
         agentMessageService.save(message);
         
@@ -391,10 +405,12 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setConversationId(conversationId);
         message.setRole("assistant");
         message.setContent(modelResponse.getContent());
+        message.setReasoningContent(modelResponse.getReasoningContent());
         message.setModel(modelResponse.getModel());
         message.setPromptTokens(modelResponse.getPromptTokens());
         message.setCompletionTokens(modelResponse.getCompletionTokens());
         message.setTotalTokens(modelResponse.getTotalTokens());
+        message.setReasoningTokens(modelResponse.getReasoningTokens());
         message.setLatencyMs((int) latencyMs);
         agentMessageService.save(message);
         
@@ -408,10 +424,12 @@ public class AgentChatServiceImpl implements AgentChatService {
         ModelChatResponse response = new ModelChatResponse();
         if (streamResponse != null) {
             response.setContent(streamResponse.getContent());
+            response.setReasoningContent(streamResponse.getReasoningContent());
             response.setModel(streamResponse.getModel());
             response.setPromptTokens(streamResponse.getPromptTokens());
             response.setCompletionTokens(streamResponse.getCompletionTokens());
             response.setTotalTokens(streamResponse.getTotalTokens());
+            response.setReasoningTokens(streamResponse.getReasoningTokens());
             response.setRawResponse(streamResponse.getRawResponse());
         }
         return response;
@@ -456,6 +474,24 @@ public class AgentChatServiceImpl implements AgentChatService {
         run.setErrorMsg(truncate(errorMsg, 1024));
         agentRunService.save(run);
         return run.getId();
+    }
+
+    private void updateRun(String runId, String messageId, ModelChatResponse response, long latencyMs,
+                           Integer status, String errorMsg) {
+        AgentRun run = new AgentRun();
+        run.setId(runId);
+        run.setMessageId(messageId);
+        run.setOutputContent(response == null ? null : truncate(response.getContent(), 1024));
+        if (response != null) {
+            run.setModel(response.getModel());
+            run.setPromptTokens(response.getPromptTokens());
+            run.setCompletionTokens(response.getCompletionTokens());
+            run.setTotalTokens(response.getTotalTokens());
+        }
+        run.setLatencyMs((int) latencyMs);
+        run.setStatus(status);
+        run.setErrorMsg(truncate(errorMsg, 1024));
+        agentRunService.updateById(run);
     }
 
     private String truncate(String value, int maxLength) {
@@ -689,24 +725,14 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 检测模型响应是否包含工具调用
      */
     private boolean hasToolCalls(ModelChatResponse response) {
-        if (response == null || StringUtils.isBlank(response.getRawResponse())) {
+        if (response == null || (StringUtils.isBlank(response.getRawResponse()) && StringUtils.isBlank(response.getToolCalls()))) {
             return false;
         }
 
         try {
-            JSONObject json = JSONObject.parseObject(response.getRawResponse());
-            JSONArray choices = json.getJSONArray("choices");
-            if (choices == null || choices.isEmpty()) {
-                return false;
-            }
-
-            JSONObject firstChoice = choices.getJSONObject(0);
-            JSONObject message = firstChoice.getJSONObject("message");
-            if (message == null) {
-                return false;
-            }
-
-            JSONArray toolCalls = message.getJSONArray("tool_calls");
+            JSONArray toolCalls = StringUtils.isNotBlank(response.getToolCalls())
+                    ? JSONArray.parseArray(response.getToolCalls())
+                    : parseRawToolCalls(response);
             return toolCalls != null && !toolCalls.isEmpty();
         } catch (Exception e) {
             log.warn("解析工具调用失败", e);
@@ -717,6 +743,17 @@ public class AgentChatServiceImpl implements AgentChatService {
     /**
      * 执行工具调用
      */
+    private JSONArray parseRawToolCalls(ModelChatResponse response) {
+        JSONObject json = JSONObject.parseObject(response.getRawResponse());
+        JSONArray choices = json.getJSONArray("choices");
+        if (choices == null || choices.isEmpty()) {
+            return null;
+        }
+        JSONObject firstChoice = choices.getJSONObject(0);
+        JSONObject message = firstChoice.getJSONObject("message");
+        return message == null ? null : message.getJSONArray("tool_calls");
+    }
+
     private List<ToolExecutionResult> executeToolCalls(ModelChatResponse modelResponse, AgentDefinition agent,
                                                         String conversationId, String userId, String runId) {
         List<ToolExecutionResult> results = new ArrayList<>();
@@ -754,6 +791,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 try {
                     ToolExecutor executor = toolExecutorFactory.getExecutor(tool.getType());
                     ToolExecutionResult result = executor.execute(context);
+                    result.setToolCallId(toolCall.getId());
                     results.add(result);
 
                     // 保存工具调用日志
@@ -776,7 +814,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                     saveToolCallLog(runId, tool.getId(), agent.getId(), tool.getHttpUrl(),
                             tool.getHttpMethod(), null, null, null, null, null,
                             1, e.getMessage());
-                    results.add(ToolExecutionResult.failure(e.getMessage(), 1));
+                    ToolExecutionResult failure = ToolExecutionResult.failure(e.getMessage(), 1);
+                    failure.setToolCallId(toolCall.getId());
+                    results.add(failure);
                 }
             }
         } catch (Exception e) {
@@ -793,25 +833,16 @@ public class AgentChatServiceImpl implements AgentChatService {
         List<ToolCallInfo> toolCalls = new ArrayList<>();
 
         try {
-            JSONObject json = JSONObject.parseObject(response.getRawResponse());
-            JSONArray choices = json.getJSONArray("choices");
-            if (choices == null || choices.isEmpty()) {
-                return toolCalls;
-            }
-
-            JSONObject firstChoice = choices.getJSONObject(0);
-            JSONObject message = firstChoice.getJSONObject("message");
-            if (message == null) {
-                return toolCalls;
-            }
-
-            JSONArray toolCallsArray = message.getJSONArray("tool_calls");
+            JSONArray toolCallsArray = StringUtils.isNotBlank(response.getToolCalls())
+                    ? JSONArray.parseArray(response.getToolCalls())
+                    : parseRawToolCalls(response);
             if (toolCallsArray == null || toolCallsArray.isEmpty()) {
                 return toolCalls;
             }
 
             for (int i = 0; i < toolCallsArray.size(); i++) {
                 JSONObject toolCall = toolCallsArray.getJSONObject(i);
+                String id = toolCall.getString("id");
                 String name = toolCall.getJSONObject("function").getString("name");
                 String argumentsStr = toolCall.getJSONObject("function").getString("arguments");
 
@@ -820,7 +851,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     arguments = JSON.parseObject(argumentsStr, Map.class);
                 }
 
-                toolCalls.add(new ToolCallInfo(name, arguments));
+                toolCalls.add(new ToolCallInfo(id, name, arguments));
             }
         } catch (Exception e) {
             log.error("解析工具调用失败", e);
@@ -837,6 +868,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 Wrappers.lambdaQuery(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
                         .eq(AgentToolBinding::getStatus, 1)
+                        .eq(AgentToolBinding::getDeleted, false)
                         .orderByAsc(AgentToolBinding::getPriority)
         );
 
@@ -878,12 +910,18 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 工具调用信息
      */
     private static class ToolCallInfo {
+        private final String id;
         private final String name;
         private final Map<String, Object> arguments;
 
-        public ToolCallInfo(String name, Map<String, Object> arguments) {
+        public ToolCallInfo(String id, String name, Map<String, Object> arguments) {
+            this.id = id;
             this.name = name;
             this.arguments = arguments;
+        }
+
+        public String getId() {
+            return id;
         }
 
         public String getName() {

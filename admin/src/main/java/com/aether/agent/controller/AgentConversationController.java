@@ -79,10 +79,7 @@ public class AgentConversationController {
     })
     @GetMapping("/{id}")
     public WebResponse<AgentConversationVo> detail(@PathVariable @NotBlank String id) {
-        AgentConversation conversation = agentConversationService.getById(id);
-        if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
-        }
+        AgentConversation conversation = getOwnedConversation(id);
         AgentConversationVo vo = new AgentConversationVo();
         BeanUtils.copyProperties(conversation, vo);
         return WebResponse.OK(vo);
@@ -96,6 +93,7 @@ public class AgentConversationController {
     public WebResponse<List<AgentMessageVo>> messages(@PathVariable @NotBlank String id,
                                                       @RequestParam(defaultValue = "1") Long current,
                                                       @RequestParam(defaultValue = "20") Long pageSize) {
+        getOwnedConversation(id);
         Page<AgentMessage> page = new Page<>(current, pageSize);
         Wrapper<AgentMessage> wrapper = Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getConversationId, id)
@@ -118,6 +116,7 @@ public class AgentConversationController {
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}/close")
     public WebResponse<Void> close(@PathVariable @NotBlank String id) {
+        getOwnedConversation(id);
         AgentConversation conversation = new AgentConversation();
         conversation.setId(id);
         conversation.setStatus(1); // 关闭
@@ -133,7 +132,19 @@ public class AgentConversationController {
     @Permission(path = "/agent/conversation", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
+        getOwnedConversation(id);
         boolean removed = agentConversationService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+    }
+
+    private AgentConversation getOwnedConversation(String id) {
+        AgentConversation conversation = agentConversationService.getOne(Wrappers.lambdaQuery(AgentConversation.class)
+                .eq(AgentConversation::getId, id)
+                .eq(AgentConversation::getDeleted, false)
+                .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId")));
+        if (conversation == null) {
+            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+        }
+        return conversation;
     }
 }

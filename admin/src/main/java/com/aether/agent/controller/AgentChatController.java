@@ -134,6 +134,13 @@ public class AgentChatController {
     public WebResponse<List<AgentMessageVo>> messages(@PathVariable @NotBlank String id,
                                                       @RequestParam(defaultValue = "1") Long current,
                                                       @RequestParam(defaultValue = "20") Long pageSize) {
+        AgentConversation conversation = agentConversationService.getOne(Wrappers.lambdaQuery(AgentConversation.class)
+                .eq(AgentConversation::getId, id)
+                .eq(AgentConversation::getDeleted, false)
+                .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId")));
+        if (conversation == null) {
+            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+        }
         Page<AgentMessage> page = new Page<>(current, pageSize);
         Wrapper<AgentMessage> wrapper = Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getConversationId, id)
@@ -179,7 +186,15 @@ public class AgentChatController {
             JSONObject data = new JSONObject();
             data.put("conversationId", conversationId);
             data.put("messageId", messageId);
-            data.put("totalTokens", response == null ? null : response.getTotalTokens());
+            if (response != null) {
+                data.put("content", response.getContent());
+                data.put("reasoningContent", response.getReasoningContent());
+                data.put("model", response.getModel());
+                data.put("promptTokens", response.getPromptTokens());
+                data.put("completionTokens", response.getCompletionTokens());
+                data.put("totalTokens", response.getTotalTokens());
+                data.put("reasoningTokens", response.getReasoningTokens());
+            }
             send("done", data, true);
         }
 

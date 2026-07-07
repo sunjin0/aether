@@ -1,5 +1,6 @@
 package com.aether.agent.model;
 
+import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.ModelProvider;
 import lombok.Data;
@@ -17,4 +18,6 @@ public class ModelChatRequest {
     private AgentDefinition agent;
 
     private List<ModelChatMessage> messages;
+
+    private List<AgentTool> tools;
 }

@@ -220,9 +220,9 @@
 
 ### 7.1 运行审计
 
-- [ ] 确保每次 Agent 调用生成 `agent_run` 记录
-- [ ] 实现运行记录查询接口（按 Agent、用户、时间范围）
-- [ ] 实现运行统计接口（调用次数、token 消耗、平均耗时、错误率）
+- [x] 确保每次 Agent 调用生成 `agent_run` 记录
+- [x] 实现运行记录查询接口（按 Agent、用户、时间范围）
+- [x] 实现运行统计接口（调用次数、token 消耗、平均耗时、错误率）
 - [ ] 实现运行记录导出（预留）
 
 ### 7.2 会话审计
@@ -374,6 +374,19 @@
 | 并发性能瓶颈 | 中 | V0.4 使用 SSE 异步；V1.0 压测优化；考虑连接池和缓存 |
 | 需求变更 | 中 | 每版本评审；文档先行；避免返工；预留扩展点 |
 | 权限模型复杂化 | 低 | 复用现有 `@Permission` 体系；逐步细化；不推翻重来 |
+
+---
+
+## 13. 2026-07-07 代码审查修复记录
+
+- [x] SSE `done` 事件补齐最终消息字段：`content`、`reasoningContent`、`model`、token 统计字段。
+- [x] 会话详情、消息、关闭、删除接口增加当前用户归属校验。
+- [x] `BaseEntity.deleted` 增加 MyBatis-Plus `@TableLogic`，`removeById` 按逻辑删除处理。
+- [x] OpenAI 兼容请求增加 `tools` 和 `tool_choice=auto`，支持将绑定工具暴露给模型。
+- [x] 工具结果回填模型上下文时携带 assistant `tool_calls` 和 tool `tool_call_id`。
+- [x] 工具调用日志写入前先创建运行记录，避免 `agent_tool_call_log.run_id NOT NULL` 写入失败。
+- [x] HTTP 工具 URL 改为模板渲染后校验，避免参数渲染绕过内网地址拦截。
+- [x] V0.6 迁移脚本修复 `reasoning_tokens` SQL 语法，并补充 `agent_tool_call_log.tool_id` 可空变更。
 | 团队成员变动 | 低 | 文档完善；代码规范；任务清单清晰；知识沉淀 |
 
 ---

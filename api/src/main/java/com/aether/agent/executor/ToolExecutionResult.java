@@ -19,6 +19,11 @@ public class ToolExecutionResult {
     private String content;
 
     /**
+     * OpenAI tool_call id.
+     */
+    private String toolCallId;
+
+    /**
      * 原始响应体
      */
     private String rawResponse;

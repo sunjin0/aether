@@ -1,6 +1,5 @@
 package com.aether.agent.model;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -9,10 +8,25 @@ import lombok.NoArgsConstructor;
  */
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
 public class ModelChatMessage {
 
     private String role;
 
     private String content;
+
+    private String toolCalls;
+
+    private String toolCallId;
+
+    public ModelChatMessage(String role, String content) {
+        this.role = role;
+        this.content = content;
+    }
+
+    public ModelChatMessage(String role, String content, String toolCalls, String toolCallId) {
+        this.role = role;
+        this.content = content;
+        this.toolCalls = toolCalls;
+        this.toolCallId = toolCallId;
+    }
 }
