@@ -49,6 +49,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -74,6 +77,9 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final long SUMMARY_CACHE_TTL_HOURS = 24;
     private static final int SUMMARY_TRIGGER_THRESHOLD = 10; // 超过10轮对话触发摘要
     private static final int KEEP_RECENT_MESSAGES = 5; // 保留最近5条完整消息
+    private static final int SUMMARY_OLD_MESSAGE_LIMIT = 30; // 摘要最多取30条旧消息
+    private static final String TOOLS_CACHE_KEY_PREFIX = "agent:tools:";
+    private static final long TOOLS_CACHE_TTL_MINUTES = 10;
 
     private final AgentDefinitionService agentDefinitionService;
     private final ModelProviderService modelProviderService;
@@ -86,6 +92,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentToolBindingService agentToolBindingService;
     private final AgentToolCallLogService agentToolCallLogService;
     private final ToolExecutorFactory toolExecutorFactory;
+    private final ExecutorService summaryExecutor = Executors.newFixedThreadPool(2);
 
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
                                 ModelProviderService modelProviderService,
@@ -119,6 +126,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         AgentDefinition agent = getEnabledAgent(dto.getAgentId());
         ModelProvider provider = getEnabledProvider(agent.getModelProviderId());
+        applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage());
         String runId = null;
@@ -186,6 +194,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         AgentDefinition agent = getEnabledAgent(dto.getAgentId());
         ModelProvider provider = getEnabledProvider(agent.getModelProviderId());
+        applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage());
 
@@ -202,6 +211,13 @@ public class AgentChatServiceImpl implements AgentChatService {
                 public void onMessage(String chunk) {
                     if (!callback.isClosed()) {
                         callback.onMessage(conversation.getId(), chunk);
+                    }
+                }
+
+                @Override
+                public void onReasoning(String chunk) {
+                    if (!callback.isClosed()) {
+                        callback.onReasoning(conversation.getId(), chunk);
                     }
                 }
 
@@ -241,6 +257,22 @@ public class AgentChatServiceImpl implements AgentChatService {
     private void validateRequest(AgentChatDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getAgentId()) || StringUtils.isBlank(dto.getMessage())) {
             throw new ServerException(400, "参数错误");
+        }
+    }
+
+    /**
+     * 将DTO中的深度思考配置合并到Agent定义上（DTO优先级高于Agent默认值）。
+     */
+    private void applyThinkingConfig(AgentChatDto dto, AgentDefinition agent) {
+        if (dto.getThinking() != null) {
+            agent.setDefaultThinking(dto.getThinking());
+        }
+        if (StringUtils.isNotBlank(dto.getReasoningEffort())) {
+            String effort = dto.getReasoningEffort().toLowerCase();
+            if (!effort.equals("low") && !effort.equals("medium") && !effort.equals("high")) {
+                throw new ServerException(400, "reasoningEffort必须为low/medium/high");
+            }
+            agent.setDefaultReasoningEffort(effort);
         }
     }
 
@@ -436,13 +468,12 @@ public class AgentChatServiceImpl implements AgentChatService {
     }
 
     private void updateConversationMessageCount(String conversationId) {
-        long count = agentMessageService.count(Wrappers.lambdaQuery(AgentMessage.class)
-                .eq(AgentMessage::getConversationId, conversationId)
-                .eq(AgentMessage::getDeleted, false));
-        AgentConversation conversation = new AgentConversation();
-        conversation.setId(conversationId);
-        conversation.setMessageCount((int) count);
-        agentConversationService.updateById(conversation);
+        AgentConversation update = new AgentConversation();
+        update.setId(conversationId);
+        update.setMessageCount(null); // 避免覆盖
+        agentConversationService.update(null, Wrappers.lambdaUpdate(AgentConversation.class)
+                .eq(AgentConversation::getId, conversationId)
+                .setSql("message_count = message_count + 1"));
     }
 
     private void saveFailedRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
@@ -622,11 +653,13 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
 
         try {
-            // 构建摘要请求
+            // 构建摘要请求，限制消息数量避免token过多
             StringBuilder summaryPrompt = new StringBuilder();
             summaryPrompt.append("请将以下对话历史总结为关键要点，保留重要信息、用户意图和上下文，200字以内：\n\n");
             
-            for (AgentMessage msg : oldMessages) {
+            int limit = Math.min(oldMessages.size(), SUMMARY_OLD_MESSAGE_LIMIT);
+            for (int i = oldMessages.size() - limit; i < oldMessages.size(); i++) {
+                AgentMessage msg = oldMessages.get(i);
                 String role = msg.getRole().equals("user") ? "用户" : "助手";
                 summaryPrompt.append(role).append(": ").append(msg.getContent()).append("\n\n");
             }
@@ -660,19 +693,21 @@ public class AgentChatServiceImpl implements AgentChatService {
             return cachedSummary.toString();
         }
 
-        // 2. 缓存未命中，生成新摘要
-        String summary = generateSummary(oldMessages, agent, provider);
-
-        // 3. 缓存摘要（24小时过期）
-        if (StringUtils.isNotBlank(summary)) {
+        // 2. 缓存未命中，异步生成摘要（不阻塞当前请求）
+        // 当前请求降级使用最近消息，下次请求即可命中缓存
+        List<AgentMessage> snapshot = new ArrayList<>(oldMessages);
+        CompletableFuture.runAsync(() -> {
             try {
-                redisTemplate.opsForValue().set(cacheKey, summary, SUMMARY_CACHE_TTL_HOURS, TimeUnit.HOURS);
+                String summary = generateSummary(snapshot, agent, provider);
+                if (StringUtils.isNotBlank(summary)) {
+                    redisTemplate.opsForValue().set(cacheKey, summary, SUMMARY_CACHE_TTL_HOURS, TimeUnit.HOURS);
+                }
             } catch (Exception e) {
-                // 缓存失败不影响主流程
+                log.warn("异步生成摘要失败, conversationId={}", conversationId, e);
             }
-        }
+        }, summaryExecutor);
 
-        return summary;
+        return "";
     }
 
     /**
@@ -688,12 +723,14 @@ public class AgentChatServiceImpl implements AgentChatService {
             context.add(new ModelChatMessage("system", agent.getSystemPrompt()));
         }
 
-        // 2. 查询所有历史消息
+        // 2. 查询最近的消息（限制数量，避免全表扫描）
+        int fetchLimit = SUMMARY_TRIGGER_THRESHOLD + KEEP_RECENT_MESSAGES + 1;
         List<AgentMessage> allMessages = agentMessageService.list(Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getConversationId, conversationId)
                 .eq(AgentMessage::getDeleted, false)
                 .in(AgentMessage::getRole, "user", "assistant")
-                .orderByAsc(AgentMessage::getCreatedAt));
+                .orderByAsc(AgentMessage::getCreatedAt)
+                .last("limit " + fetchLimit));
 
         if (allMessages.size() <= SUMMARY_TRIGGER_THRESHOLD) {
             // 消息较少，直接返回完整消息
@@ -864,6 +901,18 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 获取Agent绑定的工具列表
      */
     private List<AgentTool> getBoundTools(String agentId) {
+        String cacheKey = TOOLS_CACHE_KEY_PREFIX + agentId;
+        try {
+            Object cached = redisTemplate.opsForValue().get(cacheKey);
+            if (cached instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<AgentTool> tools = (List<AgentTool>) cached;
+                return tools;
+            }
+        } catch (Exception e) {
+            // 缓存读取失败，降级查库
+        }
+
         List<AgentToolBinding> bindings = agentToolBindingService.list(
                 Wrappers.lambdaQuery(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
@@ -878,6 +927,12 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (tool != null && !Boolean.TRUE.equals(tool.getDeleted()) && Integer.valueOf(1).equals(tool.getStatus())) {
                 tools.add(tool);
             }
+        }
+
+        try {
+            redisTemplate.opsForValue().set(cacheKey, tools, TOOLS_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            // 缓存写入失败不影响主流程
         }
 
         return tools;

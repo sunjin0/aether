@@ -7,6 +7,8 @@ public interface ModelStreamCallback {
 
     void onMessage(String chunk);
 
+    void onReasoning(String chunk);
+
     void onToolCall(String toolCallJson);
 
     boolean isClosed();

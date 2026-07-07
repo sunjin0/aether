@@ -50,6 +50,12 @@ public class AgentDefinition extends BaseEntity {
     @ApiModelProperty(value = "最大工具调用轮次，默认1")
     private Integer maxToolRounds;
 
+    @ApiModelProperty(value = "默认是否启用深度思考")
+    private Boolean defaultThinking;
+
+    @ApiModelProperty(value = "默认推理力度：low/medium/high")
+    private String defaultReasoningEffort;
+
     @ApiModelProperty(value = "访问类型：private/public，默认private")
     private String accessType;
 

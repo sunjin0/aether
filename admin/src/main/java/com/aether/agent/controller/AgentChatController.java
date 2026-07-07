@@ -32,11 +32,17 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import javax.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -50,12 +56,15 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/agent/chat")
 public class AgentChatController {
 
-    private static final long STREAM_TIMEOUT_MS = 30000L;
+    private static final Logger log = LoggerFactory.getLogger(AgentChatController.class);
+    private static final long STREAM_TIMEOUT_MS = 300000L; // 5分钟，推理模型需要更长响应时间
+    private static final long HEARTBEAT_INTERVAL_MS = 15000L; // 15秒心跳
 
     private final AgentChatService agentChatService;
     private final AgentConversationService agentConversationService;
     private final AgentMessageService agentMessageService;
     private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired
     public AgentChatController(AgentChatService agentChatService, AgentConversationService agentConversationService, AgentMessageService agentMessageService) {
@@ -80,7 +89,9 @@ public class AgentChatController {
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestParam("agentId") String agentId,
                              @RequestParam(value = "conversationId", required = false) String conversationId,
-                             @RequestParam("message") String message) {
+                             @RequestParam("message") String message,
+                             @RequestParam(value = "thinking", required = false) Boolean thinking,
+                             @RequestParam(value = "reasoningEffort", required = false) String reasoningEffort) {
         // 在主线程中提前获取userId，避免在线程池新线程中无法获取ThreadLocal中的用户信息
         String userId = CurrentUser.getUser() != null ? CurrentUser.getUser().get("userId") : null;
         if (StringUtils.isBlank(userId)) {
@@ -96,12 +107,46 @@ public class AgentChatController {
         });
         emitter.onError(error -> closed.set(true));
 
+        // 启动心跳，防止代理/负载均衡器因空闲断开连接
+        ScheduledFuture<?> heartbeatTask = heartbeatScheduler.scheduleAtFixedRate(() -> {
+            if (closed.get()) {
+                return;
+            }
+            try {
+                emitter.send(SseEmitter.event().comment("heartbeat"));
+            } catch (IOException | IllegalStateException e) {
+                closed.set(true);
+            }
+        }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId(agentId);
         dto.setConversationId(conversationId);
         dto.setMessage(message);
-        dto.setUserId(userId); // 将userId设置到DTO中传递
-        streamExecutor.execute(() -> agentChatService.stream(dto, new SseAgentStreamCallback(emitter, closed)));
+        dto.setThinking(thinking);
+        dto.setReasoningEffort(reasoningEffort);
+        dto.setUserId(userId);
+        streamExecutor.execute(() -> {
+            try {
+                agentChatService.stream(dto, new SseAgentStreamCallback(emitter, closed));
+            } catch (Exception e) {
+                log.error("流式聊天异常", e);
+                if (!closed.get()) {
+                    try {
+                        JSONObject errorData = new JSONObject();
+                        errorData.put("code", 500);
+                        errorData.put("message", "服务内部错误");
+                        emitter.send(SseEmitter.event().name("error").data(errorData.toJSONString()));
+                        closed.set(true);
+                        emitter.complete();
+                    } catch (IOException ignored) {
+                        closed.set(true);
+                    }
+                }
+            } finally {
+                heartbeatTask.cancel(false);
+            }
+        });
         return emitter;
     }
 
@@ -175,6 +220,14 @@ public class AgentChatController {
         }
 
         @Override
+        public void onReasoning(String conversationId, String chunk) {
+            JSONObject data = new JSONObject();
+            data.put("chunk", chunk);
+            data.put("conversationId", conversationId);
+            send("reasoning", data, false);
+        }
+
+        @Override
         public void onToolCall(String conversationId, String toolCallJson) {
             JSONObject data = JSON.parseObject(toolCallJson);
             data.put("conversationId", conversationId);
@@ -222,6 +275,7 @@ public class AgentChatController {
                     emitter.complete();
                 }
             } catch (IOException | IllegalStateException e) {
+                log.warn("SSE发送失败, event={}, error={}", eventName, e.getMessage());
                 closed.set(true);
             }
         }

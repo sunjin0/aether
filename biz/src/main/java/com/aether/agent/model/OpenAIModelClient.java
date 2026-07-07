@@ -8,6 +8,8 @@ import com.aether.utils.AesUtil;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -37,7 +39,9 @@ import java.util.List;
 @Component
 public class OpenAIModelClient implements ModelClient {
 
+    private static final Logger log = LoggerFactory.getLogger(OpenAIModelClient.class);
     private static final int DEFAULT_TIMEOUT_MS = 30000;
+    private static final int STREAM_READ_TIMEOUT_MS = 300000; // 流式读超时5分钟，推理模型需要更长响应时间
 
     @Override
     public boolean supports(String providerType) {
@@ -81,7 +85,7 @@ public class OpenAIModelClient implements ModelClient {
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(STREAM_READ_TIMEOUT_MS);
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", MediaType.APPLICATION_JSON_VALUE);
             if (StringUtils.isNotBlank(provider.getApiKey())) {
@@ -96,16 +100,20 @@ public class OpenAIModelClient implements ModelClient {
 
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) {
+                log.error("模型调用失败, status={}, provider={}", status, provider.getName());
                 throw new ServerException(500, "模型调用失败");
             }
             return parseStream(connection.getInputStream(), agent.getModel(), callback);
         } catch (SocketTimeoutException e) {
+            log.error("模型流式调用超时, provider={}, readTimeout={}ms", provider.getName(), STREAM_READ_TIMEOUT_MS, e);
             throw new ServerException(503, "模型供应商调用超时");
         } catch (ServerException e) {
             throw e;
         } catch (IOException e) {
+            log.error("模型流式调用IO异常, provider={}", provider.getName(), e);
             throw new ServerException(503, "模型供应商调用超时");
         } catch (Exception e) {
+            log.error("模型流式调用异常, provider={}", provider.getName(), e);
             throw new ServerException(500, "模型调用失败");
         } finally {
             if (connection != null) {
@@ -145,6 +153,13 @@ public class OpenAIModelClient implements ModelClient {
         body.put("temperature", agent.getTemperature());
         body.put("max_tokens", agent.getMaxTokens());
         body.put("stream", stream);
+
+        // 深度思考配置
+        if (Boolean.TRUE.equals(agent.getDefaultThinking())) {
+            String effort = StringUtils.defaultIfBlank(agent.getDefaultReasoningEffort(), "medium");
+            body.put("reasoning_effort", effort);
+        }
+
         JSONArray toolArray = toJsonTools(tools);
         if (!toolArray.isEmpty()) {
             body.put("tools", toolArray);
@@ -318,6 +333,9 @@ public class OpenAIModelClient implements ModelClient {
         String reasoningChunk = delta.getString("reasoning_content");
         if (StringUtils.isNotEmpty(reasoningChunk)) {
             reasoningContent.append(reasoningChunk);
+            if (callback != null) {
+                callback.onReasoning(reasoningChunk);
+            }
         }
         JSONArray toolCalls = delta.getJSONArray("tool_calls");
         if (toolCalls != null && !toolCalls.isEmpty() && callback != null) {

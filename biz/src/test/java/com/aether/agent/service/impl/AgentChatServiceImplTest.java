@@ -272,6 +272,10 @@ class AgentChatServiceImplTest {
         }
 
         @Override
+        public void onReasoning(String conversationId, String chunk) {
+        }
+
+        @Override
         public void onToolCall(String conversationId, String toolCallJson) {
         }
 

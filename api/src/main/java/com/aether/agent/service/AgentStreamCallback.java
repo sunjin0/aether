@@ -9,6 +9,8 @@ public interface AgentStreamCallback {
 
     void onMessage(String conversationId, String chunk);
 
+    void onReasoning(String conversationId, String chunk);
+
     void onToolCall(String conversationId, String toolCallJson);
 
     void onDone(String conversationId, String messageId, ModelStreamResponse response);

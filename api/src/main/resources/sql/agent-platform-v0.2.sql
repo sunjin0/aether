@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS `agent_definition` (
     `max_tokens`          INT          NOT NULL DEFAULT 2048 COMMENT '最大token数',
     `status`              TINYINT      NOT NULL DEFAULT 0 COMMENT '状态：0-草稿，1-启用，2-禁用',
     `max_tool_rounds`     INT          NOT NULL DEFAULT 1 COMMENT '最大工具调用轮次（V0.6预留）',
+    `default_thinking`    TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '默认是否启用深度思考',
+    `default_reasoning_effort` VARCHAR(16)      DEFAULT NULL COMMENT '默认推理力度：low/medium/high',
     `access_type`         VARCHAR(16)  NOT NULL DEFAULT 'private' COMMENT '访问类型：private/public（V1.0预留）',
     `sort`                INT          NOT NULL DEFAULT 0 COMMENT '排序号',
     `remark`              VARCHAR(512)          COMMENT '备注',
