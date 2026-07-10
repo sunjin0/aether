@@ -22,5 +22,10 @@ public class ModelStreamResponse {
 
     private Integer reasoningTokens;
 
+    /**
+     * 工具调用请求（JSON格式，assistant角色时）
+     */
+    private String toolCalls;
+
     private String rawResponse;
 }

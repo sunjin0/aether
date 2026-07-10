@@ -142,6 +142,11 @@ public class AgentChatServiceImpl implements AgentChatService {
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelChatResponse modelResponse = modelClient.chat(request);
             
+            // 推理未开启时，过滤掉模型可能返回的reasoning_content
+            if (!Boolean.TRUE.equals(agent.getDefaultThinking())) {
+                modelResponse.setReasoningContent(null);
+            }
+            
             // 处理工具调用
             int iteration = 0;
             while (hasToolCalls(modelResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
@@ -197,15 +202,25 @@ public class AgentChatServiceImpl implements AgentChatService {
         applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage());
+        String runId = null;
+
+        log.info("流式请求开始: agent={}, model={}, thinking={}", agent.getId(), agent.getModel(), agent.getDefaultThinking());
 
         try {
+            long t0 = System.currentTimeMillis();
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            long t1 = System.currentTimeMillis();
+            log.info("上下文构建耗时: {}ms", t1 - t0);
+
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
+            request.setTools(getBoundTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
+            // 推理未开启时，不转发reasoning chunks
+            boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
             ModelStreamResponse modelResponse = modelClient.stream(request, new ModelStreamCallback() {
                 @Override
                 public void onMessage(String chunk) {
@@ -216,7 +231,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
                 @Override
                 public void onReasoning(String chunk) {
-                    if (!callback.isClosed()) {
+                    if (thinkingEnabled && !callback.isClosed()) {
                         callback.onReasoning(conversation.getId(), chunk);
                     }
                 }
@@ -234,20 +249,90 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
             });
             
+            // 推理未开启时，过滤掉模型可能返回的reasoning_content
+            if (!thinkingEnabled) {
+                modelResponse.setReasoningContent(null);
+            }
+            
             // 当模型未提供token统计时（如Google Gemma流式响应），补充估算值
             fillDefaultTokens(modelResponse, context, dto.getMessage());
+            
+            log.info("流式请求完成: 总耗时={}ms", System.currentTimeMillis() - startTime);
+            
+            // 处理工具调用循环
+            int iteration = 0;
+            ModelChatResponse chatResponse = toChatResponse(modelResponse);
+            while (hasToolCalls(chatResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
+                if (runId == null) {
+                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), chatResponse, 0, RUN_STATUS_SUCCESS, null);
+                }
+                iteration++;
+                List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, conversation.getId(), userId, runId);
+                
+                // 将工具调用结果添加到上下文
+                for (ToolExecutionResult result : toolResults) {
+                    context.add(new ModelChatMessage("assistant", chatResponse.getContent(), chatResponse.getToolCalls(), null));
+                    context.add(new ModelChatMessage("tool", result.getContent(), null, result.getToolCallId()));
+                }
+                
+                // 继续调用模型（流式）
+                request.setMessages(context);
+                modelResponse = modelClient.stream(request, new ModelStreamCallback() {
+                    @Override
+                    public void onMessage(String chunk) {
+                        if (!callback.isClosed()) {
+                            callback.onMessage(conversation.getId(), chunk);
+                        }
+                    }
+
+                    @Override
+                    public void onReasoning(String chunk) {
+                        if (thinkingEnabled && !callback.isClosed()) {
+                            callback.onReasoning(conversation.getId(), chunk);
+                        }
+                    }
+
+                    @Override
+                    public void onToolCall(String toolCallJson) {
+                        if (!callback.isClosed()) {
+                            callback.onToolCall(conversation.getId(), toolCallJson);
+                        }
+                    }
+
+                    @Override
+                    public boolean isClosed() {
+                        return callback.isClosed();
+                    }
+                });
+                
+                // 推理未开启时，过滤掉reasoning_content
+                if (!thinkingEnabled) {
+                    modelResponse.setReasoningContent(null);
+                }
+                
+                fillDefaultTokens(modelResponse, context, dto.getMessage());
+                chatResponse = toChatResponse(modelResponse);
+            }
             
             long latencyMs = System.currentTimeMillis() - startTime;
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
             updateConversationMessageCount(conversation.getId());
-            saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), toChatResponse(modelResponse), latencyMs, RUN_STATUS_SUCCESS, null);
+            if (runId == null) {
+                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), chatResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+            } else {
+                updateRun(runId, assistantMessage.getId(), chatResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+            }
             if (!callback.isClosed()) {
                 callback.onDone(conversation.getId(), assistantMessage.getId(), modelResponse);
             }
         } catch (RuntimeException e) {
             long latencyMs = System.currentTimeMillis() - startTime;
-            saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), latencyMs, e);
+            if (runId == null) {
+                saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), latencyMs, e);
+            } else {
+                updateRun(runId, userMessage.getId(), null, latencyMs, RUN_STATUS_FAILED, e.getMessage());
+            }
             if (!callback.isClosed()) {
                 callback.onError(resolveErrorCode(e), resolveErrorMessage(e));
             }
@@ -262,11 +347,11 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     /**
      * 将DTO中的深度思考配置合并到Agent定义上（DTO优先级高于Agent默认值）。
+     * 默认关闭推理，仅当用户显式传入thinking=true时才开启。
      */
     private void applyThinkingConfig(AgentChatDto dto, AgentDefinition agent) {
-        if (dto.getThinking() != null) {
-            agent.setDefaultThinking(dto.getThinking());
-        }
+        // 默认关闭推理，除非用户显式开启
+        agent.setDefaultThinking(Boolean.TRUE.equals(dto.getThinking()));
         if (StringUtils.isNotBlank(dto.getReasoningEffort())) {
             String effort = dto.getReasoningEffort().toLowerCase();
             if (!effort.equals("low") && !effort.equals("medium") && !effort.equals("high")) {
@@ -438,6 +523,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setRole("assistant");
         message.setContent(modelResponse.getContent());
         message.setReasoningContent(modelResponse.getReasoningContent());
+        message.setToolCalls(modelResponse.getToolCalls());
         message.setModel(modelResponse.getModel());
         message.setPromptTokens(modelResponse.getPromptTokens());
         message.setCompletionTokens(modelResponse.getCompletionTokens());
@@ -462,6 +548,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             response.setCompletionTokens(streamResponse.getCompletionTokens());
             response.setTotalTokens(streamResponse.getTotalTokens());
             response.setReasoningTokens(streamResponse.getReasoningTokens());
+            response.setToolCalls(streamResponse.getToolCalls());
             response.setRawResponse(streamResponse.getRawResponse());
         }
         return response;
@@ -762,14 +849,12 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 检测模型响应是否包含工具调用
      */
     private boolean hasToolCalls(ModelChatResponse response) {
-        if (response == null || (StringUtils.isBlank(response.getRawResponse()) && StringUtils.isBlank(response.getToolCalls()))) {
+        if (response == null || StringUtils.isBlank(response.getToolCalls())) {
             return false;
         }
 
         try {
-            JSONArray toolCalls = StringUtils.isNotBlank(response.getToolCalls())
-                    ? JSONArray.parseArray(response.getToolCalls())
-                    : parseRawToolCalls(response);
+            JSONArray toolCalls = JSONArray.parseArray(response.getToolCalls());
             return toolCalls != null && !toolCalls.isEmpty();
         } catch (Exception e) {
             log.warn("解析工具调用失败", e);
@@ -780,17 +865,6 @@ public class AgentChatServiceImpl implements AgentChatService {
     /**
      * 执行工具调用
      */
-    private JSONArray parseRawToolCalls(ModelChatResponse response) {
-        JSONObject json = JSONObject.parseObject(response.getRawResponse());
-        JSONArray choices = json.getJSONArray("choices");
-        if (choices == null || choices.isEmpty()) {
-            return null;
-        }
-        JSONObject firstChoice = choices.getJSONObject(0);
-        JSONObject message = firstChoice.getJSONObject("message");
-        return message == null ? null : message.getJSONArray("tool_calls");
-    }
-
     private List<ToolExecutionResult> executeToolCalls(ModelChatResponse modelResponse, AgentDefinition agent,
                                                         String conversationId, String userId, String runId) {
         List<ToolExecutionResult> results = new ArrayList<>();
@@ -870,9 +944,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         List<ToolCallInfo> toolCalls = new ArrayList<>();
 
         try {
-            JSONArray toolCallsArray = StringUtils.isNotBlank(response.getToolCalls())
-                    ? JSONArray.parseArray(response.getToolCalls())
-                    : parseRawToolCalls(response);
+            if (StringUtils.isBlank(response.getToolCalls())) {
+                return toolCalls;
+            }
+            JSONArray toolCallsArray = JSONArray.parseArray(response.getToolCalls());
             if (toolCallsArray == null || toolCallsArray.isEmpty()) {
                 return toolCalls;
             }

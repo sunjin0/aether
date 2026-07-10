@@ -36,6 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import javax.servlet.http.HttpServletResponse;
 import javax.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -86,17 +87,18 @@ public class AgentChatController {
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
-    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(@RequestParam("agentId") String agentId,
-                             @RequestParam(value = "conversationId", required = false) String conversationId,
-                             @RequestParam("message") String message,
-                             @RequestParam(value = "thinking", required = false) Boolean thinking,
-                             @RequestParam(value = "reasoningEffort", required = false) String reasoningEffort) {
+    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@RequestBody AgentChatDto dto, HttpServletResponse response) {
         // 在主线程中提前获取userId，避免在线程池新线程中无法获取ThreadLocal中的用户信息
         String userId = CurrentUser.getUser() != null ? CurrentUser.getUser().get("userId") : null;
         if (StringUtils.isBlank(userId)) {
             throw new ServerException(401, "未授权");
         }
+        dto.setUserId(userId);
+
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("Connection", "keep-alive");
+        response.setHeader("X-Accel-Buffering", "no");
         
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
         AtomicBoolean closed = new AtomicBoolean(false);
@@ -106,6 +108,12 @@ public class AgentChatController {
             emitter.complete();
         });
         emitter.onError(error -> closed.set(true));
+
+        try {
+            emitter.send(SseEmitter.event().comment("connected"));
+        } catch (IOException | IllegalStateException e) {
+            closed.set(true);
+        }
 
         // 启动心跳，防止代理/负载均衡器因空闲断开连接
         ScheduledFuture<?> heartbeatTask = heartbeatScheduler.scheduleAtFixedRate(() -> {
@@ -119,13 +127,6 @@ public class AgentChatController {
             }
         }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
 
-        AgentChatDto dto = new AgentChatDto();
-        dto.setAgentId(agentId);
-        dto.setConversationId(conversationId);
-        dto.setMessage(message);
-        dto.setThinking(thinking);
-        dto.setReasoningEffort(reasoningEffort);
-        dto.setUserId(userId);
         streamExecutor.execute(() -> {
             try {
                 agentChatService.stream(dto, new SseAgentStreamCallback(emitter, closed));
@@ -157,9 +158,11 @@ public class AgentChatController {
     @PostMapping("/conversation/list")
     public WebResponse<List<AgentConversationVo>> list(@RequestBody AgentConversationVo vo) {
         Page<AgentConversation> page = new Page<>(vo.getCurrent(), vo.getPageSize());
+        // 默认只显示开放会话（status=0），除非前端明确指定status参数
+        Integer status = vo.getStatus() != null ? vo.getStatus() : 0;
         Wrapper<AgentConversation> wrapper = Wrappers.lambdaQuery(AgentConversation.class)
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentConversation::getAgentDefinitionId, vo.getAgentDefinitionId())
-                .eq(vo.getStatus() != null, AgentConversation::getStatus, vo.getStatus())
+                .eq(AgentConversation::getStatus, status)
                 .eq(AgentConversation::getDeleted, false)
                 .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId"))
                 .orderByDesc(AgentConversation::getCreatedAt);

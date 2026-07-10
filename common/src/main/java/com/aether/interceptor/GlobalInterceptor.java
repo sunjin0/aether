@@ -18,9 +18,11 @@ import java.util.HashMap;
 /**
  * 全局拦截器
  *
+ * @deprecated 已被 {@link GlobalFilter} 替代，请使用 GlobalFilter
  * @author sun
  * @since 2024/09/20
  */
+@Deprecated
 @Component
 public class GlobalInterceptor implements HandlerInterceptor {
     private static final Logger log = LoggerFactory.getLogger(GlobalInterceptor.class);

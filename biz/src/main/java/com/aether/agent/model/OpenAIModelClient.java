@@ -10,6 +10,7 @@ import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -21,17 +22,15 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.SocketTimeoutException;
-import java.net.URL;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * OpenAI兼容模型客户端。
@@ -41,7 +40,13 @@ public class OpenAIModelClient implements ModelClient {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAIModelClient.class);
     private static final int DEFAULT_TIMEOUT_MS = 30000;
-    private static final int STREAM_READ_TIMEOUT_MS = 300000; // 流式读超时5分钟，推理模型需要更长响应时间
+
+    private final PooledHttpClient pooledHttpClient;
+
+    @Autowired
+    public OpenAIModelClient(PooledHttpClient pooledHttpClient) {
+        this.pooledHttpClient = pooledHttpClient;
+    }
 
     @Override
     public boolean supports(String providerType) {
@@ -55,7 +60,7 @@ public class OpenAIModelClient implements ModelClient {
         try {
             RestTemplate restTemplate = createRestTemplate();
             HttpHeaders headers = createHeaders(provider);
-            JSONObject body = createBody(agent, request.getMessages(), request.getTools());
+            JSONObject body = createBody(request, false);
             HttpEntity<String> entity = new HttpEntity<>(body.toJSONString(), headers);
             ResponseEntity<String> response = restTemplate.exchange(
                     buildChatUrl(provider.getApiBaseUrl()),
@@ -78,47 +83,23 @@ public class OpenAIModelClient implements ModelClient {
     public ModelStreamResponse stream(ModelChatRequest request, ModelStreamCallback callback) {
         ModelProvider provider = request.getProvider();
         AgentDefinition agent = request.getAgent();
-        HttpURLConnection connection = null;
         try {
-            JSONObject body = createBody(agent, request.getMessages(), request.getTools(), true);
-            URL url = new URL(buildChatUrl(provider.getApiBaseUrl()));
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("POST");
-            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setReadTimeout(STREAM_READ_TIMEOUT_MS);
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", MediaType.APPLICATION_JSON_VALUE);
-            if (StringUtils.isNotBlank(provider.getApiKey())) {
-                connection.setRequestProperty("Authorization", "Bearer " + AesUtil.decrypt(provider.getApiKey()));
-            }
+            JSONObject body = createBody(request, true);
+            String url = buildChatUrl(provider.getApiBaseUrl());
+            String authorization = StringUtils.isNotBlank(provider.getApiKey())
+                    ? "Bearer " + AesUtil.decrypt(provider.getApiKey()) : null;
 
-            byte[] payload = body.toJSONString().getBytes(StandardCharsets.UTF_8);
-            connection.setRequestProperty("Content-Length", String.valueOf(payload.length));
-            try (OutputStream outputStream = connection.getOutputStream()) {
-                outputStream.write(payload);
+            long t0 = System.currentTimeMillis();
+            try (PooledHttpClient.HttpStreamResult result = pooledHttpClient.postStream(url, body.toJSONString(), authorization)) {
+                long t1 = System.currentTimeMillis();
+                log.info("模型连接耗时: {}ms, provider={}, model={}", t1 - t0, provider.getName(), agent.getModel());
+                return parseStream(result.getInputStream(), agent.getModel(), callback);
             }
-
-            int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) {
-                log.error("模型调用失败, status={}, provider={}", status, provider.getName());
-                throw new ServerException(500, "模型调用失败");
-            }
-            return parseStream(connection.getInputStream(), agent.getModel(), callback);
-        } catch (SocketTimeoutException e) {
-            log.error("模型流式调用超时, provider={}, readTimeout={}ms", provider.getName(), STREAM_READ_TIMEOUT_MS, e);
-            throw new ServerException(503, "模型供应商调用超时");
         } catch (ServerException e) {
             throw e;
-        } catch (IOException e) {
-            log.error("模型流式调用IO异常, provider={}", provider.getName(), e);
-            throw new ServerException(503, "模型供应商调用超时");
         } catch (Exception e) {
             log.error("模型流式调用异常, provider={}", provider.getName(), e);
             throw new ServerException(500, "模型调用失败");
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
         }
     }
 
@@ -138,33 +119,115 @@ public class OpenAIModelClient implements ModelClient {
         return headers;
     }
 
-    private JSONObject createBody(AgentDefinition agent, List<ModelChatMessage> messages) {
-        return createBody(agent, messages, null, false);
-    }
+    private JSONObject createBody(ModelChatRequest request, boolean stream) {
+        AgentDefinition agent = request.getAgent();
+        List<ModelChatMessage> messages = request.getMessages();
+        List<AgentTool> tools = request.getTools();
 
-    private JSONObject createBody(AgentDefinition agent, List<ModelChatMessage> messages, List<AgentTool> tools) {
-        return createBody(agent, messages, tools, false);
-    }
-
-    private JSONObject createBody(AgentDefinition agent, List<ModelChatMessage> messages, List<AgentTool> tools, boolean stream) {
         JSONObject body = new JSONObject();
-        body.put("model", StringUtils.defaultIfBlank(agent.getModel(), "gpt-3.5-turbo"));
+        body.put("model", StringUtils.defaultIfBlank(request.getModel(), StringUtils.defaultIfBlank(agent.getModel(), "gpt-3.5-turbo")));
         body.put("messages", toJsonMessages(messages));
-        body.put("temperature", agent.getTemperature());
-        body.put("max_tokens", agent.getMaxTokens());
-        body.put("stream", stream);
 
-        // 深度思考配置
-        if (Boolean.TRUE.equals(agent.getDefaultThinking())) {
-            String effort = StringUtils.defaultIfBlank(agent.getDefaultReasoningEffort(), "medium");
-            body.put("reasoning_effort", effort);
+        // 温度参数：优先使用请求中的值，否则使用Agent配置
+        BigDecimal temperature = request.getTemperature() != null ? request.getTemperature() : agent.getTemperature();
+        if (temperature != null) {
+            body.put("temperature", temperature);
         }
 
+        // 最大token数：优先使用请求中的值，否则使用Agent配置
+        Integer maxCompletionTokens = request.getMaxCompletionTokens() != null ? request.getMaxCompletionTokens() : request.getMaxTokens();
+        if (maxCompletionTokens == null) {
+            maxCompletionTokens = agent.getMaxTokens();
+        }
+        if (maxCompletionTokens != null) {
+            body.put("max_completion_tokens", maxCompletionTokens);
+        }
+
+        body.put("stream", stream);
+
+        // 流式响应选项
+        if (stream && request.getStreamOptions() != null) {
+            body.put("stream_options", request.getStreamOptions());
+        } else if (stream) {
+            // 默认启用usage统计
+            JSONObject streamOptions = new JSONObject();
+            streamOptions.put("include_usage", true);
+            body.put("stream_options", streamOptions);
+        }
+
+        // 核采样参数
+        if (request.getTopP() != null) {
+            body.put("top_p", request.getTopP());
+        }
+
+        // 频率惩罚
+        if (request.getFrequencyPenalty() != null) {
+            body.put("frequency_penalty", request.getFrequencyPenalty());
+        }
+
+        // 存在惩罚
+        if (request.getPresencePenalty() != null) {
+            body.put("presence_penalty", request.getPresencePenalty());
+        }
+
+        // 停止序列
+        if (request.getStop() != null && !request.getStop().isEmpty()) {
+            body.put("stop", request.getStop());
+        }
+
+        // 响应格式
+        if (request.getResponseFormat() != null) {
+            body.put("response_format", request.getResponseFormat());
+        }
+
+        // 可重复性种子
+        if (request.getSeed() != null) {
+            body.put("seed", request.getSeed());
+        }
+
+        // 用户标识
+        if (StringUtils.isNotBlank(request.getUser())) {
+            body.put("user", request.getUser());
+        }
+
+        // 推理力度：优先使用请求中的值，否则使用Agent配置
+        String reasoningEffort = StringUtils.defaultIfBlank(request.getReasoningEffort(),
+                Boolean.TRUE.equals(agent.getDefaultThinking()) ? agent.getDefaultReasoningEffort() : null);
+        if (StringUtils.isNotBlank(reasoningEffort)) {
+            body.put("reasoning_effort", reasoningEffort);
+        }
+
+        // 对数概率
+        if (Boolean.TRUE.equals(request.getLogprobs())) {
+            body.put("logprobs", true);
+            if (request.getTopLogprobs() != null) {
+                body.put("top_logprobs", request.getTopLogprobs());
+            }
+        }
+
+        // token概率偏移
+        if (request.getLogitBias() != null && !request.getLogitBias().isEmpty()) {
+            JSONObject logitBiasJson = new JSONObject();
+            request.getLogitBias().forEach((tokenId, score) -> logitBiasJson.put(String.valueOf(tokenId), score));
+            body.put("logit_bias", logitBiasJson);
+        }
+
+        // 工具配置
         JSONArray toolArray = toJsonTools(tools);
         if (!toolArray.isEmpty()) {
             body.put("tools", toolArray);
-            body.put("tool_choice", "auto");
+            if (StringUtils.isNotBlank(request.getToolChoiceName())) {
+                JSONObject toolChoiceObj = new JSONObject();
+                toolChoiceObj.put("type", "function");
+                toolChoiceObj.put("function", new JSONObject().fluentPut("name", request.getToolChoiceName()));
+                body.put("tool_choice", toolChoiceObj);
+            } else if (StringUtils.isNotBlank(request.getToolChoice())) {
+                body.put("tool_choice", request.getToolChoice());
+            } else {
+                body.put("tool_choice", "auto");
+            }
         }
+
         return body;
     }
 
@@ -271,36 +334,84 @@ public class OpenAIModelClient implements ModelClient {
         ModelStreamResponse response = new ModelStreamResponse();
         response.setModel(defaultModel);
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
+        // 用于累积流式工具调用（按index分组）
+        Map<Integer, JSONObject> toolCallsMap = new LinkedHashMap<>();
+
+        long parseStart = System.currentTimeMillis();
+        long firstTokenTime = -1;
+        int chunkCount = 0;
+
+        // 使用小缓冲区避免SSE数据被缓冲（默认8KB会攒很多chunk才返回）
+        try (InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
+            char[] buffer = new char[1];
+            StringBuilder lineBuffer = new StringBuilder();
+            while (reader.read(buffer) != -1) {
                 if (callback != null && callback.isClosed()) {
                     break;
                 }
-                if (!line.startsWith("data:")) {
-                    continue;
+                char c = buffer[0];
+                if (c == '\n') {
+                    String line = lineBuffer.toString();
+                    lineBuffer.setLength(0);
+                    
+                    if (!line.startsWith("data:")) {
+                        continue;
+                    }
+                    String data = line.substring("data:".length()).trim();
+                    if (StringUtils.isBlank(data)) {
+                        continue;
+                    }
+                    raw.append(data).append('\n');
+                    if ("[DONE]".equals(data)) {
+                        break;
+                    }
+                    chunkCount++;
+                    if (firstTokenTime == -1) {
+                        firstTokenTime = System.currentTimeMillis();
+                        log.info("首token耗时: {}ms", firstTokenTime - parseStart);
+                    }
+                    parseStreamData(data, defaultModel, callback, content, reasoningContent, response, toolCallsMap);
+                } else if (c != '\r') {
+                    lineBuffer.append(c);
                 }
-                String data = line.substring("data:".length()).trim();
-                if (StringUtils.isBlank(data)) {
-                    continue;
+            }
+            // 处理最后一行（如果没有换行符结尾）
+            if (lineBuffer.length() > 0) {
+                String line = lineBuffer.toString();
+                if (line.startsWith("data:")) {
+                    String data = line.substring("data:".length()).trim();
+                    if (StringUtils.isNotBlank(data) && !"[DONE]".equals(data)) {
+                        parseStreamData(data, defaultModel, callback, content, reasoningContent, response, toolCallsMap);
+                    }
                 }
-                raw.append(data).append('\n');
-                if ("[DONE]".equals(data)) {
-                    break;
-                }
-                parseStreamData(data, defaultModel, callback, content, reasoningContent, response);
             }
         }
+
+        long totalMs = System.currentTimeMillis() - parseStart;
+        log.info("流式完成: 总耗时={}ms, chunks={}, 首token={}ms, 内容长度={}",
+                totalMs, chunkCount,
+                firstTokenTime != -1 ? firstTokenTime - parseStart : "N/A",
+                content.length());
 
         response.setContent(content.toString());
         response.setReasoningContent(reasoningContent.toString());
         response.setRawResponse(raw.toString());
+
+        // 将累积的工具调用转换为JSON字符串
+        if (!toolCallsMap.isEmpty()) {
+            JSONArray toolCallsArray = new JSONArray();
+            for (JSONObject toolCall : toolCallsMap.values()) {
+                toolCallsArray.add(toolCall);
+            }
+            response.setToolCalls(toolCallsArray.toJSONString());
+        }
+
         return response;
     }
 
     private void parseStreamData(String data, String defaultModel, ModelStreamCallback callback,
                                  StringBuilder content, StringBuilder reasoningContent,
-                                 ModelStreamResponse response) {
+                                 ModelStreamResponse response, Map<Integer, JSONObject> toolCallsMap) {
         JSONObject json = JSONObject.parseObject(data);
         response.setModel(StringUtils.defaultIfBlank(json.getString("model"), defaultModel));
         JSONObject usage = json.getJSONObject("usage");
@@ -338,8 +449,35 @@ public class OpenAIModelClient implements ModelClient {
             }
         }
         JSONArray toolCalls = delta.getJSONArray("tool_calls");
-        if (toolCalls != null && !toolCalls.isEmpty() && callback != null) {
-            callback.onToolCall(toolCalls.toJSONString());
+        if (toolCalls != null && !toolCalls.isEmpty()) {
+            // 累积工具调用（流式时tool_calls按index分片到达）
+            for (int i = 0; i < toolCalls.size(); i++) {
+                JSONObject toolCallChunk = toolCalls.getJSONObject(i);
+                int index = toolCallChunk.getIntValue("index");
+                JSONObject existing = toolCallsMap.get(index);
+                if (existing == null) {
+                    // 首次出现，直接存入
+                    toolCallsMap.put(index, toolCallChunk);
+                } else {
+                    // 后续分片，合并function.arguments
+                    JSONObject existingFunction = existing.getJSONObject("function");
+                    JSONObject chunkFunction = toolCallChunk.getJSONObject("function");
+                    if (existingFunction != null && chunkFunction != null) {
+                        String existingArgs = existingFunction.getString("arguments");
+                        String chunkArgs = chunkFunction.getString("arguments");
+                        if (StringUtils.isNotBlank(chunkArgs)) {
+                            existingFunction.put("arguments", StringUtils.defaultString(existingArgs) + chunkArgs);
+                        }
+                        // 合并name（通常只在第一个分片）
+                        if (StringUtils.isBlank(existingFunction.getString("name")) && StringUtils.isNotBlank(chunkFunction.getString("name"))) {
+                            existingFunction.put("name", chunkFunction.getString("name"));
+                        }
+                    }
+                }
+            }
+            if (callback != null) {
+                callback.onToolCall(toolCalls.toJSONString());
+            }
         }
     }
 }
