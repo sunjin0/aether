@@ -142,9 +142,10 @@ public class AgentChatServiceImpl implements AgentChatService {
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelChatResponse modelResponse = modelClient.chat(request);
             
-            // 推理未开启时，过滤掉模型可能返回的reasoning_content
+            // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
             if (!Boolean.TRUE.equals(agent.getDefaultThinking())) {
                 modelResponse.setReasoningContent(null);
+                modelResponse.setReasoningTokens(null);
             }
             
             // 处理工具调用
@@ -253,9 +254,10 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
             });
             
-            // 推理未开启时，过滤掉模型可能返回的reasoning_content
+            // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
             if (!thinkingEnabled) {
                 modelResponse.setReasoningContent(null);
+                modelResponse.setReasoningTokens(null);
             }
             
             // 当模型未提供token统计时（如Google Gemma流式响应），补充估算值
@@ -425,7 +427,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             conversation.setAgentDefinitionId(agent.getId());
             conversation.setTitle(buildConversationTitle(dto.getMessage()));
             conversation.setMessageCount(0);
-            conversation.setStatus(CONVERSATION_STATUS_OPEN);
+            conversation.setStatus(Boolean.TRUE.equals(dto.getTemporary()) ? 2 : CONVERSATION_STATUS_OPEN);
             agentConversationService.save(conversation);
             return conversation;
         }

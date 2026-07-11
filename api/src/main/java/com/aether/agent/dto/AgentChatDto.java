@@ -24,6 +24,9 @@ public class AgentChatDto {
     @ApiModelProperty(value = "推理力度：low/medium/high（覆盖Agent默认配置，thinking=true时生效）")
     private String reasoningEffort;
 
+    @ApiModelProperty(value = "是否为临时会话（不显示在会话列表）")
+    private Boolean temporary;
+
     @ApiModelProperty(value = "用户ID（内部传递，不从接口传入）")
     private String userId;
 }

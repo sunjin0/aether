@@ -4,7 +4,9 @@ import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentMessageService;
+import com.aether.agent.vo.AgentConversationLifecycleVo;
 import com.aether.agent.vo.AgentConversationVo;
+import com.aether.agent.vo.AgentMessageStatisticsVo;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
@@ -126,7 +128,7 @@ public class AgentConversationController {
 
     @ApiOperation("删除会话")
     @ApiImplicitParams({
-            @ApiImplicitParam(name = "id", value = "会话ID", required = true),
+            @ApiImplicitParam(name = "id", value = "会话ID", required = true, dataType = "string", paramType = "header"),
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @Permission(path = "/agent/conversation", type = Permission.Type.Write)
@@ -135,6 +137,36 @@ public class AgentConversationController {
         getOwnedConversation(id);
         boolean removed = agentConversationService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+    }
+
+    @ApiOperation("会话生命周期查询")
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "id", value = "会话ID", required = true, dataType = "string", paramType = "header"),
+            @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
+    })
+    @GetMapping("/{id}/lifecycle")
+    public WebResponse<AgentConversationLifecycleVo> lifecycle(@PathVariable @NotBlank String id) {
+        getOwnedConversation(id);
+        AgentConversationLifecycleVo lifecycle = agentConversationService.getLifecycle(id);
+        if (lifecycle == null) {
+            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+        }
+        return WebResponse.OK(lifecycle);
+    }
+
+    @ApiOperation("会话消息统计")
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "id", value = "会话ID", required = true, dataType = "string", paramType = "header"),
+            @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
+    })
+    @GetMapping("/{id}/statistics")
+    public WebResponse<AgentMessageStatisticsVo> statistics(@PathVariable @NotBlank String id) {
+        getOwnedConversation(id);
+        AgentMessageStatisticsVo statistics = agentConversationService.getStatistics(id);
+        if (statistics == null) {
+            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+        }
+        return WebResponse.OK(statistics);
     }
 
     private AgentConversation getOwnedConversation(String id) {
