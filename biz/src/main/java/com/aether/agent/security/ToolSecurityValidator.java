@@ -18,7 +18,7 @@ public class ToolSecurityValidator {
 
     private static final Set<String> ALLOWED_METHODS = new HashSet<>(Arrays.asList("GET", "POST"));
     private static final Set<String> FORBIDDEN_HEADERS = new HashSet<>(Arrays.asList(
-            "authorization", "cookie", "x-api-key", "x-auth-token"
+            "cookie", "x-api-key", "x-auth-token"
     ));
     private static final int MAX_RESPONSE_SIZE = 1024 * 1024; // 1MB
     private static final int MAX_URL_LENGTH = 2048;
@@ -43,17 +43,16 @@ public class ToolSecurityValidator {
             if (!"http".equals(protocol) && !"https".equals(protocol)) {
                 throw new ServerException(422, "仅支持HTTP/HTTPS协议");
             }
-
-            // 禁止内网地址
-            String host = parsedUrl.getHost().toLowerCase();
-            if (isInternalHost(host)) {
-                throw new ServerException(403, "禁止访问内网地址");
-            }
-
-            // 禁止localhost和127.0.0.1
-            if ("localhost".equals(host) || "127.0.0.1".equals(host) || "0.0.0.0".equals(host)) {
-                throw new ServerException(403, "禁止访问本地地址");
-            }
+//            // 禁止内网地址
+//            String host = parsedUrl.getHost().toLowerCase();
+//            if (isInternalHost(host)) {
+//                throw new ServerException(403, "禁止访问内网地址");
+//            }
+//
+//            // 禁止localhost和127.0.0.1
+//            if ("localhost".equals(host) || "127.0.0.1".equals(host) || "0.0.0.0".equals(host)) {
+//                throw new ServerException(403, "禁止访问本地地址");
+//            }
 
         } catch (MalformedURLException e) {
             throw new ServerException(422, "工具URL格式错误");

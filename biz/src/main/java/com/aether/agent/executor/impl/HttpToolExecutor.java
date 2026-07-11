@@ -84,34 +84,62 @@ public class HttpToolExecutor implements ToolExecutor {
         AgentTool tool = context.getTool();
         long startTime = System.currentTimeMillis();
 
+        // 先渲染请求信息，确保失败时也能保存
+        String url = null;
+        String method = tool.getHttpMethod();
+        Map<String, String> headers = null;
+        String body = null;
+
         try {
-            // 1. 安全校验
-            securityValidator.validateMethod(tool.getHttpMethod());
+            // 1. 校验方法
+            securityValidator.validateMethod(method);
 
             // 2. 渲染请求头和请求体
-            String url = renderUrl(tool, context.getArguments());
-            securityValidator.validateUrl(url);
-            Map<String, String> headers = renderHeaders(tool.getHttpHeaders(), context.getArguments());
-            String body = renderBody(tool, context.getArguments());
+            url = renderUrl(tool, context.getArguments());
+            headers = renderHeaders(tool.getHttpHeaders(), context.getArguments());
+            body = renderBody(tool, context.getArguments());
             if (StringUtils.isNotBlank(body) && !containsHeader(headers, "Content-Type")) {
                 headers.put("Content-Type", "application/json; charset=UTF-8");
             }
 
-            // 3. 校验请求头
+            // 3. 校验URL（可能抛出异常）
+            securityValidator.validateUrl(url);
+
+            // 4. 校验请求头
             securityValidator.validateHeaders(headers.keySet());
 
-            // 4. 执行HTTP请求
-            return executeHttpRequest(url, tool.getHttpMethod(), headers, body, tool, startTime);
+            // 5. 执行HTTP请求
+            ToolExecutionResult result = executeHttpRequest(url, method, headers, body, tool, startTime);
+            result.setRequestUrl(url);
+            result.setRequestMethod(method);
+            result.setRequestHeaders(JSON.toJSONString(headers));
+            result.setRequestBody(body);
+            return result;
 
         } catch (ServerException e) {
             log.error("工具执行安全拦截: tool={}, error={}", tool.getCode(), e.getMessage());
-            return ToolExecutionResult.failure(e.getMessage(), 3); // 3-安全拦截
+            ToolExecutionResult result = ToolExecutionResult.failure(e.getMessage(), 3);
+            result.setRequestUrl(url != null ? url : tool.getHttpUrl());
+            result.setRequestMethod(method);
+            result.setRequestHeaders(headers != null ? JSON.toJSONString(headers) : null);
+            result.setRequestBody(body);
+            return result;
         } catch (SocketTimeoutException e) {
             log.error("工具执行超时: tool={}", tool.getCode());
-            return ToolExecutionResult.failure("工具执行超时", 2); // 2-超时
+            ToolExecutionResult result = ToolExecutionResult.failure("工具执行超时", 2);
+            result.setRequestUrl(url != null ? url : tool.getHttpUrl());
+            result.setRequestMethod(method);
+            result.setRequestHeaders(headers != null ? JSON.toJSONString(headers) : null);
+            result.setRequestBody(body);
+            return result;
         } catch (Exception e) {
             log.error("工具执行失败: tool={}", tool.getCode(), e);
-            return ToolExecutionResult.failure("工具执行失败: " + e.getMessage(), 1); // 1-失败
+            ToolExecutionResult result = ToolExecutionResult.failure("工具执行失败: " + e.getMessage(), 1);
+            result.setRequestUrl(url != null ? url : tool.getHttpUrl());
+            result.setRequestMethod(method);
+            result.setRequestHeaders(headers != null ? JSON.toJSONString(headers) : null);
+            result.setRequestBody(body);
+            return result;
         }
     }
 
@@ -153,7 +181,7 @@ public class HttpToolExecutor implements ToolExecutor {
             String responseBody = readResponseBody(connection, status);
 
             // 校验响应大小
-            securityValidator.validateResponseSize(responseBody != null ? responseBody.length() : 0);
+            securityValidator.validateResponseSize(responseBody.length());
 
             long latencyMs = System.currentTimeMillis() - startTime;
 

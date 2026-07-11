@@ -48,6 +48,26 @@ public class ToolExecutionResult {
      */
     private Integer status;
 
+    /**
+     * 请求URL（渲染后）
+     */
+    private String requestUrl;
+
+    /**
+     * 请求方法
+     */
+    private String requestMethod;
+
+    /**
+     * 请求头（JSON）
+     */
+    private String requestHeaders;
+
+    /**
+     * 请求体
+     */
+    private String requestBody;
+
     public static ToolExecutionResult success(String content, String rawResponse, Integer httpStatus, Integer latencyMs) {
         ToolExecutionResult result = new ToolExecutionResult();
         result.setSuccess(true);

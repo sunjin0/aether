@@ -232,8 +232,9 @@ public class AgentChatController {
 
         @Override
         public void onToolCall(String conversationId, String toolCallJson) {
-            JSONObject data = JSON.parseObject(toolCallJson);
+            JSONObject data = new JSONObject();
             data.put("conversationId", conversationId);
+            data.put("toolCalls", JSON.parseArray(toolCallJson));
             send("tool_call", data, false);
         }
 

@@ -154,12 +154,16 @@ public class AgentChatServiceImpl implements AgentChatService {
                     runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), modelResponse, 0, RUN_STATUS_SUCCESS, null);
                 }
                 iteration++;
-                List<ToolExecutionResult> toolResults = executeToolCalls(modelResponse, agent, conversation.getId(), userId, runId);
+                List<ToolExecutionResult> toolResults = executeToolCalls(modelResponse, agent, userId, runId);
                 
                 // 将工具调用结果添加到上下文
                 for (ToolExecutionResult result : toolResults) {
+                    String toolContent = result.getContent();
+                    if (toolContent == null) {
+                        toolContent = result.isSuccess() ? "" : (result.getErrorMsg() != null ? result.getErrorMsg() : "工具执行失败");
+                    }
                     context.add(new ModelChatMessage("assistant", modelResponse.getContent(), modelResponse.getToolCalls(), null));
-                    context.add(new ModelChatMessage("tool", result.getContent(), null, result.getToolCallId()));
+                    context.add(new ModelChatMessage("tool", toolContent, null, result.getToolCallId()));
                 }
                 
                 // 继续调用模型
@@ -276,12 +280,17 @@ public class AgentChatServiceImpl implements AgentChatService {
                     runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), chatResponse, 0, RUN_STATUS_SUCCESS, null);
                 }
                 iteration++;
-                List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, conversation.getId(), userId, runId);
+                List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, userId, runId);
                 
                 // 将工具调用结果添加到上下文
                 for (ToolExecutionResult result : toolResults) {
+                    String toolContent = result.getContent();
+                    if (toolContent == null) {
+                        toolContent = result.isSuccess() ? "" : (result.getErrorMsg() != null ? result.getErrorMsg() : "工具执行失败");
+                    }
+                    log.info("工具结果添加到上下文: toolCallId={}, content={}", result.getToolCallId(), toolContent);
                     context.add(new ModelChatMessage("assistant", chatResponse.getContent(), chatResponse.getToolCalls(), null));
-                    context.add(new ModelChatMessage("tool", result.getContent(), null, result.getToolCallId()));
+                    context.add(new ModelChatMessage("tool", toolContent, null, result.getToolCallId()));
                 }
                 
                 // 继续调用模型（流式）
@@ -875,7 +884,7 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 执行工具调用
      */
     private List<ToolExecutionResult> executeToolCalls(ModelChatResponse modelResponse, AgentDefinition agent,
-                                                        String conversationId, String userId, String runId) {
+                                                       String userId, String runId) {
         List<ToolExecutionResult> results = new ArrayList<>();
 
         try {
@@ -889,7 +898,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             List<AgentTool> boundTools = getBoundTools(agent.getId());
             Map<String, AgentTool> toolMap = new HashMap<>();
             for (AgentTool tool : boundTools) {
-                toolMap.put(tool.getCode(), tool);
+                toolMap.put(tool.getName(), tool);
             }
 
             // 执行每个工具调用
@@ -902,6 +911,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                     continue;
                 }
 
+                log.info("执行工具调用: name={}, toolId={}, arguments={}", toolCall.getName(), tool.getId(), toolCall.getArguments());
+                
                 ToolExecutionContext context = new ToolExecutionContext();
                 context.setTool(tool);
                 context.setArguments(toolCall.getArguments());
@@ -914,15 +925,17 @@ public class AgentChatServiceImpl implements AgentChatService {
                     result.setToolCallId(toolCall.getId());
                     results.add(result);
 
+                    log.info("工具执行完成: name={}, status={}, content={}", toolCall.getName(), result.getStatus(), result.getContent());
+                    
                     // 保存工具调用日志
                     saveToolCallLog(
                             runId,
                             tool.getId(),
                             agent.getId(),
-                            tool.getHttpUrl(),
-                            tool.getHttpMethod(),
-                            null,
-                            null,
+                            result.getRequestUrl(),
+                            result.getRequestMethod(),
+                            result.getRequestHeaders(),
+                            result.getRequestBody(),
                             result.getHttpStatus(),
                             result.getRawResponse(),
                             result.getLatencyMs(),
@@ -936,6 +949,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                             1, e.getMessage());
                     ToolExecutionResult failure = ToolExecutionResult.failure(e.getMessage(), 1);
                     failure.setToolCallId(toolCall.getId());
+                    failure.setRequestUrl(tool.getHttpUrl());
+                    failure.setRequestMethod(tool.getHttpMethod());
                     results.add(failure);
                 }
             }
@@ -1020,6 +1035,37 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
 
         return tools;
+    }
+
+    /**
+     * 清除指定工具相关的所有Agent缓存
+     */
+    public void evictToolCacheByToolId(String toolId) {
+        try {
+            // 查找所有绑定该工具的Agent
+            List<AgentToolBinding> bindings = agentToolBindingService.list(
+                    Wrappers.lambdaQuery(AgentToolBinding.class)
+                            .eq(AgentToolBinding::getToolId, toolId)
+                            .eq(AgentToolBinding::getDeleted, false)
+            );
+            for (AgentToolBinding binding : bindings) {
+                evictToolCache(binding.getAgentDefinitionId());
+            }
+        } catch (Exception e) {
+            // 清除缓存失败不影响主流程
+        }
+    }
+
+    /**
+     * 清除指定Agent的工具缓存
+     */
+    public void evictToolCache(String agentId) {
+        try {
+            String cacheKey = TOOLS_CACHE_KEY_PREFIX + agentId;
+            redisTemplate.delete(cacheKey);
+        } catch (Exception e) {
+            // 清除缓存失败不影响主流程
+        }
     }
 
     /**

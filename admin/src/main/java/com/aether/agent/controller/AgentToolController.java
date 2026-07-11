@@ -28,6 +28,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -176,7 +177,39 @@ public class AgentToolController {
             return WebResponse.Error(500, "工具测试异常: " + e.getMessage(), errorResult);
         }
     }
-
+    
+    @ApiOperation("获取模拟用户信息")
+    @GetMapping("/user/info")
+    @ResponseBody
+    public WebResponse<Map<String, Object>> info(@RequestParam("name") @NotBlank String name) {
+        //生成模拟个人数据（随机）
+        Map<String, Object> info = new HashMap<>();
+        info.put("name", name);
+        info.put("age", 18 + (int)(Math.random() * 50));
+        info.put("gender", Math.random() > 0.5 ? "male" : "female");
+        info.put("height", 150 + Math.random() * 40);
+        info.put("weight", 45 + Math.random() * 50);
+        info.put("birthday", String.format("%d-%02d-%02d", 
+                1970 + (int)(Math.random() * 35), 
+                1 + (int)(Math.random() * 12), 
+                1 + (int)(Math.random() * 28)));
+        info.put("id", String.valueOf((long)(Math.random() * 9000000000L) + 1000000000L));
+        String[] cities = {"Beijing", "Shanghai", "Guangzhou", "Shenzhen", "Hangzhou", "Chengdu"};
+        info.put("address", cities[(int)(Math.random() * cities.length)]);
+        info.put("phone", "+86" + (long)(Math.random() * 9000000000L + 1000000000L));
+        info.put("email", name.toLowerCase() + (int)(Math.random() * 1000) + "@example.com");
+        String[] edu = {"高中", "大专", "本科", "硕士", "博士"};
+        info.put("education", edu[(int)(Math.random() * edu.length)]);
+        String[] majors = {"Computer Science", "Mathematics", "Physics", "Business", "Engineering"};
+        info.put("major", majors[(int)(Math.random() * majors.length)]);
+        String[] schools = {"Peking University", "Tsinghua University", "Fudan University", "Zhejiang University"};
+        info.put("school", schools[(int)(Math.random() * schools.length)]);
+        String[] degrees = {"学士", "硕士", "博士"};
+        info.put("degree", degrees[(int)(Math.random() * degrees.length)]);
+        info.put("graduation_year", 2015 + (int)(Math.random() * 11));
+        info.put("is_student", Math.random() > 0.7);
+        return WebResponse.OK(info);
+    }
     private void fillToolDefaults(AgentTool tool) {
         if (StringUtils.isBlank(tool.getType())) {
             tool.setType("http");

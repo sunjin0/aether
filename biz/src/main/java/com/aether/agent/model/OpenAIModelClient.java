@@ -237,19 +237,35 @@ public class OpenAIModelClient implements ModelClient {
             return array;
         }
         for (ModelChatMessage message : messages) {
-            JSONObject item = new JSONObject();
-            item.put("role", message.getRole());
-            item.put("content", message.getContent());
-            if (StringUtils.isNotBlank(message.getToolCalls())) {
+            String role = message.getRole();
+            // assistant 有 tool_calls 时 content 可省略，其他角色必须有 content
+            boolean hasToolCalls = StringUtils.isNotBlank(message.getToolCalls());
+            
+            log.debug("toJsonMessages: role={}, content={}, toolCallId={}, hasToolCalls={}", 
+                    role, message.getContent(), message.getToolCallId(), hasToolCalls);
+            
+            if ("assistant".equals(role) && hasToolCalls) {
+                JSONObject item = new JSONObject();
+                item.put("role", role);
                 item.put("tool_calls", JSONArray.parseArray(message.getToolCalls()));
+                array.add(item);
+            } else {
+                JSONObject item = new JSONObject();
+                item.put("role", role);
+                item.put("content", StringUtils.defaultString(message.getContent(), ""));
+                if (hasToolCalls) {
+                    item.put("tool_calls", JSONArray.parseArray(message.getToolCalls()));
+                }
+                if (StringUtils.isNotBlank(message.getToolCallId())) {
+                    item.put("tool_call_id", message.getToolCallId());
+                }
+                array.add(item);
             }
-            if (StringUtils.isNotBlank(message.getToolCallId())) {
-                item.put("tool_call_id", message.getToolCallId());
-            }
-            array.add(item);
         }
         return array;
     }
+
+    private static final java.util.regex.Pattern PLACEHOLDER_PATTERN = java.util.regex.Pattern.compile("\\$\\{([^}]+)\\}");
 
     private JSONArray toJsonTools(List<AgentTool> tools) {
         JSONArray array = new JSONArray();
@@ -260,13 +276,29 @@ public class OpenAIModelClient implements ModelClient {
             if (tool == null || StringUtils.isBlank(tool.getCode())) {
                 continue;
             }
+            
+            // 从模板中提取参数
+            JSONObject properties = new JSONObject();
+            java.util.Set<String> required = new java.util.LinkedHashSet<>();
+            
+            // 从 httpBodyTemplate 提取参数
+            extractPlaceholders(tool.getHttpBodyTemplate(), properties, required);
+            // 从 httpUrl 提取参数
+            extractPlaceholders(tool.getHttpUrl(), properties, required);
+            // 从 httpHeaders 提取参数
+            extractPlaceholders(tool.getHttpHeaders(), properties, required);
+            
             JSONObject parameters = new JSONObject();
             parameters.put("type", "object");
+            parameters.put("properties", properties);
+            if (!required.isEmpty()) {
+                parameters.put("required", new JSONArray(required));
+            }
             parameters.put("additionalProperties", true);
 
             JSONObject function = new JSONObject();
-            function.put("name", tool.getCode());
-            function.put("description", StringUtils.defaultIfBlank(tool.getDescription(), tool.getName()));
+            function.put("name", tool.getName());
+            function.put("description", StringUtils.defaultIfBlank(tool.getDescription(), tool.getCode()));
             function.put("parameters", parameters);
 
             JSONObject item = new JSONObject();
@@ -275,6 +307,23 @@ public class OpenAIModelClient implements ModelClient {
             array.add(item);
         }
         return array;
+    }
+
+    private void extractPlaceholders(String template, JSONObject properties, java.util.Set<String> required) {
+        if (StringUtils.isBlank(template)) {
+            return;
+        }
+        java.util.regex.Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
+        while (matcher.find()) {
+            String paramName = matcher.group(1);
+            if (!properties.containsKey(paramName)) {
+                JSONObject prop = new JSONObject();
+                prop.put("type", "string");
+                prop.put("description", "参数: " + paramName);
+                properties.put(paramName, prop);
+                required.add(paramName);
+            }
+        }
     }
 
     private String buildChatUrl(String apiBaseUrl) {
@@ -397,15 +446,11 @@ public class OpenAIModelClient implements ModelClient {
         response.setReasoningContent(reasoningContent.toString());
         response.setRawResponse(raw.toString());
 
-        // 打印模型原始响应（调试用）
-        log.info("模型原始响应:\n{}", raw.toString());
 
         // 将累积的工具调用转换为JSON字符串
         if (!toolCallsMap.isEmpty()) {
             JSONArray toolCallsArray = new JSONArray();
-            for (JSONObject toolCall : toolCallsMap.values()) {
-                toolCallsArray.add(toolCall);
-            }
+            toolCallsArray.addAll(toolCallsMap.values());
             response.setToolCalls(toolCallsArray.toJSONString());
         }
 
