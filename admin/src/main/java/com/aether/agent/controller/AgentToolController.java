@@ -179,6 +179,7 @@ public class AgentToolController {
     }
     
     @ApiOperation("获取模拟用户信息")
+    @Permission(required = false)
     @GetMapping("/user/info")
     @ResponseBody
     public WebResponse<Map<String, Object>> info(@RequestParam("name") @NotBlank String name) {

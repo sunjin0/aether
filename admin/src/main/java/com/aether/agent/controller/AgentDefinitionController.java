@@ -5,8 +5,10 @@ import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentToolBinding;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentToolBindingService;
+import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.vo.AgentDefinitionVo;
 import com.aether.agent.vo.AgentToolBindingVo;
+import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -42,12 +44,15 @@ public class AgentDefinitionController {
 
     private final AgentDefinitionService agentDefinitionService;
     private final AgentToolBindingService agentToolBindingService;
+    private final ModelProviderService modelProviderService;
 
     @Autowired
     public AgentDefinitionController(AgentDefinitionService agentDefinitionService,
-                                     AgentToolBindingService agentToolBindingService) {
+                                     AgentToolBindingService agentToolBindingService,
+                                     ModelProviderService modelProviderService) {
         this.agentDefinitionService = agentDefinitionService;
         this.agentToolBindingService = agentToolBindingService;
+        this.modelProviderService = modelProviderService;
     }
 
     @ApiOperation("Agent定义列表")
@@ -204,5 +209,13 @@ public class AgentDefinitionController {
             agentToolBindingService.save(newBinding);
         }
         return WebResponse.OK(I18nUtils.getMessage("copy.success"), copy.getId());
+    }
+    /**
+     * 模型供应商列表
+     * @return 模型供应商列表
+     */
+    @GetMapping("/model/providers")
+    public WebResponse<List<Option>> getModelProviders() {
+        return WebResponse.OK(modelProviderService.getModelProviders());
     }
 }
