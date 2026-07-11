@@ -57,11 +57,9 @@ public class AgentConversationController {
     @PostMapping("/list")
     public WebResponse<List<AgentConversationVo>> list(@RequestBody AgentConversationVo vo) {
         Page<AgentConversation> page = new Page<>(vo.getCurrent(), vo.getPageSize());
-        // 默认只显示开放会话（status=0），除非前端明确指定status参数
-        Integer status = vo.getStatus() != null ? vo.getStatus() : 0;
         Wrapper<AgentConversation> wrapper = Wrappers.lambdaQuery(AgentConversation.class)
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentConversation::getAgentDefinitionId, vo.getAgentDefinitionId())
-                .eq(AgentConversation::getStatus, status)
+                .eq(vo.getStatus() != null, AgentConversation::getStatus, vo.getStatus())
                 .eq(AgentConversation::getDeleted, false)
                 .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId"))
                 .orderByDesc(AgentConversation::getCreatedAt);

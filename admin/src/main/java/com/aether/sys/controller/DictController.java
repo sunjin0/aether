@@ -123,7 +123,7 @@ public class DictController {
     })
     @Permission(required = false)
     @GetMapping("/options")
-    public WebResponse<List<Option>> getByParentCode(@RequestParam @NotNull String parentCode) {
-        return WebResponse.OK(dictService.getOptions(parentCode));
+    public WebResponse<List<Option>> getByParentCode(@RequestParam @NotNull String parentCode, @RequestParam @Nullable Boolean useValue) {
+        return WebResponse.OK(dictService.getOptions(parentCode, useValue));
     }
 }

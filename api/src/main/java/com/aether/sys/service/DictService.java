@@ -58,7 +58,7 @@ public interface DictService extends IService<Dict> {
      * @param parentCode 父代码
      * @return {@link List }<{@link Option }>
      */
-    List<Option> getOptions(String parentCode);
+    List<Option> getOptions(String parentCode, Boolean useValue);
 
     /**
      * 选择

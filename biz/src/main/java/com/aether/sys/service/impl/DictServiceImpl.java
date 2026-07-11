@@ -143,13 +143,13 @@ public class DictServiceImpl extends ServiceImpl<DictMapper, Dict> implements Di
     }
 
     @Override
-    public List<Option> getOptions(String parentCode) {
+    public List<Option> getOptions(String parentCode, Boolean useValue) {
         List<Dict> list = getByParentCode(parentCode);
         if (list.isEmpty()) {
             return Collections.emptyList();
         }
         list.forEach(Dict -> SwitchLang(Dict, null));
-        return list.stream().map(item -> new Option(item.getName(), item.getCode())).collect(Collectors.toList());
+        return list.stream().map(item -> new Option(item.getName(), useValue ?item.getVal() : item.getCode())).collect(Collectors.toList());
     }
 
     @Override
