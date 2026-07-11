@@ -257,6 +257,15 @@ public class AgentChatServiceImpl implements AgentChatService {
             // 当模型未提供token统计时（如Google Gemma流式响应），补充估算值
             fillDefaultTokens(modelResponse, context, dto.getMessage());
             
+            // 打印完整模型响应（调试用）
+            log.info("模型完整响应: content={}, toolCalls={}, reasoningContent={}, model={}, tokens={}/{}",
+                    modelResponse.getContent(),
+                    modelResponse.getToolCalls(),
+                    modelResponse.getReasoningContent(),
+                    modelResponse.getModel(),
+                    modelResponse.getPromptTokens(),
+                    modelResponse.getCompletionTokens());
+            
             log.info("流式请求完成: 总耗时={}ms", System.currentTimeMillis() - startTime);
             
             // 处理工具调用循环

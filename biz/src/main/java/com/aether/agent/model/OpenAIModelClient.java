@@ -397,6 +397,9 @@ public class OpenAIModelClient implements ModelClient {
         response.setReasoningContent(reasoningContent.toString());
         response.setRawResponse(raw.toString());
 
+        // 打印模型原始响应（调试用）
+        log.info("模型原始响应:\n{}", raw.toString());
+
         // 将累积的工具调用转换为JSON字符串
         if (!toolCallsMap.isEmpty()) {
             JSONArray toolCallsArray = new JSONArray();

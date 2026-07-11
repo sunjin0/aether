@@ -1,5 +1,7 @@
 package com.aether.interceptor;
 
+import com.alibaba.fastjson2.JSON;
+import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
@@ -9,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -54,9 +57,11 @@ public class GlobalFilter extends OncePerRequestFilter {
                     payload.put("userId", userId);
                     payload.put("token", token);
                 } catch (ServerException e) {
-                    throw e;
+                    handleException(response, e);
+                    return;
                 } catch (Exception e) {
-                    throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
+                    handleException(response, new ServerException(401, I18nUtils.getMessage("error.token.expired")));
+                    return;
                 }
             }
 
@@ -66,6 +71,11 @@ public class GlobalFilter extends OncePerRequestFilter {
 
             // 继续执行后续过滤器和控制器
             filterChain.doFilter(request, response);
+        } catch (ServerException e) {
+            handleException(response, e);
+        } catch (Exception e) {
+            log.error("请求处理异常", e);
+            handleException(response, new ServerException(500, e.getMessage()));
         } finally {
             // 记录请求日志
             try {
@@ -86,5 +96,26 @@ public class GlobalFilter extends OncePerRequestFilter {
             // 清理ThreadLocal，防止内存泄漏
             CurrentUser.remove();
         }
+    }
+
+    private void handleException(HttpServletResponse response, ServerException e) throws IOException {
+        log.error("过滤器异常：", e);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        response.setStatus(HttpServletResponse.SC_OK);
+        String message = e.getMessage();
+        WebResponse<String> webResponse;
+        String[] parts = message != null ? message.split(":", 2) : new String[0];
+        if (parts.length == 2) {
+            try {
+                int code = Integer.parseInt(parts[0].trim());
+                webResponse = WebResponse.Error(code, parts[1].trim(), null);
+            } catch (NumberFormatException ex) {
+                webResponse = WebResponse.Error(message, null);
+            }
+        } else {
+            webResponse = WebResponse.Error(message, null);
+        }
+        response.getWriter().write(JSON.toJSONString(webResponse));
     }
 }

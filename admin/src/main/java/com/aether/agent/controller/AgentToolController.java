@@ -42,6 +42,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/agent/tool")
 public class AgentToolController {
 
+    private static final int DEFAULT_TOOL_TIMEOUT_MS = 30000;
+
     private final AgentToolService agentToolService;
     private final ToolExecutorFactory toolExecutorFactory;
 
@@ -101,6 +103,7 @@ public class AgentToolController {
     public WebResponse<String> save(@RequestBody AgentToolDto dto) {
         AgentTool tool = new AgentTool();
         BeanUtils.copyProperties(dto, tool);
+        fillToolDefaults(tool);
         boolean saved = agentToolService.save(tool);
         return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), tool.getId());
     }
@@ -116,6 +119,7 @@ public class AgentToolController {
         AgentTool tool = new AgentTool();
         BeanUtils.copyProperties(dto, tool);
         tool.setId(id);
+        fillToolDefaults(tool);
         boolean updated = agentToolService.updateById(tool);
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }
@@ -170,6 +174,22 @@ public class AgentToolController {
         } catch (Exception e) {
             ToolExecutionResult errorResult = ToolExecutionResult.failure(e.getMessage(), 1);
             return WebResponse.Error(500, "工具测试异常: " + e.getMessage(), errorResult);
+        }
+    }
+
+    private void fillToolDefaults(AgentTool tool) {
+        if (StringUtils.isBlank(tool.getType())) {
+            tool.setType("http");
+        }
+        if (StringUtils.isBlank(tool.getHttpMethod())) {
+            tool.setHttpMethod("GET");
+        }
+        tool.setHttpMethod(tool.getHttpMethod().toUpperCase());
+        if (tool.getStatus() == null) {
+            tool.setStatus(1);
+        }
+        if (tool.getTimeoutMs() == null) {
+            tool.setTimeoutMs(DEFAULT_TOOL_TIMEOUT_MS);
         }
     }
 }

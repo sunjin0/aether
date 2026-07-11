@@ -23,11 +23,10 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * HTTP 工具执行器。
@@ -56,6 +55,30 @@ public class HttpToolExecutor implements ToolExecutor {
         return "http".equalsIgnoreCase(toolType);
     }
 
+    private String renderUrl(AgentTool tool, Map<String, Object> arguments) {
+        String template = tool.getHttpUrl();
+        String renderedUrl = templateRenderer.render(template, arguments);
+        if (!"GET".equalsIgnoreCase(tool.getHttpMethod()) || StringUtils.isBlank(renderedUrl)
+                || StringUtils.contains(template, "${") || arguments == null || arguments.isEmpty()) {
+            return renderedUrl;
+        }
+
+        StringBuilder query = new StringBuilder();
+        for (Map.Entry<String, Object> entry : arguments.entrySet()) {
+            if (entry.getValue() == null) {
+                continue;
+            }
+            if (query.length() > 0) {
+                query.append('&');
+            }
+            query.append(urlEncode(entry.getKey())).append('=').append(urlEncode(String.valueOf(entry.getValue())));
+        }
+        if (query.length() == 0) {
+            return renderedUrl;
+        }
+        return renderedUrl + (renderedUrl.contains("?") ? "&" : "?") + query;
+    }
+
     @Override
     public ToolExecutionResult execute(ToolExecutionContext context) {
         AgentTool tool = context.getTool();
@@ -66,10 +89,13 @@ public class HttpToolExecutor implements ToolExecutor {
             securityValidator.validateMethod(tool.getHttpMethod());
 
             // 2. 渲染请求头和请求体
-            String url = templateRenderer.render(tool.getHttpUrl(), context.getArguments());
+            String url = renderUrl(tool, context.getArguments());
             securityValidator.validateUrl(url);
             Map<String, String> headers = renderHeaders(tool.getHttpHeaders(), context.getArguments());
             String body = renderBody(tool, context.getArguments());
+            if (StringUtils.isNotBlank(body) && !containsHeader(headers, "Content-Type")) {
+                headers.put("Content-Type", "application/json; charset=UTF-8");
+            }
 
             // 3. 校验请求头
             securityValidator.validateHeaders(headers.keySet());
@@ -176,6 +202,7 @@ public class HttpToolExecutor implements ToolExecutor {
      */
     private Map<String, String> renderHeaders(String headersJson, Map<String, Object> arguments) {
         Map<String, String> headers = new HashMap<>();
+        headers.put("Accept", "application/json");
 
         if (StringUtils.isBlank(headersJson)) {
             return headers;
@@ -199,6 +226,9 @@ public class HttpToolExecutor implements ToolExecutor {
      */
     private String renderBody(AgentTool tool, Map<String, Object> arguments) {
         if (StringUtils.isBlank(tool.getHttpBodyTemplate())) {
+            if ("POST".equalsIgnoreCase(tool.getHttpMethod()) && arguments != null && !arguments.isEmpty()) {
+                return JSON.toJSONString(arguments);
+            }
             return null;
         }
 
@@ -218,5 +248,25 @@ public class HttpToolExecutor implements ToolExecutor {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private boolean containsHeader(Map<String, String> headers, String name) {
+        if (headers == null || headers.isEmpty()) {
+            return false;
+        }
+        for (String header : headers.keySet()) {
+            if (name.equalsIgnoreCase(header)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String urlEncode(String value) {
+        try {
+            return URLEncoder.encode(value, StandardCharsets.UTF_8.name());
+        } catch (Exception e) {
+            return value;
+        }
     }
 }
