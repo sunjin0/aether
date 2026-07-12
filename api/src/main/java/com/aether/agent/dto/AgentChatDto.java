@@ -3,30 +3,41 @@ package com.aether.agent.dto;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 
+import java.util.Map;
+
 /**
- * 聊天请求 DTO
+ * Chat request DTO.
  */
 @Data
 public class AgentChatDto {
 
-    @ApiModelProperty(value = "Agent定义ID")
+    @ApiModelProperty(value = "Agent definition ID")
     private String agentId;
 
-    @ApiModelProperty(value = "会话ID（可选，首次对话不传）")
+    @ApiModelProperty(value = "Conversation ID")
     private String conversationId;
 
-    @ApiModelProperty(value = "消息内容")
+    @ApiModelProperty(value = "User message")
     private String message;
 
-    @ApiModelProperty(value = "是否启用深度思考（覆盖Agent默认配置）")
+    @ApiModelProperty(value = "Parent interaction message ID")
+    private String parentMessageId;
+
+    @ApiModelProperty(value = "Structured interaction answer")
+    private Map<String, Object> answer;
+
+    @ApiModelProperty(value = "Enable interactive question mode")
+    private Boolean interactive;
+
+    @ApiModelProperty(value = "Enable thinking")
     private Boolean thinking;
 
-    @ApiModelProperty(value = "推理力度：low/medium/high（覆盖Agent默认配置，thinking=true时生效）")
+    @ApiModelProperty(value = "Reasoning effort: low/medium/high")
     private String reasoningEffort;
 
-    @ApiModelProperty(value = "是否为临时会话（不显示在会话列表）")
+    @ApiModelProperty(value = "Temporary conversation")
     private Boolean temporary;
 
-    @ApiModelProperty(value = "用户ID（内部传递，不从接口传入）")
+    @ApiModelProperty(value = "Internal user ID")
     private String userId;
 }

@@ -239,6 +239,20 @@ public class AgentChatController {
         }
 
         @Override
+        public void onQuestion(String conversationId, String runId, AgentMessageVo question) {
+            JSONObject data = new JSONObject();
+            data.put("conversationId", conversationId);
+            data.put("runId", runId);
+            data.put("messageId", question.getId());
+            data.put("content", question.getContent());
+            data.put("messageType", question.getMessageType());
+            data.put("interactionType", question.getInteractionType());
+            data.put("interactionStatus", question.getInteractionStatus());
+            data.put("questionConfig", JSON.parseObject(question.getQuestionConfig()));
+            send("question", data, false);
+        }
+
+        @Override
         public void onDone(String conversationId, String messageId, ModelStreamResponse response) {
             JSONObject data = new JSONObject();
             data.put("conversationId", conversationId);
@@ -251,6 +265,7 @@ public class AgentChatController {
                 data.put("completionTokens", response.getCompletionTokens());
                 data.put("totalTokens", response.getTotalTokens());
                 data.put("reasoningTokens", response.getReasoningTokens());
+                data.put("waitingUser", response.getWaitingUser());
             }
             send("done", data, true);
         }

@@ -66,6 +66,21 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final int CONVERSATION_STATUS_OPEN = 0;
     private static final int RUN_STATUS_SUCCESS = 0;
     private static final int RUN_STATUS_FAILED = 1;
+    private static final int RUN_STATUS_WAITING_USER = 3;
+    private static final String ASK_USER_TOOL_NAME = "ask_user";
+    private static final String MESSAGE_TYPE_CHAT = "chat";
+    private static final String MESSAGE_TYPE_INTERACTION = "interaction";
+    private static final String MESSAGE_TYPE_ANSWER = "answer";
+    private static final String INTERACTION_STATUS_PENDING = "pending";
+    private static final String INTERACTION_STATUS_ANSWERED = "answered";
+    private static final String INTERACTIVE_QUESTION_POLICY = "交互式提问模式已启用。当你需要用户确认、选择或取消时，必须调用 ask_user 工具。"
+            + "\n\n核心规则："
+            + "\n1. 绝对禁止用普通文本输出需要用户回答的问题"
+            + "\n2. 一次调用可提出多个相关问题（通过 questions 数组），前端以Tab页签展示"
+            + "\n3. 如果是选项问题，使用 type=choice 并给出 options；如果是确认问题，使用 type=confirm"
+            + "\n4. 每个问题必须有唯一的 id（snake_case），用于匹配答案"
+            + "\n5. 不要使用 form，不要生成动态表单字段；如果需要用户填写开放文本，请直接输出普通追问"
+            + "\n6. 只有在不需要用户继续输入时，才输出普通助手回复";
     private static final int TOOL_CALL_STATUS_SUCCESS = 0;
     private static final int TOOL_CALL_STATUS_FAILED = 1;
     private static final int TOOL_CALL_STATUS_TIMEOUT = 2;
@@ -133,14 +148,17 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         try {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            boolean interactiveEnabled = Boolean.TRUE.equals(dto.getInteractive());
+            applyInteractiveQuestionPolicy(context, interactiveEnabled);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(getBoundTools(agent.getId()));
+            request.setTools(getRequestTools(agent.getId(), interactiveEnabled));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelChatResponse modelResponse = modelClient.chat(request);
+            modelResponse = retryAskUserWhenPlainQuestion(modelResponse, modelClient, request, interactiveEnabled);
             
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
             if (!Boolean.TRUE.equals(agent.getDefaultThinking())) {
@@ -158,6 +176,18 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
+                ToolCallInfo askUserCall = findAskUserToolCall(modelResponse);
+                if (askUserCall != null) {
+                    long latencyMs = System.currentTimeMillis() - startTime;
+                    AgentMessage questionMessage = trySaveGroupInteractionMessage(conversation.getId(), askUserCall, latencyMs);
+                    updateConversationMessageCount(conversation.getId());
+                    boolean waitingUser = MESSAGE_TYPE_INTERACTION.equals(questionMessage.getMessageType());
+                    updateRun(runId, questionMessage.getId(), modelResponse, latencyMs,
+                            waitingUser ? RUN_STATUS_WAITING_USER : RUN_STATUS_SUCCESS, null);
+                    AgentMessageVo vo = new AgentMessageVo();
+                    BeanUtils.copyProperties(questionMessage, vo);
+                    return vo;
+                }
                 List<ToolExecutionResult> toolResults = executeToolCalls(modelResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
@@ -212,7 +242,11 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     @Override
     public void stream(AgentChatDto dto, AgentStreamCallback callback) {
-        validateRequest(dto);
+        validateStreamRequest(dto);
+        if (isInteractionReplyRequest(dto)) {
+            streamReply(dto, callback);
+            return;
+        }
         String userId = getCurrentUserId(dto);
         long startTime = System.currentTimeMillis();
 
@@ -228,6 +262,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
             long t0 = System.currentTimeMillis();
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            boolean interactiveEnabled = Boolean.TRUE.equals(dto.getInteractive());
+            applyInteractiveQuestionPolicy(context, interactiveEnabled);
             long t1 = System.currentTimeMillis();
             log.info("上下文构建耗时: {}ms", t1 - t0);
 
@@ -235,7 +271,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(getBoundTools(agent.getId()));
+            request.setTools(getRequestTools(agent.getId(), interactiveEnabled));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             // 推理未开启时，不转发reasoning chunks
@@ -300,6 +336,29 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
+                ToolCallInfo askUserCall = findAskUserToolCall(chatResponse);
+                if (askUserCall != null) {
+                    long latencyMs = System.currentTimeMillis() - startTime;
+                    AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, latencyMs);
+                    AgentMessage questionMessage = trySaveGroupInteractionMessage(conversation.getId(), askUserCall, latencyMs);
+                    updateConversationMessageCount(conversation.getId());
+                    AgentMessageVo questionVo = new AgentMessageVo();
+                    BeanUtils.copyProperties(questionMessage, questionVo);
+
+                    boolean waitingUser = MESSAGE_TYPE_INTERACTION.equals(questionMessage.getMessageType());
+                    updateRun(runId, questionMessage.getId(), chatResponse, latencyMs,
+                            waitingUser ? RUN_STATUS_WAITING_USER : RUN_STATUS_SUCCESS, null);
+                    
+                    if (!callback.isClosed()) {
+                        ModelStreamResponse doneResponse = new ModelStreamResponse();
+                        AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : questionMessage;
+                        doneResponse.setContent(doneMessage.getContent());
+                        doneResponse.setWaitingUser(waitingUser);
+                        callback.onQuestion(conversation.getId(), runId, questionVo);
+                        callback.onDone(conversation.getId(), doneMessage.getId(), doneResponse);
+                    }
+                    return;
+                }
                 List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
@@ -390,10 +449,241 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    private void streamReply(AgentChatDto dto, AgentStreamCallback callback) {
+        String userId = resolveUserId(dto.getUserId());
+        long startTime = System.currentTimeMillis();
+        String runId = null;
+        AgentConversation conversation = null;
+        AgentDefinition agent = null;
+        ModelProvider provider = null;
+        AgentMessage answerMessage = null;
+        String answerContent = null;
+
+        try {
+            conversation = agentConversationService.getById(dto.getConversationId());
+            if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
+                throw new ServerException(404, "会话不存在");
+            }
+            if (!userId.equals(conversation.getUserId())) {
+                throw new ServerException(403, "无权访问会话");
+            }
+            if (!Integer.valueOf(CONVERSATION_STATUS_OPEN).equals(conversation.getStatus())) {
+                throw new ServerException(422, "会话已关闭");
+            }
+
+            AgentMessage question = agentMessageService.getOne(Wrappers.lambdaQuery(AgentMessage.class)
+                    .eq(AgentMessage::getId, dto.getParentMessageId())
+                    .eq(AgentMessage::getConversationId, conversation.getId())
+                    .eq(AgentMessage::getDeleted, false));
+            if (question == null || !MESSAGE_TYPE_INTERACTION.equals(question.getMessageType())) {
+                throw new ServerException(404, "提问消息不存在");
+            }
+            if (!INTERACTION_STATUS_PENDING.equals(question.getInteractionStatus())) {
+                throw new ServerException(409, "提问已处理");
+            }
+            if (question.getExpiresAt() != null && question.getExpiresAt() < System.currentTimeMillis()) {
+                markInteractionStatus(question.getId(), "expired", null);
+                throw new ServerException(409, "提问已过期");
+            }
+
+            answerContent = renderAnswerContent(question, dto.getAnswer());
+            answerMessage = saveAnswerMessage(conversation.getId(), question.getId(), answerContent);
+            markInteractionAnswered(question, dto.getAnswer(), System.currentTimeMillis());
+
+            agent = getEnabledAgent(conversation.getAgentDefinitionId());
+            provider = getEnabledProvider(agent.getModelProviderId());
+            applyReplyThinkingConfig(dto, agent);
+            boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
+
+            List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            applyInteractiveQuestionPolicy(context, true);
+            ModelChatRequest request = new ModelChatRequest();
+            request.setAgent(agent);
+            request.setProvider(provider);
+            request.setMessages(context);
+            request.setTools(getRequestTools(agent.getId(), true));
+
+            ModelClient modelClient = modelClientFactory.getClient(provider);
+            ModelStreamResponse modelResponse = modelClient.stream(request, new ModelStreamCallback() {
+                @Override
+                public void onMessage(String chunk) {
+                    if (!callback.isClosed()) {
+                        callback.onMessage(dto.getConversationId(), chunk);
+                    }
+                }
+
+                @Override
+                public void onReasoning(String chunk) {
+                    if (thinkingEnabled && !callback.isClosed()) {
+                        callback.onReasoning(dto.getConversationId(), chunk);
+                    }
+                }
+
+                @Override
+                public void onToolCall(String toolCallJson) {
+                    if (!callback.isClosed()) {
+                        callback.onToolCall(dto.getConversationId(), toolCallJson);
+                    }
+                }
+
+                @Override
+                public boolean isClosed() {
+                    return callback.isClosed();
+                }
+            });
+
+            if (!thinkingEnabled) {
+                modelResponse.setReasoningContent(null);
+                modelResponse.setReasoningTokens(null);
+            }
+            validateNonEmptyStreamResponse(modelResponse);
+            fillDefaultTokens(modelResponse, context, answerContent);
+
+            int iteration = 0;
+            boolean toolCallAttempted = false;
+            boolean toolCallSucceeded = false;
+            ModelChatResponse chatResponse = toChatResponse(modelResponse);
+            while (hasToolCalls(chatResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
+                if (runId == null) {
+                    runId = saveRun(agent, provider, userId, conversation.getId(), answerMessage.getId(), answerContent, chatResponse, 0, RUN_STATUS_SUCCESS, null);
+                }
+                iteration++;
+                toolCallAttempted = true;
+                ToolCallInfo askUserCall = findAskUserToolCall(chatResponse);
+                if (askUserCall != null) {
+                    long latencyMs = System.currentTimeMillis() - startTime;
+                    AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, latencyMs);
+                    AgentMessage nextQuestion = trySaveGroupInteractionMessage(conversation.getId(), askUserCall, latencyMs);
+                    updateConversationMessageCount(conversation.getId());
+
+                    AgentMessageVo questionVo = new AgentMessageVo();
+                    BeanUtils.copyProperties(nextQuestion, questionVo);
+
+                    boolean waitingUser = MESSAGE_TYPE_INTERACTION.equals(nextQuestion.getMessageType());
+                    updateRun(runId, nextQuestion.getId(), chatResponse, latencyMs,
+                            waitingUser ? RUN_STATUS_WAITING_USER : RUN_STATUS_SUCCESS, null);
+
+                    if (!callback.isClosed()) {
+                        ModelStreamResponse doneResponse = new ModelStreamResponse();
+                        AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : nextQuestion;
+                        doneResponse.setContent(doneMessage.getContent());
+                        doneResponse.setWaitingUser(waitingUser);
+                        callback.onQuestion(conversation.getId(), runId, questionVo);
+                        callback.onDone(conversation.getId(), doneMessage.getId(), doneResponse);
+                    }
+                    return;
+                }
+
+                List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, userId, runId);
+                toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
+                for (ToolExecutionResult result : toolResults) {
+                    String toolContent = result.getContent();
+                    if (toolContent == null) {
+                        toolContent = result.isSuccess() ? "" : (result.getErrorMsg() != null ? result.getErrorMsg() : "工具执行失败");
+                    }
+                    context.add(new ModelChatMessage("assistant", chatResponse.getContent(), chatResponse.getToolCalls(), null));
+                    context.add(new ModelChatMessage("tool", toolContent, null, result.getToolCallId()));
+                }
+
+                request.setMessages(context);
+                modelResponse = modelClient.stream(request, new ModelStreamCallback() {
+                    @Override
+                    public void onMessage(String chunk) {
+                        if (!callback.isClosed()) {
+                            callback.onMessage(dto.getConversationId(), chunk);
+                        }
+                    }
+
+                    @Override
+                    public void onReasoning(String chunk) {
+                        if (thinkingEnabled && !callback.isClosed()) {
+                            callback.onReasoning(dto.getConversationId(), chunk);
+                        }
+                    }
+
+                    @Override
+                    public void onToolCall(String toolCallJson) {
+                        if (!callback.isClosed()) {
+                            callback.onToolCall(dto.getConversationId(), toolCallJson);
+                        }
+                    }
+
+                    @Override
+                    public boolean isClosed() {
+                        return callback.isClosed();
+                    }
+                });
+                if (!thinkingEnabled) {
+                    modelResponse.setReasoningContent(null);
+                    modelResponse.setReasoningTokens(null);
+                }
+                validateNonEmptyStreamResponse(modelResponse);
+                fillDefaultTokens(modelResponse, context, answerContent);
+                chatResponse = toChatResponse(modelResponse);
+            }
+
+            long latencyMs = System.currentTimeMillis() - startTime;
+            ToolAuthenticityCheck authenticityCheck = checkToolAuthenticity(modelResponse.getContent(), toolCallAttempted, toolCallSucceeded);
+            if (!authenticityCheck.isValid()) {
+                modelResponse.setContent(buildToolAuthenticityFallback(authenticityCheck));
+                chatResponse.setContent(modelResponse.getContent());
+            }
+
+            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            updateConversationMessageCount(conversation.getId());
+            if (runId == null) {
+                saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), answerContent, chatResponse, latencyMs,
+                        authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
+                        authenticityCheck.isValid() ? null : authenticityCheck.getReason());
+            } else {
+                updateRun(runId, assistantMessage.getId(), chatResponse, latencyMs,
+                        authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
+                        authenticityCheck.isValid() ? null : authenticityCheck.getReason());
+            }
+            if (!callback.isClosed()) {
+                callback.onDone(conversation.getId(), assistantMessage.getId(), modelResponse);
+            }
+        } catch (RuntimeException e) {
+            long latencyMs = System.currentTimeMillis() - startTime;
+            if (agent != null && provider != null && conversation != null && answerMessage != null) {
+                if (runId == null) {
+                    saveFailedRun(agent, provider, userId, conversation.getId(), answerMessage.getId(), answerContent, latencyMs, e);
+                } else {
+                    updateRun(runId, answerMessage.getId(), null, latencyMs, RUN_STATUS_FAILED, e.getMessage());
+                }
+            }
+            if (!callback.isClosed()) {
+                callback.onError(resolveErrorCode(e), resolveErrorMessage(e));
+            }
+        }
+    }
+
     private void validateRequest(AgentChatDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getAgentId()) || StringUtils.isBlank(dto.getMessage())) {
             throw new ServerException(400, "参数错误");
         }
+    }
+
+    private void validateStreamRequest(AgentChatDto dto) {
+        if (dto == null) {
+            throw new ServerException(400, "参数错误");
+        }
+        if (isInteractionReplyRequest(dto)) {
+            if (StringUtils.isNotBlank(dto.getConversationId())
+                    && StringUtils.isNotBlank(dto.getParentMessageId())
+                    && dto.getAnswer() != null) {
+                return;
+            }
+            throw new ServerException(400, "参数错误");
+        }
+        validateRequest(dto);
+    }
+
+    private boolean isInteractionReplyRequest(AgentChatDto dto) {
+        return dto != null && (
+            StringUtils.isNotBlank(dto.getParentMessageId())
+            || dto.getAnswer() != null
+        );
     }
 
     /**
@@ -412,9 +702,24 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    private void applyReplyThinkingConfig(AgentChatDto dto, AgentDefinition agent) {
+        agent.setDefaultThinking(Boolean.TRUE.equals(dto.getThinking()));
+        if (StringUtils.isNotBlank(dto.getReasoningEffort())) {
+            String effort = dto.getReasoningEffort().toLowerCase();
+            if (!effort.equals("low") && !effort.equals("medium") && !effort.equals("high")) {
+                throw new ServerException(400, "reasoningEffort必须为low/medium/high");
+            }
+            agent.setDefaultReasoningEffort(effort);
+        }
+    }
+
     private String getCurrentUserId(AgentChatDto dto) {
         // 优先使用DTO中传递的userId（适用于异步线程池场景）
-        String userId = dto.getUserId();
+        String userId = dto == null ? null : dto.getUserId();
+        return resolveUserId(userId);
+    }
+
+    private String resolveUserId(String userId) {
         // 如果DTO中没有，则从CurrentUser获取（适用于同步调用场景）
         if (StringUtils.isBlank(userId)) {
             HashMap<String, String> currentUser = CurrentUser.getUser();
@@ -488,6 +793,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
         message.setRole("user");
+        message.setMessageType(MESSAGE_TYPE_CHAT);
         message.setContent(content);
         agentMessageService.save(message);
         
@@ -495,6 +801,37 @@ public class AgentChatServiceImpl implements AgentChatService {
         updateContextCache(conversationId, new ModelChatMessage("user", content));
         
         return message;
+    }
+
+    private AgentMessage saveAnswerMessage(String conversationId, String parentMessageId, String content) {
+        AgentMessage message = new AgentMessage();
+        message.setConversationId(conversationId);
+        message.setRole("user");
+        message.setMessageType(MESSAGE_TYPE_ANSWER);
+        message.setParentMessageId(parentMessageId);
+        message.setContent(content);
+        agentMessageService.save(message);
+        updateContextCache(conversationId, new ModelChatMessage("user", content));
+        return message;
+    }
+
+    private void markInteractionStatus(String messageId, String status, Long answeredAt) {
+        AgentMessage update = new AgentMessage();
+        update.setId(messageId);
+        update.setInteractionStatus(status);
+        if (answeredAt != null) {
+            update.setAnsweredAt(answeredAt);
+        }
+        agentMessageService.updateById(update);
+    }
+
+    private void markInteractionAnswered(AgentMessage question, Map<String, Object> answer, Long answeredAt) {
+        AgentMessage update = new AgentMessage();
+        update.setId(question.getId());
+        update.setInteractionStatus(INTERACTION_STATUS_ANSWERED);
+        update.setAnsweredAt(answeredAt);
+        update.setQuestionConfig(buildAnsweredQuestionConfig(question, answer, answeredAt));
+        agentMessageService.updateById(update);
     }
 
     private List<ModelChatMessage> buildContext(AgentDefinition agent, String conversationId) {
@@ -552,6 +889,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
         message.setRole("assistant");
+        message.setMessageType(MESSAGE_TYPE_CHAT);
         message.setContent(modelResponse.getContent());
         message.setReasoningContent(modelResponse.getReasoningContent());
         message.setToolCalls(modelResponse.getToolCalls());
@@ -573,6 +911,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
         message.setRole("assistant");
+        message.setMessageType(MESSAGE_TYPE_CHAT);
         message.setContent(modelResponse.getContent());
         message.setReasoningContent(modelResponse.getReasoningContent());
         message.setToolCalls(modelResponse.getToolCalls());
@@ -588,6 +927,21 @@ public class AgentChatServiceImpl implements AgentChatService {
         updateContextCache(conversationId, new ModelChatMessage("assistant", modelResponse.getContent()));
         
         return message;
+    }
+
+    private AgentMessage saveAssistantPreludeIfPresent(String conversationId, ModelChatResponse response, long latencyMs) {
+        if (response == null || StringUtils.isBlank(response.getContent())) {
+            return null;
+        }
+        ModelChatResponse prelude = new ModelChatResponse();
+        prelude.setContent(response.getContent());
+        prelude.setReasoningContent(response.getReasoningContent());
+        prelude.setModel(response.getModel());
+        prelude.setPromptTokens(response.getPromptTokens());
+        prelude.setCompletionTokens(response.getCompletionTokens());
+        prelude.setTotalTokens(response.getTotalTokens());
+        prelude.setReasoningTokens(response.getReasoningTokens());
+        return saveAssistantMessage(conversationId, prelude, latencyMs);
     }
 
     private ModelChatResponse toChatResponse(ModelStreamResponse streamResponse) {
@@ -934,6 +1288,446 @@ public class AgentChatServiceImpl implements AgentChatService {
         return false;
     }
 
+    private void applyInteractiveQuestionPolicy(List<ModelChatMessage> context, boolean interactiveEnabled) {
+        if (!interactiveEnabled || context == null) {
+            return;
+        }
+        context.add(new ModelChatMessage("system", INTERACTIVE_QUESTION_POLICY));
+    }
+
+    private ModelChatResponse retryAskUserWhenPlainQuestion(ModelChatResponse response,
+                                                            ModelClient modelClient,
+                                                            ModelChatRequest request,
+                                                            boolean interactiveEnabled) {
+        if (!interactiveEnabled || response == null || hasToolCalls(response) || !looksLikeUserQuestion(response.getContent())) {
+            return response;
+        }
+        log.warn("交互式模式下模型返回了普通问句，强制重试 ask_user: content={}", truncate(response.getContent(), 200));
+        try {
+            request.setToolChoiceName(ASK_USER_TOOL_NAME);
+            return modelClient.chat(request);
+        } finally {
+            request.setToolChoiceName(null);
+        }
+    }
+
+    private boolean looksLikeUserQuestion(String content) {
+        if (StringUtils.isBlank(content)) {
+            return false;
+        }
+        String text = content.trim();
+        if (text.length() > 500) {
+            return false;
+        }
+        if (text.contains("?") || text.contains("？")) {
+            return true;
+        }
+        String lower = text.toLowerCase();
+        return lower.contains("please choose")
+                || lower.contains("please confirm")
+                || lower.contains("do you want")
+                || text.contains("请选择")
+                || text.contains("请确认")
+                || text.contains("是否")
+                || text.contains("要不要")
+                || text.contains("需要你")
+                || text.contains("请提供")
+                || text.contains("请填写");
+    }
+
+    private ToolCallInfo findAskUserToolCall(ModelChatResponse response) {
+        List<ToolCallInfo> toolCalls = parseToolCalls(response);
+        for (ToolCallInfo toolCall : toolCalls) {
+            if (ASK_USER_TOOL_NAME.equals(toolCall.getName())) {
+                return toolCall;
+            }
+        }
+        return null;
+    }
+
+    private String extractFirstQuestionText(ToolCallInfo toolCall) {
+        if (toolCall != null && toolCall.getArguments() != null) {
+            Object questionsObj = toolCall.getArguments().get("questions");
+            if (questionsObj instanceof List) {
+                List<?> questions = (List<?>) questionsObj;
+                if (!questions.isEmpty() && questions.get(0) instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> first = (Map<String, Object>) questions.get(0);
+                    Object question = first.get("question");
+                    if (question != null && StringUtils.isNotBlank(question.toString())) {
+                        return truncate(question.toString(), 1000);
+                    }
+                }
+            }
+        }
+        return "请补充必要信息后继续。";
+    }
+
+    private AgentMessage trySaveGroupInteractionMessage(String conversationId, ToolCallInfo toolCall, long latencyMs) {
+        try {
+            return saveGroupInteractionMessage(conversationId, toolCall);
+        } catch (ServerException e) {
+            log.warn("ask_user arguments are invalid, downgrade to plain assistant message: conversationId={}, reason={}",
+                    conversationId, e.getMessage());
+            ModelChatResponse fallback = new ModelChatResponse();
+            fallback.setContent(buildAskUserFallbackContent(toolCall));
+            return saveAssistantMessage(conversationId, fallback, latencyMs);
+        }
+    }
+
+    private AgentMessage saveGroupInteractionMessage(String conversationId, ToolCallInfo toolCall) {
+        List<JSONObject> questions = normalizeGroupQuestionConfigs(toolCall);
+
+        JSONObject groupConfig = new JSONObject();
+        groupConfig.put("type", "group");
+        groupConfig.put("layout", "tabs");
+        groupConfig.put("question", buildGroupQuestionTitle(toolCall, questions));
+        groupConfig.put("questions", questions);
+
+        AgentMessage message = new AgentMessage();
+        message.setConversationId(conversationId);
+        message.setRole("assistant");
+        message.setMessageType(MESSAGE_TYPE_INTERACTION);
+        message.setInteractionType("group");
+        message.setInteractionStatus(INTERACTION_STATUS_PENDING);
+        message.setQuestionConfig(groupConfig.toJSONString());
+        message.setContent(groupConfig.getString("question"));
+        agentMessageService.save(message);
+
+        updateContextCache(conversationId, new ModelChatMessage("assistant", buildGroupContextContent(questions)));
+        return message;
+    }
+
+    private String buildAskUserFallbackContent(ToolCallInfo toolCall) {
+        return extractFirstQuestionText(toolCall);
+    }
+
+    private String buildGroupQuestionTitle(ToolCallInfo toolCall, List<JSONObject> questions) {
+        Map<String, Object> args = toolCall.getArguments();
+        if (args != null) {
+            Object title = args.get("question");
+            if (title == null) {
+                title = args.get("title");
+            }
+            if (title != null && StringUtils.isNotBlank(title.toString())) {
+                return truncate(title.toString(), 1000);
+            }
+        }
+        if (questions.size() == 1) {
+            return questions.get(0).getString("question");
+        }
+        return "请确认以下 " + questions.size() + " 个问题后继续。";
+    }
+
+    private String buildGroupContextContent(List<JSONObject> questions) {
+        StringBuilder sb = new StringBuilder("需要用户回复：");
+        for (int i = 0; i < questions.size(); i++) {
+            JSONObject question = questions.get(i);
+            if (i > 0) {
+                sb.append("；");
+            }
+            sb.append(question.getString("id")).append("=").append(question.getString("question"));
+        }
+        return sb.toString();
+    }
+
+    private JSONObject normalizeSingleQuestion(Map<String, Object> questionMap) {
+        if (questionMap == null) {
+            throw new ServerException(400, "ask_user问题不能为空");
+        }
+        JSONObject input = new JSONObject(questionMap);
+        
+        String id = StringUtils.defaultString(input.getString("id")).trim();
+        String type = normalizeAskUserType(input.getString("type"), input);
+        String question = input.getString("question");
+        
+        if (StringUtils.isBlank(id) || id.length() > 64) {
+            throw new ServerException(400, "ask_user问题id不能为空且不能超过64字符");
+        }
+        if (!"choice".equals(type) && !"confirm".equals(type)) {
+            throw new ServerException(400, "ask_user.type必须为choice/confirm");
+        }
+        if (StringUtils.isBlank(question) || question.length() > 1000) {
+            throw new ServerException(400, "ask_user.question不能为空且不能超过1000字符");
+        }
+
+        JSONObject config = new JSONObject();
+        config.put("id", id);
+        config.put("type", type);
+        config.put("question", question);
+
+        if ("choice".equals(type)) {
+            JSONArray options = input.getJSONArray("options");
+            if (options == null || options.isEmpty() || options.size() > 5) {
+                throw new ServerException(400, "choice提问必须包含1-5个选项");
+            }
+            JSONArray normalizedOptions = new JSONArray();
+            for (int i = 0; i < options.size(); i++) {
+                JSONObject option = options.getJSONObject(i);
+                String optId = option.getString("id");
+                String label = option.getString("label");
+                String value = option.getString("value");
+                if (StringUtils.isAnyBlank(optId, label, value) || optId.length() > 64 || label.length() > 200 || value.length() > 200) {
+                    throw new ServerException(400, "choice选项字段不合法");
+                }
+                JSONObject normalized = new JSONObject();
+                normalized.put("id", optId);
+                normalized.put("label", label);
+                normalized.put("value", value);
+                normalizedOptions.add(normalized);
+            }
+            config.put("options", normalizedOptions);
+            config.put("multiple", Boolean.TRUE.equals(input.getBoolean("multiple")));
+        } else if ("confirm".equals(type)) {
+            config.put("confirmText", StringUtils.defaultIfBlank(truncate(input.getString("confirmText"), 100), "确认"));
+            config.put("cancelText", StringUtils.defaultIfBlank(truncate(input.getString("cancelText"), 100), "取消"));
+        }
+        return config;
+    }
+
+    private List<JSONObject> normalizeGroupQuestionConfigs(ToolCallInfo toolCall) {
+        Map<String, Object> args = toolCall.getArguments();
+        if (args == null) {
+            throw new ServerException(400, "ask_user参数不能为空");
+        }
+        Object questionsObj = args.get("questions");
+        if (!(questionsObj instanceof List)) {
+            throw new ServerException(400, "ask_user必须包含questions数组");
+        }
+        List<?> questionsList = (List<?>) questionsObj;
+        if (questionsList.isEmpty() || questionsList.size() > 4) {
+            throw new ServerException(400, "ask_user questions数量必须为1-4个");
+        }
+        
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        List<JSONObject> result = new ArrayList<>();
+        for (Object item : questionsList) {
+            if (!(item instanceof Map)) {
+                throw new ServerException(400, "ask_user问题格式不合法");
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> questionMap = (Map<String, Object>) item;
+            JSONObject normalized = normalizeSingleQuestion(questionMap);
+            if (!ids.add(normalized.getString("id"))) {
+                throw new ServerException(400, "ask_user问题id重复: " + normalized.getString("id"));
+            }
+            result.add(normalized);
+        }
+        return result;
+    }
+
+    private String normalizeAskUserType(String rawType, JSONObject input) {
+        String type = StringUtils.defaultString(rawType).trim().toLowerCase();
+        if ("choice".equals(type) || "choices".equals(type) || "select".equals(type) || "option".equals(type)
+                || "options".equals(type) || "single_choice".equals(type) || "multiple_choice".equals(type)
+                || "radio".equals(type) || "checkbox".equals(type) || "选择".equals(type) || "单选".equals(type)
+                || "多选".equals(type)) {
+            return "choice";
+        }
+        if ("confirm".equals(type) || "confirmation".equals(type) || "yes_no".equals(type) || "yesno".equals(type)
+                || "boolean".equals(type) || "bool".equals(type) || "approve".equals(type) || "approval".equals(type)
+                || "确认".equals(type) || "是否".equals(type)) {
+            return "confirm";
+        }
+        if (StringUtils.isBlank(type)) {
+            if (input.getJSONArray("options") != null) {
+                return "choice";
+            }
+        }
+        return type;
+    }
+
+    private String renderAnswerContent(AgentMessage question, Map<String, Object> answer) {
+        if (answer == null) {
+            throw new ServerException(400, "回复内容不能为空");
+        }
+        JSONObject config = JSONObject.parseObject(question.getQuestionConfig());
+        String type = config.getString("type");
+        if ("group".equals(type)) {
+            return renderGroupAnswer(config, answer);
+        }
+        if ("choice".equals(type)) {
+            return renderChoiceAnswer(config, answer);
+        }
+        if ("confirm".equals(type)) {
+            Object confirmed = answer.get("confirmed");
+            if (!(confirmed instanceof Boolean)) {
+                throw new ServerException(400, "confirm回复必须包含confirmed布尔值");
+            }
+            return "用户选择：" + (Boolean.TRUE.equals(confirmed) ? "确认" : "取消");
+        }
+        throw new ServerException(400, "未知提问类型");
+    }
+
+    private String buildAnsweredQuestionConfig(AgentMessage question, Map<String, Object> answer, Long answeredAt) {
+        JSONObject config = JSONObject.parseObject(question.getQuestionConfig());
+        String type = config.getString("type");
+        JSONObject answerConfig = new JSONObject();
+        answerConfig.put("answeredAt", answeredAt);
+
+        if ("group".equals(type)) {
+            Object answersObj = answer.get("answers");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> answers = (Map<String, Object>) answersObj;
+            JSONArray questions = config.getJSONArray("questions");
+            JSONObject normalizedAnswers = new JSONObject();
+            for (int i = 0; i < questions.size(); i++) {
+                JSONObject item = questions.getJSONObject(i);
+                String id = item.getString("id");
+                @SuppressWarnings("unchecked")
+                Map<String, Object> itemAnswer = (Map<String, Object>) answers.get(id);
+                JSONObject displayAnswer = buildDisplayAnswer(item, itemAnswer);
+                item.put("answer", displayAnswer);
+                normalizedAnswers.put(id, displayAnswer);
+            }
+            answerConfig.put("answers", normalizedAnswers);
+            config.put("answer", answerConfig);
+            return config.toJSONString();
+        }
+
+        JSONObject displayAnswer = buildDisplayAnswer(config, answer);
+        config.put("answer", displayAnswer);
+        answerConfig.put("value", displayAnswer);
+        config.put("answered", answerConfig);
+        return config.toJSONString();
+    }
+
+    private JSONObject buildDisplayAnswer(JSONObject config, Map<String, Object> answer) {
+        String type = config.getString("type");
+        if ("choice".equals(type)) {
+            return buildChoiceDisplayAnswer(config, answer);
+        }
+        if ("confirm".equals(type)) {
+            Object confirmed = answer.get("confirmed");
+            JSONObject result = new JSONObject();
+            result.put("confirmed", confirmed);
+            result.put("label", Boolean.TRUE.equals(confirmed)
+                    ? StringUtils.defaultIfBlank(config.getString("confirmText"), "确认")
+                    : StringUtils.defaultIfBlank(config.getString("cancelText"), "取消"));
+            return result;
+        }
+        throw new ServerException(400, "未知提问类型");
+    }
+
+    private JSONObject buildChoiceDisplayAnswer(JSONObject config, Map<String, Object> answer) {
+        Object selectedObj = answer.get("selected");
+        List<String> selected = normalizeSelectedValues(selectedObj);
+        JSONArray selectedOptions = new JSONArray();
+        JSONArray options = config.getJSONArray("options");
+        for (String value : selected) {
+            JSONObject matched = null;
+            for (int i = 0; i < options.size(); i++) {
+                JSONObject option = options.getJSONObject(i);
+                if (value.equals(option.getString("id")) || value.equals(option.getString("value"))) {
+                    matched = option;
+                    break;
+                }
+            }
+            if (matched != null) {
+                JSONObject selectedOption = new JSONObject();
+                selectedOption.put("id", matched.getString("id"));
+                selectedOption.put("label", matched.getString("label"));
+                selectedOption.put("value", matched.getString("value"));
+                selectedOptions.add(selectedOption);
+            }
+        }
+
+        JSONObject result = new JSONObject();
+        if (Boolean.TRUE.equals(config.getBoolean("multiple"))) {
+            result.put("selected", selected);
+        } else {
+            result.put("selected", selected.isEmpty() ? null : selected.get(0));
+        }
+        result.put("selectedOptions", selectedOptions);
+        return result;
+    }
+
+    private String renderGroupAnswer(JSONObject groupConfig, Map<String, Object> answer) {
+        Object answersObj = answer.get("answers");
+        if (!(answersObj instanceof Map)) {
+            throw new ServerException(400, "group回复必须包含answers对象");
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> answers = (Map<String, Object>) answersObj;
+        JSONArray questions = groupConfig.getJSONArray("questions");
+        if (questions == null || questions.isEmpty()) {
+            throw new ServerException(400, "提问配置不合法");
+        }
+
+        List<String> lines = new ArrayList<>();
+        for (int i = 0; i < questions.size(); i++) {
+            JSONObject item = questions.getJSONObject(i);
+            String id = item.getString("id");
+            Object itemAnswerObj = answers.get(id);
+            if (!(itemAnswerObj instanceof Map)) {
+                throw new ServerException(400, "缺少问题回复: " + id);
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> itemAnswer = (Map<String, Object>) itemAnswerObj;
+            lines.add(item.getString("question") + "：" + renderSingleGroupAnswer(item, itemAnswer));
+        }
+        return "用户回复：" + StringUtils.join(lines, "；");
+    }
+
+    private String renderSingleGroupAnswer(JSONObject config, Map<String, Object> answer) {
+        String type = config.getString("type");
+        if ("choice".equals(type)) {
+            return renderChoiceAnswer(config, answer).replaceFirst("^用户选择：", "");
+        }
+        if ("confirm".equals(type)) {
+            Object confirmed = answer.get("confirmed");
+            if (!(confirmed instanceof Boolean)) {
+                throw new ServerException(400, "confirm回复必须包含confirmed布尔值");
+            }
+            return Boolean.TRUE.equals(confirmed) ? "确认" : "取消";
+        }
+        throw new ServerException(400, "未知提问类型");
+    }
+
+    private String renderChoiceAnswer(JSONObject config, Map<String, Object> answer) {
+        Object selectedObj = answer.get("selected");
+        List<String> selected = normalizeSelectedValues(selectedObj);
+        if (selected.isEmpty()) {
+            throw new ServerException(400, "choice回复必须包含selected");
+        }
+        boolean multiple = Boolean.TRUE.equals(config.getBoolean("multiple"));
+        if (!multiple && selected.size() > 1) {
+            throw new ServerException(400, "该提问只能选择一个选项");
+        }
+
+        JSONArray options = config.getJSONArray("options");
+        List<String> labels = new ArrayList<>();
+        for (String value : selected) {
+            JSONObject matched = null;
+            for (int i = 0; i < options.size(); i++) {
+                JSONObject option = options.getJSONObject(i);
+                if (value.equals(option.getString("id")) || value.equals(option.getString("value"))) {
+                    matched = option;
+                    break;
+                }
+            }
+            if (matched == null) {
+                throw new ServerException(400, "回复选项不在允许范围内");
+            }
+            labels.add(matched.getString("label") + "(" + matched.getString("value") + ")");
+        }
+        return "用户选择：" + StringUtils.join(labels, ", ");
+    }
+
+    private List<String> normalizeSelectedValues(Object selectedObj) {
+        List<String> selected = new ArrayList<>();
+        if (selectedObj instanceof List) {
+            for (Object item : (List<?>) selectedObj) {
+                if (item != null) {
+                    selected.add(item.toString());
+                }
+            }
+        } else if (selectedObj != null) {
+            selected.add(selectedObj.toString());
+        }
+        return selected;
+    }
+
     private ToolAuthenticityCheck checkToolAuthenticity(String content, boolean toolCallAttempted, boolean toolCallSucceeded) {
         if (toolCallAttempted && !toolCallSucceeded) {
             return ToolAuthenticityCheck.invalid("工具调用已触发但没有成功执行记录");
@@ -1111,6 +1905,21 @@ public class AgentChatServiceImpl implements AgentChatService {
     /**
      * 获取Agent绑定的工具列表
      */
+    private List<AgentTool> getRequestTools(String agentId, boolean includeAskUser) {
+        List<AgentTool> tools = new ArrayList<>(getBoundTools(agentId));
+        if (includeAskUser) {
+            AgentTool askUser = new AgentTool();
+            askUser.setId(ASK_USER_TOOL_NAME);
+            askUser.setCode(ASK_USER_TOOL_NAME);
+            askUser.setName(ASK_USER_TOOL_NAME);
+            askUser.setDescription("Ask the user a structured question.");
+            askUser.setType("internal");
+            askUser.setStatus(1);
+            tools.add(askUser);
+        }
+        return tools;
+    }
+
     private List<AgentTool> getBoundTools(String agentId) {
         String cacheKey = TOOLS_CACHE_KEY_PREFIX + agentId;
         try {

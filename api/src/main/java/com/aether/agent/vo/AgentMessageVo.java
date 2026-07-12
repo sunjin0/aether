@@ -8,64 +8,85 @@ import lombok.EqualsAndHashCode;
 import java.util.List;
 
 /**
- * 消息 VO
+ * Agent message VO.
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AgentMessageVo extends BaseEntity {
 
-    @ApiModelProperty(value = "关联会话ID")
+    @ApiModelProperty(value = "Conversation ID")
     private String conversationId;
 
-    @ApiModelProperty(value = "角色：user、assistant、tool")
+    @ApiModelProperty(value = "Role: user/assistant/tool")
     private String role;
 
-    @ApiModelProperty(value = "消息内容")
+    @ApiModelProperty(value = "Message type: chat/interaction/answer")
+    private String messageType;
+
+    @ApiModelProperty(value = "Interaction type: group")
+    private String interactionType;
+
+    @ApiModelProperty(value = "Interaction status: pending/answered/cancelled/expired")
+    private String interactionStatus;
+
+    @ApiModelProperty(value = "Question config JSON")
+    private String questionConfig;
+
+    @ApiModelProperty(value = "Parent interaction message ID")
+    private String parentMessageId;
+
+    @ApiModelProperty(value = "Answered timestamp")
+    private Long answeredAt;
+
+    @ApiModelProperty(value = "Expiration timestamp")
+    private Long expiresAt;
+
+    @ApiModelProperty(value = "Message content")
     private String content;
 
-    @ApiModelProperty(value = "推理内容")
+    @ApiModelProperty(value = "Reasoning content")
     private String reasoningContent;
 
-    @ApiModelProperty(value = "工具调用请求（JSON格式）")
+    @ApiModelProperty(value = "Tool calls JSON")
     private String toolCalls;
 
-    @ApiModelProperty(value = "工具调用ID")
+    @ApiModelProperty(value = "Tool call ID")
     private String toolCallId;
 
-    @ApiModelProperty(value = "工具调用结果")
+    @ApiModelProperty(value = "Tool result")
     private String toolResult;
 
-    @ApiModelProperty(value = "使用的模型")
+    @ApiModelProperty(value = "Model")
     private String model;
 
-    @ApiModelProperty(value = "输入token数")
+    @ApiModelProperty(value = "Prompt tokens")
     private Integer promptTokens;
 
-    @ApiModelProperty(value = "输出token数")
+    @ApiModelProperty(value = "Completion tokens")
     private Integer completionTokens;
 
-    @ApiModelProperty(value = "总token数")
+    @ApiModelProperty(value = "Total tokens")
     private Integer totalTokens;
 
-    @ApiModelProperty(value = "推理token数")
+    @ApiModelProperty(value = "Reasoning tokens")
     private Integer reasoningTokens;
 
-    @ApiModelProperty(value = "响应延迟（毫秒）")
+    @ApiModelProperty(value = "Latency in milliseconds")
     private Integer latencyMs;
 
-    @ApiModelProperty(value = "是否编辑：0-未编辑，1-已编辑")
+    @ApiModelProperty(value = "Edited flag")
     private Integer edited;
 
-    @ApiModelProperty(value = "编辑前的原始内容")
+    @ApiModelProperty(value = "Original content")
     private String originalContent;
 
-    @ApiModelProperty(value = "编辑时间")
+    @ApiModelProperty(value = "Edited timestamp")
     private Long editedAt;
 
-    @ApiModelProperty(value = "关联运行记录ID")
+    @ApiModelProperty(value = "Run ID")
     private String runId;
 
-    @ApiModelProperty(value = "工具调用日志列表")
+    @ApiModelProperty(value = "Tool call logs")
     private List<AgentToolCallLogVo> toolCallLogs;
 
     private Long current;

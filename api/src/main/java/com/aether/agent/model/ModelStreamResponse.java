@@ -28,4 +28,6 @@ public class ModelStreamResponse {
     private String toolCalls;
 
     private String rawResponse;
+
+    private Boolean waitingUser;
 }

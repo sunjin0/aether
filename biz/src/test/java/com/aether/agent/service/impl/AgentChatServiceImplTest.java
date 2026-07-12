@@ -239,6 +239,238 @@ class AgentChatServiceImplTest {
     }
 
     @Test
+    void chatPersistsAskUserToolCallAsPendingInteraction() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setStatus(1);
+        agent.setModelProviderId("provider-1");
+        agent.setModel("gpt-test");
+        agent.setTemperature(new BigDecimal("0.70"));
+        agent.setMaxTokens(128);
+
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        provider.setType("openai");
+        provider.setStatus(1);
+
+        ModelChatResponse response = new ModelChatResponse();
+        response.setContent("");
+        response.setModel("gpt-test");
+        response.setPromptTokens(3);
+        response.setCompletionTokens(1);
+        response.setTotalTokens(4);
+        response.setToolCalls("[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"ask_user\",\"arguments\":\"{\\\"questions\\\":[{\\\"id\\\":\\\"env\\\",\\\"type\\\":\\\"choice\\\",\\\"question\\\":\\\"请选择部署环境\\\",\\\"options\\\":[{\\\"id\\\":\\\"dev\\\",\\\"label\\\":\\\"开发环境\\\",\\\"value\\\":\\\"dev\\\"},{\\\"id\\\":\\\"prod\\\",\\\"label\\\":\\\"生产环境\\\",\\\"value\\\":\\\"prod\\\"}]}]}\"}}]");
+
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        when(modelProviderService.getById("provider-1")).thenReturn(provider);
+        when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
+            AgentConversation conversation = invocation.getArgument(0);
+            conversation.setId("conversation-1");
+            return true;
+        });
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            AgentMessage message = invocation.getArgument(0);
+            if ("user".equals(message.getRole())) {
+                message.setId("message-user-1");
+            } else {
+                message.setId("message-question-1");
+            }
+            return true;
+        });
+        when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
+        when(modelClient.chat(any())).thenReturn(response);
+
+        AgentChatDto dto = new AgentChatDto();
+        dto.setAgentId("agent-1");
+        dto.setMessage("帮我部署");
+        dto.setInteractive(true);
+
+        AgentMessageVo result = service.chat(dto);
+
+        assertEquals("message-question-1", result.getId());
+        assertEquals("interaction", result.getMessageType());
+        assertEquals("group", result.getInteractionType());
+        assertEquals("pending", result.getInteractionStatus());
+        assertEquals("请选择部署环境", result.getContent());
+        org.junit.jupiter.api.Assertions.assertTrue(result.getQuestionConfig().contains("\"options\""));
+
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
+        AgentMessage questionMessage = messageCaptor.getAllValues().get(1);
+        assertEquals("assistant", questionMessage.getRole());
+        assertEquals("interaction", questionMessage.getMessageType());
+        assertEquals("pending", questionMessage.getInteractionStatus());
+
+        ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
+        verify(agentRunService).save(runCaptor.capture());
+        assertEquals("message-user-1", runCaptor.getValue().getMessageId());
+        verify(agentRunService).updateById(any(AgentRun.class));
+    }
+
+    @Test
+    void chatRetriesAskUserWhenInteractiveModelReturnsPlainQuestion() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setStatus(1);
+        agent.setModelProviderId("provider-1");
+        agent.setModel("gpt-test");
+        agent.setTemperature(new BigDecimal("0.70"));
+        agent.setMaxTokens(128);
+
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        provider.setType("openai");
+        provider.setStatus(1);
+
+        ModelChatResponse plainQuestion = new ModelChatResponse();
+        plainQuestion.setContent("请选择部署环境？");
+        plainQuestion.setModel("gpt-test");
+
+        ModelChatResponse askUserResponse = new ModelChatResponse();
+        askUserResponse.setContent("");
+        askUserResponse.setModel("gpt-test");
+        askUserResponse.setToolCalls("[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"ask_user\",\"arguments\":\"{\\\"questions\\\":[{\\\"id\\\":\\\"env\\\",\\\"type\\\":\\\"choice\\\",\\\"question\\\":\\\"请选择部署环境\\\",\\\"options\\\":[{\\\"id\\\":\\\"dev\\\",\\\"label\\\":\\\"开发环境\\\",\\\"value\\\":\\\"dev\\\"},{\\\"id\\\":\\\"prod\\\",\\\"label\\\":\\\"生产环境\\\",\\\"value\\\":\\\"prod\\\"}]}]}\"}}]");
+
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        when(modelProviderService.getById("provider-1")).thenReturn(provider);
+        when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
+            AgentConversation conversation = invocation.getArgument(0);
+            conversation.setId("conversation-1");
+            return true;
+        });
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            AgentMessage message = invocation.getArgument(0);
+            if ("user".equals(message.getRole())) {
+                message.setId("message-user-1");
+            } else {
+                message.setId("message-question-1");
+            }
+            return true;
+        });
+        when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
+        when(modelClient.chat(any())).thenReturn(plainQuestion, askUserResponse);
+
+        AgentChatDto dto = new AgentChatDto();
+        dto.setAgentId("agent-1");
+        dto.setMessage("帮我部署");
+        dto.setInteractive(true);
+
+        AgentMessageVo result = service.chat(dto);
+
+        assertEquals("message-question-1", result.getId());
+        assertEquals("interaction", result.getMessageType());
+        assertEquals("pending", result.getInteractionStatus());
+        verify(modelClient, org.mockito.Mockito.times(2)).chat(any());
+    }
+
+    @Test
+    void chatNormalizesAskUserTypeAliases() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setStatus(1);
+        agent.setModelProviderId("provider-1");
+        agent.setModel("gpt-test");
+        agent.setTemperature(new BigDecimal("0.70"));
+        agent.setMaxTokens(128);
+
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        provider.setType("openai");
+        provider.setStatus(1);
+
+        ModelChatResponse response = new ModelChatResponse();
+        response.setContent("");
+        response.setModel("gpt-test");
+        response.setToolCalls("[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"ask_user\",\"arguments\":\"{\\\"questions\\\":[{\\\"id\\\":\\\"env\\\",\\\"type\\\":\\\"select\\\",\\\"question\\\":\\\"请选择部署环境\\\",\\\"options\\\":[{\\\"id\\\":\\\"dev\\\",\\\"label\\\":\\\"开发环境\\\",\\\"value\\\":\\\"dev\\\"}]}]}\"}}]");
+
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        when(modelProviderService.getById("provider-1")).thenReturn(provider);
+        when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
+            AgentConversation conversation = invocation.getArgument(0);
+            conversation.setId("conversation-1");
+            return true;
+        });
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            AgentMessage message = invocation.getArgument(0);
+            if ("user".equals(message.getRole())) {
+                message.setId("message-user-1");
+            } else {
+                message.setId("message-question-1");
+            }
+            return true;
+        });
+        when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
+        when(modelClient.chat(any())).thenReturn(response);
+
+        AgentChatDto dto = new AgentChatDto();
+        dto.setAgentId("agent-1");
+        dto.setMessage("帮我部署");
+        dto.setInteractive(true);
+
+        AgentMessageVo result = service.chat(dto);
+
+        assertEquals("group", result.getInteractionType());
+        org.junit.jupiter.api.Assertions.assertTrue(result.getQuestionConfig().contains("\"type\":\"choice\""));
+    }
+
+    @Test
+    void chatDowngradesUnsupportedAskUserFormToPlainAssistantMessage() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setStatus(1);
+        agent.setModelProviderId("provider-1");
+        agent.setModel("gpt-test");
+        agent.setTemperature(new BigDecimal("0.70"));
+        agent.setMaxTokens(128);
+
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        provider.setType("openai");
+        provider.setStatus(1);
+
+        ModelChatResponse response = new ModelChatResponse();
+        response.setContent("");
+        response.setModel("gpt-test");
+        response.setToolCalls("[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"ask_user\",\"arguments\":\"{\\\"questions\\\":[{\\\"id\\\":\\\"deploy_info\\\",\\\"type\\\":\\\"form\\\",\\\"question\\\":\\\"请提供应用名称和部署时间\\\",\\\"fields\\\":[{\\\"label\\\":\\\"应用名称\\\"}]}]}\"}}]");
+
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        when(modelProviderService.getById("provider-1")).thenReturn(provider);
+        when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
+            AgentConversation conversation = invocation.getArgument(0);
+            conversation.setId("conversation-1");
+            return true;
+        });
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            AgentMessage message = invocation.getArgument(0);
+            if ("user".equals(message.getRole())) {
+                message.setId("message-user-1");
+            } else {
+                message.setId("message-assistant-1");
+            }
+            return true;
+        });
+        when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
+        when(modelClient.chat(any())).thenReturn(response);
+
+        AgentChatDto dto = new AgentChatDto();
+        dto.setAgentId("agent-1");
+        dto.setMessage("帮我部署");
+        dto.setInteractive(true);
+
+        AgentMessageVo result = service.chat(dto);
+
+        assertEquals("message-assistant-1", result.getId());
+        assertEquals("chat", result.getMessageType());
+        assertEquals("请提供应用名称和部署时间", result.getContent());
+        org.junit.jupiter.api.Assertions.assertNull(result.getInteractionType());
+        org.junit.jupiter.api.Assertions.assertNull(result.getInteractionStatus());
+    }
+
+    @Test
     void streamCreatesConversationEmitsChunksAndPersistsAssistantMessageAndRun() {
         AgentDefinition agent = new AgentDefinition();
         agent.setId("agent-1");
@@ -318,6 +550,172 @@ class AgentChatServiceImplTest {
     }
 
     @Test
+    void streamKeepsAssistantPreludeWhenAskUserIsReturned() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setStatus(1);
+        agent.setModelProviderId("provider-1");
+        agent.setModel("gpt-test");
+        agent.setSystemPrompt("你是测试助手");
+        agent.setTemperature(new BigDecimal("0.70"));
+        agent.setMaxTokens(128);
+
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        provider.setType("openai");
+        provider.setStatus(1);
+
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        when(modelProviderService.getById("provider-1")).thenReturn(provider);
+        when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
+            AgentConversation conversation = invocation.getArgument(0);
+            conversation.setId("conversation-1");
+            return true;
+        });
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            AgentMessage message = invocation.getArgument(0);
+            if ("user".equals(message.getRole())) {
+                message.setId("message-user-1");
+            } else if ("interaction".equals(message.getMessageType())) {
+                message.setId("message-question-1");
+            } else {
+                message.setId("message-assistant-1");
+            }
+            return true;
+        });
+        when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
+        when(modelClient.stream(any(), any())).thenAnswer(invocation -> {
+            ModelStreamCallback callback = invocation.getArgument(1);
+            callback.onMessage("我需要确认部署信息。");
+            ModelStreamResponse response = new ModelStreamResponse();
+            response.setContent("我需要确认部署信息。");
+            response.setModel("gpt-test");
+            response.setPromptTokens(8);
+            response.setCompletionTokens(4);
+            response.setTotalTokens(12);
+            response.setToolCalls("[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"ask_user\",\"arguments\":\"{\\\"questions\\\":[{\\\"id\\\":\\\"env\\\",\\\"type\\\":\\\"choice\\\",\\\"question\\\":\\\"请选择部署环境\\\",\\\"options\\\":[{\\\"id\\\":\\\"prod\\\",\\\"label\\\":\\\"生产环境\\\",\\\"value\\\":\\\"prod\\\"}]}]}\"}}]");
+            return response;
+        });
+
+        AgentChatDto dto = new AgentChatDto();
+        dto.setAgentId("agent-1");
+        dto.setMessage("帮我部署");
+        dto.setInteractive(true);
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        service.stream(dto, callback);
+
+        assertEquals(1, callback.chunks.size());
+        assertEquals("conversation-1:我需要确认部署信息。", callback.chunks.get(0));
+        assertEquals("message-question-1", callback.questionMessageId);
+        assertEquals("message-assistant-1", callback.doneMessageId);
+        assertEquals("我需要确认部署信息。", callback.doneResponse.getContent());
+        org.junit.jupiter.api.Assertions.assertTrue(callback.doneResponse.getWaitingUser());
+        assertFalse(callback.errorCalled);
+
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService, org.mockito.Mockito.times(3)).save(messageCaptor.capture());
+        assertEquals("user", messageCaptor.getAllValues().get(0).getRole());
+        assertEquals("chat", messageCaptor.getAllValues().get(1).getMessageType());
+        assertEquals("我需要确认部署信息。", messageCaptor.getAllValues().get(1).getContent());
+        assertEquals("interaction", messageCaptor.getAllValues().get(2).getMessageType());
+        assertEquals("请选择部署环境", messageCaptor.getAllValues().get(2).getContent());
+    }
+
+    @Test
+    void streamReplyContinuesFromInteractionAnswerWithoutRenderingUserAnswerChunk() {
+        AgentConversation conversation = new AgentConversation();
+        conversation.setId("conversation-1");
+        conversation.setUserId("user-1");
+        conversation.setAgentDefinitionId("agent-1");
+        conversation.setStatus(0);
+        conversation.setDeleted(false);
+
+        AgentMessage question = new AgentMessage();
+        question.setId("message-question-1");
+        question.setConversationId("conversation-1");
+        question.setMessageType("interaction");
+        question.setInteractionType("choice");
+        question.setInteractionStatus("pending");
+        question.setQuestionConfig("{\"type\":\"choice\",\"question\":\"请选择部署环境\",\"options\":[{\"id\":\"prod\",\"label\":\"生产环境\",\"value\":\"prod\"}],\"multiple\":false}");
+        question.setDeleted(false);
+
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setStatus(1);
+        agent.setModelProviderId("provider-1");
+        agent.setModel("gpt-test");
+        agent.setTemperature(new BigDecimal("0.70"));
+        agent.setMaxTokens(128);
+
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        provider.setType("openai");
+        provider.setStatus(1);
+
+        when(agentConversationService.getById("conversation-1")).thenReturn(conversation);
+        when(agentMessageService.getOne(any())).thenReturn(question);
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        when(modelProviderService.getById("provider-1")).thenReturn(provider);
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            AgentMessage message = invocation.getArgument(0);
+            if ("answer".equals(message.getMessageType())) {
+                message.setId("message-answer-1");
+            } else {
+                message.setId("message-assistant-1");
+            }
+            return true;
+        });
+        when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
+        when(modelClient.stream(any(), any())).thenAnswer(invocation -> {
+            ModelStreamCallback callback = invocation.getArgument(1);
+            callback.onMessage("已按生产环境继续处理");
+            ModelStreamResponse response = new ModelStreamResponse();
+            response.setContent("已按生产环境继续处理");
+            response.setModel("gpt-test");
+            response.setPromptTokens(4);
+            response.setCompletionTokens(6);
+            response.setTotalTokens(10);
+            return response;
+        });
+
+        AgentChatDto dto = new AgentChatDto();
+        dto.setConversationId("conversation-1");
+        dto.setParentMessageId("message-question-1");
+        HashMap<String, Object> answer = new HashMap<>();
+        answer.put("selected", "prod");
+        dto.setAnswer(answer);
+        dto.setInteractive(true);
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        service.stream(dto, callback);
+
+        assertEquals(1, callback.chunks.size());
+        assertEquals("conversation-1:已按生产环境继续处理", callback.chunks.get(0));
+        assertEquals("conversation-1", callback.doneConversationId);
+        assertEquals("message-assistant-1", callback.doneMessageId);
+        assertFalse(callback.errorCalled);
+
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
+        assertEquals("answer", messageCaptor.getAllValues().get(0).getMessageType());
+        assertEquals("message-question-1", messageCaptor.getAllValues().get(0).getParentMessageId());
+        assertEquals("chat", messageCaptor.getAllValues().get(1).getMessageType());
+        assertEquals("assistant", messageCaptor.getAllValues().get(1).getRole());
+
+        ArgumentCaptor<AgentMessage> updateCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService).updateById(updateCaptor.capture());
+        AgentMessage updatedQuestion = updateCaptor.getValue();
+        assertEquals("message-question-1", updatedQuestion.getId());
+        assertEquals("answered", updatedQuestion.getInteractionStatus());
+        org.junit.jupiter.api.Assertions.assertTrue(updatedQuestion.getQuestionConfig().contains("\"selected\":\"prod\""));
+        org.junit.jupiter.api.Assertions.assertTrue(updatedQuestion.getQuestionConfig().contains("\"selectedOptions\""));
+        org.junit.jupiter.api.Assertions.assertTrue(updatedQuestion.getQuestionConfig().contains("\"label\":\"生产环境\""));
+    }
+
+    @Test
     void streamRejectsEmptyProviderResponse() {
         AgentDefinition agent = new AgentDefinition();
         agent.setId("agent-1");
@@ -391,6 +789,7 @@ class AgentChatServiceImplTest {
         private String doneConversationId;
         private String doneMessageId;
         private ModelStreamResponse doneResponse;
+        private String questionMessageId;
 
         @Override
         public void onMessage(String conversationId, String chunk) {
@@ -403,6 +802,11 @@ class AgentChatServiceImplTest {
 
         @Override
         public void onToolCall(String conversationId, String toolCallJson) {
+        }
+
+        @Override
+        public void onQuestion(String conversationId, String runId, AgentMessageVo question) {
+            this.questionMessageId = question.getId();
         }
 
         @Override

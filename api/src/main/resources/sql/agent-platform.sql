@@ -133,6 +133,13 @@ CREATE TABLE IF NOT EXISTS `agent_message` (
     `id`                BIGINT       NOT NULL PRIMARY KEY COMMENT '主键',
     `conversation_id`   BIGINT       NOT NULL COMMENT '关联会话ID',
     `role`              VARCHAR(16)  NOT NULL COMMENT '角色：user、assistant、tool',
+    `message_type`      VARCHAR(32)  DEFAULT 'chat' COMMENT '消息类型：chat-普通对话，interaction-交互提问，answer-用户回复',
+    `interaction_type`  VARCHAR(32)           COMMENT '交互类型：group',
+    `interaction_status` VARCHAR(32)          COMMENT '交互状态：pending、answered、cancelled、expired',
+    `question_config`   TEXT                  COMMENT '后端校验后的提问配置JSON',
+    `parent_message_id` VARCHAR(64)           COMMENT '用户回复关联的提问消息ID',
+    `answered_at`       BIGINT                COMMENT '回复时间',
+    `expires_at`        BIGINT                COMMENT '过期时间',
     `content`           LONGTEXT              COMMENT '消息内容',
     `reasoning_content` LONGTEXT              COMMENT '推理内容（assistant角色时）',
     `tool_calls`        TEXT                  COMMENT '工具调用请求（JSON格式，assistant角色时）',
@@ -154,6 +161,8 @@ CREATE TABLE IF NOT EXISTS `agent_message` (
     `state`             INT          NOT NULL DEFAULT 0 COMMENT '状态 默认0',
     KEY `idx_conversation_id` (`conversation_id`),
     KEY `idx_role` (`role`),
+    KEY `idx_parent_message_id` (`parent_message_id`),
+    KEY `idx_interaction_status` (`conversation_id`, `interaction_status`, `deleted`),
     KEY `idx_create_time` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='消息';
 

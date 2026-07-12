@@ -276,6 +276,10 @@ public class OpenAIModelClient implements ModelClient {
             if (tool == null || StringUtils.isBlank(tool.getCode())) {
                 continue;
             }
+            if ("ask_user".equals(tool.getCode())) {
+                array.add(toAskUserTool());
+                continue;
+            }
             
             // 从模板中提取参数
             JSONObject properties = new JSONObject();
@@ -307,6 +311,92 @@ public class OpenAIModelClient implements ModelClient {
             array.add(item);
         }
         return array;
+    }
+
+    private JSONObject toAskUserTool() {
+        JSONObject typeProperty = new JSONObject();
+        typeProperty.put("type", "string");
+        typeProperty.put("description", "问题类型。必须为 choice 或 confirm。choice 用于选择选项，confirm 用于确认/取消。");
+        typeProperty.put("enum", new JSONArray().fluentAdd("choice").fluentAdd("confirm"));
+
+        JSONObject idProperty = new JSONObject();
+        idProperty.put("type", "string");
+        idProperty.put("description", "问题唯一标识（snake_case），用于匹配答案");
+        idProperty.put("maxLength", 64);
+
+        JSONObject questionProperty = new JSONObject();
+        questionProperty.put("type", "string");
+        questionProperty.put("description", "问题文本");
+        questionProperty.put("maxLength", 1000);
+
+        JSONObject optionIdProperty = new JSONObject();
+        optionIdProperty.put("type", "string");
+        optionIdProperty.put("maxLength", 64);
+
+        JSONObject optionLabelProperty = new JSONObject();
+        optionLabelProperty.put("type", "string");
+        optionLabelProperty.put("maxLength", 200);
+
+        JSONObject optionValueProperty = new JSONObject();
+        optionValueProperty.put("type", "string");
+        optionValueProperty.put("maxLength", 200);
+
+        JSONObject optionProperties = new JSONObject();
+        optionProperties.put("id", optionIdProperty);
+        optionProperties.put("label", optionLabelProperty);
+        optionProperties.put("value", optionValueProperty);
+
+        JSONObject optionItem = new JSONObject();
+        optionItem.put("type", "object");
+        optionItem.put("properties", optionProperties);
+        optionItem.put("required", new JSONArray().fluentAdd("id").fluentAdd("label").fluentAdd("value"));
+        optionItem.put("additionalProperties", false);
+
+        JSONObject optionsProperty = new JSONObject();
+        optionsProperty.put("type", "array");
+        optionsProperty.put("maxItems", 5);
+        optionsProperty.put("items", optionItem);
+
+        JSONObject questionItemProperties = new JSONObject();
+        questionItemProperties.put("id", idProperty);
+        questionItemProperties.put("type", typeProperty);
+        questionItemProperties.put("question", questionProperty);
+        questionItemProperties.put("options", optionsProperty);
+        questionItemProperties.put("multiple", new JSONObject().fluentPut("type", "boolean"));
+        questionItemProperties.put("confirmText", new JSONObject().fluentPut("type", "string").fluentPut("maxLength", 100));
+        questionItemProperties.put("cancelText", new JSONObject().fluentPut("type", "string").fluentPut("maxLength", 100));
+
+        JSONObject questionItem = new JSONObject();
+        questionItem.put("type", "object");
+        questionItem.put("properties", questionItemProperties);
+        questionItem.put("required", new JSONArray().fluentAdd("id").fluentAdd("type").fluentAdd("question"));
+        questionItem.put("additionalProperties", false);
+
+        JSONObject questionsProperty = new JSONObject();
+        questionsProperty.put("type", "array");
+        questionsProperty.put("minItems", 1);
+        questionsProperty.put("maxItems", 4);
+        questionsProperty.put("description", "问题数组（1-4个），每个问题独立展示为Tab页签");
+        questionsProperty.put("items", questionItem);
+
+        JSONObject properties = new JSONObject();
+        properties.put("questions", questionsProperty);
+
+        JSONObject parameters = new JSONObject();
+        parameters.put("type", "object");
+        parameters.put("properties", properties);
+        parameters.put("required", new JSONArray().fluentAdd("questions"));
+        parameters.put("additionalProperties", false);
+
+        JSONObject function = new JSONObject();
+        function.put("name", "ask_user");
+        function.put("description", "向用户提出1-4个结构化问题。支持choice（选择）和confirm（确认）类型。一次调用可提出多个相关问题，前端以Tab页签展示。每个问题必须有唯一的id（snake_case）用于匹配答案。只有在需要用户输入时才使用此工具，禁止用普通文本输出需要用户回答的问题。");
+        function.put("parameters", parameters);
+
+        JSONObject item = new JSONObject();
+        item.put("type", "function");
+        item.put("function", function);
+        return item;
     }
 
     private void extractPlaceholders(String template, JSONObject properties, java.util.Set<String> required) {
