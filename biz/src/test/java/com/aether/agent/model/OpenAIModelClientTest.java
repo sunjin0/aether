@@ -29,7 +29,7 @@ class OpenAIModelClientTest {
                 + "}"
                 + "}";
 
-        OpenAIModelClient client = new OpenAIModelClient();
+        OpenAIModelClient client = new OpenAIModelClient(new PooledHttpClient());
         Method parseResponse = OpenAIModelClient.class
                 .getDeclaredMethod("parseResponse", String.class, String.class);
         parseResponse.setAccessible(true);

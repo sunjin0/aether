@@ -4,6 +4,7 @@
     <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/agent-platform-v0.2.sql" value="297b6428-d9ac-482b-8dd1-5592bf8a6121" />
     <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/agent-platform-v0.6-reasoning-message.sql" value="297b6428-d9ac-482b-8dd1-5592bf8a6121" />
     <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/agent-platform-v0.7-thinking.sql" value="297b6428-d9ac-482b-8dd1-5592bf8a6121" />
+    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/agent-platform-v0.8-tool-call-display.sql" value="297b6428-d9ac-482b-8dd1-5592bf8a6121" />
     <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/data.sql" value="297b6428-d9ac-482b-8dd1-5592bf8a6121" />
     <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/system.sql" value="297b6428-d9ac-482b-8dd1-5592bf8a6121" />
   </component>

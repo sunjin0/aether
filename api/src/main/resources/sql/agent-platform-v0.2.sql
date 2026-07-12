@@ -195,6 +195,9 @@ CREATE TABLE IF NOT EXISTS `agent_tool_call_log` (
     `id`                  BIGINT       NOT NULL PRIMARY KEY COMMENT '主键',
     `run_id`              BIGINT       NOT NULL COMMENT '关联运行记录ID',
     `tool_id`             BIGINT                COMMENT '关联工具ID',
+    `tool_call_id`        VARCHAR(128)          COMMENT '模型返回的tool call id（如call_xxx）',
+    `tool_name`           VARCHAR(128)          COMMENT '工具名称',
+    `arguments`           TEXT                  COMMENT '模型传给工具的原始参数JSON',
     `agent_definition_id` BIGINT       NOT NULL COMMENT '关联Agent定义ID',
     `request_url`         VARCHAR(512)          COMMENT '实际请求URL',
     `request_method`      VARCHAR(16)           COMMENT '实际请求方法',
@@ -214,7 +217,8 @@ CREATE TABLE IF NOT EXISTS `agent_tool_call_log` (
     KEY `idx_tool_id` (`tool_id`),
     KEY `idx_agent_id` (`agent_definition_id`),
     KEY `idx_status` (`state`),
-    KEY `idx_create_time` (`created_at`)
+    KEY `idx_create_time` (`created_at`),
+    KEY `idx_tool_call_log_run_call` (`run_id`, `tool_call_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工具调用日志';
 
 -- =====================================================

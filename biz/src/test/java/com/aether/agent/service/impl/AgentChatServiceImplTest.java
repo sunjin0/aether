@@ -139,7 +139,6 @@ class AgentChatServiceImplTest {
             return true;
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
-        when(agentMessageService.count(any())).thenReturn(2L);
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
         when(modelClient.chat(any())).thenReturn(response);
 
@@ -153,8 +152,8 @@ class AgentChatServiceImplTest {
         assertEquals("conversation-1", result.getConversationId());
         assertEquals("assistant", result.getRole());
         assertEquals("你好，我是助手", result.getContent());
-        assertEquals("先理解用户问候，再给出简短回应", result.getReasoningContent());
-        assertEquals(2, result.getReasoningTokens());
+        org.junit.jupiter.api.Assertions.assertNull(result.getReasoningContent());
+        org.junit.jupiter.api.Assertions.assertNull(result.getReasoningTokens());
 
         ArgumentCaptor<AgentConversation> conversationCaptor = ArgumentCaptor.forClass(AgentConversation.class);
         verify(agentConversationService).save(conversationCaptor.capture());
@@ -174,8 +173,69 @@ class AgentChatServiceImplTest {
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
         verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
         AgentMessage assistantMessage = messageCaptor.getAllValues().get(1);
-        assertEquals("先理解用户问候，再给出简短回应", assistantMessage.getReasoningContent());
-        assertEquals(2, assistantMessage.getReasoningTokens());
+        org.junit.jupiter.api.Assertions.assertNull(assistantMessage.getReasoningContent());
+        org.junit.jupiter.api.Assertions.assertNull(assistantMessage.getReasoningTokens());
+    }
+
+    @Test
+    void chatBlocksClaimedToolResultWithoutSuccessfulToolLog() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setStatus(1);
+        agent.setModelProviderId("provider-1");
+        agent.setModel("gpt-test");
+        agent.setTemperature(new BigDecimal("0.70"));
+        agent.setMaxTokens(128);
+
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        provider.setType("openai");
+        provider.setStatus(1);
+
+        ModelChatResponse response = new ModelChatResponse();
+        response.setContent("I called the tool and the result is 28C.");
+        response.setModel("gpt-test");
+        response.setPromptTokens(3);
+        response.setCompletionTokens(8);
+        response.setTotalTokens(11);
+
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        when(modelProviderService.getById("provider-1")).thenReturn(provider);
+        when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
+            AgentConversation conversation = invocation.getArgument(0);
+            conversation.setId("conversation-1");
+            return true;
+        });
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            AgentMessage message = invocation.getArgument(0);
+            if ("user".equals(message.getRole())) {
+                message.setId("message-user-1");
+            } else {
+                message.setId("message-assistant-1");
+            }
+            return true;
+        });
+        when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
+        when(modelClient.chat(any())).thenReturn(response);
+
+        AgentChatDto dto = new AgentChatDto();
+        dto.setAgentId("agent-1");
+        dto.setMessage("weather?");
+
+        AgentMessageVo result = service.chat(dto);
+
+        org.junit.jupiter.api.Assertions.assertTrue(result.getContent().contains("工具调用未获得可信结果"));
+
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
+        AgentMessage assistantMessage = messageCaptor.getAllValues().get(1);
+        org.junit.jupiter.api.Assertions.assertTrue(assistantMessage.getContent().contains("工具调用未获得可信结果"));
+
+        ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
+        verify(agentRunService).save(runCaptor.capture());
+        assertEquals(1, runCaptor.getValue().getStatus());
+        org.junit.jupiter.api.Assertions.assertTrue(runCaptor.getValue().getErrorMsg().contains("没有成功工具执行记录"));
     }
 
     @Test
@@ -211,7 +271,6 @@ class AgentChatServiceImplTest {
             return true;
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
-        when(agentMessageService.count(any())).thenReturn(2L);
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
         when(modelClient.stream(any(), any())).thenAnswer(invocation -> {
             ModelStreamCallback callback = invocation.getArgument(1);
@@ -247,9 +306,9 @@ class AgentChatServiceImplTest {
         verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
         assertEquals("assistant", messageCaptor.getAllValues().get(1).getRole());
         assertEquals("你好", messageCaptor.getAllValues().get(1).getContent());
-        assertEquals("先理解用户问候", messageCaptor.getAllValues().get(1).getReasoningContent());
+        org.junit.jupiter.api.Assertions.assertNull(messageCaptor.getAllValues().get(1).getReasoningContent());
         assertEquals(5, messageCaptor.getAllValues().get(1).getTotalTokens());
-        assertEquals(1, messageCaptor.getAllValues().get(1).getReasoningTokens());
+        org.junit.jupiter.api.Assertions.assertNull(messageCaptor.getAllValues().get(1).getReasoningTokens());
 
         ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
         verify(agentRunService).save(runCaptor.capture());
@@ -258,10 +317,77 @@ class AgentChatServiceImplTest {
         assertEquals(0, runCaptor.getValue().getStatus());
     }
 
+    @Test
+    void streamRejectsEmptyProviderResponse() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setStatus(1);
+        agent.setModelProviderId("provider-1");
+        agent.setModel("google/gemma-4-e4b");
+        agent.setTemperature(new BigDecimal("0.70"));
+        agent.setMaxTokens(128);
+
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        provider.setName("google");
+        provider.setType("openai");
+        provider.setStatus(1);
+
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        when(modelProviderService.getById("provider-1")).thenReturn(provider);
+        when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
+            AgentConversation conversation = invocation.getArgument(0);
+            conversation.setId("conversation-1");
+            return true;
+        });
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            AgentMessage message = invocation.getArgument(0);
+            if ("user".equals(message.getRole())) {
+                message.setId("message-user-1");
+            } else {
+                message.setId("message-assistant-1");
+            }
+            return true;
+        });
+        when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
+        when(modelClient.stream(any(), any())).thenReturn(emptyStreamResponse("google/gemma-4-e4b"));
+
+        AgentChatDto dto = new AgentChatDto();
+        dto.setAgentId("agent-1");
+        dto.setMessage("你好");
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        service.stream(dto, callback);
+
+        org.junit.jupiter.api.Assertions.assertTrue(callback.errorCalled);
+        assertEquals(500, callback.errorCode);
+        assertEquals("模型响应内容为空", callback.errorMessage);
+
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService, org.mockito.Mockito.times(1)).save(messageCaptor.capture());
+        assertEquals("user", messageCaptor.getValue().getRole());
+    }
+
+    private static ModelStreamResponse emptyStreamResponse(String model) {
+        ModelStreamResponse response = new ModelStreamResponse();
+        response.setContent("");
+        response.setReasoningContent("");
+        response.setModel(model);
+        response.setPromptTokens(2725);
+        response.setCompletionTokens(1);
+        response.setTotalTokens(2726);
+        response.setReasoningTokens(0);
+        response.setRawResponse("{\"choices\":[{\"message\":{\"content\":\"\",\"reasoning_content\":\"\",\"tool_calls\":[]},\"finish_reason\":\"stop\"}]}");
+        return response;
+    }
+
     private static class RecordingStreamCallback implements AgentStreamCallback {
 
         private final List<String> chunks = new ArrayList<>();
         private boolean errorCalled;
+        private int errorCode;
+        private String errorMessage;
         private String doneConversationId;
         private String doneMessageId;
         private ModelStreamResponse doneResponse;
@@ -289,6 +415,8 @@ class AgentChatServiceImplTest {
         @Override
         public void onError(int code, String message) {
             this.errorCalled = true;
+            this.errorCode = code;
+            this.errorMessage = message;
         }
 
         @Override

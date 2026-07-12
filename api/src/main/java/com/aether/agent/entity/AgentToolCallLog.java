@@ -24,6 +24,15 @@ public class AgentToolCallLog extends BaseEntity {
     @ApiModelProperty(value = "关联工具ID")
     private String toolId;
 
+    @ApiModelProperty(value = "模型返回的tool call id（如call_xxx）")
+    private String toolCallId;
+
+    @ApiModelProperty(value = "工具名称")
+    private String toolName;
+
+    @ApiModelProperty(value = "模型传给工具的原始参数JSON")
+    private String arguments;
+
     @ApiModelProperty(value = "关联Agent定义ID")
     private String agentDefinitionId;
 

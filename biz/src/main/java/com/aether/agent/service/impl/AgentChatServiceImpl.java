@@ -150,12 +150,16 @@ public class AgentChatServiceImpl implements AgentChatService {
             
             // 处理工具调用
             int iteration = 0;
+            boolean toolCallAttempted = false;
+            boolean toolCallSucceeded = false;
             while (hasToolCalls(modelResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
                 if (runId == null) {
                     runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), modelResponse, 0, RUN_STATUS_SUCCESS, null);
                 }
                 iteration++;
+                toolCallAttempted = true;
                 List<ToolExecutionResult> toolResults = executeToolCalls(modelResponse, agent, userId, runId);
+                toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 // 将工具调用结果添加到上下文
                 for (ToolExecutionResult result : toolResults) {
@@ -173,13 +177,23 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
             
             long latencyMs = System.currentTimeMillis() - startTime;
+            ToolAuthenticityCheck authenticityCheck = checkToolAuthenticity(modelResponse.getContent(), toolCallAttempted, toolCallSucceeded);
+            if (!authenticityCheck.isValid()) {
+                log.warn("拦截疑似工具结果幻觉回答: conversationId={}, attempted={}, succeeded={}, reason={}",
+                        conversation.getId(), toolCallAttempted, toolCallSucceeded, authenticityCheck.getReason());
+                modelResponse.setContent(buildToolAuthenticityFallback(authenticityCheck));
+            }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
-                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), modelResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), modelResponse, latencyMs,
+                        authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
+                        authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             } else {
-                updateRun(runId, assistantMessage.getId(), modelResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+                updateRun(runId, assistantMessage.getId(), modelResponse, latencyMs,
+                        authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
+                        authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             }
 
             AgentMessageVo vo = new AgentMessageVo();
@@ -259,6 +273,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 modelResponse.setReasoningContent(null);
                 modelResponse.setReasoningTokens(null);
             }
+            validateNonEmptyStreamResponse(modelResponse);
             
             // 当模型未提供token统计时（如Google Gemma流式响应），补充估算值
             fillDefaultTokens(modelResponse, context, dto.getMessage());
@@ -276,13 +291,17 @@ public class AgentChatServiceImpl implements AgentChatService {
             
             // 处理工具调用循环
             int iteration = 0;
+            boolean toolCallAttempted = false;
+            boolean toolCallSucceeded = false;
             ModelChatResponse chatResponse = toChatResponse(modelResponse);
             while (hasToolCalls(chatResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
                 if (runId == null) {
                     runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), chatResponse, 0, RUN_STATUS_SUCCESS, null);
                 }
                 iteration++;
+                toolCallAttempted = true;
                 List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, userId, runId);
+                toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 // 将工具调用结果添加到上下文
                 for (ToolExecutionResult result : toolResults) {
@@ -329,19 +348,31 @@ public class AgentChatServiceImpl implements AgentChatService {
                 if (!thinkingEnabled) {
                     modelResponse.setReasoningContent(null);
                 }
+                validateNonEmptyStreamResponse(modelResponse);
                 
                 fillDefaultTokens(modelResponse, context, dto.getMessage());
                 chatResponse = toChatResponse(modelResponse);
             }
             
             long latencyMs = System.currentTimeMillis() - startTime;
+            ToolAuthenticityCheck authenticityCheck = checkToolAuthenticity(modelResponse.getContent(), toolCallAttempted, toolCallSucceeded);
+            if (!authenticityCheck.isValid()) {
+                log.warn("拦截疑似工具结果幻觉流式回答: conversationId={}, attempted={}, succeeded={}, reason={}",
+                        conversation.getId(), toolCallAttempted, toolCallSucceeded, authenticityCheck.getReason());
+                modelResponse.setContent(buildToolAuthenticityFallback(authenticityCheck));
+                chatResponse.setContent(modelResponse.getContent());
+            }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
-                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), chatResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), chatResponse, latencyMs,
+                        authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
+                        authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             } else {
-                updateRun(runId, assistantMessage.getId(), chatResponse, latencyMs, RUN_STATUS_SUCCESS, null);
+                updateRun(runId, assistantMessage.getId(), chatResponse, latencyMs,
+                        authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
+                        authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             }
             if (!callback.isClosed()) {
                 callback.onDone(conversation.getId(), assistantMessage.getId(), modelResponse);
@@ -523,6 +554,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setRole("assistant");
         message.setContent(modelResponse.getContent());
         message.setReasoningContent(modelResponse.getReasoningContent());
+        message.setToolCalls(modelResponse.getToolCalls());
         message.setModel(modelResponse.getModel());
         message.setPromptTokens(modelResponse.getPromptTokens());
         message.setCompletionTokens(modelResponse.getCompletionTokens());
@@ -572,6 +604,14 @@ public class AgentChatServiceImpl implements AgentChatService {
             response.setRawResponse(streamResponse.getRawResponse());
         }
         return response;
+    }
+
+    private void validateNonEmptyStreamResponse(ModelStreamResponse response) {
+        if (response == null || (StringUtils.isBlank(response.getContent())
+                && StringUtils.isBlank(response.getReasoningContent())
+                && StringUtils.isBlank(response.getToolCalls()))) {
+            throw new ServerException(500, "模型响应内容为空");
+        }
     }
 
     private void updateConversationMessageCount(String conversationId) {
@@ -882,6 +922,69 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    private boolean hasSuccessfulToolResult(List<ToolExecutionResult> toolResults) {
+        if (toolResults == null || toolResults.isEmpty()) {
+            return false;
+        }
+        for (ToolExecutionResult result : toolResults) {
+            if (result != null && result.isSuccess() && Integer.valueOf(TOOL_CALL_STATUS_SUCCESS).equals(result.getStatus())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ToolAuthenticityCheck checkToolAuthenticity(String content, boolean toolCallAttempted, boolean toolCallSucceeded) {
+        if (toolCallAttempted && !toolCallSucceeded) {
+            return ToolAuthenticityCheck.invalid("工具调用已触发但没有成功执行记录");
+        }
+        if (!toolCallSucceeded && claimsToolBackedResult(content)) {
+            return ToolAuthenticityCheck.invalid("模型声称使用了工具或接口，但本轮没有成功工具执行记录");
+        }
+        return ToolAuthenticityCheck.valid();
+    }
+
+    private boolean claimsToolBackedResult(String content) {
+        if (StringUtils.isBlank(content)) {
+            return false;
+        }
+        String normalized = content.toLowerCase();
+        String[] explicitClaims = new String[] {
+                "已调用工具",
+                "调用了工具",
+                "工具返回",
+                "工具结果",
+                "根据工具",
+                "已调用接口",
+                "调用了接口",
+                "接口返回",
+                "接口结果",
+                "根据接口",
+                "已调用api",
+                "调用了api",
+                "api返回",
+                "api 返回",
+                "根据api",
+                "tool returned",
+                "tool result",
+                "called the tool",
+                "called an api",
+                "api returned",
+                "according to the api"
+        };
+        for (String claim : explicitClaims) {
+            if (normalized.contains(claim)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String buildToolAuthenticityFallback(ToolAuthenticityCheck check) {
+        return "工具调用未获得可信结果，已阻止生成可能不准确的工具结果。"
+                + "请稍后重试，或检查工具配置。原因：" + check.getReason();
+    }
+
     /**
      * 执行工具调用
      */
@@ -908,7 +1011,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                 AgentTool tool = toolMap.get(toolCall.getName());
                 if (tool == null) {
                     log.warn("工具未找到: {}", toolCall.getName());
-                    saveToolCallLog(runId, null, agent.getId(), null, null, null,
+                    saveToolCallLog(runId, toolCall.getId(), toolCall.getName(),
+                            JSON.toJSONString(toolCall.getArguments()),
+                            null, agent.getId(), null, null, null,
                             null, null, null, null, 1, "工具未找到: " + toolCall.getName());
                     continue;
                 }
@@ -932,6 +1037,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                     // 保存工具调用日志
                     saveToolCallLog(
                             runId,
+                            toolCall.getId(),
+                            toolCall.getName(),
+                            JSON.toJSONString(toolCall.getArguments()),
                             tool.getId(),
                             agent.getId(),
                             result.getRequestUrl(),
@@ -946,7 +1054,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                     );
                 } catch (Exception e) {
                     log.error("工具执行异常: {}", tool.getCode(), e);
-                    saveToolCallLog(runId, tool.getId(), agent.getId(), tool.getHttpUrl(),
+                    saveToolCallLog(runId, toolCall.getId(), toolCall.getName(),
+                            JSON.toJSONString(toolCall.getArguments()),
+                            tool.getId(), agent.getId(), tool.getHttpUrl(),
                             tool.getHttpMethod(), null, null, null, null, null,
                             1, e.getMessage());
                     ToolExecutionResult failure = ToolExecutionResult.failure(e.getMessage(), 1);
@@ -1073,12 +1183,16 @@ public class AgentChatServiceImpl implements AgentChatService {
     /**
      * 保存工具调用日志
      */
-    private void saveToolCallLog(String runId, String toolId, String agentDefinitionId,
+    private void saveToolCallLog(String runId, String toolCallId, String toolName, String argumentsJson,
+                                 String toolId, String agentDefinitionId,
                                  String requestUrl, String requestMethod, String requestHeaders,
                                  String requestBody, Integer responseStatus, String responseBody,
                                  Integer latencyMs, Integer status, String errorMsg) {
         AgentToolCallLog log = new AgentToolCallLog();
         log.setRunId(runId);
+        log.setToolCallId(toolCallId);
+        log.setToolName(toolName);
+        log.setArguments(truncate(argumentsJson, 65536));
         log.setToolId(toolId);
         log.setAgentDefinitionId(agentDefinitionId);
         log.setRequestUrl(truncate(requestUrl, 2048));
@@ -1117,6 +1231,32 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         public Map<String, Object> getArguments() {
             return arguments;
+        }
+    }
+
+    private static class ToolAuthenticityCheck {
+        private final boolean valid;
+        private final String reason;
+
+        private ToolAuthenticityCheck(boolean valid, String reason) {
+            this.valid = valid;
+            this.reason = reason;
+        }
+
+        static ToolAuthenticityCheck valid() {
+            return new ToolAuthenticityCheck(true, null);
+        }
+
+        static ToolAuthenticityCheck invalid(String reason) {
+            return new ToolAuthenticityCheck(false, reason);
+        }
+
+        boolean isValid() {
+            return valid;
+        }
+
+        String getReason() {
+            return reason;
         }
     }
 }

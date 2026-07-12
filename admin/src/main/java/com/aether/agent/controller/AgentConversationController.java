@@ -2,12 +2,17 @@ package com.aether.agent.controller;
 
 import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentMessage;
+import com.aether.agent.entity.AgentRun;
+import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentMessageService;
+import com.aether.agent.service.AgentRunService;
+import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.vo.AgentConversationLifecycleVo;
 import com.aether.agent.vo.AgentConversationVo;
 import com.aether.agent.vo.AgentMessageStatisticsVo;
 import com.aether.agent.vo.AgentMessageVo;
+import com.aether.agent.vo.AgentToolCallLogVo;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -28,8 +33,11 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -44,12 +52,18 @@ public class AgentConversationController {
 
     private final AgentConversationService agentConversationService;
     private final AgentMessageService agentMessageService;
+    private final AgentRunService agentRunService;
+    private final AgentToolCallLogService agentToolCallLogService;
 
     @Autowired
     public AgentConversationController(AgentConversationService agentConversationService,
-                                       AgentMessageService agentMessageService) {
+                                       AgentMessageService agentMessageService,
+                                       AgentRunService agentRunService,
+                                       AgentToolCallLogService agentToolCallLogService) {
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
+        this.agentRunService = agentRunService;
+        this.agentToolCallLogService = agentToolCallLogService;
     }
 
     @ApiOperation("会话列表")
@@ -93,13 +107,15 @@ public class AgentConversationController {
     })
     @GetMapping("/{id}/messages")
     public WebResponse<List<AgentMessageVo>> messages(@PathVariable @NotBlank String id,
-                                                      @RequestParam(defaultValue = "1") Long current,
-                                                      @RequestParam(defaultValue = "20") Long pageSize) {
+                                                       @RequestParam(defaultValue = "1") Long current,
+                                                       @RequestParam(defaultValue = "20") Long pageSize,
+                                                       @RequestParam(defaultValue = "false") Boolean includeToolCalls) {
         getOwnedConversation(id);
         Page<AgentMessage> page = new Page<>(current, pageSize);
         Wrapper<AgentMessage> wrapper = Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getConversationId, id)
                 .eq(AgentMessage::getDeleted, false)
+                .in(AgentMessage::getRole, "user", "assistant")
                 .orderByAsc(AgentMessage::getCreatedAt);
         Page<AgentMessage> result = agentMessageService.page(page, wrapper);
         List<AgentMessageVo> list = result.getRecords().stream().map(item -> {
@@ -107,7 +123,77 @@ public class AgentConversationController {
             BeanUtils.copyProperties(item, itemVo);
             return itemVo;
         }).collect(Collectors.toList());
+
+        // 聚合工具调用日志
+        if (Boolean.TRUE.equals(includeToolCalls) && !list.isEmpty()) {
+            aggregateToolCallLogs(id, list);
+        }
+
         return WebResponse.Page(list, result.getTotal());
+    }
+
+    /**
+     * 批量聚合工具调用日志到 assistant 消息。
+     * 查询逻辑：messageId -> agent_run -> agent_tool_call_log
+     */
+    private void aggregateToolCallLogs(String conversationId, List<AgentMessageVo> messageList) {
+        // 1. 收集当前页所有 assistant 消息的 ID
+        List<String> assistantMessageIds = messageList.stream()
+                .filter(msg -> "assistant".equals(msg.getRole()))
+                .map(AgentMessageVo::getId)
+                .collect(Collectors.toList());
+
+        if (assistantMessageIds.isEmpty()) {
+            return;
+        }
+
+        // 2. 一次性查询所有关联的 run（message_id in assistantMessageIds）
+        List<AgentRun> runs = agentRunService.list(Wrappers.lambdaQuery(AgentRun.class)
+                .in(AgentRun::getMessageId, assistantMessageIds)
+                .eq(AgentRun::getConversationId, conversationId)
+                .eq(AgentRun::getDeleted, false));
+
+        if (runs.isEmpty()) {
+            return;
+        }
+
+        // 3. 建立 messageId -> run 映射
+        Map<String, AgentRun> messageToRunMap = new HashMap<>();
+        for (AgentRun run : runs) {
+            // 一个 message 可能对应多个 run（重试场景），取第一个
+            messageToRunMap.putIfAbsent(run.getMessageId(), run);
+        }
+
+        // 4. 一次性查询所有 run 的 tool_call_log
+        List<String> runIds = runs.stream()
+                .map(AgentRun::getId)
+                .distinct()
+                .collect(Collectors.toList());
+
+        List<AgentToolCallLog> allLogs = agentToolCallLogService.list(Wrappers.lambdaQuery(AgentToolCallLog.class)
+                .in(AgentToolCallLog::getRunId, runIds)
+                .eq(AgentToolCallLog::getDeleted, false)
+                .orderByAsc(AgentToolCallLog::getCreatedAt));
+
+        // 5. 建立 runId -> logs 映射
+        Map<String, List<AgentToolCallLogVo>> runToLogsMap = new HashMap<>();
+        for (AgentToolCallLog log : allLogs) {
+            AgentToolCallLogVo logVo = new AgentToolCallLogVo();
+            BeanUtils.copyProperties(log, logVo);
+            runToLogsMap.computeIfAbsent(log.getRunId(), k -> new ArrayList<>()).add(logVo);
+        }
+
+        // 6. 组装到 AgentMessageVo
+        for (AgentMessageVo msgVo : messageList) {
+            if ("assistant".equals(msgVo.getRole())) {
+                AgentRun run = messageToRunMap.get(msgVo.getId());
+                if (run != null) {
+                    msgVo.setRunId(run.getId());
+                    List<AgentToolCallLogVo> logs = runToLogsMap.get(run.getId());
+                    msgVo.setToolCallLogs(logs != null ? logs : Collections.emptyList());
+                }
+            }
+        }
     }
 
     @ApiOperation("关闭会话")

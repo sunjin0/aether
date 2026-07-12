@@ -5,6 +5,8 @@ import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.util.List;
+
 /**
  * 消息 VO
  */
@@ -59,6 +61,12 @@ public class AgentMessageVo extends BaseEntity {
 
     @ApiModelProperty(value = "编辑时间")
     private Long editedAt;
+
+    @ApiModelProperty(value = "关联运行记录ID")
+    private String runId;
+
+    @ApiModelProperty(value = "工具调用日志列表")
+    private List<AgentToolCallLogVo> toolCallLogs;
 
     private Long current;
     private Long pageSize;
