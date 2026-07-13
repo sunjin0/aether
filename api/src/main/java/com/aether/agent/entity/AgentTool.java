@@ -1,6 +1,7 @@
 package com.aether.agent.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.aether.entity.BaseEntity;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -29,6 +30,12 @@ public class AgentTool extends BaseEntity {
 
     @ApiModelProperty(value = "工具类型：http")
     private String type;
+
+    /**
+     * 内建工具的函数参数 Schema，不持久化到 agent_tool 表。
+     */
+    @TableField(exist = false)
+    private String parametersSchema;
 
     @ApiModelProperty(value = "HTTP方法：GET、POST")
     private String httpMethod;

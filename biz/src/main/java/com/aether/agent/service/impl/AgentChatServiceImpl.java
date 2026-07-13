@@ -16,6 +16,9 @@ import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.executor.ToolExecutorFactory;
+import com.aether.agent.internal.InternalToolHandleResult;
+import com.aether.agent.internal.InternalToolHandler;
+import com.aether.agent.internal.InternalToolRegistry;
 import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
@@ -73,14 +76,19 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final String MESSAGE_TYPE_ANSWER = "answer";
     private static final String INTERACTION_STATUS_PENDING = "pending";
     private static final String INTERACTION_STATUS_ANSWERED = "answered";
-    private static final String INTERACTIVE_QUESTION_POLICY = "交互式提问模式已启用。当你需要用户确认、选择或取消时，必须调用 ask_user 工具。"
-            + "\n\n核心规则："
-            + "\n1. 绝对禁止用普通文本输出需要用户回答的问题"
-            + "\n2. 一次调用可提出多个相关问题（通过 questions 数组），前端以Tab页签展示"
-            + "\n3. 如果是选项问题，使用 type=choice 并给出 options；如果是确认问题，使用 type=confirm"
-            + "\n4. 每个问题必须有唯一的 id（snake_case），用于匹配答案"
-            + "\n5. 不要使用 form，不要生成动态表单字段；如果需要用户填写开放文本，请直接输出普通追问"
-            + "\n6. 只有在不需要用户继续输入时，才输出普通助手回复";
+    private static final String INTERACTIVE_QUESTION_POLICY = "# ask_user 工具调用规范\n" +
+            "\n" +
+            "## 触发条件（三选一）\n" +
+            "- 对用户意图有疑问 → 需澄清\n" +
+            "- 已有多套可行方案 → 需用户选择\n" +
+            "- 操作前需用户授权 → 需确认\n" +
+            "\n" +
+            "## 执行规则（强制）\n" +
+            "1. **禁止文本提问**：所有问题必须通过 ask_user 提出，MUST NOT 以普通回复形式提问。\n" +
+            "2. **批量提问**：多个问题必须一次性放入 questions 数组，前端分页展示。\n" +
+            "3. **问题格式**：每个问题必须包含 id（snake_case）和 type（choice/confirm）。choice 必须带 options 列表。\n" +
+            "4. **禁止动态表单**：不支持 form；若需自由文本输入，直接输出普通追问（不调用工具）。\n" +
+            "5. **退出条件**：若无问题需要用户输入，则输出普通助手回复，禁止调用工具。";
     private static final int TOOL_CALL_STATUS_SUCCESS = 0;
     private static final int TOOL_CALL_STATUS_FAILED = 1;
     private static final int TOOL_CALL_STATUS_TIMEOUT = 2;
@@ -107,6 +115,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentToolBindingService agentToolBindingService;
     private final AgentToolCallLogService agentToolCallLogService;
     private final ToolExecutorFactory toolExecutorFactory;
+    private final InternalToolRegistry internalToolRegistry;
     private final ExecutorService summaryExecutor = Executors.newFixedThreadPool(2);
 
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
@@ -117,9 +126,10 @@ public class AgentChatServiceImpl implements AgentChatService {
                                 ModelClientFactory modelClientFactory,
                                 RedisTemplate<String, Object> redisTemplate,
                                 AgentToolService agentToolService,
-                                AgentToolBindingService agentToolBindingService,
-                                AgentToolCallLogService agentToolCallLogService,
-                                ToolExecutorFactory toolExecutorFactory) {
+                                 AgentToolBindingService agentToolBindingService,
+                                 AgentToolCallLogService agentToolCallLogService,
+                                 ToolExecutorFactory toolExecutorFactory,
+                                 InternalToolRegistry internalToolRegistry) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.agentConversationService = agentConversationService;
@@ -131,6 +141,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.agentToolBindingService = agentToolBindingService;
         this.agentToolCallLogService = agentToolCallLogService;
         this.toolExecutorFactory = toolExecutorFactory;
+        this.internalToolRegistry = internalToolRegistry;
     }
 
     @Override
@@ -148,17 +159,16 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         try {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            boolean interactiveEnabled = Boolean.TRUE.equals(dto.getInteractive());
-            applyInteractiveQuestionPolicy(context, interactiveEnabled);
+            applyInteractiveQuestionPolicy(context);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(getRequestTools(agent.getId(), interactiveEnabled));
+            request.setTools(getRequestTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelChatResponse modelResponse = modelClient.chat(request);
-            modelResponse = retryAskUserWhenPlainQuestion(modelResponse, modelClient, request, interactiveEnabled);
+            modelResponse = retryAskUserWhenPlainQuestion(modelResponse, modelClient, request);
             
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
             if (!Boolean.TRUE.equals(agent.getDefaultThinking())) {
@@ -176,10 +186,10 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
-                ToolCallInfo askUserCall = findAskUserToolCall(modelResponse);
-                if (askUserCall != null) {
+                InternalToolHandleResult internalToolResult = handleInternalToolCall(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime);
+                if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
-                    AgentMessage questionMessage = trySaveGroupInteractionMessage(conversation.getId(), askUserCall, latencyMs);
+                    AgentMessage questionMessage = internalToolResult.getMessage();
                     updateConversationMessageCount(conversation.getId());
                     boolean waitingUser = MESSAGE_TYPE_INTERACTION.equals(questionMessage.getMessageType());
                     updateRun(runId, questionMessage.getId(), modelResponse, latencyMs,
@@ -262,8 +272,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
             long t0 = System.currentTimeMillis();
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            boolean interactiveEnabled = Boolean.TRUE.equals(dto.getInteractive());
-            applyInteractiveQuestionPolicy(context, interactiveEnabled);
+            applyInteractiveQuestionPolicy(context);
             long t1 = System.currentTimeMillis();
             log.info("上下文构建耗时: {}ms", t1 - t0);
 
@@ -271,7 +280,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(getRequestTools(agent.getId(), interactiveEnabled));
+            request.setTools(getRequestTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             // 推理未开启时，不转发reasoning chunks
@@ -336,11 +345,11 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
-                ToolCallInfo askUserCall = findAskUserToolCall(chatResponse);
-                if (askUserCall != null) {
+                InternalToolHandleResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
+                if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
                     AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, latencyMs);
-                    AgentMessage questionMessage = trySaveGroupInteractionMessage(conversation.getId(), askUserCall, latencyMs);
+                    AgentMessage questionMessage = internalToolResult.getMessage();
                     updateConversationMessageCount(conversation.getId());
                     AgentMessageVo questionVo = new AgentMessageVo();
                     BeanUtils.copyProperties(questionMessage, questionVo);
@@ -496,12 +505,12 @@ public class AgentChatServiceImpl implements AgentChatService {
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
 
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            applyInteractiveQuestionPolicy(context, true);
+            applyInteractiveQuestionPolicy(context);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(getRequestTools(agent.getId(), true));
+            request.setTools(getRequestTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelStreamResponse modelResponse = modelClient.stream(request, new ModelStreamCallback() {
@@ -549,11 +558,11 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
-                ToolCallInfo askUserCall = findAskUserToolCall(chatResponse);
-                if (askUserCall != null) {
+                InternalToolHandleResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
+                if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
                     AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, latencyMs);
-                    AgentMessage nextQuestion = trySaveGroupInteractionMessage(conversation.getId(), askUserCall, latencyMs);
+                    AgentMessage nextQuestion = internalToolResult.getMessage();
                     updateConversationMessageCount(conversation.getId());
 
                     AgentMessageVo questionVo = new AgentMessageVo();
@@ -1288,18 +1297,17 @@ public class AgentChatServiceImpl implements AgentChatService {
         return false;
     }
 
-    private void applyInteractiveQuestionPolicy(List<ModelChatMessage> context, boolean interactiveEnabled) {
-        if (!interactiveEnabled || context == null) {
+    private void applyInteractiveQuestionPolicy(List<ModelChatMessage> context) {
+        if (context == null) {
             return;
         }
         context.add(new ModelChatMessage("system", INTERACTIVE_QUESTION_POLICY));
     }
 
     private ModelChatResponse retryAskUserWhenPlainQuestion(ModelChatResponse response,
-                                                            ModelClient modelClient,
-                                                            ModelChatRequest request,
-                                                            boolean interactiveEnabled) {
-        if (!interactiveEnabled || response == null || hasToolCalls(response) || !looksLikeUserQuestion(response.getContent())) {
+                                                             ModelClient modelClient,
+                                                             ModelChatRequest request) {
+        if (response == null || hasToolCalls(response) || !looksLikeUserQuestion(response.getContent())) {
             return response;
         }
         log.warn("交互式模式下模型返回了普通问句，强制重试 ask_user: content={}", truncate(response.getContent(), 200));
@@ -1335,11 +1343,25 @@ public class AgentChatServiceImpl implements AgentChatService {
                 || text.contains("请填写");
     }
 
-    private ToolCallInfo findAskUserToolCall(ModelChatResponse response) {
-        List<ToolCallInfo> toolCalls = parseToolCalls(response);
-        for (ToolCallInfo toolCall : toolCalls) {
-            if (ASK_USER_TOOL_NAME.equals(toolCall.getName())) {
-                return toolCall;
+    private InternalToolHandleResult handleInternalToolCall(String conversationId, ModelChatResponse response, long latencyMs) {
+        for (ToolCallInfo toolCall : parseToolCalls(response)) {
+            InternalToolHandler handler = internalToolRegistry.getHandler(toolCall.getName());
+            if (handler == null) {
+                continue;
+            }
+            try {
+                InternalToolHandleResult result = handler.handle(conversationId, toolCall.getArguments());
+                if (StringUtils.isNotBlank(result.getContextContent())) {
+                    updateContextCache(conversationId, new ModelChatMessage("assistant", result.getContextContent()));
+                }
+                return result;
+            } catch (ServerException e) {
+                log.warn("内建工具参数不合法，降级为普通助手消息: conversationId={}, tool={}, reason={}",
+                        conversationId, toolCall.getName(), e.getMessage());
+                ModelChatResponse fallback = new ModelChatResponse();
+                fallback.setContent(extractFirstQuestionText(toolCall));
+                AgentMessage message = saveAssistantMessage(conversationId, fallback, latencyMs);
+                return InternalToolHandleResult.waitingUser(message, null);
             }
         }
         return null;
@@ -1361,180 +1383,6 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
         }
         return "请补充必要信息后继续。";
-    }
-
-    private AgentMessage trySaveGroupInteractionMessage(String conversationId, ToolCallInfo toolCall, long latencyMs) {
-        try {
-            return saveGroupInteractionMessage(conversationId, toolCall);
-        } catch (ServerException e) {
-            log.warn("ask_user arguments are invalid, downgrade to plain assistant message: conversationId={}, reason={}",
-                    conversationId, e.getMessage());
-            ModelChatResponse fallback = new ModelChatResponse();
-            fallback.setContent(buildAskUserFallbackContent(toolCall));
-            return saveAssistantMessage(conversationId, fallback, latencyMs);
-        }
-    }
-
-    private AgentMessage saveGroupInteractionMessage(String conversationId, ToolCallInfo toolCall) {
-        List<JSONObject> questions = normalizeGroupQuestionConfigs(toolCall);
-
-        JSONObject groupConfig = new JSONObject();
-        groupConfig.put("type", "group");
-        groupConfig.put("layout", "tabs");
-        groupConfig.put("question", buildGroupQuestionTitle(toolCall, questions));
-        groupConfig.put("questions", questions);
-
-        AgentMessage message = new AgentMessage();
-        message.setConversationId(conversationId);
-        message.setRole("assistant");
-        message.setMessageType(MESSAGE_TYPE_INTERACTION);
-        message.setInteractionType("group");
-        message.setInteractionStatus(INTERACTION_STATUS_PENDING);
-        message.setQuestionConfig(groupConfig.toJSONString());
-        message.setContent(groupConfig.getString("question"));
-        agentMessageService.save(message);
-
-        updateContextCache(conversationId, new ModelChatMessage("assistant", buildGroupContextContent(questions)));
-        return message;
-    }
-
-    private String buildAskUserFallbackContent(ToolCallInfo toolCall) {
-        return extractFirstQuestionText(toolCall);
-    }
-
-    private String buildGroupQuestionTitle(ToolCallInfo toolCall, List<JSONObject> questions) {
-        Map<String, Object> args = toolCall.getArguments();
-        if (args != null) {
-            Object title = args.get("question");
-            if (title == null) {
-                title = args.get("title");
-            }
-            if (title != null && StringUtils.isNotBlank(title.toString())) {
-                return truncate(title.toString(), 1000);
-            }
-        }
-        if (questions.size() == 1) {
-            return questions.get(0).getString("question");
-        }
-        return "请确认以下 " + questions.size() + " 个问题后继续。";
-    }
-
-    private String buildGroupContextContent(List<JSONObject> questions) {
-        StringBuilder sb = new StringBuilder("需要用户回复：");
-        for (int i = 0; i < questions.size(); i++) {
-            JSONObject question = questions.get(i);
-            if (i > 0) {
-                sb.append("；");
-            }
-            sb.append(question.getString("id")).append("=").append(question.getString("question"));
-        }
-        return sb.toString();
-    }
-
-    private JSONObject normalizeSingleQuestion(Map<String, Object> questionMap) {
-        if (questionMap == null) {
-            throw new ServerException(400, "ask_user问题不能为空");
-        }
-        JSONObject input = new JSONObject(questionMap);
-        
-        String id = StringUtils.defaultString(input.getString("id")).trim();
-        String type = normalizeAskUserType(input.getString("type"), input);
-        String question = input.getString("question");
-        
-        if (StringUtils.isBlank(id) || id.length() > 64) {
-            throw new ServerException(400, "ask_user问题id不能为空且不能超过64字符");
-        }
-        if (!"choice".equals(type) && !"confirm".equals(type)) {
-            throw new ServerException(400, "ask_user.type必须为choice/confirm");
-        }
-        if (StringUtils.isBlank(question) || question.length() > 1000) {
-            throw new ServerException(400, "ask_user.question不能为空且不能超过1000字符");
-        }
-
-        JSONObject config = new JSONObject();
-        config.put("id", id);
-        config.put("type", type);
-        config.put("question", question);
-
-        if ("choice".equals(type)) {
-            JSONArray options = input.getJSONArray("options");
-            if (options == null || options.isEmpty() || options.size() > 5) {
-                throw new ServerException(400, "choice提问必须包含1-5个选项");
-            }
-            JSONArray normalizedOptions = new JSONArray();
-            for (int i = 0; i < options.size(); i++) {
-                JSONObject option = options.getJSONObject(i);
-                String optId = option.getString("id");
-                String label = option.getString("label");
-                String value = option.getString("value");
-                if (StringUtils.isAnyBlank(optId, label, value) || optId.length() > 64 || label.length() > 200 || value.length() > 200) {
-                    throw new ServerException(400, "choice选项字段不合法");
-                }
-                JSONObject normalized = new JSONObject();
-                normalized.put("id", optId);
-                normalized.put("label", label);
-                normalized.put("value", value);
-                normalizedOptions.add(normalized);
-            }
-            config.put("options", normalizedOptions);
-            config.put("multiple", Boolean.TRUE.equals(input.getBoolean("multiple")));
-        } else if ("confirm".equals(type)) {
-            config.put("confirmText", StringUtils.defaultIfBlank(truncate(input.getString("confirmText"), 100), "确认"));
-            config.put("cancelText", StringUtils.defaultIfBlank(truncate(input.getString("cancelText"), 100), "取消"));
-        }
-        return config;
-    }
-
-    private List<JSONObject> normalizeGroupQuestionConfigs(ToolCallInfo toolCall) {
-        Map<String, Object> args = toolCall.getArguments();
-        if (args == null) {
-            throw new ServerException(400, "ask_user参数不能为空");
-        }
-        Object questionsObj = args.get("questions");
-        if (!(questionsObj instanceof List)) {
-            throw new ServerException(400, "ask_user必须包含questions数组");
-        }
-        List<?> questionsList = (List<?>) questionsObj;
-        if (questionsList.isEmpty() || questionsList.size() > 4) {
-            throw new ServerException(400, "ask_user questions数量必须为1-4个");
-        }
-        
-        java.util.Set<String> ids = new java.util.HashSet<>();
-        List<JSONObject> result = new ArrayList<>();
-        for (Object item : questionsList) {
-            if (!(item instanceof Map)) {
-                throw new ServerException(400, "ask_user问题格式不合法");
-            }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> questionMap = (Map<String, Object>) item;
-            JSONObject normalized = normalizeSingleQuestion(questionMap);
-            if (!ids.add(normalized.getString("id"))) {
-                throw new ServerException(400, "ask_user问题id重复: " + normalized.getString("id"));
-            }
-            result.add(normalized);
-        }
-        return result;
-    }
-
-    private String normalizeAskUserType(String rawType, JSONObject input) {
-        String type = StringUtils.defaultString(rawType).trim().toLowerCase();
-        if ("choice".equals(type) || "choices".equals(type) || "select".equals(type) || "option".equals(type)
-                || "options".equals(type) || "single_choice".equals(type) || "multiple_choice".equals(type)
-                || "radio".equals(type) || "checkbox".equals(type) || "选择".equals(type) || "单选".equals(type)
-                || "多选".equals(type)) {
-            return "choice";
-        }
-        if ("confirm".equals(type) || "confirmation".equals(type) || "yes_no".equals(type) || "yesno".equals(type)
-                || "boolean".equals(type) || "bool".equals(type) || "approve".equals(type) || "approval".equals(type)
-                || "确认".equals(type) || "是否".equals(type)) {
-            return "confirm";
-        }
-        if (StringUtils.isBlank(type)) {
-            if (input.getJSONArray("options") != null) {
-                return "choice";
-            }
-        }
-        return type;
     }
 
     private String renderAnswerContent(AgentMessage question, Map<String, Object> answer) {
@@ -1905,18 +1753,9 @@ public class AgentChatServiceImpl implements AgentChatService {
     /**
      * 获取Agent绑定的工具列表
      */
-    private List<AgentTool> getRequestTools(String agentId, boolean includeAskUser) {
+    private List<AgentTool> getRequestTools(String agentId) {
         List<AgentTool> tools = new ArrayList<>(getBoundTools(agentId));
-        if (includeAskUser) {
-            AgentTool askUser = new AgentTool();
-            askUser.setId(ASK_USER_TOOL_NAME);
-            askUser.setCode(ASK_USER_TOOL_NAME);
-            askUser.setName(ASK_USER_TOOL_NAME);
-            askUser.setDescription("Ask the user a structured question.");
-            askUser.setType("internal");
-            askUser.setStatus(1);
-            tools.add(askUser);
-        }
+        tools.addAll(internalToolRegistry.getTools());
         return tools;
     }
 

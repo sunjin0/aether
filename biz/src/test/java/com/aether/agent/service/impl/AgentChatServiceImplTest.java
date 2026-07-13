@@ -13,6 +13,8 @@ import com.aether.agent.model.ModelStreamCallback;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.executor.ToolExecutorFactory;
+import com.aether.agent.internal.InternalToolRegistry;
+import com.aether.agent.internal.AskUserInternalToolHandler;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
@@ -34,6 +36,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
@@ -69,6 +72,8 @@ class AgentChatServiceImplTest {
     @Mock
     private ToolExecutorFactory toolExecutorFactory;
     @Mock
+    private InternalToolRegistry internalToolRegistry;
+    @Mock
     private ModelClient modelClient;
 
     private AgentChatServiceImpl service;
@@ -86,10 +91,14 @@ class AgentChatServiceImplTest {
                 agentToolService,
                 agentToolBindingService,
                 agentToolCallLogService,
-                toolExecutorFactory);
+                toolExecutorFactory,
+                internalToolRegistry);
         HashMap<String, String> user = new HashMap<>();
         user.put("userId", "user-1");
         CurrentUser.set(user);
+        AskUserInternalToolHandler askUserHandler = new AskUserInternalToolHandler(agentMessageService);
+        when(internalToolRegistry.getTools()).thenReturn(Collections.singletonList(askUserHandler.getTool()));
+        when(internalToolRegistry.getHandler("ask_user")).thenReturn(askUserHandler);
     }
 
     @AfterEach
@@ -284,7 +293,6 @@ class AgentChatServiceImplTest {
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");
         dto.setMessage("帮我部署");
-        dto.setInteractive(true);
 
         AgentMessageVo result = service.chat(dto);
 
@@ -355,7 +363,6 @@ class AgentChatServiceImplTest {
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");
         dto.setMessage("帮我部署");
-        dto.setInteractive(true);
 
         AgentMessageVo result = service.chat(dto);
 
@@ -408,7 +415,6 @@ class AgentChatServiceImplTest {
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");
         dto.setMessage("帮我部署");
-        dto.setInteractive(true);
 
         AgentMessageVo result = service.chat(dto);
 
@@ -459,7 +465,6 @@ class AgentChatServiceImplTest {
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");
         dto.setMessage("帮我部署");
-        dto.setInteractive(true);
 
         AgentMessageVo result = service.chat(dto);
 
@@ -601,7 +606,6 @@ class AgentChatServiceImplTest {
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");
         dto.setMessage("帮我部署");
-        dto.setInteractive(true);
         RecordingStreamCallback callback = new RecordingStreamCallback();
 
         service.stream(dto, callback);
@@ -687,7 +691,6 @@ class AgentChatServiceImplTest {
         HashMap<String, Object> answer = new HashMap<>();
         answer.put("selected", "prod");
         dto.setAnswer(answer);
-        dto.setInteractive(true);
         RecordingStreamCallback callback = new RecordingStreamCallback();
 
         service.stream(dto, callback);
