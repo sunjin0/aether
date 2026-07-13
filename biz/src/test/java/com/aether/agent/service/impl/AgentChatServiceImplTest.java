@@ -13,8 +13,8 @@ import com.aether.agent.model.ModelStreamCallback;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.executor.ToolExecutorFactory;
-import com.aether.agent.internal.InternalToolRegistry;
-import com.aether.agent.internal.AskUserInternalToolHandler;
+import com.aether.agent.tools.core.ToolRegistry;
+import com.aether.agent.tools.AskUserTool;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
@@ -36,6 +36,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -43,6 +44,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
@@ -72,7 +74,7 @@ class AgentChatServiceImplTest {
     @Mock
     private ToolExecutorFactory toolExecutorFactory;
     @Mock
-    private InternalToolRegistry internalToolRegistry;
+    private ToolRegistry toolRegistry;
     @Mock
     private ModelClient modelClient;
 
@@ -92,13 +94,13 @@ class AgentChatServiceImplTest {
                 agentToolBindingService,
                 agentToolCallLogService,
                 toolExecutorFactory,
-                internalToolRegistry);
+                toolRegistry);
         HashMap<String, String> user = new HashMap<>();
         user.put("userId", "user-1");
         CurrentUser.set(user);
-        AskUserInternalToolHandler askUserHandler = new AskUserInternalToolHandler(agentMessageService);
-        when(internalToolRegistry.getTools()).thenReturn(Collections.singletonList(askUserHandler.getTool()));
-        when(internalToolRegistry.getHandler("ask_user")).thenReturn(askUserHandler);
+        AskUserTool askUserHandler = new AskUserTool(agentMessageService);
+        when(toolRegistry.getTools()).thenReturn(Collections.singletonList(askUserHandler.getTool()));
+        lenient().when(toolRegistry.getHandler("ask_user")).thenReturn(askUserHandler);
     }
 
     @AfterEach
@@ -616,6 +618,7 @@ class AgentChatServiceImplTest {
         assertEquals("message-assistant-1", callback.doneMessageId);
         assertEquals("我需要确认部署信息。", callback.doneResponse.getContent());
         org.junit.jupiter.api.Assertions.assertTrue(callback.doneResponse.getWaitingUser());
+        assertEquals(Arrays.asList("done", "question"), callback.events);
         assertFalse(callback.errorCalled);
 
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
@@ -719,6 +722,85 @@ class AgentChatServiceImplTest {
     }
 
     @Test
+    void streamReplyPersistsAssistantPreludeBeforeNextAskUserQuestion() {
+        AgentConversation conversation = new AgentConversation();
+        conversation.setId("conversation-1");
+        conversation.setUserId("user-1");
+        conversation.setAgentDefinitionId("agent-1");
+        conversation.setStatus(0);
+        conversation.setDeleted(false);
+
+        AgentMessage question = new AgentMessage();
+        question.setId("message-question-1");
+        question.setConversationId("conversation-1");
+        question.setMessageType("interaction");
+        question.setInteractionType("choice");
+        question.setInteractionStatus("pending");
+        question.setQuestionConfig("{\"type\":\"choice\",\"question\":\"请选择部署环境\",\"options\":[{\"id\":\"prod\",\"label\":\"生产环境\",\"value\":\"prod\"}],\"multiple\":false}");
+        question.setDeleted(false);
+
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setStatus(1);
+        agent.setModelProviderId("provider-1");
+        agent.setModel("gpt-test");
+        agent.setTemperature(new BigDecimal("0.70"));
+        agent.setMaxTokens(128);
+
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        provider.setType("openai");
+        provider.setStatus(1);
+
+        when(agentConversationService.getById("conversation-1")).thenReturn(conversation);
+        when(agentMessageService.getOne(any())).thenReturn(question);
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        when(modelProviderService.getById("provider-1")).thenReturn(provider);
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            AgentMessage message = invocation.getArgument(0);
+            if ("answer".equals(message.getMessageType())) {
+                message.setId("message-answer-1");
+            } else if ("interaction".equals(message.getMessageType())) {
+                message.setId("message-next-question-1");
+            } else {
+                message.setId("message-assistant-1");
+            }
+            return true;
+        });
+        when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
+        when(modelClient.stream(any(), any())).thenAnswer(invocation -> {
+            ModelStreamCallback callback = invocation.getArgument(1);
+            callback.onMessage("还需要确认发布窗口。");
+            ModelStreamResponse response = new ModelStreamResponse();
+            response.setContent("还需要确认发布窗口。");
+            response.setModel("gpt-test");
+            response.setToolCalls("[{\"id\":\"call-2\",\"type\":\"function\",\"function\":{\"name\":\"ask_user\",\"arguments\":\"{\\\"questions\\\":[{\\\"id\\\":\\\"window\\\",\\\"type\\\":\\\"choice\\\",\\\"question\\\":\\\"请选择发布窗口\\\",\\\"options\\\":[{\\\"id\\\":\\\"night\\\",\\\"label\\\":\\\"夜间\\\",\\\"value\\\":\\\"night\\\"}]}]}\"}}]");
+            return response;
+        });
+
+        AgentChatDto dto = new AgentChatDto();
+        dto.setConversationId("conversation-1");
+        dto.setParentMessageId("message-question-1");
+        HashMap<String, Object> answer = new HashMap<>();
+        answer.put("selected", "prod");
+        dto.setAnswer(answer);
+        RecordingStreamCallback callback = new RecordingStreamCallback();
+
+        service.stream(dto, callback);
+
+        assertEquals(Arrays.asList("done", "question"), callback.events);
+        assertEquals("message-assistant-1", callback.doneMessageId);
+        assertEquals("message-next-question-1", callback.questionMessageId);
+
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService, org.mockito.Mockito.times(3)).save(messageCaptor.capture());
+        assertEquals("answer", messageCaptor.getAllValues().get(0).getMessageType());
+        assertEquals("chat", messageCaptor.getAllValues().get(1).getMessageType());
+        assertEquals("interaction", messageCaptor.getAllValues().get(2).getMessageType());
+    }
+
+    @Test
     void streamRejectsEmptyProviderResponse() {
         AgentDefinition agent = new AgentDefinition();
         agent.setId("agent-1");
@@ -793,6 +875,7 @@ class AgentChatServiceImplTest {
         private String doneMessageId;
         private ModelStreamResponse doneResponse;
         private String questionMessageId;
+        private final List<String> events = new ArrayList<>();
 
         @Override
         public void onMessage(String conversationId, String chunk) {
@@ -810,6 +893,7 @@ class AgentChatServiceImplTest {
         @Override
         public void onQuestion(String conversationId, String runId, AgentMessageVo question) {
             this.questionMessageId = question.getId();
+            events.add("question");
         }
 
         @Override
@@ -817,6 +901,7 @@ class AgentChatServiceImplTest {
             this.doneConversationId = conversationId;
             this.doneMessageId = messageId;
             this.doneResponse = response;
+            events.add("done");
         }
 
         @Override

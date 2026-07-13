@@ -16,9 +16,9 @@ import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.executor.ToolExecutorFactory;
-import com.aether.agent.internal.InternalToolHandleResult;
-import com.aether.agent.internal.InternalToolHandler;
-import com.aether.agent.internal.InternalToolRegistry;
+import com.aether.agent.tools.entity.ToolResult;
+import com.aether.agent.tools.core.Tool;
+import com.aether.agent.tools.core.ToolRegistry;
 import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
@@ -115,7 +115,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentToolBindingService agentToolBindingService;
     private final AgentToolCallLogService agentToolCallLogService;
     private final ToolExecutorFactory toolExecutorFactory;
-    private final InternalToolRegistry internalToolRegistry;
+    private final ToolRegistry toolRegistry;
     private final ExecutorService summaryExecutor = Executors.newFixedThreadPool(2);
 
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
@@ -129,7 +129,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                                  AgentToolBindingService agentToolBindingService,
                                  AgentToolCallLogService agentToolCallLogService,
                                  ToolExecutorFactory toolExecutorFactory,
-                                 InternalToolRegistry internalToolRegistry) {
+                                 ToolRegistry toolRegistry) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.agentConversationService = agentConversationService;
@@ -141,7 +141,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.agentToolBindingService = agentToolBindingService;
         this.agentToolCallLogService = agentToolCallLogService;
         this.toolExecutorFactory = toolExecutorFactory;
-        this.internalToolRegistry = internalToolRegistry;
+        this.toolRegistry = toolRegistry;
     }
 
     @Override
@@ -186,7 +186,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
-                InternalToolHandleResult internalToolResult = handleInternalToolCall(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime);
+                ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
                     AgentMessage questionMessage = internalToolResult.getMessage();
@@ -345,10 +345,12 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
-                InternalToolHandleResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
+                AgentMessage assistantPrelude = hasInternalToolCall(chatResponse)
+                        ? saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime)
+                        : null;
+                ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
-                    AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, latencyMs);
                     AgentMessage questionMessage = internalToolResult.getMessage();
                     updateConversationMessageCount(conversation.getId());
                     AgentMessageVo questionVo = new AgentMessageVo();
@@ -363,8 +365,13 @@ public class AgentChatServiceImpl implements AgentChatService {
                         AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : questionMessage;
                         doneResponse.setContent(doneMessage.getContent());
                         doneResponse.setWaitingUser(waitingUser);
+                        if (assistantPrelude != null) {
+                            callback.onDone(conversation.getId(), assistantPrelude.getId(), doneResponse);
+                        }
                         callback.onQuestion(conversation.getId(), runId, questionVo);
-                        callback.onDone(conversation.getId(), doneMessage.getId(), doneResponse);
+                        if (assistantPrelude == null) {
+                            callback.onDone(conversation.getId(), questionMessage.getId(), doneResponse);
+                        }
                     }
                     return;
                 }
@@ -558,10 +565,12 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
-                InternalToolHandleResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
+                AgentMessage assistantPrelude = hasInternalToolCall(chatResponse)
+                        ? saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime)
+                        : null;
+                ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
-                    AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, latencyMs);
                     AgentMessage nextQuestion = internalToolResult.getMessage();
                     updateConversationMessageCount(conversation.getId());
 
@@ -577,8 +586,13 @@ public class AgentChatServiceImpl implements AgentChatService {
                         AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : nextQuestion;
                         doneResponse.setContent(doneMessage.getContent());
                         doneResponse.setWaitingUser(waitingUser);
+                        if (assistantPrelude != null) {
+                            callback.onDone(conversation.getId(), assistantPrelude.getId(), doneResponse);
+                        }
                         callback.onQuestion(conversation.getId(), runId, questionVo);
-                        callback.onDone(conversation.getId(), doneMessage.getId(), doneResponse);
+                        if (assistantPrelude == null) {
+                            callback.onDone(conversation.getId(), nextQuestion.getId(), doneResponse);
+                        }
                     }
                     return;
                 }
@@ -1343,14 +1357,14 @@ public class AgentChatServiceImpl implements AgentChatService {
                 || text.contains("请填写");
     }
 
-    private InternalToolHandleResult handleInternalToolCall(String conversationId, ModelChatResponse response, long latencyMs) {
+    private ToolResult handleInternalToolCall(String conversationId, ModelChatResponse response, long latencyMs) {
         for (ToolCallInfo toolCall : parseToolCalls(response)) {
-            InternalToolHandler handler = internalToolRegistry.getHandler(toolCall.getName());
+            Tool handler = toolRegistry.getHandler(toolCall.getName());
             if (handler == null) {
                 continue;
             }
             try {
-                InternalToolHandleResult result = handler.handle(conversationId, toolCall.getArguments());
+                ToolResult result = handler.handle(conversationId, toolCall.getArguments());
                 if (StringUtils.isNotBlank(result.getContextContent())) {
                     updateContextCache(conversationId, new ModelChatMessage("assistant", result.getContextContent()));
                 }
@@ -1361,10 +1375,19 @@ public class AgentChatServiceImpl implements AgentChatService {
                 ModelChatResponse fallback = new ModelChatResponse();
                 fallback.setContent(extractFirstQuestionText(toolCall));
                 AgentMessage message = saveAssistantMessage(conversationId, fallback, latencyMs);
-                return InternalToolHandleResult.waitingUser(message, null);
+                return ToolResult.waitingUser(message, null);
             }
         }
         return null;
+    }
+
+    private boolean hasInternalToolCall(ModelChatResponse response) {
+        for (ToolCallInfo toolCall : parseToolCalls(response)) {
+            if (toolRegistry.getHandler(toolCall.getName()) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String extractFirstQuestionText(ToolCallInfo toolCall) {
@@ -1755,7 +1778,7 @@ public class AgentChatServiceImpl implements AgentChatService {
      */
     private List<AgentTool> getRequestTools(String agentId) {
         List<AgentTool> tools = new ArrayList<>(getBoundTools(agentId));
-        tools.addAll(internalToolRegistry.getTools());
+        tools.addAll(toolRegistry.getTools());
         return tools;
     }
 

@@ -1,8 +1,18 @@
-package com.aether.agent.internal;
+/*
+ * Copyright (c) 2026. Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+ * Morbi non lorem porttitor neque feugiat blandit. Ut vitae ipsum eget quam lacinia accumsan.
+ * Etiam sed turpis ac ipsum condimentum fringilla. Maecenas magna.
+ * Proin dapibus sapien vel ante. Aliquam erat volutpat. Pellentesque sagittis ligula eget metus.
+ * Vestibulum commodo. Ut rhoncus gravida arcu.
+ */
+
+package com.aether.agent.tools;
 
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.service.AgentMessageService;
+import com.aether.agent.tools.core.Tool;
+import com.aether.agent.tools.entity.ToolResult;
 import com.aether.exception.ServerException;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
@@ -20,13 +30,13 @@ import java.util.Set;
  * 将模型的 ask_user 调用持久化为平台交互消息，并暂停当前轮次。
  */
 @Component
-public class AskUserInternalToolHandler implements InternalToolHandler {
+public class AskUserTool implements Tool {
 
     public static final String TOOL_NAME = "ask_user";
     private static final String INTERACTION_STATUS_PENDING = "pending";
     private final AgentMessageService agentMessageService;
 
-    public AskUserInternalToolHandler(AgentMessageService agentMessageService) {
+    public AskUserTool(AgentMessageService agentMessageService) {
         this.agentMessageService = agentMessageService;
     }
 
@@ -49,7 +59,7 @@ public class AskUserInternalToolHandler implements InternalToolHandler {
     }
 
     @Override
-    public InternalToolHandleResult handle(String conversationId, Map<String, Object> arguments) {
+    public ToolResult handle(String conversationId, Map<String, Object> arguments) {
         List<JSONObject> questions = normalizeQuestions(arguments);
         JSONObject groupConfig = new JSONObject();
         groupConfig.put("type", "group");
@@ -66,7 +76,7 @@ public class AskUserInternalToolHandler implements InternalToolHandler {
         message.setQuestionConfig(groupConfig.toJSONString());
         message.setContent(groupConfig.getString("question"));
         agentMessageService.save(message);
-        return InternalToolHandleResult.waitingUser(message, buildContextContent(questions));
+        return ToolResult.waitingUser(message, buildContextContent(questions));
     }
 
     private List<JSONObject> normalizeQuestions(Map<String, Object> arguments) {

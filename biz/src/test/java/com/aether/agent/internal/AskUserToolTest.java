@@ -3,6 +3,8 @@ package com.aether.agent.internal;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.service.AgentMessageService;
+import com.aether.agent.tools.AskUserTool;
+import com.aether.agent.tools.entity.ToolResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -15,7 +17,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-class AskUserInternalToolHandlerTest {
+class AskUserToolTest {
 
     @Test
     void exposesAskUserDefinitionAndCreatesPendingGroupInteraction() {
@@ -25,7 +27,7 @@ class AskUserInternalToolHandlerTest {
             message.setId("message-question-1");
             return true;
         });
-        AskUserInternalToolHandler handler = new AskUserInternalToolHandler(messageService);
+        AskUserTool handler = new AskUserTool(messageService);
 
         AgentTool tool = handler.getTool();
         assertEquals("ask_user", tool.getCode());
@@ -44,7 +46,7 @@ class AskUserInternalToolHandlerTest {
         Map<String, Object> arguments = new HashMap<>();
         arguments.put("questions", Arrays.asList(question));
 
-        InternalToolHandleResult result = handler.handle("conversation-1", arguments);
+        ToolResult result = handler.handle("conversation-1", arguments);
 
         assertTrue(result.isWaitingUser());
         assertEquals("message-question-1", result.getMessage().getId());
