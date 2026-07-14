@@ -21,35 +21,26 @@ public class AgentToolVo extends BaseEntity {
     @ApiModelProperty(value = "描述")
     private String description;
 
-    @ApiModelProperty(value = "工具类型：http")
-    private String type;
+    @ApiModelProperty(value = "MCP服务ID")
+    private String mcpServerId;
 
-    @ApiModelProperty(value = "HTTP方法：GET、POST")
-    private String httpMethod;
+    @ApiModelProperty(value = "MCP服务名称")
+    private String mcpServerName;
 
-    @ApiModelProperty(value = "HTTP请求地址")
-    private String httpUrl;
+    @ApiModelProperty(value = "MCP服务地址")
+    private String mcpBaseUrl;
 
-    @ApiModelProperty(value = "请求头模板（JSON格式）")
-    private String httpHeaders;
+    @ApiModelProperty(value = "MCP tool name")
+    private String mcpToolName;
 
-    @ApiModelProperty(value = "请求体模板（支持占位符）")
-    private String httpBodyTemplate;
-
-    @ApiModelProperty(value = "响应提取规则（JSONPath或正则）")
-    private String responseExtractRule;
+    @ApiModelProperty(value = "MCP input schema JSON")
+    private String mcpInputSchema;
 
     @ApiModelProperty(value = "超时时间（毫秒）")
     private Integer timeoutMs;
 
-    @ApiModelProperty(value = "缓存TTL（秒）")
-    private Integer cacheTtlSeconds;
-
     @ApiModelProperty(value = "状态：0-禁用，1-启用")
     private Integer status;
-
-    @ApiModelProperty(value = "排序号")
-    private Integer sort;
 
     @ApiModelProperty(value = "备注")
     private String remark;

@@ -69,13 +69,13 @@ public class OpenAIModelClient implements ModelClient {
                     String.class);
             return parseResponse(response.getBody(), agent.getModel());
         } catch (ResourceAccessException e) {
-            throw new ServerException(503, "模型供应商调用超时");
+            throw new ServerException(503, "model provider timeout");
         } catch (ServerException e) {
             throw e;
         } catch (RestClientException e) {
-            throw new ServerException(500, "模型调用失败");
+            throw new ServerException(500, "model call failed");
         } catch (Exception e) {
-            throw new ServerException(500, "模型响应解析失败");
+            throw new ServerException(500, "model response parse failed");
         }
     }
 
@@ -145,59 +145,59 @@ public class OpenAIModelClient implements ModelClient {
 
         body.put("stream", stream);
 
-        // 流式响应选项
+        // 流式请求支持透传调用方的 stream_options，默认返回 usage。
         if (stream && request.getStreamOptions() != null) {
             body.put("stream_options", request.getStreamOptions());
         } else if (stream) {
-            // 默认启用usage统计
+            // 默认包含 usage，便于统计流式响应的 token 用量。
             JSONObject streamOptions = new JSONObject();
             streamOptions.put("include_usage", true);
             body.put("stream_options", streamOptions);
         }
 
-        // 核采样参数
+        // top_p parameter
         if (request.getTopP() != null) {
             body.put("top_p", request.getTopP());
         }
 
-        // 频率惩罚
+        // frequency_penalty 参数
         if (request.getFrequencyPenalty() != null) {
             body.put("frequency_penalty", request.getFrequencyPenalty());
         }
 
-        // 存在惩罚
+        // presence_penalty 参数
         if (request.getPresencePenalty() != null) {
             body.put("presence_penalty", request.getPresencePenalty());
         }
 
-        // 停止序列
+        // stop 序列参数
         if (request.getStop() != null && !request.getStop().isEmpty()) {
             body.put("stop", request.getStop());
         }
 
-        // 响应格式
+        // response_format 参数
         if (request.getResponseFormat() != null) {
             body.put("response_format", request.getResponseFormat());
         }
 
-        // 可重复性种子
+        // seed parameter
         if (request.getSeed() != null) {
             body.put("seed", request.getSeed());
         }
 
-        // 用户标识
+        // user 参数
         if (StringUtils.isNotBlank(request.getUser())) {
             body.put("user", request.getUser());
         }
 
-        // 推理力度：优先使用请求中的值，否则使用Agent配置
+        // 推理力度：请求优先，其次使用 Agent 默认配置。
         String reasoningEffort = StringUtils.defaultIfBlank(request.getReasoningEffort(),
                 Boolean.TRUE.equals(agent.getDefaultThinking()) ? agent.getDefaultReasoningEffort() : null);
         if (StringUtils.isNotBlank(reasoningEffort)) {
             body.put("reasoning_effort", reasoningEffort);
         }
 
-        // 对数概率
+        // logprobs 参数
         if (Boolean.TRUE.equals(request.getLogprobs())) {
             body.put("logprobs", true);
             if (request.getTopLogprobs() != null) {
@@ -205,14 +205,14 @@ public class OpenAIModelClient implements ModelClient {
             }
         }
 
-        // token概率偏移
+        // logit_bias 参数
         if (request.getLogitBias() != null && !request.getLogitBias().isEmpty()) {
             JSONObject logitBiasJson = new JSONObject();
             request.getLogitBias().forEach((tokenId, score) -> logitBiasJson.put(String.valueOf(tokenId), score));
             body.put("logit_bias", logitBiasJson);
         }
 
-        // 工具配置
+        // MCP 工具定义
         JSONArray toolArray = toJsonTools(tools);
         if (!toolArray.isEmpty()) {
             body.put("tools", toolArray);
@@ -238,7 +238,7 @@ public class OpenAIModelClient implements ModelClient {
         }
         for (ModelChatMessage message : messages) {
             String role = message.getRole();
-            // assistant 有 tool_calls 时 content 可省略，其他角色必须有 content
+            // assistant 带 tool_calls 时 content 可以为空，但 tool_calls 必须保留。
             boolean hasToolCalls = StringUtils.isNotBlank(message.getToolCalls());
             
             log.debug("toJsonMessages: role={}, content={}, toolCallId={}, hasToolCalls={}", 
@@ -265,8 +265,6 @@ public class OpenAIModelClient implements ModelClient {
         return array;
     }
 
-    private static final java.util.regex.Pattern PLACEHOLDER_PATTERN = java.util.regex.Pattern.compile("\\$\\{([^}]+)\\}");
-
     private JSONArray toJsonTools(List<AgentTool> tools) {
         JSONArray array = new JSONArray();
         if (tools == null || tools.isEmpty()) {
@@ -280,35 +278,7 @@ public class OpenAIModelClient implements ModelClient {
                 array.add(toInternalTool(tool));
                 continue;
             }
-            
-            // 从模板中提取参数
-            JSONObject properties = new JSONObject();
-            java.util.Set<String> required = new java.util.LinkedHashSet<>();
-            
-            // 从 httpBodyTemplate 提取参数
-            extractPlaceholders(tool.getHttpBodyTemplate(), properties, required);
-            // 从 httpUrl 提取参数
-            extractPlaceholders(tool.getHttpUrl(), properties, required);
-            // 从 httpHeaders 提取参数
-            extractPlaceholders(tool.getHttpHeaders(), properties, required);
-            
-            JSONObject parameters = new JSONObject();
-            parameters.put("type", "object");
-            parameters.put("properties", properties);
-            if (!required.isEmpty()) {
-                parameters.put("required", new JSONArray(required));
-            }
-            parameters.put("additionalProperties", true);
-
-            JSONObject function = new JSONObject();
-            function.put("name", tool.getName());
-            function.put("description", StringUtils.defaultIfBlank(tool.getDescription(), tool.getCode()));
-            function.put("parameters", parameters);
-
-            JSONObject item = new JSONObject();
-            item.put("type", "function");
-            item.put("function", function);
-            array.add(item);
+            array.add(toMcpTool(tool));
         }
         return array;
     }
@@ -321,26 +291,26 @@ public class OpenAIModelClient implements ModelClient {
         return new JSONObject().fluentPut("type", "function").fluentPut("function", function);
     }
 
-    private void extractPlaceholders(String template, JSONObject properties, java.util.Set<String> required) {
-        if (StringUtils.isBlank(template)) {
-            return;
+    private JSONObject toMcpTool(AgentTool tool) {
+        JSONObject function = new JSONObject();
+        function.put("name", tool.getName());
+        function.put("description", StringUtils.defaultIfBlank(tool.getDescription(), tool.getCode()));
+        if (StringUtils.isNotBlank(tool.getMcpInputSchema())) {
+            function.put("parameters", JSONObject.parseObject(tool.getMcpInputSchema()));
+        } else {
+            JSONObject parameters = new JSONObject();
+            parameters.put("type", "object");
+            parameters.put("properties", new JSONObject());
+            parameters.put("additionalProperties", true);
+            function.put("parameters", parameters);
         }
-        java.util.regex.Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
-        while (matcher.find()) {
-            String paramName = matcher.group(1);
-            if (!properties.containsKey(paramName)) {
-                JSONObject prop = new JSONObject();
-                prop.put("type", "string");
-                prop.put("description", "参数: " + paramName);
-                properties.put(paramName, prop);
-                required.add(paramName);
-            }
-        }
+        return new JSONObject().fluentPut("type", "function").fluentPut("function", function);
     }
+
 
     private String buildChatUrl(String apiBaseUrl) {
         if (StringUtils.isBlank(apiBaseUrl)) {
-            throw new ServerException(422, "模型供应商API地址为空");
+            throw new ServerException(422, "API 基础地址不能为空");
         }
         String baseUrl = StringUtils.removeEnd(apiBaseUrl, "/");
         if (baseUrl.endsWith("/v1/chat/completions")) {
@@ -351,12 +321,12 @@ public class OpenAIModelClient implements ModelClient {
 
     private ModelChatResponse parseResponse(String responseBody, String defaultModel) {
         if (StringUtils.isBlank(responseBody)) {
-            throw new ServerException(500, "模型响应为空");
+            throw new ServerException(500, "model response is empty");
         }
         JSONObject json = JSONObject.parseObject(responseBody);
         JSONArray choices = json.getJSONArray("choices");
         if (choices == null || choices.isEmpty()) {
-            throw new ServerException(500, "模型响应缺少choices");
+            throw new ServerException(500, "model response missing choices");
         }
         JSONObject firstChoice = choices.getJSONObject(0);
         JSONObject message = firstChoice.getJSONObject("message");
@@ -364,7 +334,7 @@ public class OpenAIModelClient implements ModelClient {
         String reasoningContent = message == null ? null : message.getString("reasoning_content");
         JSONArray toolCalls = message == null ? null : message.getJSONArray("tool_calls");
         if (StringUtils.isBlank(content) && StringUtils.isBlank(reasoningContent) && (toolCalls == null || toolCalls.isEmpty())) {
-            throw new ServerException(500, "模型响应内容为空");
+            throw new ServerException(500, "model response content is empty");
         }
 
         JSONObject usage = json.getJSONObject("usage");
@@ -395,14 +365,13 @@ public class OpenAIModelClient implements ModelClient {
         ModelStreamResponse response = new ModelStreamResponse();
         response.setModel(defaultModel);
 
-        // 用于累积流式工具调用（按index分组）
         Map<Integer, JSONObject> toolCallsMap = new LinkedHashMap<>();
 
         long parseStart = System.currentTimeMillis();
         long firstTokenTime = -1;
         int chunkCount = 0;
 
-        // 使用小缓冲区避免SSE数据被缓冲（默认8KB会攒很多chunk才返回）
+        // 按 SSE data 行解析流式响应，避免等待服务端关闭连接。
         try (InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
             char[] buffer = new char[1];
             StringBuilder lineBuffer = new StringBuilder();
@@ -429,14 +398,14 @@ public class OpenAIModelClient implements ModelClient {
                     chunkCount++;
                     if (firstTokenTime == -1) {
                         firstTokenTime = System.currentTimeMillis();
-                        log.info("首token耗时: {}ms", firstTokenTime - parseStart);
+                        log.info("首个流式 token 延迟: {}ms", firstTokenTime - parseStart);
                     }
                     parseStreamData(data, defaultModel, callback, content, reasoningContent, response, toolCallsMap);
                 } else if (c != '\r') {
                     lineBuffer.append(c);
                 }
             }
-            // 处理最后一行（如果没有换行符结尾）
+            // 处理最后一行没有换行符的情况。
             if (lineBuffer.length() > 0) {
                 String line = lineBuffer.toString();
                 if (line.startsWith("data:")) {
@@ -449,7 +418,7 @@ public class OpenAIModelClient implements ModelClient {
         }
 
         long totalMs = System.currentTimeMillis() - parseStart;
-        log.info("流式完成: 总耗时={}ms, chunks={}, 首token={}ms, 内容长度={}",
+        log.info("流式响应解析完成: total={}ms, chunks={}, firstToken={}ms, contentLength={}",
                 totalMs, chunkCount,
                 firstTokenTime != -1 ? firstTokenTime - parseStart : "N/A",
                 content.length());
@@ -459,7 +428,7 @@ public class OpenAIModelClient implements ModelClient {
         response.setRawResponse(raw.toString());
 
 
-        // 将累积的工具调用转换为JSON字符串
+        // Convert accumulated stream tool calls to JSON.
         if (!toolCallsMap.isEmpty()) {
             JSONArray toolCallsArray = new JSONArray();
             toolCallsArray.addAll(toolCallsMap.values());
@@ -510,16 +479,14 @@ public class OpenAIModelClient implements ModelClient {
         }
         JSONArray toolCalls = delta.getJSONArray("tool_calls");
         if (toolCalls != null && !toolCalls.isEmpty()) {
-            // 累积工具调用（流式时tool_calls按index分片到达）
             for (int i = 0; i < toolCalls.size(); i++) {
                 JSONObject toolCallChunk = toolCalls.getJSONObject(i);
                 int index = toolCallChunk.getIntValue("index");
                 JSONObject existing = toolCallsMap.get(index);
                 if (existing == null) {
-                    // 首次出现，直接存入
                     toolCallsMap.put(index, toolCallChunk);
                 } else {
-                    // 后续分片，合并function.arguments
+                    // 流式响应会分片返回 function.arguments，需要追加合并。
                     JSONObject existingFunction = existing.getJSONObject("function");
                     JSONObject chunkFunction = toolCallChunk.getJSONObject("function");
                     if (existingFunction != null && chunkFunction != null) {
@@ -528,7 +495,7 @@ public class OpenAIModelClient implements ModelClient {
                         if (StringUtils.isNotBlank(chunkArgs)) {
                             existingFunction.put("arguments", StringUtils.defaultString(existingArgs) + chunkArgs);
                         }
-                        // 合并name（通常只在第一个分片）
+                        // name 通常只在首个分片出现，缺失时从后续分片补齐。
                         if (StringUtils.isBlank(existingFunction.getString("name")) && StringUtils.isNotBlank(chunkFunction.getString("name"))) {
                             existingFunction.put("name", chunkFunction.getString("name"));
                         }

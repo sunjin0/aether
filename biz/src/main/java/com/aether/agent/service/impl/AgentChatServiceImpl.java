@@ -1692,7 +1692,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 context.setUserId(userId);
 
                 try {
-                    ToolExecutor executor = toolExecutorFactory.getExecutor(tool.getType());
+                    ToolExecutor executor = toolExecutorFactory.getExecutor("mcp");
                     ToolExecutionResult result = executor.execute(context);
                     result.setToolCallId(toolCall.getId());
                     results.add(result);
@@ -1721,13 +1721,13 @@ public class AgentChatServiceImpl implements AgentChatService {
                     log.error("工具执行异常: {}", tool.getCode(), e);
                     saveToolCallLog(runId, toolCall.getId(), toolCall.getName(),
                             JSON.toJSONString(toolCall.getArguments()),
-                            tool.getId(), agent.getId(), tool.getHttpUrl(),
-                            tool.getHttpMethod(), null, null, null, null, null,
+                            tool.getId(), agent.getId(), null,
+                            "MCP tools/call", null, null, null, null, null,
                             1, e.getMessage());
                     ToolExecutionResult failure = ToolExecutionResult.failure(e.getMessage(), 1);
                     failure.setToolCallId(toolCall.getId());
-                    failure.setRequestUrl(tool.getHttpUrl());
-                    failure.setRequestMethod(tool.getHttpMethod());
+                    failure.setRequestUrl(null);
+                    failure.setRequestMethod("MCP tools/call");
                     results.add(failure);
                 }
             }

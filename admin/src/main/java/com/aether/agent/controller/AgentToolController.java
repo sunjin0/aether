@@ -6,13 +6,14 @@ import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.executor.ToolExecutorFactory;
+import com.aether.agent.entity.AgentMcpServer;
+import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.vo.AgentToolVo;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
-import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -46,12 +47,15 @@ public class AgentToolController {
     private static final int DEFAULT_TOOL_TIMEOUT_MS = 30000;
 
     private final AgentToolService agentToolService;
+    private final AgentMcpServerService agentMcpServerService;
     private final ToolExecutorFactory toolExecutorFactory;
 
     @Autowired
     public AgentToolController(AgentToolService agentToolService,
+                               AgentMcpServerService agentMcpServerService,
                                ToolExecutorFactory toolExecutorFactory) {
         this.agentToolService = agentToolService;
+        this.agentMcpServerService = agentMcpServerService;
         this.toolExecutorFactory = toolExecutorFactory;
     }
 
@@ -65,7 +69,7 @@ public class AgentToolController {
         Wrapper<AgentTool> wrapper = Wrappers.lambdaQuery(AgentTool.class)
                 .like(StringUtils.isNotBlank(vo.getName()), AgentTool::getName, vo.getName())
                 .like(StringUtils.isNotBlank(vo.getCode()), AgentTool::getCode, vo.getCode())
-                .eq(StringUtils.isNotBlank(vo.getType()), AgentTool::getType, vo.getType())
+                .eq(StringUtils.isNotBlank(vo.getMcpServerId()), AgentTool::getMcpServerId, vo.getMcpServerId())
                 .eq(vo.getStatus() != null, AgentTool::getStatus, vo.getStatus())
                 .eq(AgentTool::getDeleted, false)
                 .orderByDesc(AgentTool::getCreatedAt);
@@ -73,6 +77,7 @@ public class AgentToolController {
         List<AgentToolVo> list = result.getRecords().stream().map(item -> {
             AgentToolVo itemVo = new AgentToolVo();
             BeanUtils.copyProperties(item, itemVo);
+            fillMcpServerInfo(itemVo);
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
@@ -91,6 +96,7 @@ public class AgentToolController {
         }
         AgentToolVo vo = new AgentToolVo();
         BeanUtils.copyProperties(tool, vo);
+        fillMcpServerInfo(vo);
         return WebResponse.OK(vo);
     }
 
@@ -164,7 +170,7 @@ public class AgentToolController {
 
         // 3. 执行工具
         try {
-            ToolExecutor executor = toolExecutorFactory.getExecutor(tool.getType());
+            ToolExecutor executor = toolExecutorFactory.getExecutor("mcp");
             ToolExecutionResult result = executor.execute(context);
             
             if (result.isSuccess()) {
@@ -212,18 +218,36 @@ public class AgentToolController {
         return WebResponse.OK(info);
     }
     private void fillToolDefaults(AgentTool tool) {
-        if (StringUtils.isBlank(tool.getType())) {
-            tool.setType("http");
+        validateMcpServer(tool.getMcpServerId());
+        if (StringUtils.isBlank(tool.getMcpToolName())) {
+            tool.setMcpToolName(tool.getName());
         }
-        if (StringUtils.isBlank(tool.getHttpMethod())) {
-            tool.setHttpMethod("GET");
-        }
-        tool.setHttpMethod(tool.getHttpMethod().toUpperCase());
         if (tool.getStatus() == null) {
             tool.setStatus(1);
         }
         if (tool.getTimeoutMs() == null) {
             tool.setTimeoutMs(DEFAULT_TOOL_TIMEOUT_MS);
+        }
+    }
+
+    private void validateMcpServer(String mcpServerId) {
+        if (StringUtils.isBlank(mcpServerId)) {
+            throw new ServerException(422, "MCP服务不能为空");
+        }
+        AgentMcpServer server = agentMcpServerService.getById(mcpServerId);
+        if (server == null || Boolean.TRUE.equals(server.getDeleted())) {
+            throw new ServerException(404, "MCP服务不存在");
+        }
+    }
+
+    private void fillMcpServerInfo(AgentToolVo vo) {
+        if (StringUtils.isBlank(vo.getMcpServerId())) {
+            return;
+        }
+        AgentMcpServer server = agentMcpServerService.getById(vo.getMcpServerId());
+        if (server != null && !Boolean.TRUE.equals(server.getDeleted())) {
+            vo.setMcpServerName(server.getName());
+            vo.setMcpBaseUrl(server.getBaseUrl());
         }
     }
 }
