@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS `agent_tool` (
     `name`                  VARCHAR(64)  NOT NULL COMMENT '工具名称',
     `code`                  VARCHAR(64)  NOT NULL COMMENT '工具编码（唯一）',
     `description`           VARCHAR(512)          COMMENT '描述',
+    `tool_type`             VARCHAR(64)           COMMENT '工具业务类型，如 knowledge、ops、dev',
     `mcp_server_id`         BIGINT       NOT NULL COMMENT '关联MCP服务ID',
     `mcp_tool_name`         VARCHAR(128)          COMMENT 'MCP工具名称',
     `mcp_input_schema`      TEXT                  COMMENT 'MCP inputSchema JSON',
@@ -104,6 +105,7 @@ CREATE TABLE IF NOT EXISTS `agent_tool` (
     UNIQUE KEY `uk_code` (`code`, `deleted`),
     UNIQUE KEY `uk_server_tool` (`mcp_server_id`, `mcp_tool_name`, `deleted`),
     KEY `idx_name` (`name`),
+    KEY `idx_tool_type` (`tool_type`),
     KEY `idx_mcp_server_id` (`mcp_server_id`),
     KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工具';

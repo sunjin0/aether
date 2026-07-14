@@ -24,6 +24,15 @@ public class AgentToolCallLogVo extends BaseEntity {
     @ApiModelProperty(value = "工具名称")
     private String toolName;
 
+    @ApiModelProperty(value = "Tool business type")
+    private String toolType;
+
+    @ApiModelProperty(value = "Total call count of this tool")
+    private Long callCount;
+
+    @ApiModelProperty(value = "Success rate of this tool")
+    private Double successRate;
+
     @ApiModelProperty(value = "模型传给工具的原始参数JSON")
     private String arguments;
 
@@ -56,6 +65,12 @@ public class AgentToolCallLogVo extends BaseEntity {
 
     @ApiModelProperty(value = "错误信息")
     private String errorMsg;
+
+    @ApiModelProperty(value = "Start created time")
+    private Long startTime;
+
+    @ApiModelProperty(value = "End created time")
+    private Long endTime;
 
     private Long current;
     private Long pageSize;

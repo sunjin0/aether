@@ -8,7 +8,11 @@ import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.service.AgentMcpServerService;
+import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.vo.AgentToolCallLogVo;
+import com.aether.agent.vo.AgentToolCallStatisticsVo;
+import com.aether.agent.vo.AgentToolStatisticsVo;
 import com.aether.agent.vo.AgentToolVo;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
@@ -47,14 +51,17 @@ public class AgentToolController {
     private static final int DEFAULT_TOOL_TIMEOUT_MS = 30000;
 
     private final AgentToolService agentToolService;
+    private final AgentToolCallLogService agentToolCallLogService;
     private final AgentMcpServerService agentMcpServerService;
     private final ToolExecutorFactory toolExecutorFactory;
 
     @Autowired
     public AgentToolController(AgentToolService agentToolService,
+                               AgentToolCallLogService agentToolCallLogService,
                                AgentMcpServerService agentMcpServerService,
                                ToolExecutorFactory toolExecutorFactory) {
         this.agentToolService = agentToolService;
+        this.agentToolCallLogService = agentToolCallLogService;
         this.agentMcpServerService = agentMcpServerService;
         this.toolExecutorFactory = toolExecutorFactory;
     }
@@ -69,18 +76,55 @@ public class AgentToolController {
         Wrapper<AgentTool> wrapper = Wrappers.lambdaQuery(AgentTool.class)
                 .like(StringUtils.isNotBlank(vo.getName()), AgentTool::getName, vo.getName())
                 .like(StringUtils.isNotBlank(vo.getCode()), AgentTool::getCode, vo.getCode())
+                .eq(StringUtils.isNotBlank(vo.getToolType()), AgentTool::getToolType, vo.getToolType())
                 .eq(StringUtils.isNotBlank(vo.getMcpServerId()), AgentTool::getMcpServerId, vo.getMcpServerId())
                 .eq(vo.getStatus() != null, AgentTool::getStatus, vo.getStatus())
                 .eq(AgentTool::getDeleted, false)
                 .orderByDesc(AgentTool::getCreatedAt);
         Page<AgentTool> result = agentToolService.page(page, wrapper);
+        Map<String, AgentToolCallStatisticsVo> statisticsMap = agentToolCallLogService.toolStatisticsMap(buildToolCallLogQuery(vo));
         List<AgentToolVo> list = result.getRecords().stream().map(item -> {
             AgentToolVo itemVo = new AgentToolVo();
             BeanUtils.copyProperties(item, itemVo);
             fillMcpServerInfo(itemVo);
+            fillCallStatistics(itemVo, statisticsMap);
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
+    }
+
+    @ApiOperation("Tool statistics")
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "Authorization", value = "璁块棶浠ょ墝", required = true, dataType = "string", paramType = "header")
+    })
+    @GetMapping("/statistics")
+    public WebResponse<AgentToolStatisticsVo> statistics(@RequestParam(required = false) String toolType,
+                                                          @RequestParam(required = false) String mcpServerId) {
+        AgentToolVo query = new AgentToolVo();
+        query.setToolType(toolType);
+        query.setMcpServerId(mcpServerId);
+
+        AgentToolStatisticsVo statistics = new AgentToolStatisticsVo();
+        statistics.setTotalCount(agentToolService.count(toolCountWrapper(query, null)));
+        statistics.setEnabledCount(agentToolService.count(toolCountWrapper(query, 1)));
+        statistics.setDisabledCount(agentToolService.count(toolCountWrapper(query, 0)));
+
+        List<AgentTool> tools = agentToolService.list(toolCountWrapper(query, null));
+        Map<String, AgentToolCallStatisticsVo> callStatisticsMap = agentToolCallLogService.toolStatisticsMap(buildToolCallLogQuery(query));
+        long callCount = 0L;
+        long successCount = 0L;
+        for (AgentTool tool : tools) {
+            AgentToolCallStatisticsVo item = callStatisticsMap.get(tool.getId());
+            if (item == null) {
+                continue;
+            }
+            callCount += defaultLong(item.getCallCount());
+            successCount += defaultLong(item.getSuccessCount());
+        }
+        statistics.setCallCount(callCount);
+        statistics.setSuccessCount(successCount);
+        statistics.setSuccessRate(callCount == 0 ? 0D : successCount * 100D / callCount);
+        return WebResponse.OK(statistics);
     }
 
     @ApiOperation("工具详情")
@@ -249,5 +293,34 @@ public class AgentToolController {
             vo.setMcpServerName(server.getName());
             vo.setMcpBaseUrl(server.getBaseUrl());
         }
+    }
+
+    private Wrapper<AgentTool> toolCountWrapper(AgentToolVo vo, Integer status) {
+        return Wrappers.lambdaQuery(AgentTool.class)
+                .eq(StringUtils.isNotBlank(vo.getToolType()), AgentTool::getToolType, vo.getToolType())
+                .eq(StringUtils.isNotBlank(vo.getMcpServerId()), AgentTool::getMcpServerId, vo.getMcpServerId())
+                .eq(status != null, AgentTool::getStatus, status)
+                .eq(AgentTool::getDeleted, false);
+    }
+
+    private AgentToolCallLogVo buildToolCallLogQuery(AgentToolVo vo) {
+        AgentToolCallLogVo query = new AgentToolCallLogVo();
+        query.setToolType(vo.getToolType());
+        return query;
+    }
+
+    private void fillCallStatistics(AgentToolVo vo, Map<String, AgentToolCallStatisticsVo> statisticsMap) {
+        AgentToolCallStatisticsVo statistics = statisticsMap.get(vo.getId());
+        if (statistics == null) {
+            vo.setCallCount(0L);
+            vo.setSuccessRate(0D);
+            return;
+        }
+        vo.setCallCount(statistics.getCallCount());
+        vo.setSuccessRate(statistics.getSuccessRate());
+    }
+
+    private long defaultLong(Long value) {
+        return value == null ? 0L : value;
     }
 }

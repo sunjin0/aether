@@ -21,6 +21,15 @@ public class AgentToolVo extends BaseEntity {
     @ApiModelProperty(value = "描述")
     private String description;
 
+    @ApiModelProperty(value = "Tool business type, such as knowledge, ops, dev")
+    private String toolType;
+
+    @ApiModelProperty(value = "Total call count")
+    private Long callCount;
+
+    @ApiModelProperty(value = "Success rate")
+    private Double successRate;
+
     @ApiModelProperty(value = "MCP服务ID")
     private String mcpServerId;
 

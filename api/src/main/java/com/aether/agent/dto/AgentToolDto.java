@@ -18,6 +18,9 @@ public class AgentToolDto {
     @ApiModelProperty(value = "描述")
     private String description;
 
+    @ApiModelProperty(value = "Tool business type, such as knowledge, ops, dev")
+    private String toolType;
+
     @ApiModelProperty(value = "MCP服务ID")
     private String mcpServerId;
 
