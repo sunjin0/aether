@@ -49,12 +49,20 @@ public class McpToolExecutor implements ToolExecutor {
             JSONObject response = mcpClient.callTool(server, mcpToolName, context.getArguments());
             long latencyMs = System.currentTimeMillis() - startTime;
 
-            ToolExecutionResult result = ToolExecutionResult.success(
-                    truncate(extractContent(response), 4096),
-                    truncate(response.toJSONString(), MAX_RESPONSE_BODY),
-                    200,
-                    (int) latencyMs
-            );
+            boolean mcpError = Boolean.TRUE.equals(response.getBoolean("isError"));
+            ToolExecutionResult result = mcpError
+                    ? ToolExecutionResult.failure(truncate(extractContent(response), 4096), 1)
+                    : ToolExecutionResult.success(
+                            truncate(extractContent(response), 4096),
+                            truncate(response.toJSONString(), MAX_RESPONSE_BODY),
+                            200,
+                            (int) latencyMs
+                    );
+            if (mcpError) {
+                result.setRawResponse(truncate(response.toJSONString(), MAX_RESPONSE_BODY));
+                result.setHttpStatus(200);
+                result.setLatencyMs((int) latencyMs);
+            }
             result.setRequestUrl(server.getBaseUrl());
             result.setRequestMethod("MCP tools/call");
             result.setRequestHeaders(server.getRequestHeaders());

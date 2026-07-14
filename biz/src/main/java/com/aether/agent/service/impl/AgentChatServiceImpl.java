@@ -201,15 +201,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 List<ToolExecutionResult> toolResults = executeToolCalls(modelResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
-                // 将工具调用结果添加到上下文
-                for (ToolExecutionResult result : toolResults) {
-                    String toolContent = result.getContent();
-                    if (toolContent == null) {
-                        toolContent = result.isSuccess() ? "" : (result.getErrorMsg() != null ? result.getErrorMsg() : "工具执行失败");
-                    }
-                    context.add(new ModelChatMessage("assistant", modelResponse.getContent(), modelResponse.getToolCalls(), null));
-                    context.add(new ModelChatMessage("tool", toolContent, null, result.getToolCallId()));
-                }
+                addToolResultsToContext(context, modelResponse, toolResults);
                 
                 // 继续调用模型
                 request.setMessages(context);
@@ -378,16 +370,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
-                // 将工具调用结果添加到上下文
-                for (ToolExecutionResult result : toolResults) {
-                    String toolContent = result.getContent();
-                    if (toolContent == null) {
-                        toolContent = result.isSuccess() ? "" : (result.getErrorMsg() != null ? result.getErrorMsg() : "工具执行失败");
-                    }
-                    log.info("工具结果添加到上下文: toolCallId={}, content={}", result.getToolCallId(), toolContent);
-                    context.add(new ModelChatMessage("assistant", chatResponse.getContent(), chatResponse.getToolCalls(), null));
-                    context.add(new ModelChatMessage("tool", toolContent, null, result.getToolCallId()));
-                }
+                addToolResultsToContext(context, chatResponse, toolResults);
                 
                 // 继续调用模型（流式）
                 request.setMessages(context);
@@ -599,14 +582,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
                 List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
-                for (ToolExecutionResult result : toolResults) {
-                    String toolContent = result.getContent();
-                    if (toolContent == null) {
-                        toolContent = result.isSuccess() ? "" : (result.getErrorMsg() != null ? result.getErrorMsg() : "工具执行失败");
-                    }
-                    context.add(new ModelChatMessage("assistant", chatResponse.getContent(), chatResponse.getToolCalls(), null));
-                    context.add(new ModelChatMessage("tool", toolContent, null, result.getToolCallId()));
-                }
+                addToolResultsToContext(context, chatResponse, toolResults);
 
                 request.setMessages(context);
                 modelResponse = modelClient.stream(request, new ModelStreamCallback() {
@@ -1311,6 +1287,66 @@ public class AgentChatServiceImpl implements AgentChatService {
         return false;
     }
 
+    private void addToolResultsToContext(List<ModelChatMessage> context,
+                                         ModelChatResponse response,
+                                         List<ToolExecutionResult> toolResults) {
+        if (context == null || response == null || toolResults == null || toolResults.isEmpty()) {
+            return;
+        }
+        context.add(new ModelChatMessage("assistant", response.getContent(), response.getToolCalls(), null));
+        Map<String, String> toolNameByCallId = parseToolNameByCallId(response.getToolCalls());
+        for (ToolExecutionResult result : toolResults) {
+            if (result == null) {
+                continue;
+            }
+            String toolContent = result.isSuccess()
+                    ? result.getContent()
+                    : buildToolRetryInstruction(toolNameByCallId.get(result.getToolCallId()), result);
+            if (toolContent == null) {
+                toolContent = result.isSuccess() ? "" : "工具执行失败";
+            }
+            log.info("工具结果添加到上下文: toolCallId={}, success={}, content={}",
+                    result.getToolCallId(), result.isSuccess(), toolContent);
+            context.add(new ModelChatMessage("tool", toolContent, null, result.getToolCallId()));
+        }
+    }
+
+    private Map<String, String> parseToolNameByCallId(String toolCallsJson) {
+        Map<String, String> result = new HashMap<>();
+        if (StringUtils.isBlank(toolCallsJson)) {
+            return result;
+        }
+        try {
+            JSONArray toolCalls = JSONArray.parseArray(toolCallsJson);
+            for (int i = 0; i < toolCalls.size(); i++) {
+                JSONObject toolCall = toolCalls.getJSONObject(i);
+                if (toolCall == null) {
+                    continue;
+                }
+                String id = toolCall.getString("id");
+                JSONObject function = toolCall.getJSONObject("function");
+                if (StringUtils.isNotBlank(id) && function != null) {
+                    result.put(id, function.getString("name"));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析工具调用名称失败: {}", e.getMessage());
+        }
+        return result;
+    }
+
+    private String buildToolRetryInstruction(String toolName, ToolExecutionResult result) {
+        String error = StringUtils.defaultIfBlank(result.getErrorMsg(), result.getContent());
+        if (StringUtils.isBlank(error)) {
+            error = "工具执行失败";
+        }
+        String name = StringUtils.defaultIfBlank(toolName, "当前工具");
+        return "工具 " + name + " 执行失败。\n"
+                + "失败原因：" + error + "\n"
+                + "请根据该工具的参数 schema 和用户原始请求修正 arguments，并重新调用该工具。"
+                + "不要直接编造工具结果；如果无法修复参数，请向用户说明需要补充哪些信息。";
+    }
+
     private void applyInteractiveQuestionPolicy(List<ModelChatMessage> context) {
         if (context == null) {
             return;
@@ -1763,6 +1799,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 if (StringUtils.isNotBlank(argumentsStr)) {
                     arguments = JSON.parseObject(argumentsStr, Map.class);
                 }
+                log.info("解析工具调用: id={}, name={}, argumentsRaw={}, arguments={}", id, name, argumentsStr, arguments);
 
                 toolCalls.add(new ToolCallInfo(id, name, arguments));
             }

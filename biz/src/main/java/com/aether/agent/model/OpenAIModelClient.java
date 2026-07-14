@@ -247,14 +247,15 @@ public class OpenAIModelClient implements ModelClient {
             if ("assistant".equals(role) && hasToolCalls) {
                 JSONObject item = new JSONObject();
                 item.put("role", role);
-                item.put("tool_calls", JSONArray.parseArray(message.getToolCalls()));
+                item.put("content", StringUtils.defaultString(message.getContent(), ""));
+                item.put("tool_calls", normalizeToolCalls(JSONArray.parseArray(message.getToolCalls())));
                 array.add(item);
             } else {
                 JSONObject item = new JSONObject();
                 item.put("role", role);
                 item.put("content", StringUtils.defaultString(message.getContent(), ""));
                 if (hasToolCalls) {
-                    item.put("tool_calls", JSONArray.parseArray(message.getToolCalls()));
+                    item.put("tool_calls", normalizeToolCalls(JSONArray.parseArray(message.getToolCalls())));
                 }
                 if (StringUtils.isNotBlank(message.getToolCallId())) {
                     item.put("tool_call_id", message.getToolCallId());
@@ -263,6 +264,23 @@ public class OpenAIModelClient implements ModelClient {
             }
         }
         return array;
+    }
+
+    private JSONArray normalizeToolCalls(JSONArray toolCalls) {
+        if (toolCalls == null) {
+            return new JSONArray();
+        }
+        for (int i = 0; i < toolCalls.size(); i++) {
+            JSONObject toolCall = toolCalls.getJSONObject(i);
+            if (toolCall == null) {
+                continue;
+            }
+            Object id = toolCall.get("id");
+            if (id != null) {
+                toolCall.put("id", String.valueOf(id));
+            }
+        }
+        return toolCalls;
     }
 
     private JSONArray toJsonTools(List<AgentTool> tools) {
