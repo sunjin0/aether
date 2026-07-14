@@ -18,7 +18,7 @@ public class AgentMcpServerVo extends BaseEntity {
     @ApiModelProperty(value = "MCP服务编码")
     private String code;
 
-    @ApiModelProperty(value = "传输类型：http/sse/streamable_http")
+    @ApiModelProperty(value = "传输类型：http/streamable_http")
     private String transport;
 
     @ApiModelProperty(value = "MCP endpoint")

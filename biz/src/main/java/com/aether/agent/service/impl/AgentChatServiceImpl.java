@@ -1340,6 +1340,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (StringUtils.isBlank(error)) {
             error = "工具执行失败";
         }
+        error = truncate(error, 2048);
         String name = StringUtils.defaultIfBlank(toolName, "当前工具");
         return "工具 " + name + " 执行失败。\n"
                 + "失败原因：" + error + "\n"
@@ -1712,6 +1713,10 @@ public class AgentChatServiceImpl implements AgentChatService {
                 AgentTool tool = toolMap.get(toolCall.getName());
                 if (tool == null) {
                     log.warn("工具未找到: {}", toolCall.getName());
+                    ToolExecutionResult failure = ToolExecutionResult.failure("工具未找到: " + toolCall.getName(), 1);
+                    failure.setToolCallId(toolCall.getId());
+                    failure.setRequestMethod("MCP tools/call");
+                    results.add(failure);
                     saveToolCallLog(runId, toolCall.getId(), toolCall.getName(),
                             JSON.toJSONString(toolCall.getArguments()),
                             null, agent.getId(), null, null, null,

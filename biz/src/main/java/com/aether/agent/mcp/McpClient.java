@@ -141,10 +141,11 @@ public class McpClient {
         if (StringUtils.isBlank(payload)) {
             throw new ServerException(502, "MCP响应为空");
         }
-        if (payload.length() > MAX_RESPONSE_BODY) {
-            payload = payload.substring(0, MAX_RESPONSE_BODY);
+        try {
+            return JSON.parseObject(payload);
+        } catch (Exception e) {
+            throw new ServerException(502, "MCP响应JSON解析失败: " + StringUtils.abbreviate(payload, MAX_RESPONSE_BODY));
         }
-        return JSON.parseObject(payload);
     }
 
     private String extractPayload(String body) {

@@ -30,7 +30,6 @@ public class HttpMcpTransport implements McpTransport {
     public boolean supports(String transport) {
         return StringUtils.isBlank(transport)
                 || "http".equalsIgnoreCase(transport)
-                || "sse".equalsIgnoreCase(transport)
                 || "streamable_http".equalsIgnoreCase(transport);
     }
 

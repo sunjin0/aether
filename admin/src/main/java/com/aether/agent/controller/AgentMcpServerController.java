@@ -108,12 +108,12 @@ public class AgentMcpServerController {
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}")
     public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody AgentMcpServerDto dto) {
-        getExistingServer(id);
+        AgentMcpServer existing = getExistingServer(id);
         AgentMcpServer server = new AgentMcpServer();
         BeanUtils.copyProperties(dto, server);
         server.setId(id);
         fillDefaults(server);
-        encryptAuthToken(server);
+        applyAuthTokenForUpdate(server, existing, dto);
         boolean updated = agentMcpServerService.updateById(server);
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }
@@ -217,6 +217,16 @@ public class AgentMcpServerController {
             server.setAuthToken(AesUtil.encrypt(server.getAuthToken()));
         } else {
             server.setAuthToken(null);
+        }
+    }
+
+    private void applyAuthTokenForUpdate(AgentMcpServer server, AgentMcpServer existing, AgentMcpServerDto dto) {
+        if (Boolean.TRUE.equals(dto.getClearAuthToken())) {
+            server.setAuthToken("");
+        } else if (StringUtils.isNotBlank(dto.getAuthToken())) {
+            server.setAuthToken(AesUtil.encrypt(dto.getAuthToken()));
+        } else {
+            server.setAuthToken(existing.getAuthToken());
         }
     }
 

@@ -44,7 +44,7 @@ GET /api/sys/dict/options?parentCode={parentCode}&useValue=true
 
 | 使用位置 | 字段 | parentCode | value |
 | --- | --- | --- | --- |
-| MCP 服务传输类型 | `transport` | `Agent_Mcp_Transport` | `http` / `sse` / `streamable_http` |
+| MCP 服务传输类型 | `transport` | `Agent_Mcp_Transport` | `http` / `streamable_http` |
 | MCP 服务认证类型 | `authType` | `Agent_Mcp_Auth_Type` | `none` / `bearer` / `api_key` |
 | MCP 服务状态 | `status` | `Agent_Status` | `0` / `1` |
 | MCP 工具状态 | `status` | `Agent_Status` | `0` / `1` |
@@ -135,7 +135,8 @@ PUT /api/agent/mcp-server/{id}
 - 详情接口不回显 `authToken`。
 - token 输入框默认空。
 - 用户填写 token 时提交新 token。
-- 用户不填写 token 时，建议前端不要提示“已清空”。当前后端会按空值写入，若要支持“留空不修改”，需要后端再做一次更新策略调整。
+- 用户不填写 token 时表示不修改旧 token。
+- 用户需要清空 token 时，提交 `clearAuthToken: true`。
 
 ### 4.4 详情
 

@@ -15,7 +15,7 @@ public class AgentMcpServerDto {
     @ApiModelProperty(value = "MCP服务编码")
     private String code;
 
-    @ApiModelProperty(value = "传输类型：http/sse/streamable_http")
+    @ApiModelProperty(value = "传输类型：http/streamable_http")
     private String transport;
 
     @ApiModelProperty(value = "MCP endpoint")
@@ -29,6 +29,9 @@ public class AgentMcpServerDto {
 
     @ApiModelProperty(value = "认证token")
     private String authToken;
+
+    @ApiModelProperty(value = "是否清空认证token")
+    private Boolean clearAuthToken;
 
     @ApiModelProperty(value = "超时时间（毫秒）")
     private Integer timeoutMs;
