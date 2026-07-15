@@ -138,6 +138,7 @@ public class AgentMcpServerController {
     public WebResponse<List<McpToolDefinition>> listTools(@PathVariable @NotBlank String id) {
         AgentMcpServer server = getEnabledServer(id);
         validateTransport(server);
+        mcpClient.ping(server);
         return WebResponse.OK(mcpClient.listTools(server));
     }
 
@@ -149,6 +150,7 @@ public class AgentMcpServerController {
                                                     @RequestBody(required = false) Map<String, List<String>> body) {
         AgentMcpServer server = getEnabledServer(id);
         validateTransport(server);
+        mcpClient.ping(server);
         List<String> selectedNames = body == null ? null : body.get("toolNames");
         List<McpToolDefinition> definitions = mcpClient.listTools(server);
         List<AgentTool> imported = new ArrayList<>();

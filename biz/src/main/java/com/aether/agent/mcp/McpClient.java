@@ -36,6 +36,19 @@ public class McpClient {
         return transportFactory.supports(transportType);
     }
 
+    /**
+     * Verifies that the configured MCP server is reachable and accepts MCP requests.
+     */
+    public void ping(AgentMcpServer server) {
+        try {
+            McpSession session = getOrInitialize(server);
+            request(server, session, "ping", new JSONObject());
+        } catch (Exception e) {
+            sessionManager.invalidate(server.getId());
+            throw new ServerException(502, "MCP服务不可用，请检查服务状态或连接配置");
+        }
+    }
+
     public List<McpToolDefinition> listTools(AgentMcpServer server) {
         McpSession session = getOrInitialize(server);
         JSONObject result = request(server, session, "tools/list", new JSONObject());

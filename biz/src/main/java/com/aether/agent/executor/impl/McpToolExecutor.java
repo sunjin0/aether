@@ -46,6 +46,7 @@ public class McpToolExecutor implements ToolExecutor {
             requestUrl = server.getBaseUrl();
             String mcpToolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
             requestBody = JSON.toJSONString(context.getArguments());
+            mcpClient.ping(server);
             JSONObject response = mcpClient.callTool(server, mcpToolName, context.getArguments());
             long latencyMs = System.currentTimeMillis() - startTime;
 
