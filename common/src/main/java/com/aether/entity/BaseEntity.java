@@ -30,7 +30,7 @@ public class BaseEntity implements Serializable {
 
     @ApiModelProperty(value = "删除状态")
     @TableField(value = "deleted", fill = FieldFill.INSERT)
-    @TableLogic(value = "0", delval = "1")
+    @TableLogic(value = "false", delval = "true")
     private Boolean deleted;
     /**
      * 默认为0

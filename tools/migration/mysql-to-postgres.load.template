@@ -1,0 +1,26 @@
+LOAD DATABASE
+     FROM {{MYSQL_DSN}}
+     INTO {{POSTGRES_DSN}}
+
+ WITH data only, create no tables, create no indexes,
+      reset sequences, workers = 4, concurrency = 1,
+      batch rows = 1000
+
+ SET maintenance_work_mem to '512MB',
+     work_mem to '16MB',
+     search_path to 'public'
+
+ CAST column agent_model_provider.deleted to boolean using tinyint-to-boolean,
+      column agent_definition.deleted to boolean using tinyint-to-boolean,
+      column agent_definition.default_thinking to boolean using tinyint-to-boolean,
+      column agent_mcp_server.deleted to boolean using tinyint-to-boolean,
+      column agent_tool.deleted to boolean using tinyint-to-boolean,
+      column agent_tool_binding.deleted to boolean using tinyint-to-boolean,
+      column agent_conversation.deleted to boolean using tinyint-to-boolean,
+      column agent_message.deleted to boolean using tinyint-to-boolean,
+      column agent_run.deleted to boolean using tinyint-to-boolean,
+      column agent_tool_call_log.deleted to boolean using tinyint-to-boolean,
+      column agent_workflow.deleted to boolean using tinyint-to-boolean,
+      column agent_knowledge_base.deleted to boolean using tinyint-to-boolean,
+      column agent_document.deleted to boolean using tinyint-to-boolean
+;

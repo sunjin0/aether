@@ -32,10 +32,10 @@
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-boot-starter</artifactId>
             </dependency>
-            <!-- MySQL 驱动 -->
+            <!-- PostgreSQL 驱动 -->
             <dependency>
-                <groupId>mysql</groupId>
-                <artifactId>mysql-connector-java</artifactId>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
             </dependency>
 
             <!-- api 模块依赖（仅 biz 需要） -->

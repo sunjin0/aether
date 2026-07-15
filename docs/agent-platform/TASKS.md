@@ -11,7 +11,7 @@
 - [x] 创建模型供应商、Agent 定义、MCP 服务、工具、工具绑定、会话、消息、运行记录和工具调用日志的数据模型。
 - [x] 创建对应 DTO、VO、Mapper 和 Service 接口。
 - [x] 提供模型供应商、Agent、MCP 服务、工具、工具绑定、会话、运行记录和工具调用日志的管理接口。
-- [x] 将统一建表脚本收敛至 `api/src/main/resources/sql/agent-platform.sql`。
+- [x] 将 SQL 收敛为 MySQL/PostgreSQL 各两个文件：`001-schema.sql` 和 `002-data.sql`。
 - [x] 采用逻辑删除，`BaseEntity.deleted` 已配置 MyBatis-Plus `@TableLogic`。
 
 ## 2. 聊天与流式响应
@@ -58,13 +58,14 @@
 ### 6.2 知识库
 
 - [x] 保留 `agent_knowledge_base`、`agent_document` 表及对应实体、VO、Mapper、Service 和 Service 实现。
+- [x] 新增 PostgreSQL `pgvector` 基础结构：`agent_document_chunk`、1536 维 HNSW 索引及 MyBatis-Plus 基础分层。
 - [ ] 实现知识库管理、文档处理与检索能力。
 
 ## 7. 可执行验证清单
 
 - [x] 全量编译通过（JDK 17）。
 - [x] 已有单元测试通过。
-- [ ] 在目标环境执行 `agent-platform.sql` 并验证建表结果。
+- [ ] 在目标环境执行对应数据库的 `001-schema.sql` 和 `002-data.sql` 并验证建表/种子数据结果。
 - [ ] 使用有效模型供应商和 MCP 服务进行聊天、SSE、工具调用、交互式提问的端到端验证。
 
 ## 8. 变更记录
@@ -74,3 +75,4 @@
 | 2026-07-07 | 修复 SSE 最终事件、会话归属校验、逻辑删除、工具上下文回填、工具日志写入和 URL 校验问题。 |
 | 2026-07-15 | 同步 MCP 服务、MCP 工具、工具分类、交互式提问、内建 `ask_user` 工具和风险审查能力。 |
 | 2026-07-15 | 移除未确认的未来版本、限流/监控/压测等任务规划；保留工作流和知识库预留功能。 |
+| 2026-07-15 | 新增 PostgreSQL 16 + pgvector 迁移脚本、pgloader 工具链和一次切换运行手册。 |

@@ -1,9 +1,9 @@
 # Agent 平台数据库设计
 
 > 版本：V0.9
-> 状态：已与 `api/src/main/resources/sql/agent-platform.sql` 同步
+> 状态：已与 `api/src/main/resources/sql/postgresql/001-schema.sql` 同步
 > 更新日期：2026-07-15
-> 范围：当前 Agent 平台的表结构、关联关系和索引说明。建表以 `agent-platform.sql` 为准。
+> 范围：当前 Agent 平台的表结构、关联关系和索引说明。PostgreSQL 建表以 `001-schema.sql` 为准，初始化数据以 `002-data.sql` 为准。
 
 ---
 
@@ -41,7 +41,7 @@
 |---|---|---|
 | `name` / `code` | VARCHAR(64) | 名称和编码；`code` 与 `deleted` 组成唯一键 |
 | `description` / `system_prompt` | VARCHAR(512) / TEXT | 描述和系统提示词 |
-| `model_provider_id` / `model` | BIGINT / VARCHAR(64) | 模型供应商和模型名称 |
+| `model_provider_id` / `model` | VARCHAR(32) / VARCHAR(64) | 模型供应商和模型名称 |
 | `temperature` / `max_tokens` | DECIMAL(3,2) / INT | 默认 0.70、2048 |
 | `status` | TINYINT | 0 草稿，1 启用，2 禁用 |
 | `max_tool_rounds` | INT | 最大工具调用轮次，默认 1 |
@@ -79,7 +79,7 @@
 | `name` / `code` | VARCHAR(64) | 工具名称和编码；`code` 与 `deleted` 组成唯一键 |
 | `description` | VARCHAR(512) | 工具描述 |
 | `tool_type` | VARCHAR(64) | 业务分类，如 `knowledge`、`ops`、`dev` |
-| `mcp_server_id` | BIGINT | 所属 MCP 服务 ID，必填 |
+| `mcp_server_id` | VARCHAR(32) | 所属 MCP 服务 ID，必填 |
 | `mcp_tool_name` | VARCHAR(128) | MCP 协议中的工具名 |
 | `mcp_input_schema` | TEXT | MCP `inputSchema` JSON |
 | `timeout_ms` | INT | 超时毫秒数，默认 30000 |
@@ -93,7 +93,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `agent_definition_id` / `tool_id` | BIGINT | Agent 和工具 ID |
+| `agent_definition_id` / `tool_id` | VARCHAR(32) | Agent 和工具 ID |
 | `priority` | INT | 调用优先级，默认 0 |
 | `status` | TINYINT | 0 禁用，1 启用 |
 
@@ -103,7 +103,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `user_id` / `agent_definition_id` | BIGINT | 所属用户和 Agent |
+| `user_id` / `agent_definition_id` | VARCHAR(32) | 所属用户和 Agent |
 | `title` | VARCHAR(256) | 会话标题 |
 | `message_count` | INT | 消息数，默认 0 |
 | `status` | TINYINT | 0 进行中，1 关闭，2 归档 |
@@ -116,7 +116,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `conversation_id` / `role` | BIGINT / VARCHAR(16) | 会话 ID；角色为 `user`、`assistant`、`tool` |
+| `conversation_id` / `role` | VARCHAR(32) / VARCHAR(16) | 会话 ID；角色为 `user`、`assistant`、`tool` |
 | `message_type` | VARCHAR(32) | `chat`、`interaction`、`answer`，默认 `chat` |
 | `interaction_type` / `interaction_status` | VARCHAR(32) | 交互类型（当前为 `group`）；`pending`、`answered`、`cancelled`、`expired` |
 | `question_config` | TEXT | 后端校验后的提问配置 JSON |
@@ -138,10 +138,10 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `agent_definition_id` / `user_id` | BIGINT | Agent 和用户 ID |
-| `conversation_id` / `message_id` | BIGINT | 关联会话和输出消息 ID |
+| `agent_definition_id` / `user_id` | VARCHAR(32) | Agent 和用户 ID |
+| `conversation_id` / `message_id` | VARCHAR(32) | 关联会话和输出消息 ID |
 | `input_content` / `output_content` | TEXT | 输入、输出摘要 |
-| `model` / `model_provider_id` | VARCHAR(64) / BIGINT | 实际使用模型和供应商 |
+| `model` / `model_provider_id` | VARCHAR(64) / VARCHAR(32) | 实际使用模型和供应商 |
 | `prompt_tokens` / `completion_tokens` / `total_tokens` | INT | Token 统计 |
 | `latency_ms` | INT | 总耗时（毫秒） |
 | `status` / `error_msg` | TINYINT / VARCHAR(1024) | 0 成功，1 失败，2 超时；错误信息 |
@@ -154,11 +154,11 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `run_id` | BIGINT | 关联 `agent_run`，必填 |
-| `tool_id` | BIGINT | 关联持久化工具，可为空（内建工具场景） |
+| `run_id` | VARCHAR(32) | 关联 `agent_run`，必填 |
+| `tool_id` | VARCHAR(32) | 关联持久化工具，可为空（内建工具场景） |
 | `tool_call_id` / `tool_name` | VARCHAR(128) | 模型返回的调用 ID 和工具名称 |
 | `arguments` | TEXT | 模型传入的原始参数 JSON |
-| `agent_definition_id` | BIGINT | 关联 Agent ID |
+| `agent_definition_id` | VARCHAR(32) | 关联 Agent ID |
 | `request_url` / `request_method` | VARCHAR(512) / VARCHAR(16) | 实际请求地址和方法 |
 | `request_headers` / `request_body` | TEXT | 实际请求头和请求体 |
 | `response_status` / `response_body` | INT / TEXT | 响应状态码和响应体（最多 64KB） |
@@ -175,6 +175,18 @@
 - `agent_knowledge_base`：Agent 所属知识库及索引状态；
 - `agent_document`：知识库文档、来源和分块数量。
 
+### 2.11 知识库向量检索选型
+
+应用默认配置和 PostgreSQL 专用初始化脚本现以 PostgreSQL 16 为目标；生产主库在完成一次切换前仍保留 MySQL 只读回滚路径。知识库向量检索统一采用 `pgvector`：
+
+- 通过 `CREATE EXTENSION vector` 启用扩展；
+- 新增 `agent_document_chunk`，保存文档分块、分块序号、文本、Token 数和固定 `embedding vector(1536)`；
+- 为 `embedding` 建立与选定距离度量一致的 HNSW 索引；
+- 将知识库、文档、租户/用户和逻辑删除等过滤条件保留为常规列和 B-tree 索引；
+- 使用 PostgreSQL 事务保证文档元数据、分块和向量写入的一致性。
+
+本期仅提供表、MyBatis-Plus 基础分层和 HNSW 索引；文档分块、嵌入生成、检索 API 和 RAG 上下文注入后续实现。
+
 ## 3. 关系概览
 
 ```text
@@ -184,7 +196,7 @@ agent_definition     1 ── N agent_run ── N agent_tool_call_log
 agent_definition     1 ── N agent_tool_binding N ── 1 agent_tool
 agent_mcp_server     1 ── N agent_tool
 agent_definition     1 ── N agent_workflow                  [预留]
-agent_definition     1 ── N agent_knowledge_base ── N agent_document [预留]
+agent_definition     1 ── N agent_knowledge_base ── N agent_document ── N agent_document_chunk [pgvector]
 ```
 
 ## 4. 数据保留与安全
@@ -202,3 +214,5 @@ agent_definition     1 ── N agent_knowledge_base ── N agent_document [�
 | V0.6 | 2026-07-07 | 消息增加推理内容和推理 Token 字段 |
 | V0.8 | 2026-07-15 | 同步交互式提问、内建工具审计字段、MCP 服务与 MCP 工具结构 |
 | V0.9 | 2026-07-15 | 同步工具业务分类、MCP 工具唯一约束及当前统一建表脚本 |
+| V1.0 | 2026-07-15 | 确认知识库向量检索：主库迁移 PostgreSQL 后采用 pgvector |
+| V1.1 | 2026-07-15 | 新增 PostgreSQL 16 迁移脚本、pgvector 1536 维分块表和迁移运行手册 |
