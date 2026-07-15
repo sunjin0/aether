@@ -7,6 +7,7 @@ import com.aether.agent.dto.AgentChatDto;
 import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
+import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.AgentToolBinding;
@@ -19,6 +20,7 @@ import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.tools.entity.ToolResult;
 import com.aether.agent.tools.core.Tool;
 import com.aether.agent.tools.core.ToolRegistry;
+import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
@@ -30,6 +32,7 @@ import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
+import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.AgentToolBindingService;
@@ -76,6 +79,10 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final String MESSAGE_TYPE_ANSWER = "answer";
     private static final String INTERACTION_STATUS_PENDING = "pending";
     private static final String INTERACTION_STATUS_ANSWERED = "answered";
+    private static final String MCP_APPROVAL_TYPE = "mcp_tool_approval";
+    private static final int TOOL_CALL_STATUS_PENDING_APPROVAL = 4;
+    private static final String TOOL_APPROVAL_GRANT_KEY_PREFIX = "agent:tool-approval:";
+    private static final long TOOL_APPROVAL_GRANT_TTL_MINUTES = 10;
     private static final String INTERACTIVE_QUESTION_POLICY = "# ask_user 工具调用规范\n" +
             "\n" +
             "## 触发条件（三选一）\n" +
@@ -88,7 +95,8 @@ public class AgentChatServiceImpl implements AgentChatService {
             "2. **批量提问**：多个问题必须一次性放入 questions 数组，前端分页展示。\n" +
             "3. **问题格式**：每个问题必须包含 id（snake_case）和 type（choice/confirm）。choice 必须带 options 列表。\n" +
             "4. **禁止动态表单**：不支持 form；若需自由文本输入，直接输出普通追问（不调用工具）。\n" +
-            "5. **退出条件**：若无问题需要用户输入，则输出普通助手回复，禁止调用工具。";
+            "5. **退出条件**：若无问题需要用户输入，则输出普通助手回复，禁止调用工具。\n" +
+            "6. **MCP 调用审查**：调用 MCP 工具前必须检查工具名称和参数，尤其是 SQL、脚本或命令；仅请求完成用户目标所需的最小操作。所有 MCP 调用都会由平台展示给用户确认，高风险操作会额外警示。";
     private static final int TOOL_CALL_STATUS_SUCCESS = 0;
     private static final int TOOL_CALL_STATUS_FAILED = 1;
     private static final int TOOL_CALL_STATUS_TIMEOUT = 2;
@@ -116,6 +124,8 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentToolCallLogService agentToolCallLogService;
     private final ToolExecutorFactory toolExecutorFactory;
     private final ToolRegistry toolRegistry;
+    private final AgentMcpServerService agentMcpServerService;
+    private final ToolCallRiskAnalyzer toolCallRiskAnalyzer = new ToolCallRiskAnalyzer();
     private final ExecutorService summaryExecutor = Executors.newFixedThreadPool(2);
 
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
@@ -129,7 +139,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                                  AgentToolBindingService agentToolBindingService,
                                  AgentToolCallLogService agentToolCallLogService,
                                  ToolExecutorFactory toolExecutorFactory,
-                                 ToolRegistry toolRegistry) {
+                                 ToolRegistry toolRegistry,
+                                 AgentMcpServerService agentMcpServerService) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.agentConversationService = agentConversationService;
@@ -142,6 +153,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.agentToolCallLogService = agentToolCallLogService;
         this.toolExecutorFactory = toolExecutorFactory;
         this.toolRegistry = toolRegistry;
+        this.agentMcpServerService = agentMcpServerService;
     }
 
     @Override
@@ -196,6 +208,19 @@ public class AgentChatServiceImpl implements AgentChatService {
                             waitingUser ? RUN_STATUS_WAITING_USER : RUN_STATUS_SUCCESS, null);
                     AgentMessageVo vo = new AgentMessageVo();
                     BeanUtils.copyProperties(questionMessage, vo);
+                    return vo;
+                }
+                // Persist any model text produced before it requested the tool.
+                // The non-streaming response can only return one message, so the
+                // prelude is recovered through normal conversation history.
+                saveAssistantPreludeIfPresent(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime);
+                AgentMessage approval = createMcpToolApproval(conversation.getId(), modelResponse, agent, userId, runId);
+                if (approval != null) {
+                    updateConversationMessageCount(conversation.getId());
+                    updateRun(runId, approval.getId(), modelResponse, System.currentTimeMillis() - startTime,
+                            RUN_STATUS_WAITING_USER, null);
+                    AgentMessageVo vo = new AgentMessageVo();
+                    BeanUtils.copyProperties(approval, vo);
                     return vo;
                 }
                 List<ToolExecutionResult> toolResults = executeToolCalls(modelResponse, agent, userId, runId);
@@ -337,9 +362,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
-                AgentMessage assistantPrelude = hasInternalToolCall(chatResponse)
-                        ? saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime)
-                        : null;
+                AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
+                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
@@ -364,6 +388,23 @@ public class AgentChatServiceImpl implements AgentChatService {
                         if (assistantPrelude == null) {
                             callback.onDone(conversation.getId(), questionMessage.getId(), doneResponse);
                         }
+                    }
+                    return;
+                }
+                AgentMessage approval = createMcpToolApproval(conversation.getId(), chatResponse, agent, userId, runId);
+                if (approval != null) {
+                    updateConversationMessageCount(conversation.getId());
+                    AgentMessageVo approvalVo = new AgentMessageVo();
+                    BeanUtils.copyProperties(approval, approvalVo);
+                    updateRun(runId, approval.getId(), chatResponse, System.currentTimeMillis() - startTime,
+                            RUN_STATUS_WAITING_USER, null);
+                    if (!callback.isClosed()) {
+                        ModelStreamResponse done = new ModelStreamResponse();
+                        AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : approval;
+                        done.setContent(doneMessage.getContent());
+                        done.setWaitingUser(true);
+                        callback.onQuestion(conversation.getId(), runId, approvalVo);
+                        callback.onDone(conversation.getId(), doneMessage.getId(), done);
                     }
                     return;
                 }
@@ -457,6 +498,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         ModelProvider provider = null;
         AgentMessage answerMessage = null;
         String answerContent = null;
+        ApprovalExecution approvalExecution = null;
 
         try {
             conversation = agentConversationService.getById(dto.getConversationId());
@@ -496,11 +538,21 @@ public class AgentChatServiceImpl implements AgentChatService {
 
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             applyInteractiveQuestionPolicy(context);
+            approvalExecution = executeApprovedMcpTool(question, dto.getAnswer(), agent, userId);
+            if (approvalExecution != null) {
+                runId = approvalExecution.getRunId();
+                addToolResultsToContext(context, approvalExecution.getToolCallResponse(),
+                        Collections.singletonList(approvalExecution.getResult()));
+            }
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(getRequestTools(agent.getId()));
+            // A rejected approval is final for this continuation. Do not expose
+            // MCP (or ask_user) again, otherwise the model can immediately ask
+            // the same confirmation a second time.
+            boolean approvalRejected = approvalExecution != null && !approvalExecution.getResult().isSuccess();
+            request.setTools(approvalRejected ? Collections.<AgentTool>emptyList() : getRequestTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelStreamResponse modelResponse = modelClient.stream(request, new ModelStreamCallback() {
@@ -539,8 +591,8 @@ public class AgentChatServiceImpl implements AgentChatService {
             fillDefaultTokens(modelResponse, context, answerContent);
 
             int iteration = 0;
-            boolean toolCallAttempted = false;
-            boolean toolCallSucceeded = false;
+            boolean toolCallAttempted = approvalExecution != null;
+            boolean toolCallSucceeded = approvalExecution != null && approvalExecution.getResult().isSuccess();
             ModelChatResponse chatResponse = toChatResponse(modelResponse);
             while (hasToolCalls(chatResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
                 if (runId == null) {
@@ -548,9 +600,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 iteration++;
                 toolCallAttempted = true;
-                AgentMessage assistantPrelude = hasInternalToolCall(chatResponse)
-                        ? saveAssistantPreludeIfPresent(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime)
-                        : null;
+                AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
+                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
@@ -580,6 +631,23 @@ public class AgentChatServiceImpl implements AgentChatService {
                     return;
                 }
 
+                AgentMessage approval = createMcpToolApproval(conversation.getId(), chatResponse, agent, userId, runId);
+                if (approval != null) {
+                    updateConversationMessageCount(conversation.getId());
+                    AgentMessageVo approvalVo = new AgentMessageVo();
+                    BeanUtils.copyProperties(approval, approvalVo);
+                    updateRun(runId, approval.getId(), chatResponse, System.currentTimeMillis() - startTime,
+                            RUN_STATUS_WAITING_USER, null);
+                    if (!callback.isClosed()) {
+                        ModelStreamResponse done = new ModelStreamResponse();
+                        AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : approval;
+                        done.setContent(doneMessage.getContent());
+                        done.setWaitingUser(true);
+                        callback.onQuestion(conversation.getId(), runId, approvalVo);
+                        callback.onDone(conversation.getId(), doneMessage.getId(), done);
+                    }
+                    return;
+                }
                 List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 addToolResultsToContext(context, chatResponse, toolResults);
@@ -1779,6 +1847,220 @@ public class AgentChatServiceImpl implements AgentChatService {
         return results;
     }
 
+    private ApprovalExecution executeApprovedMcpTool(AgentMessage question, Map<String, Object> answer,
+                                                      AgentDefinition agent, String userId) {
+        JSONObject config = JSONObject.parseObject(question.getQuestionConfig());
+        if (!MCP_APPROVAL_TYPE.equals(config.getString("approvalType"))) {
+            return null;
+        }
+        String decision = resolveApprovalDecision(answer);
+        boolean confirmed = "once".equals(decision) || "allow_10m".equals(decision);
+        String runId = config.getString("runId");
+        String toolCallId = config.getString("toolCallId");
+        String toolName = config.getString("toolName");
+        AgentTool tool = agentToolService.getById(config.getString("toolId"));
+        Map<String, Object> arguments = config.getJSONObject("arguments") == null
+                ? new HashMap<String, Object>() : config.getJSONObject("arguments").toJavaObject(Map.class);
+        ToolExecutionResult result;
+        if (!confirmed) {
+            result = ToolExecutionResult.failure("用户拒绝执行此 MCP 工具调用", TOOL_CALL_STATUS_SECURITY_BLOCK);
+        } else if (tool == null || Boolean.TRUE.equals(tool.getDeleted()) || !Integer.valueOf(1).equals(tool.getStatus())) {
+            result = ToolExecutionResult.failure("待确认的工具已不存在或被禁用", TOOL_CALL_STATUS_FAILED);
+        } else {
+            try {
+                ToolExecutionContext context = new ToolExecutionContext();
+                context.setTool(tool);
+                context.setArguments(arguments);
+                context.setRunId(runId);
+                context.setUserId(userId);
+                result = toolExecutorFactory.getExecutor("mcp").execute(context);
+            } catch (Exception e) {
+                result = ToolExecutionResult.failure("MCP 工具执行失败: " + e.getMessage(), TOOL_CALL_STATUS_FAILED);
+            }
+        }
+        result.setToolCallId(toolCallId);
+        if ("allow_10m".equals(decision) && tool != null) {
+            saveToolApprovalGrant(userId, agent.getId(), tool.getId());
+        }
+        updateApprovalAudit(config.getString("auditLogId"), result, confirmed);
+
+        JSONObject function = new JSONObject();
+        function.put("name", toolName);
+        function.put("arguments", JSON.toJSONString(arguments));
+        JSONObject call = new JSONObject();
+        call.put("id", toolCallId);
+        call.put("type", "function");
+        call.put("function", function);
+        ModelChatResponse toolCallResponse = new ModelChatResponse();
+        toolCallResponse.setToolCalls(new JSONArray().fluentAdd(call).toJSONString());
+        return new ApprovalExecution(runId, toolCallResponse, result);
+    }
+
+    private String resolveApprovalDecision(Map<String, Object> answer) {
+        if (answer == null || !(answer.get("answers") instanceof Map)) {
+            return "reject";
+        }
+        Map<?, ?> answers = (Map<?, ?>) answer.get("answers");
+        Object decision = answers.get("decision");
+        if (decision instanceof Map) {
+            Object selected = ((Map<?, ?>) decision).get("selected");
+            if (selected != null && ("once".equals(selected.toString()) || "allow_10m".equals(selected.toString()))) {
+                return selected.toString();
+            }
+        }
+        // Keep pending approval messages created before this change compatible.
+        Object confirm = answers.get("confirm");
+        return confirm instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) confirm).get("confirmed")) ? "once" : "reject";
+    }
+
+    private void updateApprovalAudit(String auditLogId, ToolExecutionResult result, boolean confirmed) {
+        if (StringUtils.isBlank(auditLogId)) {
+            return;
+        }
+        AgentToolCallLog update = new AgentToolCallLog();
+        update.setId(auditLogId);
+        update.setRequestUrl(truncate(result.getRequestUrl(), 2048));
+        update.setRequestMethod(result.getRequestMethod());
+        update.setRequestHeaders(result.getRequestHeaders());
+        update.setRequestBody(truncate(result.getRequestBody(), 65536));
+        update.setResponseStatus(result.getHttpStatus());
+        update.setResponseBody(truncate(result.getRawResponse(), 65536));
+        update.setLatencyMs(result.getLatencyMs());
+        update.setStatus(result.getStatus());
+        // MyBatis ignores null fields during update; use an empty string after a
+        // successful execution so the pending-approval message cannot remain.
+        update.setErrorMsg(truncate(confirmed ? StringUtils.defaultString(result.getErrorMsg()) : "用户拒绝执行", 1024));
+        agentToolCallLogService.updateById(update);
+    }
+
+    /**
+     * MCP calls are never sent immediately. The first pending call is persisted as
+     * an interaction; after it is answered the model can continue with the result.
+     */
+    private AgentMessage createMcpToolApproval(String conversationId, ModelChatResponse response, AgentDefinition agent,
+                                               String userId, String runId) {
+        List<ToolCallInfo> calls = parseToolCalls(response);
+        if (calls.isEmpty()) {
+            return null;
+        }
+        Map<String, AgentTool> tools = new HashMap<>();
+        for (AgentTool tool : getBoundTools(agent.getId())) {
+            tools.put(tool.getName(), tool);
+        }
+        ToolCallInfo call = calls.get(0);
+        AgentTool tool = tools.get(call.getName());
+        if (tool == null) {
+            return null;
+        }
+        if (hasActiveToolApprovalGrant(userId, agent.getId(), tool.getId())) {
+            return null;
+        }
+
+        ToolCallRiskAnalyzer.Risk risk = toolCallRiskAnalyzer.analyze(tool, call.getArguments());
+        String requestUrl = resolveMcpRequestUrl(tool);
+        AgentToolCallLog audit = saveToolCallLog(runId, call.getId(), call.getName(),
+                JSON.toJSONString(call.getArguments()), tool.getId(), agent.getId(), requestUrl,
+                "MCP tools/call", null, null, null, null, null,
+                TOOL_CALL_STATUS_PENDING_APPROVAL, "等待用户确认，尚未发送到 MCP 服务");
+
+        boolean highRisk = "high".equals(risk.getLevel());
+        String prompt = highRisk
+                ? "AI 请求执行高危 MCP 工具操作，请核对调用详情后确认。"
+                : "AI 请求调用 MCP 工具，请核对调用详情后确认。";
+
+        JSONObject question = new JSONObject();
+        question.put("id", "decision");
+        question.put("type", "choice");
+        question.put("question", prompt);
+        question.put("multiple", false);
+        question.put("options", new JSONArray()
+                .fluentAdd(new JSONObject().fluentPut("id", "once").fluentPut("label", "仅本次执行").fluentPut("value", "once"))
+                .fluentAdd(new JSONObject().fluentPut("id", "allow_10m").fluentPut("label", "当前工具 10 分钟内免确认").fluentPut("value", "allow_10m"))
+                .fluentAdd(new JSONObject().fluentPut("id", "reject").fluentPut("label", "拒绝执行").fluentPut("value", "reject")));
+        JSONArray questions = new JSONArray();
+        questions.add(question);
+
+        JSONObject config = new JSONObject();
+        config.put("type", "group");
+        // A tool approval always has one decision question. Use a dedicated
+        // layout so clients do not need to infer it from the generic group type.
+        config.put("layout", "confirm");
+        config.put("question", "请确认 MCP 工具调用");
+        config.put("questions", questions);
+        config.put("approvalType", MCP_APPROVAL_TYPE);
+        config.put("auditLogId", audit.getId());
+        config.put("runId", runId);
+        config.put("toolId", tool.getId());
+        config.put("toolCallId", call.getId());
+        config.put("toolName", call.getName());
+        config.put("arguments", call.getArguments());
+        config.put("riskLevel", risk.getLevel());
+        config.put("riskReason", risk.getReason());
+        // Front-end rendering contract. Keep the execution fields above for the
+        // server-side resume path; the client should render this object instead
+        // of parsing the human-readable confirmation question.
+        JSONObject approval = new JSONObject();
+        approval.put("tool", new JSONObject()
+                .fluentPut("id", tool.getId())
+                .fluentPut("name", call.getName())
+                .fluentPut("mcpServerId", tool.getMcpServerId()));
+        approval.put("request", new JSONObject()
+                .fluentPut("url", requestUrl)
+                .fluentPut("method", "MCP tools/call")
+                .fluentPut("arguments", call.getArguments()));
+        approval.put("risk", new JSONObject()
+                .fluentPut("level", risk.getLevel())
+                .fluentPut("reason", risk.getReason())
+                .fluentPut("commandPreview", truncate(risk.getCommandPreview(), 4000)));
+        approval.put("auditLogId", audit.getId());
+        approval.put("authorizationOptions", new JSONArray()
+                .fluentAdd(new JSONObject().fluentPut("value", "once").fluentPut("ttlSeconds", 0))
+                .fluentAdd(new JSONObject().fluentPut("value", "allow_10m").fluentPut("ttlSeconds", 600))
+                .fluentAdd(new JSONObject().fluentPut("value", "reject").fluentPut("ttlSeconds", 0)));
+        config.put("approval", approval);
+
+        AgentMessage message = new AgentMessage();
+        message.setConversationId(conversationId);
+        message.setRole("assistant");
+        message.setMessageType(MESSAGE_TYPE_INTERACTION);
+        message.setInteractionType("group");
+        message.setInteractionStatus(INTERACTION_STATUS_PENDING);
+        message.setContent(config.getString("question"));
+        message.setQuestionConfig(config.toJSONString());
+        agentMessageService.save(message);
+        return message;
+    }
+
+    private String resolveMcpRequestUrl(AgentTool tool) {
+        if (tool == null || StringUtils.isBlank(tool.getMcpServerId())) {
+            return null;
+        }
+        AgentMcpServer server = agentMcpServerService.getById(tool.getMcpServerId());
+        return server == null ? null : server.getBaseUrl();
+    }
+
+    private boolean hasActiveToolApprovalGrant(String userId, String agentId, String toolId) {
+        try {
+            return Boolean.TRUE.equals(redisTemplate.hasKey(toolApprovalGrantKey(userId, agentId, toolId)));
+        } catch (Exception e) {
+            // Fail closed: Redis failures must not bypass a confirmation.
+            return false;
+        }
+    }
+
+    private void saveToolApprovalGrant(String userId, String agentId, String toolId) {
+        try {
+            redisTemplate.opsForValue().set(toolApprovalGrantKey(userId, agentId, toolId), "approved",
+                    TOOL_APPROVAL_GRANT_TTL_MINUTES, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.warn("保存工具临时授权失败，后续调用将继续要求确认: userId={}, agentId={}, toolId={}", userId, agentId, toolId);
+        }
+    }
+
+    private String toolApprovalGrantKey(String userId, String agentId, String toolId) {
+        return TOOL_APPROVAL_GRANT_KEY_PREFIX + userId + ":" + agentId + ":" + toolId;
+    }
+
     /**
      * 解析模型返回的工具调用
      */
@@ -1896,7 +2178,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     /**
      * 保存工具调用日志
      */
-    private void saveToolCallLog(String runId, String toolCallId, String toolName, String argumentsJson,
+    private AgentToolCallLog saveToolCallLog(String runId, String toolCallId, String toolName, String argumentsJson,
                                  String toolId, String agentDefinitionId,
                                  String requestUrl, String requestMethod, String requestHeaders,
                                  String requestBody, Integer responseStatus, String responseBody,
@@ -1918,6 +2200,23 @@ public class AgentChatServiceImpl implements AgentChatService {
         log.setStatus(status);
         log.setErrorMsg(truncate(errorMsg, 1024));
         agentToolCallLogService.save(log);
+        return log;
+    }
+
+    private static class ApprovalExecution {
+        private final String runId;
+        private final ModelChatResponse toolCallResponse;
+        private final ToolExecutionResult result;
+
+        private ApprovalExecution(String runId, ModelChatResponse toolCallResponse, ToolExecutionResult result) {
+            this.runId = runId;
+            this.toolCallResponse = toolCallResponse;
+            this.result = result;
+        }
+
+        public String getRunId() { return runId; }
+        public ModelChatResponse getToolCallResponse() { return toolCallResponse; }
+        public ToolExecutionResult getResult() { return result; }
     }
 
     /**

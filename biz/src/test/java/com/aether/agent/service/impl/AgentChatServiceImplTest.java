@@ -18,6 +18,7 @@ import com.aether.agent.tools.AskUserTool;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
+import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentToolCallLogService;
@@ -76,6 +77,8 @@ class AgentChatServiceImplTest {
     @Mock
     private ToolRegistry toolRegistry;
     @Mock
+    private AgentMcpServerService agentMcpServerService;
+    @Mock
     private ModelClient modelClient;
 
     private AgentChatServiceImpl service;
@@ -94,7 +97,8 @@ class AgentChatServiceImplTest {
                 agentToolBindingService,
                 agentToolCallLogService,
                 toolExecutorFactory,
-                toolRegistry);
+                toolRegistry,
+                agentMcpServerService);
         HashMap<String, String> user = new HashMap<>();
         user.put("userId", "user-1");
         CurrentUser.set(user);
