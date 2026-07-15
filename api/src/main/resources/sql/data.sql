@@ -21,7 +21,16 @@ INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_Tool_Type', NULL, 'Agent Too
 INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_Tool_Type_MCP', 'Agent_Tool_Type', 'MCP', 'MCP', 'mcp', 'MCP 工具', 1, b'0', 1783769933, 1783769933, 1);
 
 -- =====================================================
--- 3. Agent_Mcp_Transport (MCP传输类型)
+-- 3. Agent_Tool_Business_Type (工具业务分类)
+-- =====================================================
+INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_Tool_Business_Type', NULL, 'Agent Tool Business Type', '工具业务分类', NULL, NULL, 1, b'0', 1783769933, 1783769933, 1);
+INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_Tool_Business_Type_Knowledge', 'Agent_Tool_Business_Type', 'Knowledge', '知识库', 'knowledge', '知识库工具', 1, b'0', 1783769933, 1783769933, 1);
+INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_Tool_Business_Type_Ops', 'Agent_Tool_Business_Type', 'Operations', '运维监控', 'ops', '运维监控工具', 1, b'0', 1783769933, 1783769933, 2);
+INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_Tool_Business_Type_Dev', 'Agent_Tool_Business_Type', 'Development', '开发协作', 'dev', '开发协作工具', 1, b'0', 1783769933, 1783769933, 3);
+INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_Tool_Business_Type_General', 'Agent_Tool_Business_Type', 'General', '通用', 'general', '通用工具', 1, b'0', 1783769933, 1783769933, 4);
+
+-- =====================================================
+-- 4. Agent_Mcp_Transport (MCP传输类型)
 -- =====================================================
 INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_Mcp_Transport', NULL, 'Agent MCP Transport', 'MCP传输类型', NULL, NULL, 1, b'0', 1783769933, 1783769933, 1);
 INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_Mcp_Transport_HTTP', 'Agent_Mcp_Transport', 'HTTP', 'HTTP', 'http', 'HTTP MCP transport', 1, b'0', 1783769933, 1783769933, 1);

@@ -12,12 +12,15 @@ import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.vo.AgentToolCallLogVo;
 import com.aether.agent.vo.AgentToolCallStatisticsVo;
+import com.aether.agent.vo.AgentToolFacetsVo;
 import com.aether.agent.vo.AgentToolStatisticsVo;
 import com.aether.agent.vo.AgentToolVo;
+import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.sys.service.DictService;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -33,9 +36,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -54,16 +55,19 @@ public class AgentToolController {
     private final AgentToolCallLogService agentToolCallLogService;
     private final AgentMcpServerService agentMcpServerService;
     private final ToolExecutorFactory toolExecutorFactory;
+    private final DictService dictService;
 
     @Autowired
     public AgentToolController(AgentToolService agentToolService,
                                AgentToolCallLogService agentToolCallLogService,
                                AgentMcpServerService agentMcpServerService,
-                               ToolExecutorFactory toolExecutorFactory) {
+                               ToolExecutorFactory toolExecutorFactory,
+                               DictService dictService) {
         this.agentToolService = agentToolService;
         this.agentToolCallLogService = agentToolCallLogService;
         this.agentMcpServerService = agentMcpServerService;
         this.toolExecutorFactory = toolExecutorFactory;
+        this.dictService = dictService;
     }
 
     @ApiOperation("工具列表")
@@ -91,6 +95,59 @@ public class AgentToolController {
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
+    }
+
+    @ApiOperation("工具中心筛选聚合")
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
+    })
+    @GetMapping("/facets")
+    public WebResponse<AgentToolFacetsVo> facets() {
+        List<AgentTool> tools = agentToolService.list(Wrappers.lambdaQuery(AgentTool.class)
+                .eq(AgentTool::getDeleted, false));
+        AgentToolFacetsVo facets = new AgentToolFacetsVo();
+        if (tools.isEmpty()) {
+            return WebResponse.OK(facets);
+        }
+
+        Map<String, Long> categoryCounts = tools.stream()
+                .filter(tool -> StringUtils.isNotBlank(tool.getToolType()))
+                .collect(Collectors.groupingBy(AgentTool::getToolType, Collectors.counting()));
+        Map<String, String> categoryLabels = dictService.getOptions("Agent_Tool_Business_Type", true).stream()
+                .filter(option -> option.getValue() != null)
+                .collect(Collectors.toMap(option -> String.valueOf(option.getValue()), Option::getLabel, (left, right) -> left));
+        categoryCounts.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> facets.getCategories().add(new AgentToolFacetsVo.Item(
+                        entry.getKey(), categoryLabels.getOrDefault(entry.getKey(), entry.getKey()), entry.getValue())));
+
+        Map<Integer, Long> statusCounts = tools.stream()
+                .filter(tool -> Integer.valueOf(0).equals(tool.getStatus()) || Integer.valueOf(1).equals(tool.getStatus()))
+                .collect(Collectors.groupingBy(AgentTool::getStatus, Collectors.counting()));
+        addStatusFacet(facets.getStatuses(), statusCounts, 1, "已集成");
+        addStatusFacet(facets.getStatuses(), statusCounts, 0, "未集成");
+
+        List<String> serverIds = tools.stream()
+                .map(AgentTool::getMcpServerId)
+                .filter(StringUtils::isNotBlank)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<String, String> serverNames = serverIds.isEmpty() ? Collections.emptyMap() : agentMcpServerService.list(
+                        Wrappers.lambdaQuery(AgentMcpServer.class)
+                                .in(AgentMcpServer::getId, serverIds)
+                                .eq(AgentMcpServer::getDeleted, false))
+                .stream()
+                .collect(Collectors.toMap(AgentMcpServer::getId, AgentMcpServer::getName));
+        Map<String, Long> sourceCounts = tools.stream()
+                .map(AgentTool::getMcpServerId)
+                .map(id -> StringUtils.defaultIfBlank(id, "none"))
+                .filter(id -> "none".equals(id) || serverNames.containsKey(id))
+                .collect(Collectors.groupingBy(id -> id, Collectors.counting()));
+        sourceCounts.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> facets.getSources().add(new AgentToolFacetsVo.Item(
+                        entry.getKey(), sourceLabel(entry.getKey(), serverNames), entry.getValue())));
+        return WebResponse.OK(facets);
     }
 
     @ApiOperation("Tool statistics")
@@ -293,6 +350,21 @@ public class AgentToolController {
             vo.setMcpServerName(server.getName());
             vo.setMcpBaseUrl(server.getBaseUrl());
         }
+    }
+
+    private void addStatusFacet(List<AgentToolFacetsVo.Item> statuses, Map<Integer, Long> counts,
+                                int status, String label) {
+        Long count = counts.get(status);
+        if (count != null) {
+            statuses.add(new AgentToolFacetsVo.Item(status, label, count));
+        }
+    }
+
+    private String sourceLabel(String sourceId, Map<String, String> serverNames) {
+        if ("none".equals(sourceId)) {
+            return "无来源";
+        }
+        return serverNames.get(sourceId);
     }
 
     private Wrapper<AgentTool> toolCountWrapper(AgentToolVo vo, Integer status) {
