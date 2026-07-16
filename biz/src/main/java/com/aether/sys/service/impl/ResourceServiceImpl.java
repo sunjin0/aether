@@ -47,7 +47,7 @@ public class ResourceServiceImpl extends ServiceImpl<ResourceMapper, Resource> i
                         && resource.getNameCn() == null
                         && resource.getPath() == null
                         && resource.getType() == null
-                        && resource.getDescription() == null, Resource::getParentId, 0)
+                        && resource.getDescription() == null, Resource::getParentId, "0")
                 .orderByAsc(Resource::getSortNum);
         // 查询
         Page<Resource> page = this.page(resourcePage, queryWrapper);

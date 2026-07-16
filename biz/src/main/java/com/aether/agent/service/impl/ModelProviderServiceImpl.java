@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -34,5 +35,26 @@ public class ModelProviderServiceImpl extends ServiceImpl<ModelProviderMapper, M
                 name = dict.getNameCn();
             return new Option(name, modelProvider.getId());
         }).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Option> getEmbeddingProviderOptions() {
+        List<ModelProvider> modelProviders = list(Wrappers.<ModelProvider>lambdaQuery()
+                .in(ModelProvider::getType, Arrays.asList("openai", "local"))
+                .eq(ModelProvider::getStatus, 1)
+                .eq(ModelProvider::getDeleted, false)
+                .orderByAsc(ModelProvider::getSortNum)
+                .orderByDesc(ModelProvider::getCreatedAt));
+        return modelProviders.stream()
+                .map(modelProvider -> new Option(buildProviderLabel(modelProvider), modelProvider.getId()))
+                .collect(Collectors.toList());
+    }
+
+    private String buildProviderLabel(ModelProvider modelProvider) {
+        String name = modelProvider.getName();
+        if (modelProvider.getDefaultModel() != null && !modelProvider.getDefaultModel().trim().isEmpty()) {
+            name = name + "（" + modelProvider.getDefaultModel() + "）";
+        }
+        return name;
     }
 }

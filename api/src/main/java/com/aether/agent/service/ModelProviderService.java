@@ -15,4 +15,11 @@ public interface ModelProviderService extends IService<ModelProvider> {
      * @return 模型供应商列表
      */
     List<Option> getModelProviders();
+
+    /**
+     * 获取可用于 Embedding 的模型供应商下拉选项。
+     *
+     * @return Embedding 供应商选项
+     */
+    List<Option> getEmbeddingProviderOptions();
 }

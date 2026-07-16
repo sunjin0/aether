@@ -57,9 +57,9 @@
 
 ### 6.2 知识库
 
-- [x] 保留 `agent_knowledge_base`、`agent_document` 表及对应实体、VO、Mapper、Service 和 Service 实现。
-- [x] 新增 PostgreSQL `pgvector` 基础结构：`agent_document_chunk`、1536 维 HNSW 索引及 MyBatis-Plus 基础分层。
-- [ ] 实现知识库管理、文档处理与检索能力。
+- [x] 支持平台级/Agent 专属知识库主表、`agent_knowledge_base_binding` Agent 绑定关系、文档表及对应实体、VO、Mapper、Service 和管理接口。
+- [x] 新增 PostgreSQL `pgvector` 基础结构：`knowledge_document_chunk`、1536 维 HNSW 索引及 MyBatis-Plus 基础分层。
+- [x] 实现知识库管理、文档同步分块/Embedding、pgvector Top-K 检索与 Agent 聊天注入。
 
 ## 7. 可执行验证清单
 

@@ -1,4 +1,4 @@
-package com.aether.agent.vo;
+package com.aether.knowledge.vo;
 
 import com.aether.entity.BaseEntity;
 import io.swagger.annotations.ApiModelProperty;
@@ -10,7 +10,7 @@ import lombok.EqualsAndHashCode;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class AgentDocumentVo extends BaseEntity {
+public class KnowledgeDocumentVo extends BaseEntity {
 
     @ApiModelProperty(value = "关联知识库ID")
     private String knowledgeBaseId;

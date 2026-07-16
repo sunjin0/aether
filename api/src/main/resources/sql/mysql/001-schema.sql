@@ -1,4 +1,4 @@
-﻿-- Aether MySQL schema.
+-- Aether MySQL schema.
 -- Contains table definitions and indexes only; seed/runtime data is in 002-data.sql.
 
 /*
@@ -561,11 +561,12 @@ CREATE TABLE IF NOT EXISTS `agent_workflow` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作流（V0.7预留）';
 
 -- =====================================================
--- 11. agent_knowledge_base（知识库 — V0.7预留）
+-- 11. knowledge_base（知识库 — V0.7预留）
 -- =====================================================
-CREATE TABLE IF NOT EXISTS `agent_knowledge_base` (
+CREATE TABLE IF NOT EXISTS `knowledge_base` (
     `id`                  BIGINT       NOT NULL PRIMARY KEY COMMENT '主键',
-    `agent_definition_id` BIGINT       NOT NULL COMMENT '关联Agent定义ID',
+    `scope`               VARCHAR(16)  NOT NULL DEFAULT 'PLATFORM' COMMENT '知识库范围：PLATFORM-平台级，AGENT-Agent专属',
+    `embedding_provider_id` BIGINT              COMMENT 'Embedding模型供应商ID',
     `name`                VARCHAR(64)  NOT NULL COMMENT '知识库名称',
     `description`         VARCHAR(512)          COMMENT '描述',
     `index_status`        TINYINT      NOT NULL DEFAULT 0 COMMENT '索引状态：0-未索引，1-索引中，2-已索引',
@@ -575,14 +576,34 @@ CREATE TABLE IF NOT EXISTS `agent_knowledge_base` (
     `sort_num`            INT          NOT NULL DEFAULT 0 COMMENT '排序号',
     `deleted`             TINYINT      NOT NULL DEFAULT 0 COMMENT '删除状态：0-未删除，1-已删除',
     `state`               INT          NOT NULL DEFAULT 0 COMMENT '状态 默认0',
-    KEY `idx_agent_id` (`agent_definition_id`),
+    KEY `idx_scope` (`scope`),
+    KEY `idx_embedding_provider_id` (`embedding_provider_id`),
     KEY `idx_status` (`state`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库（V0.7预留）';
 
 -- =====================================================
--- 12. agent_document（文档 — V0.7预留）
+-- 11.1 agent_knowledge_base_binding（Agent 与知识库绑定）
 -- =====================================================
-CREATE TABLE IF NOT EXISTS `agent_document` (
+CREATE TABLE IF NOT EXISTS `agent_knowledge_base_binding` (
+    `id`                  BIGINT       NOT NULL PRIMARY KEY COMMENT '主键',
+    `agent_definition_id` BIGINT       NOT NULL COMMENT '关联Agent定义ID',
+    `knowledge_base_id`   BIGINT       NOT NULL COMMENT '关联知识库ID',
+    `status`              TINYINT      NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
+    `created_at`          BIGINT                COMMENT '创建时间',
+    `updated_at`          BIGINT                COMMENT '更新时间',
+    `sort_num`            INT          NOT NULL DEFAULT 0 COMMENT '排序号',
+    `deleted`             TINYINT      NOT NULL DEFAULT 0 COMMENT '删除状态：0-未删除，1-已删除',
+    `state`               INT          NOT NULL DEFAULT 0 COMMENT '状态 默认0',
+    UNIQUE KEY `uk_agent_kb` (`agent_definition_id`, `knowledge_base_id`, `deleted`),
+    KEY `idx_agent_id` (`agent_definition_id`),
+    KEY `idx_kb_id` (`knowledge_base_id`),
+    KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 与知识库绑定';
+
+-- =====================================================
+-- 12. knowledge_document（文档 — V0.7预留）
+-- =====================================================
+CREATE TABLE IF NOT EXISTS `knowledge_document` (
     `id`                BIGINT       NOT NULL PRIMARY KEY COMMENT '主键',
     `knowledge_base_id` BIGINT       NOT NULL COMMENT '关联知识库ID',
     `title`             VARCHAR(256)          COMMENT '文档标题',
@@ -598,3 +619,46 @@ CREATE TABLE IF NOT EXISTS `agent_document` (
     KEY `idx_knowledge_base_id` (`knowledge_base_id`),
     KEY `idx_status` (`state`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档（V0.7预留）';
+
+-- =====================================================
+-- 13. sys_admin_preference（后台用户长期偏好）
+-- =====================================================
+CREATE TABLE IF NOT EXISTS `sys_admin_preference` (
+    `id`                     BIGINT       NOT NULL PRIMARY KEY COMMENT '主键',
+    `admin_id`               BIGINT       NOT NULL COMMENT '后台用户ID',
+    `category`               VARCHAR(64)  NOT NULL DEFAULT 'general' COMMENT '偏好分类',
+    `content`                VARCHAR(512) NOT NULL COMMENT '偏好内容',
+    `source_conversation_id` BIGINT                COMMENT '来源会话ID',
+    `source_message_id`      BIGINT                COMMENT '来源消息ID',
+    `confidence`             DECIMAL(4,2) NOT NULL DEFAULT 0.80 COMMENT '置信度',
+    `status`                 TINYINT      NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
+    `created_at`             BIGINT                COMMENT '创建时间',
+    `updated_at`             BIGINT                COMMENT '更新时间',
+    `sort_num`               INT          NOT NULL DEFAULT 0 COMMENT '排序号',
+    `deleted`                TINYINT      NOT NULL DEFAULT 0 COMMENT '删除状态：0-未删除，1-已删除',
+    `state`                  INT          NOT NULL DEFAULT 0 COMMENT '状态 默认0',
+    KEY `idx_admin_id` (`admin_id`),
+    KEY `idx_status` (`status`),
+    KEY `idx_source_conversation` (`source_conversation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='后台用户长期偏好';
+
+-- =====================================================
+-- 14. knowledge_document_chunk（文档分块，MySQL兼容结构，不支持向量检索）
+-- =====================================================
+CREATE TABLE IF NOT EXISTS `knowledge_document_chunk` (
+    `id`                BIGINT       NOT NULL PRIMARY KEY COMMENT '主键',
+    `knowledge_base_id` BIGINT       NOT NULL COMMENT '关联知识库ID',
+    `document_id`       BIGINT       NOT NULL COMMENT '关联文档ID',
+    `chunk_index`       INT          NOT NULL COMMENT '分块序号',
+    `content`           LONGTEXT     NOT NULL COMMENT '分块文本',
+    `token_count`       INT          NOT NULL DEFAULT 0 COMMENT 'Token估算数',
+    `embedding`         LONGTEXT     NOT NULL COMMENT '1536维向量文本表示',
+    `created_at`        BIGINT                COMMENT '创建时间',
+    `updated_at`        BIGINT                COMMENT '更新时间',
+    `sort_num`          INT          NOT NULL DEFAULT 0 COMMENT '排序号',
+    `deleted`           TINYINT      NOT NULL DEFAULT 0 COMMENT '删除状态：0-未删除，1-已删除',
+    `state`             INT          NOT NULL DEFAULT 0 COMMENT '状态 默认0',
+    UNIQUE KEY `uk_knowledge_document_chunk` (`document_id`, `chunk_index`, `deleted`),
+    KEY `idx_knowledge_base` (`knowledge_base_id`, `deleted`),
+    KEY `idx_document` (`document_id`, `deleted`, `chunk_index`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档分块（MySQL兼容结构）';

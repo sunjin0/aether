@@ -31,4 +31,4 @@ docker compose -f docker-compose.postgresql.yml exec postgres pg_isready -U aeth
 
 ## 向量基础结构
 
-`agent_document_chunk.embedding` 固定为 `vector(1536)`，对应 OpenAI 兼容的 `text-embedding-3-small`。本次只创建 pgvector 扩展、分块表和 HNSW 余弦索引；不包含文档分块、嵌入生成、检索 API 或 RAG 上下文注入。
+`knowledge_document_chunk.embedding` 固定为 `vector(1536)`，对应 OpenAI 兼容的 `text-embedding-3-small`。本次只创建 pgvector 扩展、分块表和 HNSW 余弦索引；不包含文档分块、嵌入生成、检索 API 或 RAG 上下文注入。

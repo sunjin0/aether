@@ -169,23 +169,26 @@
 
 ### 2.10 预留表
 
-`agent_workflow`、`agent_knowledge_base`、`agent_document` 已建表但暂未实现业务能力，字段和索引以建表脚本为准：
+`agent_workflow`、`knowledge_base`、`agent_knowledge_base_binding`、`knowledge_document` 已建表，字段和索引以建表脚本为准：
 
 - `agent_workflow`：Agent 工作流的节点和边 JSON；
-- `agent_knowledge_base`：Agent 所属知识库及索引状态；
-- `agent_document`：知识库文档、来源和分块数量。
+- `knowledge_base`：知识库主表，支持平台级 `PLATFORM` 和 Agent 专属 `AGENT` 两种范围；
+- `agent_knowledge_base_binding`：Agent 与知识库绑定关系，决定某个 Agent 聊天时实际检索哪些知识库；
+- `knowledge_document`：知识库文档、来源和分块数量。
+
+代码层同步按领域拆分：`com.aether.knowledge` 负责知识库本体、文档、分块、Embedding 和检索；`com.aether.agent` 仅保留 Agent 与知识库绑定及聊天注入调用。
 
 ### 2.11 知识库向量检索选型
 
 应用默认配置和 PostgreSQL 专用初始化脚本现以 PostgreSQL 16 为目标；生产主库在完成一次切换前仍保留 MySQL 只读回滚路径。知识库向量检索统一采用 `pgvector`：
 
 - 通过 `CREATE EXTENSION vector` 启用扩展；
-- 新增 `agent_document_chunk`，保存文档分块、分块序号、文本、Token 数和固定 `embedding vector(1536)`；
+- 新增 `knowledge_document_chunk`，保存文档分块、分块序号、文本、Token 数和固定 `embedding vector(1536)`；
 - 为 `embedding` 建立与选定距离度量一致的 HNSW 索引；
 - 将知识库、文档、租户/用户和逻辑删除等过滤条件保留为常规列和 B-tree 索引；
 - 使用 PostgreSQL 事务保证文档元数据、分块和向量写入的一致性。
 
-本期仅提供表、MyBatis-Plus 基础分层和 HNSW 索引；文档分块、嵌入生成、检索 API 和 RAG 上下文注入后续实现。
+当前已提供文档分块、Embedding 写入、pgvector Top-K 检索和 Agent 聊天上下文注入；文件上传、异步索引队列、ACL 和版本管理后续实现。
 
 ## 3. 关系概览
 
@@ -196,7 +199,8 @@ agent_definition     1 ── N agent_run ── N agent_tool_call_log
 agent_definition     1 ── N agent_tool_binding N ── 1 agent_tool
 agent_mcp_server     1 ── N agent_tool
 agent_definition     1 ── N agent_workflow                  [预留]
-agent_definition     1 ── N agent_knowledge_base ── N agent_document ── N agent_document_chunk [pgvector]
+agent_definition     1 ── N agent_knowledge_base_binding N ── 1 knowledge_base
+knowledge_base 1 ── N knowledge_document ── N knowledge_document_chunk [pgvector]
 ```
 
 ## 4. 数据保留与安全

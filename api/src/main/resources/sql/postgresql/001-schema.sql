@@ -1,4 +1,4 @@
-﻿-- Aether PostgreSQL schema.
+-- Aether PostgreSQL schema.
 -- Contains table definitions, indexes and pgvector infrastructure only.
 -- Run before 002-data.sql for local initialization or before data import for migration.
 
@@ -291,6 +291,28 @@ CREATE TABLE user_member (
 
 );
 
+DROP TABLE IF EXISTS sys_admin_preference CASCADE;
+CREATE TABLE sys_admin_preference (
+    id VARCHAR(32) NOT NULL,
+    admin_id VARCHAR(32) NOT NULL,
+    category VARCHAR(64) NOT NULL DEFAULT 'general',
+    content VARCHAR(512) NOT NULL,
+    source_conversation_id VARCHAR(32),
+    source_message_id VARCHAR(32),
+    confidence NUMERIC(4, 2) NOT NULL DEFAULT 0.80,
+    status SMALLINT NOT NULL DEFAULT 1,
+    created_at BIGINT,
+    updated_at BIGINT,
+    sort_num INTEGER NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    state INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_admin_id ON sys_admin_preference (admin_id);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_status ON sys_admin_preference (status);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_source_conversation ON sys_admin_preference (source_conversation_id);
+
 -- ----------------------------
 -- Records of user_member
 -- ----------------------------
@@ -534,10 +556,11 @@ CREATE TABLE IF NOT EXISTS agent_workflow (
 );
 
 -- =====================================================
--- 11. agent_knowledge_base锛堢煡璇嗗簱 鈥?V0.7棰勭暀锛?-- =====================================================
-CREATE TABLE IF NOT EXISTS agent_knowledge_base (
+-- 11. knowledge_base锛堢煡璇嗗簱 鈥?V0.7棰勭暀锛?-- =====================================================
+CREATE TABLE IF NOT EXISTS knowledge_base (
     id VARCHAR(32)       NOT NULL PRIMARY KEY,
-    agent_definition_id VARCHAR(32)       NOT NULL,
+    scope               VARCHAR(16)  NOT NULL DEFAULT 'PLATFORM',
+    embedding_provider_id VARCHAR(32),
     name                VARCHAR(64)  NOT NULL,
     description         VARCHAR(512),
     index_status        SMALLINT      NOT NULL DEFAULT 0,
@@ -550,8 +573,23 @@ CREATE TABLE IF NOT EXISTS agent_knowledge_base (
 );
 
 -- =====================================================
--- 12. agent_document锛堟枃妗?鈥?V0.7棰勭暀锛?-- =====================================================
-CREATE TABLE IF NOT EXISTS agent_document (
+-- 11.1 agent_knowledge_base_binding（Agent 与知识库绑定）
+-- =====================================================
+CREATE TABLE IF NOT EXISTS agent_knowledge_base_binding (
+    id VARCHAR(32)       NOT NULL PRIMARY KEY,
+    agent_definition_id  VARCHAR(32) NOT NULL,
+    knowledge_base_id    VARCHAR(32) NOT NULL,
+    status               SMALLINT    NOT NULL DEFAULT 1,
+    created_at           BIGINT,
+    updated_at           BIGINT,
+    sort_num             INTEGER     NOT NULL DEFAULT 0,
+    deleted              BOOLEAN     NOT NULL DEFAULT FALSE,
+    state                INTEGER     NOT NULL DEFAULT 0
+);
+
+-- =====================================================
+-- 12. knowledge_document锛堟枃妗?鈥?V0.7棰勭暀锛?-- =====================================================
+CREATE TABLE IF NOT EXISTS knowledge_document (
     id VARCHAR(32)       NOT NULL PRIMARY KEY,
     knowledge_base_id VARCHAR(32)       NOT NULL,
     title             VARCHAR(256),
@@ -608,10 +646,15 @@ CREATE INDEX IF NOT EXISTS agent_tool_call_log_idx_create_time ON agent_tool_cal
 CREATE INDEX IF NOT EXISTS agent_tool_call_log_idx_tool_call_log_run_call ON agent_tool_call_log (run_id, tool_call_id);
 CREATE INDEX IF NOT EXISTS agent_workflow_idx_agent_id ON agent_workflow (agent_definition_id);
 CREATE INDEX IF NOT EXISTS agent_workflow_idx_status ON agent_workflow (state);
-CREATE INDEX IF NOT EXISTS agent_knowledge_base_idx_agent_id ON agent_knowledge_base (agent_definition_id);
-CREATE INDEX IF NOT EXISTS agent_knowledge_base_idx_status ON agent_knowledge_base (state);
-CREATE INDEX IF NOT EXISTS agent_document_idx_knowledge_base_id ON agent_document (knowledge_base_id);
-CREATE INDEX IF NOT EXISTS agent_document_idx_status ON agent_document (state);
+CREATE INDEX IF NOT EXISTS knowledge_base_idx_scope ON knowledge_base (scope);
+CREATE INDEX IF NOT EXISTS knowledge_base_idx_embedding_provider_id ON knowledge_base (embedding_provider_id);
+CREATE INDEX IF NOT EXISTS knowledge_base_idx_status ON knowledge_base (state);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_knowledge_base_binding_uk_agent_kb ON agent_knowledge_base_binding (agent_definition_id, knowledge_base_id) WHERE deleted = FALSE;
+CREATE INDEX IF NOT EXISTS agent_knowledge_base_binding_idx_agent_id ON agent_knowledge_base_binding (agent_definition_id);
+CREATE INDEX IF NOT EXISTS agent_knowledge_base_binding_idx_kb_id ON agent_knowledge_base_binding (knowledge_base_id);
+CREATE INDEX IF NOT EXISTS agent_knowledge_base_binding_idx_status ON agent_knowledge_base_binding (status);
+CREATE INDEX IF NOT EXISTS knowledge_document_idx_knowledge_base_id ON knowledge_document (knowledge_base_id);
+CREATE INDEX IF NOT EXISTS knowledge_document_idx_status ON knowledge_document (state);
 
 -- Source: api/src/main/resources/sql/postgresql/parts/005-pgvector.sql
 
@@ -620,7 +663,7 @@ CREATE INDEX IF NOT EXISTS agent_document_idx_status ON agent_document (state);
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
-CREATE TABLE IF NOT EXISTS agent_document_chunk (
+CREATE TABLE IF NOT EXISTS knowledge_document_chunk (
     id VARCHAR(32) NOT NULL PRIMARY KEY,
     knowledge_base_id VARCHAR(32) NOT NULL,
     document_id VARCHAR(32) NOT NULL,
@@ -633,13 +676,13 @@ CREATE TABLE IF NOT EXISTS agent_document_chunk (
     sort_num INTEGER NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     state INTEGER NOT NULL DEFAULT 0,
-    CONSTRAINT uk_agent_document_chunk UNIQUE (document_id, chunk_index, deleted)
+    CONSTRAINT uk_knowledge_document_chunk UNIQUE (document_id, chunk_index, deleted)
 );
 
-CREATE INDEX IF NOT EXISTS idx_agent_document_chunk_knowledge_base
-    ON agent_document_chunk (knowledge_base_id, deleted);
-CREATE INDEX IF NOT EXISTS idx_agent_document_chunk_document
-    ON agent_document_chunk (document_id, deleted, chunk_index);
-CREATE INDEX IF NOT EXISTS idx_agent_document_chunk_embedding_cosine
-    ON agent_document_chunk USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_knowledge_document_chunk_knowledge_base
+    ON knowledge_document_chunk (knowledge_base_id, deleted);
+CREATE INDEX IF NOT EXISTS idx_knowledge_document_chunk_document
+    ON knowledge_document_chunk (document_id, deleted, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_knowledge_document_chunk_embedding_cosine
+    ON knowledge_document_chunk USING hnsw (embedding vector_cosine_ops);
 

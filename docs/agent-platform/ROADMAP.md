@@ -141,7 +141,7 @@
 
 **交付物**：
 - 工作流表结构：`agent_workflow`（节点、边、状态机预留）
-- 知识库表结构：`agent_knowledge_base`、`agent_document`
+- 知识库表结构：`knowledge_base`、`knowledge_document`
 - 接口占位：返回 `501 Not Implemented` 或空实现
 - 文档说明：工作流和知识库的设计意图
 

@@ -1,4 +1,4 @@
-package com.aether.agent.entity;
+package com.aether.knowledge.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.aether.entity.BaseEntity;
@@ -14,9 +14,9 @@ import lombok.experimental.Accessors;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)
-@TableName("agent_document")
-@ApiModel(value = "AgentDocument对象", description = "文档")
-public class AgentDocument extends BaseEntity {
+@TableName("knowledge_document")
+@ApiModel(value = "KnowledgeDocument对象", description = "文档")
+public class KnowledgeDocument extends BaseEntity {
 
     @ApiModelProperty(value = "关联知识库ID")
     private String knowledgeBaseId;

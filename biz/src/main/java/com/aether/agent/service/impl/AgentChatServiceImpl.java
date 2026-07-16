@@ -39,9 +39,12 @@ import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.knowledge.service.KnowledgeRetrievalService;
+import com.aether.agent.service.AdminPreferenceExtractionService;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
+import com.aether.sys.service.AdminPreferenceService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -125,6 +128,9 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final ToolExecutorFactory toolExecutorFactory;
     private final ToolRegistry toolRegistry;
     private final AgentMcpServerService agentMcpServerService;
+    private final AdminPreferenceService adminPreferenceService;
+    private final KnowledgeRetrievalService knowledgeRetrievalService;
+    private final AdminPreferenceExtractionService adminPreferenceExtractionService;
     private final ToolCallRiskAnalyzer toolCallRiskAnalyzer = new ToolCallRiskAnalyzer();
     private final ExecutorService summaryExecutor = Executors.newFixedThreadPool(2);
 
@@ -140,7 +146,10 @@ public class AgentChatServiceImpl implements AgentChatService {
                                  AgentToolCallLogService agentToolCallLogService,
                                  ToolExecutorFactory toolExecutorFactory,
                                  ToolRegistry toolRegistry,
-                                 AgentMcpServerService agentMcpServerService) {
+                                 AgentMcpServerService agentMcpServerService,
+                                 AdminPreferenceService adminPreferenceService,
+                                 KnowledgeRetrievalService knowledgeRetrievalService,
+                                 AdminPreferenceExtractionService adminPreferenceExtractionService) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.agentConversationService = agentConversationService;
@@ -154,6 +163,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.toolExecutorFactory = toolExecutorFactory;
         this.toolRegistry = toolRegistry;
         this.agentMcpServerService = agentMcpServerService;
+        this.adminPreferenceService = adminPreferenceService;
+        this.knowledgeRetrievalService = knowledgeRetrievalService;
+        this.adminPreferenceExtractionService = adminPreferenceExtractionService;
     }
 
     @Override
@@ -171,6 +183,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         try {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            enhanceContext(context, userId, agent.getId(), dto.getMessage());
             applyInteractiveQuestionPolicy(context);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
@@ -242,6 +255,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
                 runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), modelResponse, latencyMs,
@@ -289,6 +303,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
             long t0 = System.currentTimeMillis();
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            enhanceContext(context, userId, agent.getId(), dto.getMessage());
             applyInteractiveQuestionPolicy(context);
             long t1 = System.currentTimeMillis();
             log.info("上下文构建耗时: {}ms", t1 - t0);
@@ -463,6 +478,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
                 runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), chatResponse, latencyMs,
@@ -537,6 +553,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
 
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            enhanceContext(context, userId, agent.getId(), answerContent);
             applyInteractiveQuestionPolicy(context);
             approvalExecution = executeApprovedMcpTool(question, dto.getAnswer(), agent, userId);
             if (approvalExecution != null) {
@@ -697,6 +714,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            extractAdminPreferenceAsync(userId, conversation.getId(), answerMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
                 saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), answerContent, chatResponse, latencyMs,
@@ -1414,6 +1432,29 @@ public class AgentChatServiceImpl implements AgentChatService {
                 + "失败原因：" + error + "\n"
                 + "请根据该工具的参数 schema 和用户原始请求修正 arguments，并重新调用该工具。"
                 + "不要直接编造工具结果；如果无法修复参数，请向用户说明需要补充哪些信息。";
+    }
+
+    private void enhanceContext(List<ModelChatMessage> context, String userId, String agentId, String query) {
+        if (context == null) {
+            return;
+        }
+        String preferenceContext = adminPreferenceService.buildPreferenceContext(userId);
+        if (StringUtils.isNotBlank(preferenceContext)) {
+            context.add(new ModelChatMessage("system", preferenceContext));
+        }
+        String knowledgeContext = knowledgeRetrievalService.buildKnowledgeContext(agentId, query);
+        if (StringUtils.isNotBlank(knowledgeContext)) {
+            context.add(new ModelChatMessage("system", knowledgeContext));
+        }
+    }
+
+    private void extractAdminPreferenceAsync(String userId,
+                                            String conversationId,
+                                            AgentMessage userMessage,
+                                            AgentMessage assistantMessage,
+                                            AgentDefinition agent,
+                                            ModelProvider provider) {
+        adminPreferenceExtractionService.extractAsync(userId, conversationId, userMessage, assistantMessage, agent, provider);
     }
 
     private void applyInteractiveQuestionPolicy(List<ModelChatMessage> context) {

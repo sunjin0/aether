@@ -4,6 +4,7 @@ import com.aether.agent.dto.ModelProviderDto;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.vo.ModelProviderVo;
+import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -65,6 +66,15 @@ public class ModelProviderController {
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
+    }
+
+    @ApiOperation("Embedding 供应商下拉选项")
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
+    })
+    @GetMapping("/embedding-options")
+    public WebResponse<List<Option>> embeddingOptions() {
+        return WebResponse.OK(modelProviderService.getEmbeddingProviderOptions());
     }
 
     @ApiOperation("模型供应商详情")

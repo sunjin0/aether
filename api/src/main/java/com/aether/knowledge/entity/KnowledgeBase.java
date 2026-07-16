@@ -1,4 +1,4 @@
-package com.aether.agent.entity;
+package com.aether.knowledge.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.aether.entity.BaseEntity;
@@ -14,12 +14,14 @@ import lombok.experimental.Accessors;
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)
-@TableName("agent_knowledge_base")
-@ApiModel(value = "AgentKnowledgeBase对象", description = "知识库")
-public class AgentKnowledgeBase extends BaseEntity {
+@TableName("knowledge_base")
+@ApiModel(value = "KnowledgeBase对象", description = "知识库")
+public class KnowledgeBase extends BaseEntity {
 
     @ApiModelProperty(value = "关联Agent定义ID")
-    private String agentDefinitionId;
+    private String scope;
+
+    private String embeddingProviderId;
 
     @ApiModelProperty(value = "知识库名称")
     private String name;
