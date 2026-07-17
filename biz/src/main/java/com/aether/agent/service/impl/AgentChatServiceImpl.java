@@ -86,20 +86,6 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final int TOOL_CALL_STATUS_PENDING_APPROVAL = 4;
     private static final String TOOL_APPROVAL_GRANT_KEY_PREFIX = "agent:tool-approval:";
     private static final long TOOL_APPROVAL_GRANT_TTL_MINUTES = 10;
-    private static final String INTERACTIVE_QUESTION_POLICY = "# ask_user 工具调用规范\n" +
-            "\n" +
-            "## 触发条件（三选一）\n" +
-            "- 对用户意图有疑问 → 需澄清\n" +
-            "- 已有多套可行方案 → 需用户选择\n" +
-            "- 操作前需用户授权 → 需确认\n" +
-            "\n" +
-            "## 执行规则（强制）\n" +
-            "1. **禁止文本提问**：所有问题必须通过 ask_user 提出，MUST NOT 以普通回复形式提问。\n" +
-            "2. **批量提问**：多个问题必须一次性放入 questions 数组，前端分页展示。\n" +
-            "3. **问题格式**：每个问题必须包含 id（snake_case）和 type（choice/confirm）。choice 必须带 options 列表。\n" +
-            "4. **禁止动态表单**：不支持 form；若需自由文本输入，直接输出普通追问（不调用工具）。\n" +
-            "5. **退出条件**：若无问题需要用户输入，则输出普通助手回复，禁止调用工具。\n" +
-            "6. **MCP 调用审查**：调用 MCP 工具前必须检查工具名称和参数，尤其是 SQL、脚本或命令；仅请求完成用户目标所需的最小操作。所有 MCP 调用都会由平台展示给用户确认，高风险操作会额外警示。";
     private static final int TOOL_CALL_STATUS_SUCCESS = 0;
     private static final int TOOL_CALL_STATUS_FAILED = 1;
     private static final int TOOL_CALL_STATUS_TIMEOUT = 2;
@@ -184,7 +170,6 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             enhanceContext(context, userId, agent.getId(), dto.getMessage());
-            applyInteractiveQuestionPolicy(context);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
@@ -304,7 +289,6 @@ public class AgentChatServiceImpl implements AgentChatService {
             long t0 = System.currentTimeMillis();
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             enhanceContext(context, userId, agent.getId(), dto.getMessage());
-            applyInteractiveQuestionPolicy(context);
             long t1 = System.currentTimeMillis();
             log.info("上下文构建耗时: {}ms", t1 - t0);
 
@@ -554,7 +538,6 @@ public class AgentChatServiceImpl implements AgentChatService {
 
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             enhanceContext(context, userId, agent.getId(), answerContent);
-            applyInteractiveQuestionPolicy(context);
             approvalExecution = executeApprovedMcpTool(question, dto.getAnswer(), agent, userId);
             if (approvalExecution != null) {
                 runId = approvalExecution.getRunId();
@@ -1457,12 +1440,6 @@ public class AgentChatServiceImpl implements AgentChatService {
         adminPreferenceExtractionService.extractAsync(userId, conversationId, userMessage, assistantMessage, agent, provider);
     }
 
-    private void applyInteractiveQuestionPolicy(List<ModelChatMessage> context) {
-        if (context == null) {
-            return;
-        }
-        context.add(new ModelChatMessage("system", INTERACTIVE_QUESTION_POLICY));
-    }
 
     private ModelChatResponse retryAskUserWhenPlainQuestion(ModelChatResponse response,
                                                              ModelClient modelClient,
@@ -1646,6 +1623,11 @@ public class AgentChatServiceImpl implements AgentChatService {
                 selectedOption.put("label", matched.getString("label"));
                 selectedOption.put("value", matched.getString("value"));
                 selectedOptions.add(selectedOption);
+            } else if (Boolean.TRUE.equals(config.getBoolean("allowCustomInput"))) {
+                selectedOptions.add(new JSONObject()
+                        .fluentPut("label", value)
+                        .fluentPut("value", value)
+                        .fluentPut("custom", true));
             }
         }
 
@@ -1724,7 +1706,14 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
             }
             if (matched == null) {
-                throw new ServerException(400, "回复选项不在允许范围内");
+                if (!Boolean.TRUE.equals(config.getBoolean("allowCustomInput"))) {
+                    throw new ServerException(400, "回复选项不在允许范围内");
+                }
+                if (StringUtils.isBlank(value) || value.length() > 200) {
+                    throw new ServerException(400, "自定义输入不能为空且不能超过200个字符");
+                }
+                labels.add(value);
+                continue;
             }
             labels.add(matched.getString("label") + "(" + matched.getString("value") + ")");
         }

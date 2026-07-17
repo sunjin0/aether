@@ -139,6 +139,12 @@ public class AskUserTool implements Tool {
             }
             normalized.put("options", normalizedOptions);
             normalized.put("multiple", Boolean.TRUE.equals(input.getBoolean("multiple")));
+            // Choice questions are rendered as a select control with a companion
+            // text box.  A user can therefore provide a value that is not among
+            // the model-provided options.
+            normalized.put("allowCustomInput", !Boolean.FALSE.equals(input.getBoolean("allowCustomInput")));
+            normalized.put("customInputPlaceholder", StringUtils.defaultIfBlank(
+                    truncate(input.getString("customInputPlaceholder"), 200), "请输入自定义内容"));
         } else {
             normalized.put("confirmText", StringUtils.defaultIfBlank(truncate(input.getString("confirmText"), 100), "确认"));
             normalized.put("cancelText", StringUtils.defaultIfBlank(truncate(input.getString("cancelText"), 100), "取消"));
@@ -202,6 +208,10 @@ public class AskUserTool implements Tool {
         properties.put("question", new JSONObject().fluentPut("type", "string").fluentPut("maxLength", 1000));
         properties.put("options", new JSONObject().fluentPut("type", "array").fluentPut("maxItems", 5).fluentPut("items", option));
         properties.put("multiple", new JSONObject().fluentPut("type", "boolean"));
+        properties.put("allowCustomInput", new JSONObject().fluentPut("type", "boolean")
+                .fluentPut("description", "choice 是否显示自定义输入框；默认 true"));
+        properties.put("customInputPlaceholder", new JSONObject().fluentPut("type", "string").fluentPut("maxLength", 200)
+                .fluentPut("description", "自定义输入框的占位提示"));
         properties.put("confirmText", new JSONObject().fluentPut("type", "string").fluentPut("maxLength", 100));
         properties.put("cancelText", new JSONObject().fluentPut("type", "string").fluentPut("maxLength", 100));
         question.put("properties", properties);

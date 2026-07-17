@@ -5,6 +5,7 @@ import com.aether.agent.entity.AgentTool;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.tools.AskUserTool;
 import com.aether.agent.tools.entity.ToolResult;
+import com.alibaba.fastjson2.JSONObject;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -54,5 +55,9 @@ class AskUserToolTest {
         assertEquals("pending", result.getMessage().getInteractionStatus());
         assertEquals("请选择部署环境", result.getMessage().getContent());
         assertEquals("需要用户回复：environment=请选择部署环境", result.getContextContent());
+        JSONObject questionConfig = JSONObject.parseObject(result.getMessage().getQuestionConfig());
+        JSONObject normalizedQuestion = questionConfig.getJSONArray("questions").getJSONObject(0);
+        assertTrue(normalizedQuestion.getBooleanValue("allowCustomInput"));
+        assertEquals("请输入自定义内容", normalizedQuestion.getString("customInputPlaceholder"));
     }
 }
