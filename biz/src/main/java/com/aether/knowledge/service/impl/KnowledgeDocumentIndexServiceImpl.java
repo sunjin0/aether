@@ -3,12 +3,16 @@ package com.aether.knowledge.service.impl;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.entity.KnowledgeBase;
+import com.aether.knowledge.entity.KnowledgeDocumentVersion;
+import com.aether.knowledge.entity.KnowledgeIndexJob;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.service.KnowledgeDocumentIndexService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeEmbeddingService;
 import com.aether.knowledge.service.KnowledgeBaseService;
+import com.aether.knowledge.service.KnowledgeIndexJobService;
+import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.exception.ServerException;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -18,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 @Service
 public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndexService {
@@ -34,22 +40,51 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
     private final KnowledgeBaseService knowledgeBaseService;
     private final ModelProviderService modelProviderService;
     private final KnowledgeEmbeddingService knowledgeEmbeddingService;
+    private final KnowledgeIndexJobService knowledgeIndexJobService;
+    private final KnowledgeIndexWorker knowledgeIndexWorker;
+    private final KnowledgeDocumentVersionService knowledgeDocumentVersionService;
 
     public KnowledgeDocumentIndexServiceImpl(KnowledgeDocumentService knowledgeDocumentService,
                                          KnowledgeDocumentChunkService knowledgeDocumentChunkService,
                                          KnowledgeBaseService knowledgeBaseService,
                                          ModelProviderService modelProviderService,
-                                         KnowledgeEmbeddingService knowledgeEmbeddingService) {
+                                         KnowledgeEmbeddingService knowledgeEmbeddingService,
+                                         KnowledgeIndexJobService knowledgeIndexJobService,
+                                         KnowledgeIndexWorker knowledgeIndexWorker,
+                                         KnowledgeDocumentVersionService knowledgeDocumentVersionService) {
         this.knowledgeDocumentService = knowledgeDocumentService;
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
         this.knowledgeBaseService = knowledgeBaseService;
         this.modelProviderService = modelProviderService;
         this.knowledgeEmbeddingService = knowledgeEmbeddingService;
+        this.knowledgeIndexJobService = knowledgeIndexJobService;
+        this.knowledgeIndexWorker = knowledgeIndexWorker;
+        this.knowledgeDocumentVersionService = knowledgeDocumentVersionService;
+    }
+
+    @Override
+    public String queueReindex(KnowledgeDocument document, KnowledgeDocumentVersion version, String jobType) {
+        if (document == null || StringUtils.isBlank(document.getId()) || version == null || StringUtils.isBlank(version.getId())) {
+            throw new ServerException(400, "document version is required");
+        }
+        KnowledgeIndexJob job = new KnowledgeIndexJob();
+        job.setKnowledgeBaseId(document.getKnowledgeBaseId()); job.setDocumentId(document.getId());
+        job.setDocumentVersionId(version.getId()); job.setJobType(StringUtils.defaultIfBlank(jobType, "reindex"));
+        job.setStatus("pending"); job.setRetryCount(0); job.setMaxRetryCount(3);
+        knowledgeIndexJobService.save(job);
+        knowledgeIndexWorker.run(job.getId());
+        return job.getId();
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void reindex(KnowledgeDocument document) {
+        reindex(document, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reindex(KnowledgeDocument document, KnowledgeDocumentVersion version) {
         if (document == null || StringUtils.isBlank(document.getId())) {
             throw new ServerException(400, "document is required");
         }
@@ -64,21 +99,44 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
 
         updateDocumentStatus(document.getId(), DOCUMENT_STATUS_INDEXING, null);
         updateKnowledgeBaseIndexStatus(knowledgeBase.getId(), KB_INDEX_STATUS_INDEXING);
-        knowledgeDocumentChunkService.remove(Wrappers.lambdaUpdate(KnowledgeDocumentChunk.class)
-                .eq(KnowledgeDocumentChunk::getDocumentId, document.getId()));
+        String documentVersionId = version == null ? null : version.getId();
+        if (StringUtils.isNotBlank(documentVersionId)) {
+            // 重试同一版本时仅替换该版本的分块，已发布版本仍可被检索和查看。
+            knowledgeDocumentChunkService.remove(Wrappers.lambdaUpdate(KnowledgeDocumentChunk.class)
+                    .eq(KnowledgeDocumentChunk::getDocumentVersionId, documentVersionId));
+        } else {
+            // 仅为兼容旧调用保留；异步索引任务必须传入明确的版本。
+            knowledgeDocumentChunkService.remove(Wrappers.lambdaUpdate(KnowledgeDocumentChunk.class)
+                    .eq(KnowledgeDocumentChunk::getDocumentId, document.getId()));
+        }
 
-        List<String> chunks = split(document.getContent());
+        String indexContent = version == null ? document.getContent() : version.getContent();
+        List<String> chunks = split(indexContent);
         int index = 0;
         for (String chunkText : chunks) {
             String vector = knowledgeEmbeddingService.toVectorLiteral(knowledgeEmbeddingService.embed(provider, chunkText));
             KnowledgeDocumentChunk chunk = new KnowledgeDocumentChunk();
             chunk.setKnowledgeBaseId(knowledgeBase.getId());
             chunk.setDocumentId(document.getId());
+            chunk.setDocumentVersionId(documentVersionId);
             chunk.setChunkIndex(index++);
             chunk.setContent(chunkText);
             chunk.setTokenCount(estimateTokens(chunkText));
+            // 当前分块器尚未提供精确页码；0 表示内容没有可追溯的原始页码。
+            chunk.setPageNo(0);
+            chunk.setSectionPath(resolveSectionPath(chunkText));
+            chunk.setContentHash(sha256(chunkText));
+            chunk.setMetadata(buildChunkMetadata(document, chunk));
+            // 分块首次入库尚未被回答引用，引用次数必须显式写为 0。
+            chunk.setReferenceCount(0L);
             chunk.setEmbedding(vector);
             knowledgeDocumentChunkService.saveVectorChunk(chunk);
+        }
+        if (version != null) {
+            KnowledgeDocumentVersion versionUpdate = new KnowledgeDocumentVersion();
+            versionUpdate.setId(version.getId());
+            versionUpdate.setChunkCount(chunks.size());
+            knowledgeDocumentVersionService.updateById(versionUpdate);
         }
         updateDocumentStatus(document.getId(), DOCUMENT_STATUS_DONE, chunks.size());
         updateKnowledgeBaseIndexStatus(knowledgeBase.getId(), KB_INDEX_STATUS_DONE);
@@ -104,6 +162,48 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
 
     private int estimateTokens(String text) {
         return StringUtils.isBlank(text) ? 0 : Math.max(1, text.length() / 4);
+    }
+
+    /**
+     * 从 Markdown 分块首行提取标题；无标题或非 Markdown 内容统一归入 ROOT。
+     */
+    private String resolveSectionPath(String chunkText) {
+        if (StringUtils.isBlank(chunkText)) {
+            return "ROOT";
+        }
+        String firstLine = chunkText.split("\\r?\\n", 2)[0].trim();
+        if (firstLine.startsWith("#")) {
+            return firstLine.replaceFirst("^#+\\s*", "");
+        }
+        return "ROOT";
+    }
+
+    /**
+     * 保存最小可用的分块来源元数据；后续页级解析器可在此 JSON 中补充精确页码和章节位置。
+     */
+    private String buildChunkMetadata(KnowledgeDocument document, KnowledgeDocumentChunk chunk) {
+        String sourceType = StringUtils.defaultIfBlank(document.getSourceType(), "text");
+        String parserType = StringUtils.defaultIfBlank(document.getParserType(), sourceType);
+        return "{\"sourceType\":\"" + jsonEscape(sourceType) + "\",\"parserType\":\""
+                + jsonEscape(parserType) + "\",\"pageNo\":" + chunk.getPageNo()
+                + ",\"sectionPath\":\"" + jsonEscape(chunk.getSectionPath()) + "\"}";
+    }
+
+    private String sha256(String content) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(content.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder(64);
+            for (byte item : digest) {
+                result.append(String.format("%02x", item));
+            }
+            return result.toString();
+        } catch (Exception e) {
+            throw new ServerException(500, "failed to calculate chunk content hash");
+        }
+    }
+
+    private String jsonEscape(String value) {
+        return StringUtils.defaultString(value).replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void updateDocumentStatus(String documentId, Integer status, Integer chunkCount) {

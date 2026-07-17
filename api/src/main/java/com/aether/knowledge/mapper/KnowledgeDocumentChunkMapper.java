@@ -15,20 +15,26 @@ import java.util.List;
 @Mapper
 public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocumentChunk> {
 
-    @Select("SELECT id, knowledge_base_id, document_id, chunk_index, content, token_count, " +
-            "embedding::text AS embedding, created_at, updated_at, sort_num, deleted, state " +
-            "FROM knowledge_document_chunk " +
-            "WHERE deleted = FALSE AND knowledge_base_id IN (${knowledgeBaseIds}) " +
-            "ORDER BY embedding <=> CAST(#{embedding} AS vector) " +
+    @Select("SELECT chunk.id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
+            "chunk.page_no, chunk.section_path, chunk.content_hash, chunk.metadata, chunk.reference_count, chunk.last_referenced_at, " +
+            "chunk.embedding::text AS embedding, chunk.created_at, chunk.updated_at, chunk.sort_num, chunk.deleted, chunk.state " +
+            "FROM knowledge_document_chunk chunk " +
+            "JOIN knowledge_document document ON document.id = chunk.document_id " +
+            "JOIN knowledge_document_version version ON version.id = chunk.document_version_id " +
+            "WHERE chunk.deleted = FALSE AND document.deleted = FALSE AND version.deleted = FALSE " +
+            "AND version.index_status = 2 AND version.version_no = document.current_version_no " +
+            "AND chunk.knowledge_base_id IN (${knowledgeBaseIds}) " +
+            "ORDER BY chunk.embedding <=> CAST(#{embedding} AS vector) " +
             "LIMIT #{limit}")
     List<KnowledgeDocumentChunk> selectSimilarChunks(@Param("knowledgeBaseIds") String knowledgeBaseIds,
                                                  @Param("embedding") String embedding,
                                                  @Param("limit") int limit);
 
     @Insert("INSERT INTO knowledge_document_chunk " +
-            "(id, knowledge_base_id, document_id, chunk_index, content, token_count, embedding, created_at, updated_at, sort_num, deleted, state) " +
+            "(id, knowledge_base_id, document_id, document_version_id, chunk_index, content, token_count, embedding, page_no, section_path, content_hash, metadata, reference_count, last_referenced_at, created_at, updated_at, sort_num, deleted, state) " +
             "VALUES " +
-            "(#{chunk.id}, #{chunk.knowledgeBaseId}, #{chunk.documentId}, #{chunk.chunkIndex}, #{chunk.content}, #{chunk.tokenCount}, " +
-            "CAST(#{chunk.embedding} AS vector), #{chunk.createdAt}, #{chunk.updatedAt}, #{chunk.sortNum}, #{chunk.deleted}, #{chunk.state})")
+            "(#{chunk.id}, #{chunk.knowledgeBaseId}, #{chunk.documentId}, #{chunk.documentVersionId}, #{chunk.chunkIndex}, #{chunk.content}, #{chunk.tokenCount}, " +
+            "CAST(#{chunk.embedding} AS vector), #{chunk.pageNo}, #{chunk.sectionPath}, #{chunk.contentHash}, #{chunk.metadata}, #{chunk.referenceCount}, #{chunk.lastReferencedAt}, " +
+            "#{chunk.createdAt}, #{chunk.updatedAt}, #{chunk.sortNum}, #{chunk.deleted}, #{chunk.state})")
     int insertVectorChunk(@Param("chunk") KnowledgeDocumentChunk chunk);
 }

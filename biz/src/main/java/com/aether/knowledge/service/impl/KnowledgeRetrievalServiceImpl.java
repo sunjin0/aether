@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.stream.Collectors;
 
 @Service
@@ -60,17 +61,16 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                     .eq(AgentKnowledgeBaseBinding::getAgentDefinitionId, agentDefinitionId)
                     .eq(AgentKnowledgeBaseBinding::getStatus, STATUS_ENABLED)
                     .eq(AgentKnowledgeBaseBinding::getDeleted, false));
-            if (bindings == null || bindings.isEmpty()) {
-                return null;
-            }
-            List<String> boundKbIds = bindings.stream()
+            List<String> boundKbIds = bindings == null ? new ArrayList<>() : bindings.stream()
                     .map(AgentKnowledgeBaseBinding::getKnowledgeBaseId)
                     .filter(StringUtils::isNotBlank)
                     .distinct()
                     .collect(Collectors.toList());
-            if (boundKbIds.isEmpty()) {
-                return null;
-            }
+            List<KnowledgeBase> platformBases = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
+                    .eq(KnowledgeBase::getScope, "PLATFORM").eq(KnowledgeBase::getStatus, STATUS_ENABLED)
+                    .eq(KnowledgeBase::getIndexStatus, KB_INDEX_STATUS_DONE).eq(KnowledgeBase::getDeleted, false));
+            if (platformBases != null) platformBases.forEach(item -> boundKbIds.add(item.getId()));
+            if (boundKbIds.isEmpty()) return null;
             List<KnowledgeBase> knowledgeBases = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
                     .in(KnowledgeBase::getId, boundKbIds)
                     .eq(KnowledgeBase::getStatus, STATUS_ENABLED)

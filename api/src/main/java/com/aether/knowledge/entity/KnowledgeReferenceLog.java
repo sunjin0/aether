@@ -1,0 +1,32 @@
+package com.aether.knowledge.entity;
+
+import com.aether.entity.BaseEntity;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+@TableName("knowledge_reference_log")
+public class KnowledgeReferenceLog extends BaseEntity {
+    /** 产生引用的 Agent ID。 */
+    private String agentDefinitionId;
+    /** 产生引用的会话 ID。 */
+    private String conversationId;
+    /** 最终回答消息 ID。 */
+    private String messageId;
+    /** 被引用分块所属知识库 ID。 */
+    private String knowledgeBaseId;
+    /** 被引用分块所属文档 ID。 */
+    private String documentId;
+    /** 被引用分块所属文档版本 ID。 */
+    private String documentVersionId;
+    /** 被最终回答采用的分块 ID。 */
+    private String chunkId;
+    /** 向量检索相似度；取值通常为 0 到 1。 */
+    private Double similarity;
+    /** 在回答引用列表中的序号，从 1 开始。 */
+    private Integer citationNo;
+    /** 记录实际引用的时间，Unix 毫秒时间戳。 */
+    private Long referencedAt;
+}

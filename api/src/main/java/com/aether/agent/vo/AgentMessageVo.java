@@ -83,6 +83,9 @@ public class AgentMessageVo extends BaseEntity {
     @ApiModelProperty(value = "Edited timestamp")
     private Long editedAt;
 
+    @ApiModelProperty(value = "Citation snapshot JSON")
+    private String citations;
+
     @ApiModelProperty(value = "Run ID")
     private String runId;
 

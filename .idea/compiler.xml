@@ -11,6 +11,7 @@
         <module name="biz" />
         <module name="api" />
         <module name="front" />
+        <module name="storage" />
         <module name="common" />
       </profile>
     </annotationProcessing>

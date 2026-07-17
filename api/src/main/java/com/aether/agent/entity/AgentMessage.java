@@ -86,4 +86,7 @@ public class AgentMessage extends BaseEntity {
 
     @ApiModelProperty(value = "Edited timestamp")
     private Long editedAt;
+
+    /** JSON citation snapshot used by this answer. */
+    private String citations;
 }

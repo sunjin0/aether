@@ -59,6 +59,10 @@ public class KnowledgeDocumentChunkServiceImpl
         if (chunk.getState() == null) {
             chunk.setState(0);
         }
+        if (chunk.getReferenceCount() == null) {
+            // 新分块没有被回答引用过；lastReferencedAt 保持 null 直到首次真实引用。
+            chunk.setReferenceCount(0L);
+        }
         return baseMapper.insertVectorChunk(chunk) > 0;
     }
 }

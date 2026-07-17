@@ -667,6 +667,7 @@ CREATE TABLE IF NOT EXISTS knowledge_document_chunk (
     id VARCHAR(32) NOT NULL PRIMARY KEY,
     knowledge_base_id VARCHAR(32) NOT NULL,
     document_id VARCHAR(32) NOT NULL,
+    document_version_id VARCHAR(32),
     chunk_index INTEGER NOT NULL,
     content TEXT NOT NULL,
     token_count INTEGER NOT NULL DEFAULT 0,
@@ -675,14 +676,72 @@ CREATE TABLE IF NOT EXISTS knowledge_document_chunk (
     updated_at BIGINT,
     sort_num INTEGER NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
-    state INTEGER NOT NULL DEFAULT 0,
-    CONSTRAINT uk_knowledge_document_chunk UNIQUE (document_id, chunk_index, deleted)
+    state INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_document_chunk_knowledge_base
     ON knowledge_document_chunk (knowledge_base_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_knowledge_document_chunk_document
     ON knowledge_document_chunk (document_id, deleted, chunk_index);
+-- 仅限制活动分块唯一；历史逻辑删除分块允许保留多代索引记录。
+CREATE UNIQUE INDEX IF NOT EXISTS uk_knowledge_document_chunk_version_active
+    ON knowledge_document_chunk (document_version_id, chunk_index) WHERE deleted = FALSE AND document_version_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_knowledge_document_chunk_embedding_cosine
     ON knowledge_document_chunk USING hnsw (embedding vector_cosine_ops);
+
+-- Enterprise knowledge-base extension.
+ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS owner_admin_id VARCHAR(32);
+ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS visibility VARCHAR(16) NOT NULL DEFAULT 'platform';
+ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS retrieval_config TEXT;
+ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS reference_count BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS last_referenced_at BIGINT;
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS source_type VARCHAR(32) NOT NULL DEFAULT 'text';
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS original_file_name VARCHAR(512);
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS file_extension VARCHAR(32);
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS mime_type VARCHAR(128);
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS file_size BIGINT;
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS file_checksum VARCHAR(128);
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS storage_bucket VARCHAR(128);
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS storage_object_key VARCHAR(1024);
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS current_version_no INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS index_status SMALLINT NOT NULL DEFAULT 0;
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS parser_type VARCHAR(64);
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS index_error_message TEXT;
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS indexed_at BIGINT;
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS reference_count BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS last_referenced_at BIGINT;
+ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS document_version_id VARCHAR(32);
+ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS page_no INTEGER;
+ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS section_path VARCHAR(512);
+ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS content_hash VARCHAR(128);
+ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS metadata TEXT;
+ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS reference_count BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS last_referenced_at BIGINT;
+ALTER TABLE agent_message ADD COLUMN IF NOT EXISTS citations TEXT;
+CREATE TABLE IF NOT EXISTS knowledge_base_member (id VARCHAR(32) PRIMARY KEY, knowledge_base_id VARCHAR(32) NOT NULL, admin_id VARCHAR(32) NOT NULL, role VARCHAR(16) NOT NULL, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0, CONSTRAINT uk_knowledge_base_member UNIQUE (knowledge_base_id, admin_id, deleted));
+CREATE TABLE IF NOT EXISTS knowledge_document_version (id VARCHAR(32) PRIMARY KEY, knowledge_document_id VARCHAR(32) NOT NULL, version_no INTEGER NOT NULL, content TEXT, storage_bucket VARCHAR(128), storage_object_key VARCHAR(1024), file_checksum VARCHAR(128), parser_type VARCHAR(64), index_status SMALLINT NOT NULL DEFAULT 0, index_error_message TEXT, indexed_at BIGINT, chunk_count INTEGER NOT NULL DEFAULT 0, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0, CONSTRAINT uk_knowledge_document_version UNIQUE (knowledge_document_id, version_no, deleted));
+CREATE TABLE IF NOT EXISTS knowledge_index_job (id VARCHAR(32) PRIMARY KEY, knowledge_base_id VARCHAR(32) NOT NULL, document_id VARCHAR(32) NOT NULL, document_version_id VARCHAR(32) NOT NULL, job_type VARCHAR(32) NOT NULL, status VARCHAR(16) NOT NULL, retry_count INTEGER NOT NULL DEFAULT 0, max_retry_count INTEGER NOT NULL DEFAULT 3, error_message TEXT, statistics TEXT, started_at BIGINT, finished_at BIGINT, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS knowledge_reference_log (id VARCHAR(32) PRIMARY KEY, agent_definition_id VARCHAR(32), conversation_id VARCHAR(32), message_id VARCHAR(32), knowledge_base_id VARCHAR(32) NOT NULL, document_id VARCHAR(32) NOT NULL, document_version_id VARCHAR(32), chunk_id VARCHAR(32) NOT NULL, similarity DOUBLE PRECISION, citation_no INTEGER, referenced_at BIGINT NOT NULL, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS knowledge_document_version_idx_document ON knowledge_document_version (knowledge_document_id, version_no, deleted);
+CREATE INDEX IF NOT EXISTS knowledge_index_job_idx_status ON knowledge_index_job (status, created_at, deleted);
+CREATE INDEX IF NOT EXISTS knowledge_reference_log_idx_document ON knowledge_reference_log (document_id, referenced_at, deleted);
+
+-- 兼容旧版本的 (document_id, chunk_index, deleted) 唯一索引。
+-- 旧索引会导致第二次逻辑删除同一分块时与历史记录冲突。
+DROP INDEX IF EXISTS uk_knowledge_document_chunk;
+DROP INDEX IF EXISTS uk_knowledge_document_chunk_active;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_knowledge_document_chunk_version_active
+    ON knowledge_document_chunk (document_version_id, chunk_index) WHERE deleted = FALSE AND document_version_id IS NOT NULL;
+
+-- 为迁移前的活动分块回填其当前版本；无法匹配的旧分块保留但不参与新检索。
+UPDATE knowledge_document_chunk chunk
+SET document_version_id = version.id
+FROM knowledge_document document
+JOIN knowledge_document_version version
+  ON version.knowledge_document_id = document.id
+ AND version.version_no = document.current_version_no
+ AND version.deleted = FALSE
+WHERE chunk.document_id = document.id
+  AND chunk.deleted = FALSE
+  AND chunk.document_version_id IS NULL;
 
