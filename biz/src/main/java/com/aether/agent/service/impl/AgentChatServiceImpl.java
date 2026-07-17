@@ -261,7 +261,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             ModelClient modelClient = modelClientFactory.getClient(provider);
             // 推理未开启时，不转发reasoning chunks
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
-            DeferredStreamCallback streamCallback = createStreamCallback(callback, conversation.getId(), thinkingEnabled);
+            ForwardingStreamCallback streamCallback = createStreamCallback(callback, conversation.getId(), thinkingEnabled);
             ModelStreamResponse modelResponse = modelClient.stream(request, streamCallback);
             
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
@@ -364,7 +364,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                     modelResponse = toStreamResponse(retryResponse, modelResponse);
                     chatResponse = retryResponse;
                     authenticityCheck = retryCheck;
-                    streamCallback.replaceMessage(retryResponse.getContent());
+                    if (!callback.isClosed()) {
+                        callback.onMessage(conversation.getId(), "\n\n更正：" + retryResponse.getContent());
+                    }
                 } else {
                     modelResponse.setContent(buildToolAuthenticityFallback(retryCheck));
                     chatResponse.setContent(modelResponse.getContent());
@@ -374,7 +376,6 @@ public class AgentChatServiceImpl implements AgentChatService {
 
             if (authenticityCheck.isValid()) {
                 modelResponse.setSources(knowledgeContextService.ensureCitations(modelResponse, sources));
-                streamCallback.flush();
             } else {
                 // 安全降级回复没有使用知识库内容，不能附带原始检索来源。
                 modelResponse.setSources(Collections.<Map<String, Object>>emptyList());
@@ -451,7 +452,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setTools(approvalRejected ? Collections.<AgentTool>emptyList() : agentToolWorkflow.getRequestTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
-            DeferredStreamCallback streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
+            ForwardingStreamCallback streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
             ModelStreamResponse modelResponse = modelClient.stream(request, streamCallback);
 
             if (!thinkingEnabled) {
@@ -544,7 +545,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                     modelResponse = toStreamResponse(retryResponse, modelResponse);
                     chatResponse = retryResponse;
                     authenticityCheck = retryCheck;
-                    streamCallback.replaceMessage(retryResponse.getContent());
+                    if (!callback.isClosed()) {
+                        callback.onMessage(conversation.getId(), "\n\n更正：" + retryResponse.getContent());
+                    }
                 } else {
                     modelResponse.setContent(buildToolAuthenticityFallback(retryCheck));
                     chatResponse.setContent(modelResponse.getContent());
@@ -554,7 +557,6 @@ public class AgentChatServiceImpl implements AgentChatService {
 
             if (authenticityCheck.isValid()) {
                 modelResponse.setSources(knowledgeContextService.ensureCitations(modelResponse, sources));
-                streamCallback.flush();
             } else {
                 // 安全降级回复没有使用知识库内容，不能附带原始检索来源。
                 modelResponse.setSources(Collections.<Map<String, Object>>emptyList());
@@ -884,24 +886,19 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
-    /**
-     * 在工具结果真实性校验完成前暂存模型文本，避免未经验证的内容先到达前端。
-     * 工具调用事件不包含工具执行结果，仍可即时转发用于展示调用状态。
-     */
-    private DeferredStreamCallback createStreamCallback(final AgentStreamCallback callback,
-                                                        final String conversationId,
-                                                        final boolean thinkingEnabled) {
-        return new DeferredStreamCallback(callback, conversationId, thinkingEnabled);
+    /** 创建实时转发回调，保持流式消息的即时展示。 */
+    private ForwardingStreamCallback createStreamCallback(final AgentStreamCallback callback,
+                                                          final String conversationId,
+                                                          final boolean thinkingEnabled) {
+        return new ForwardingStreamCallback(callback, conversationId, thinkingEnabled);
     }
 
-    private static class DeferredStreamCallback implements ModelStreamCallback {
+    private static class ForwardingStreamCallback implements ModelStreamCallback {
         private final AgentStreamCallback callback;
         private final String conversationId;
         private final boolean thinkingEnabled;
-        private final List<String> messageChunks = new ArrayList<String>();
-        private final List<String> reasoningChunks = new ArrayList<String>();
 
-        private DeferredStreamCallback(AgentStreamCallback callback, String conversationId, boolean thinkingEnabled) {
+        private ForwardingStreamCallback(AgentStreamCallback callback, String conversationId, boolean thinkingEnabled) {
             this.callback = callback;
             this.conversationId = conversationId;
             this.thinkingEnabled = thinkingEnabled;
@@ -909,15 +906,15 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         @Override
         public void onMessage(String chunk) {
-            if (chunk != null) {
-                messageChunks.add(chunk);
+            if (!callback.isClosed()) {
+                callback.onMessage(conversationId, chunk);
             }
         }
 
         @Override
         public void onReasoning(String chunk) {
-            if (thinkingEnabled && chunk != null) {
-                reasoningChunks.add(chunk);
+            if (thinkingEnabled && !callback.isClosed()) {
+                callback.onReasoning(conversationId, chunk);
             }
         }
 
@@ -933,26 +930,6 @@ public class AgentChatServiceImpl implements AgentChatService {
             return callback.isClosed();
         }
 
-        /** 仅在最终回复通过真实性校验后，将已缓存的流片段发送给前端。 */
-        private void flush() {
-            if (callback.isClosed()) {
-                return;
-            }
-            for (String chunk : reasoningChunks) {
-                callback.onReasoning(conversationId, chunk);
-            }
-            for (String chunk : messageChunks) {
-                callback.onMessage(conversationId, chunk);
-            }
-        }
-
-        /** 使用安全重试结果替换原始流内容，避免把已拦截的文本发给客户端。 */
-        private void replaceMessage(String content) {
-            messageChunks.clear();
-            if (content != null) {
-                messageChunks.add(content);
-            }
-        }
     }
 
     private void updateConversationMessageCount(String conversationId) {

@@ -655,8 +655,8 @@ class AgentChatServiceImplTest {
 
         service.stream(dto, callback);
 
-        // 交互工具请求的模型原文会先缓冲，避免未经真实性校验就暴露给客户端。
-        assertEquals(0, callback.chunks.size());
+        assertEquals(1, callback.chunks.size());
+        assertEquals("conversation-1:我需要确认部署信息。", callback.chunks.get(0));
         assertEquals("message-question-1", callback.questionMessageId);
         assertEquals("message-assistant-1", callback.doneMessageId);
         assertEquals("我需要确认部署信息。", callback.doneResponse.getContent());
