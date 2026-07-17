@@ -266,6 +266,7 @@ public class AgentChatController {
                 data.put("totalTokens", response.getTotalTokens());
                 data.put("reasoningTokens", response.getReasoningTokens());
                 data.put("waitingUser", response.getWaitingUser());
+                data.put("sources", response.getSources());
             }
             send("done", data, true);
         }

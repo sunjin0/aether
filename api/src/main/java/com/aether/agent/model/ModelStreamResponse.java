@@ -2,6 +2,9 @@ package com.aether.agent.model;
 
 import lombok.Data;
 
+import java.util.List;
+import java.util.Map;
+
 /**
  * 模型流式输出最终响应。
  */
@@ -30,4 +33,6 @@ public class ModelStreamResponse {
     private String rawResponse;
 
     private Boolean waitingUser;
+
+    private List<Map<String, Object>> sources;
 }

@@ -15,6 +15,15 @@ import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.tools.core.ToolRegistry;
 import com.aether.agent.tools.AskUserTool;
+import com.aether.agent.tools.AgentToolCatalog;
+import com.aether.agent.tools.AgentToolWorkflow;
+import com.aether.agent.tools.ToolCallParser;
+import com.aether.agent.service.KnowledgeContextService;
+import com.aether.agent.service.InteractionReplyService;
+import com.aether.agent.service.ConversationContextService;
+import com.aether.agent.service.ConversationCacheService;
+import com.aether.agent.service.ConversationSummaryService;
+import com.aether.agent.service.ChatRunService;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
@@ -24,6 +33,10 @@ import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.AdminPreferenceExtractionService;
+import com.aether.knowledge.service.KnowledgeDocumentService;
+import com.aether.knowledge.service.KnowledgeRetrievalService;
+import com.aether.sys.service.AdminPreferenceService;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.local.CurrentUser;
 import org.junit.jupiter.api.AfterEach;
@@ -79,32 +92,51 @@ class AgentChatServiceImplTest {
     @Mock
     private AgentMcpServerService agentMcpServerService;
     @Mock
+    private AdminPreferenceService adminPreferenceService;
+    @Mock
+    private KnowledgeRetrievalService knowledgeRetrievalService;
+    @Mock
+    private KnowledgeDocumentService knowledgeDocumentService;
+    @Mock
+    private AdminPreferenceExtractionService adminPreferenceExtractionService;
+    @Mock
     private ModelClient modelClient;
 
     private AgentChatServiceImpl service;
 
     @BeforeEach
     void setUp() {
+        AgentToolWorkflow toolWorkflow = new AgentToolWorkflow(
+                new ToolCallParser(),
+                new AgentToolCatalog(agentToolService, agentToolBindingService, toolRegistry, redisTemplate),
+                agentToolService,
+                agentToolCallLogService,
+                agentMcpServerService,
+                agentMessageService,
+                toolExecutorFactory,
+                redisTemplate,
+                toolRegistry);
         service = new AgentChatServiceImpl(
                 agentDefinitionService,
                 modelProviderService,
                 agentConversationService,
                 agentMessageService,
-                agentRunService,
+                new ChatRunService(agentRunService),
                 modelClientFactory,
-                redisTemplate,
-                agentToolService,
-                agentToolBindingService,
-                agentToolCallLogService,
-                toolExecutorFactory,
-                toolRegistry,
-                agentMcpServerService);
+                toolWorkflow,
+                new KnowledgeContextService(adminPreferenceService, knowledgeRetrievalService, knowledgeDocumentService),
+                new InteractionReplyService(),
+                new ConversationContextService(agentMessageService,
+                        new ConversationCacheService(redisTemplate),
+                        new ConversationSummaryService(redisTemplate, modelClientFactory)),
+                adminPreferenceExtractionService);
         HashMap<String, String> user = new HashMap<>();
         user.put("userId", "user-1");
         CurrentUser.set(user);
         AskUserTool askUserHandler = new AskUserTool(agentMessageService);
         when(toolRegistry.getTools()).thenReturn(Collections.singletonList(askUserHandler.getTool()));
         lenient().when(toolRegistry.getHandler("ask_user")).thenReturn(askUserHandler);
+        lenient().when(agentToolBindingService.list(any())).thenReturn(Collections.emptyList());
     }
 
     @AfterEach
@@ -214,6 +246,13 @@ class AgentChatServiceImplTest {
         response.setCompletionTokens(8);
         response.setTotalTokens(11);
 
+        ModelChatResponse retryResponse = new ModelChatResponse();
+        retryResponse.setContent("我无法确认实时天气，请检查工具配置后重试。");
+        retryResponse.setModel("gpt-test");
+        retryResponse.setPromptTokens(5);
+        retryResponse.setCompletionTokens(10);
+        retryResponse.setTotalTokens(15);
+
         when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
         when(modelProviderService.getById("provider-1")).thenReturn(provider);
         when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
@@ -232,7 +271,7 @@ class AgentChatServiceImplTest {
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
-        when(modelClient.chat(any())).thenReturn(response);
+        when(modelClient.chat(any())).thenReturn(response, retryResponse);
 
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");
@@ -240,17 +279,17 @@ class AgentChatServiceImplTest {
 
         AgentMessageVo result = service.chat(dto);
 
-        org.junit.jupiter.api.Assertions.assertTrue(result.getContent().contains("工具调用未获得可信结果"));
+        assertEquals("我无法确认实时天气，请检查工具配置后重试。", result.getContent());
+        verify(modelClient, org.mockito.Mockito.times(2)).chat(any());
 
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
         verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
         AgentMessage assistantMessage = messageCaptor.getAllValues().get(1);
-        org.junit.jupiter.api.Assertions.assertTrue(assistantMessage.getContent().contains("工具调用未获得可信结果"));
+        assertEquals("我无法确认实时天气，请检查工具配置后重试。", assistantMessage.getContent());
 
         ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
         verify(agentRunService).save(runCaptor.capture());
-        assertEquals(1, runCaptor.getValue().getStatus());
-        org.junit.jupiter.api.Assertions.assertTrue(runCaptor.getValue().getErrorMsg().contains("没有成功工具执行记录"));
+        assertEquals(0, runCaptor.getValue().getStatus());
     }
 
     @Test
@@ -616,8 +655,8 @@ class AgentChatServiceImplTest {
 
         service.stream(dto, callback);
 
-        assertEquals(1, callback.chunks.size());
-        assertEquals("conversation-1:我需要确认部署信息。", callback.chunks.get(0));
+        // 交互工具请求的模型原文会先缓冲，避免未经真实性校验就暴露给客户端。
+        assertEquals(0, callback.chunks.size());
         assertEquals("message-question-1", callback.questionMessageId);
         assertEquals("message-assistant-1", callback.doneMessageId);
         assertEquals("我需要确认部署信息。", callback.doneResponse.getContent());

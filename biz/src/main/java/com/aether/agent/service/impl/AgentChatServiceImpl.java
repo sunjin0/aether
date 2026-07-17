@@ -7,20 +7,13 @@ import com.aether.agent.dto.AgentChatDto;
 import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
-import com.aether.agent.entity.AgentMcpServer;
-import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.AgentTool;
-import com.aether.agent.entity.AgentToolBinding;
-import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.entity.ModelProvider;
-import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
-import com.aether.agent.executor.ToolExecutor;
-import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.tools.entity.ToolResult;
+import com.aether.agent.tools.AgentToolWorkflow;
+import com.aether.agent.tools.AgentToolWorkflow.ApprovalExecution;
 import com.aether.agent.tools.core.Tool;
-import com.aether.agent.tools.core.ToolRegistry;
-import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
@@ -32,25 +25,21 @@ import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
-import com.aether.agent.service.AgentMcpServerService;
-import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentStreamCallback;
-import com.aether.agent.service.AgentToolBindingService;
-import com.aether.agent.service.AgentToolCallLogService;
-import com.aether.agent.service.AgentToolService;
 import com.aether.agent.service.ModelProviderService;
-import com.aether.knowledge.service.KnowledgeRetrievalService;
+import com.aether.agent.service.KnowledgeContextService;
+import com.aether.agent.service.InteractionReplyService;
+import com.aether.agent.service.ConversationContextService;
+import com.aether.agent.service.ChatRunService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
-import com.aether.sys.service.AdminPreferenceService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -58,10 +47,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Agent聊天服务实现。
@@ -82,75 +67,42 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final String MESSAGE_TYPE_ANSWER = "answer";
     private static final String INTERACTION_STATUS_PENDING = "pending";
     private static final String INTERACTION_STATUS_ANSWERED = "answered";
-    private static final String MCP_APPROVAL_TYPE = "mcp_tool_approval";
-    private static final int TOOL_CALL_STATUS_PENDING_APPROVAL = 4;
-    private static final String TOOL_APPROVAL_GRANT_KEY_PREFIX = "agent:tool-approval:";
-    private static final long TOOL_APPROVAL_GRANT_TTL_MINUTES = 10;
     private static final int TOOL_CALL_STATUS_SUCCESS = 0;
-    private static final int TOOL_CALL_STATUS_FAILED = 1;
-    private static final int TOOL_CALL_STATUS_TIMEOUT = 2;
-    private static final int TOOL_CALL_STATUS_SECURITY_BLOCK = 3;
     private static final int MAX_TOOL_CALL_ITERATIONS = 5; // 最大工具调用迭代次数
-    private static final String CONTEXT_CACHE_KEY_PREFIX = "agent:context:";
-    private static final long CONTEXT_CACHE_TTL_MINUTES = 30;
-    private static final String SUMMARY_CACHE_KEY_PREFIX = "agent:summary:";
-    private static final long SUMMARY_CACHE_TTL_HOURS = 24;
-    private static final int SUMMARY_TRIGGER_THRESHOLD = 10; // 超过10轮对话触发摘要
-    private static final int KEEP_RECENT_MESSAGES = 5; // 保留最近5条完整消息
-    private static final int SUMMARY_OLD_MESSAGE_LIMIT = 30; // 摘要最多取30条旧消息
-    private static final String TOOLS_CACHE_KEY_PREFIX = "agent:tools:";
-    private static final long TOOLS_CACHE_TTL_MINUTES = 10;
 
     private final AgentDefinitionService agentDefinitionService;
     private final ModelProviderService modelProviderService;
     private final AgentConversationService agentConversationService;
     private final AgentMessageService agentMessageService;
-    private final AgentRunService agentRunService;
+    private final ChatRunService chatRunService;
     private final ModelClientFactory modelClientFactory;
-    private final RedisTemplate<String, Object> redisTemplate;
-    private final AgentToolService agentToolService;
-    private final AgentToolBindingService agentToolBindingService;
-    private final AgentToolCallLogService agentToolCallLogService;
-    private final ToolExecutorFactory toolExecutorFactory;
-    private final ToolRegistry toolRegistry;
-    private final AgentMcpServerService agentMcpServerService;
-    private final AdminPreferenceService adminPreferenceService;
-    private final KnowledgeRetrievalService knowledgeRetrievalService;
+    private final AgentToolWorkflow agentToolWorkflow;
+    private final KnowledgeContextService knowledgeContextService;
+    private final InteractionReplyService interactionReplyService;
+    private final ConversationContextService conversationContextService;
     private final AdminPreferenceExtractionService adminPreferenceExtractionService;
-    private final ToolCallRiskAnalyzer toolCallRiskAnalyzer = new ToolCallRiskAnalyzer();
-    private final ExecutorService summaryExecutor = Executors.newFixedThreadPool(2);
 
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
                                 ModelProviderService modelProviderService,
                                 AgentConversationService agentConversationService,
                                 AgentMessageService agentMessageService,
-                                AgentRunService agentRunService,
+                                ChatRunService chatRunService,
                                 ModelClientFactory modelClientFactory,
-                                RedisTemplate<String, Object> redisTemplate,
-                                AgentToolService agentToolService,
-                                 AgentToolBindingService agentToolBindingService,
-                                 AgentToolCallLogService agentToolCallLogService,
-                                 ToolExecutorFactory toolExecutorFactory,
-                                 ToolRegistry toolRegistry,
-                                 AgentMcpServerService agentMcpServerService,
-                                 AdminPreferenceService adminPreferenceService,
-                                 KnowledgeRetrievalService knowledgeRetrievalService,
+                                AgentToolWorkflow agentToolWorkflow,
+                                 KnowledgeContextService knowledgeContextService,
+                                 InteractionReplyService interactionReplyService,
+                                 ConversationContextService conversationContextService,
                                  AdminPreferenceExtractionService adminPreferenceExtractionService) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
-        this.agentRunService = agentRunService;
+        this.chatRunService = chatRunService;
         this.modelClientFactory = modelClientFactory;
-        this.redisTemplate = redisTemplate;
-        this.agentToolService = agentToolService;
-        this.agentToolBindingService = agentToolBindingService;
-        this.agentToolCallLogService = agentToolCallLogService;
-        this.toolExecutorFactory = toolExecutorFactory;
-        this.toolRegistry = toolRegistry;
-        this.agentMcpServerService = agentMcpServerService;
-        this.adminPreferenceService = adminPreferenceService;
-        this.knowledgeRetrievalService = knowledgeRetrievalService;
+        this.agentToolWorkflow = agentToolWorkflow;
+        this.knowledgeContextService = knowledgeContextService;
+        this.interactionReplyService = interactionReplyService;
+        this.conversationContextService = conversationContextService;
         this.adminPreferenceExtractionService = adminPreferenceExtractionService;
     }
 
@@ -169,12 +121,12 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         try {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            enhanceContext(context, userId, agent.getId(), dto.getMessage());
+            knowledgeContextService.enhance(context, userId, agent.getId(), dto.getMessage());
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(getRequestTools(agent.getId()));
+            request.setTools(agentToolWorkflow.getRequestTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelChatResponse modelResponse = modelClient.chat(request);
@@ -212,7 +164,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 // The non-streaming response can only return one message, so the
                 // prelude is recovered through normal conversation history.
                 saveAssistantPreludeIfPresent(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime);
-                AgentMessage approval = createMcpToolApproval(conversation.getId(), modelResponse, agent, userId, runId);
+                AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), modelResponse, agent, userId, runId);
                 if (approval != null) {
                     updateConversationMessageCount(conversation.getId());
                     updateRun(runId, approval.getId(), modelResponse, System.currentTimeMillis() - startTime,
@@ -221,7 +173,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     BeanUtils.copyProperties(approval, vo);
                     return vo;
                 }
-                List<ToolExecutionResult> toolResults = executeToolCalls(modelResponse, agent, userId, runId);
+                List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(modelResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 addToolResultsToContext(context, modelResponse, toolResults);
@@ -236,7 +188,15 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (!authenticityCheck.isValid()) {
                 log.warn("拦截疑似工具结果幻觉回答: conversationId={}, attempted={}, succeeded={}, reason={}",
                         conversation.getId(), toolCallAttempted, toolCallSucceeded, authenticityCheck.getReason());
-                modelResponse.setContent(buildToolAuthenticityFallback(authenticityCheck));
+                ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, modelResponse, authenticityCheck);
+                ToolAuthenticityCheck retryCheck = checkToolAuthenticity(retryResponse.getContent(), false, false);
+                if (retryCheck.isValid()) {
+                    modelResponse = retryResponse;
+                    authenticityCheck = retryCheck;
+                } else {
+                    modelResponse.setContent(buildToolAuthenticityFallback(retryCheck));
+                    authenticityCheck = retryCheck;
+                }
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
@@ -288,7 +248,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
             long t0 = System.currentTimeMillis();
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            enhanceContext(context, userId, agent.getId(), dto.getMessage());
+            List<Map<String, Object>> sources = knowledgeContextService.enhance(context, userId, agent.getId(), dto.getMessage());
             long t1 = System.currentTimeMillis();
             log.info("上下文构建耗时: {}ms", t1 - t0);
 
@@ -296,38 +256,13 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(getRequestTools(agent.getId()));
+            request.setTools(agentToolWorkflow.getRequestTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             // 推理未开启时，不转发reasoning chunks
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
-            ModelStreamResponse modelResponse = modelClient.stream(request, new ModelStreamCallback() {
-                @Override
-                public void onMessage(String chunk) {
-                    if (!callback.isClosed()) {
-                        callback.onMessage(conversation.getId(), chunk);
-                    }
-                }
-
-                @Override
-                public void onReasoning(String chunk) {
-                    if (thinkingEnabled && !callback.isClosed()) {
-                        callback.onReasoning(conversation.getId(), chunk);
-                    }
-                }
-
-                @Override
-                public void onToolCall(String toolCallJson) {
-                    if (!callback.isClosed()) {
-                        callback.onToolCall(conversation.getId(), toolCallJson);
-                    }
-                }
-
-                @Override
-                public boolean isClosed() {
-                    return callback.isClosed();
-                }
-            });
+            DeferredStreamCallback streamCallback = createStreamCallback(callback, conversation.getId(), thinkingEnabled);
+            ModelStreamResponse modelResponse = modelClient.stream(request, streamCallback);
             
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
             if (!thinkingEnabled) {
@@ -338,15 +273,6 @@ public class AgentChatServiceImpl implements AgentChatService {
             
             // 当模型未提供token统计时（如Google Gemma流式响应），补充估算值
             fillDefaultTokens(modelResponse, context, dto.getMessage());
-            
-            // 打印完整模型响应（调试用）
-            log.info("模型完整响应: content={}, toolCalls={}, reasoningContent={}, model={}, tokens={}/{}",
-                    modelResponse.getContent(),
-                    modelResponse.getToolCalls(),
-                    modelResponse.getReasoningContent(),
-                    modelResponse.getModel(),
-                    modelResponse.getPromptTokens(),
-                    modelResponse.getCompletionTokens());
             
             log.info("流式请求完成: 总耗时={}ms", System.currentTimeMillis() - startTime);
             
@@ -390,7 +316,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     }
                     return;
                 }
-                AgentMessage approval = createMcpToolApproval(conversation.getId(), chatResponse, agent, userId, runId);
+                AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), chatResponse, agent, userId, runId);
                 if (approval != null) {
                     updateConversationMessageCount(conversation.getId());
                     AgentMessageVo approvalVo = new AgentMessageVo();
@@ -407,40 +333,15 @@ public class AgentChatServiceImpl implements AgentChatService {
                     }
                     return;
                 }
-                List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, userId, runId);
+                List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 addToolResultsToContext(context, chatResponse, toolResults);
                 
                 // 继续调用模型（流式）
                 request.setMessages(context);
-                modelResponse = modelClient.stream(request, new ModelStreamCallback() {
-                    @Override
-                    public void onMessage(String chunk) {
-                        if (!callback.isClosed()) {
-                            callback.onMessage(conversation.getId(), chunk);
-                        }
-                    }
-
-                    @Override
-                    public void onReasoning(String chunk) {
-                        if (thinkingEnabled && !callback.isClosed()) {
-                            callback.onReasoning(conversation.getId(), chunk);
-                        }
-                    }
-
-                    @Override
-                    public void onToolCall(String toolCallJson) {
-                        if (!callback.isClosed()) {
-                            callback.onToolCall(conversation.getId(), toolCallJson);
-                        }
-                    }
-
-                    @Override
-                    public boolean isClosed() {
-                        return callback.isClosed();
-                    }
-                });
+                streamCallback = createStreamCallback(callback, conversation.getId(), thinkingEnabled);
+                modelResponse = modelClient.stream(request, streamCallback);
                 
                 // 推理未开启时，过滤掉reasoning_content
                 if (!thinkingEnabled) {
@@ -457,8 +358,26 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (!authenticityCheck.isValid()) {
                 log.warn("拦截疑似工具结果幻觉流式回答: conversationId={}, attempted={}, succeeded={}, reason={}",
                         conversation.getId(), toolCallAttempted, toolCallSucceeded, authenticityCheck.getReason());
-                modelResponse.setContent(buildToolAuthenticityFallback(authenticityCheck));
-                chatResponse.setContent(modelResponse.getContent());
+                ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, chatResponse, authenticityCheck);
+                ToolAuthenticityCheck retryCheck = checkToolAuthenticity(retryResponse.getContent(), false, false);
+                if (retryCheck.isValid()) {
+                    modelResponse = toStreamResponse(retryResponse, modelResponse);
+                    chatResponse = retryResponse;
+                    authenticityCheck = retryCheck;
+                    streamCallback.replaceMessage(retryResponse.getContent());
+                } else {
+                    modelResponse.setContent(buildToolAuthenticityFallback(retryCheck));
+                    chatResponse.setContent(modelResponse.getContent());
+                    authenticityCheck = retryCheck;
+                }
+            }
+
+            if (authenticityCheck.isValid()) {
+                modelResponse.setSources(knowledgeContextService.ensureCitations(modelResponse, sources));
+                streamCallback.flush();
+            } else {
+                // 安全降级回复没有使用知识库内容，不能附带原始检索来源。
+                modelResponse.setSources(Collections.<Map<String, Object>>emptyList());
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
@@ -501,33 +420,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         ApprovalExecution approvalExecution = null;
 
         try {
-            conversation = agentConversationService.getById(dto.getConversationId());
-            if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
-                throw new ServerException(404, "会话不存在");
-            }
-            if (!userId.equals(conversation.getUserId())) {
-                throw new ServerException(403, "无权访问会话");
-            }
-            if (!Integer.valueOf(CONVERSATION_STATUS_OPEN).equals(conversation.getStatus())) {
-                throw new ServerException(422, "会话已关闭");
-            }
+            conversation = getOpenReplyConversation(dto.getConversationId(), userId);
+            AgentMessage question = getPendingInteraction(conversation.getId(), dto.getParentMessageId());
 
-            AgentMessage question = agentMessageService.getOne(Wrappers.lambdaQuery(AgentMessage.class)
-                    .eq(AgentMessage::getId, dto.getParentMessageId())
-                    .eq(AgentMessage::getConversationId, conversation.getId())
-                    .eq(AgentMessage::getDeleted, false));
-            if (question == null || !MESSAGE_TYPE_INTERACTION.equals(question.getMessageType())) {
-                throw new ServerException(404, "提问消息不存在");
-            }
-            if (!INTERACTION_STATUS_PENDING.equals(question.getInteractionStatus())) {
-                throw new ServerException(409, "提问已处理");
-            }
-            if (question.getExpiresAt() != null && question.getExpiresAt() < System.currentTimeMillis()) {
-                markInteractionStatus(question.getId(), "expired", null);
-                throw new ServerException(409, "提问已过期");
-            }
-
-            answerContent = renderAnswerContent(question, dto.getAnswer());
+            answerContent = interactionReplyService.renderAnswerContent(question, dto.getAnswer());
             answerMessage = saveAnswerMessage(conversation.getId(), question.getId(), answerContent);
             markInteractionAnswered(question, dto.getAnswer(), System.currentTimeMillis());
 
@@ -537,8 +433,8 @@ public class AgentChatServiceImpl implements AgentChatService {
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
 
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            enhanceContext(context, userId, agent.getId(), answerContent);
-            approvalExecution = executeApprovedMcpTool(question, dto.getAnswer(), agent, userId);
+            List<Map<String, Object>> sources = knowledgeContextService.enhance(context, userId, agent.getId(), answerContent);
+            approvalExecution = agentToolWorkflow.executeApprovedMcpTool(question, dto.getAnswer(), agent, userId);
             if (approvalExecution != null) {
                 runId = approvalExecution.getRunId();
                 addToolResultsToContext(context, approvalExecution.getToolCallResponse(),
@@ -552,36 +448,11 @@ public class AgentChatServiceImpl implements AgentChatService {
             // MCP (or ask_user) again, otherwise the model can immediately ask
             // the same confirmation a second time.
             boolean approvalRejected = approvalExecution != null && !approvalExecution.getResult().isSuccess();
-            request.setTools(approvalRejected ? Collections.<AgentTool>emptyList() : getRequestTools(agent.getId()));
+            request.setTools(approvalRejected ? Collections.<AgentTool>emptyList() : agentToolWorkflow.getRequestTools(agent.getId()));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
-            ModelStreamResponse modelResponse = modelClient.stream(request, new ModelStreamCallback() {
-                @Override
-                public void onMessage(String chunk) {
-                    if (!callback.isClosed()) {
-                        callback.onMessage(dto.getConversationId(), chunk);
-                    }
-                }
-
-                @Override
-                public void onReasoning(String chunk) {
-                    if (thinkingEnabled && !callback.isClosed()) {
-                        callback.onReasoning(dto.getConversationId(), chunk);
-                    }
-                }
-
-                @Override
-                public void onToolCall(String toolCallJson) {
-                    if (!callback.isClosed()) {
-                        callback.onToolCall(dto.getConversationId(), toolCallJson);
-                    }
-                }
-
-                @Override
-                public boolean isClosed() {
-                    return callback.isClosed();
-                }
-            });
+            DeferredStreamCallback streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
+            ModelStreamResponse modelResponse = modelClient.stream(request, streamCallback);
 
             if (!thinkingEnabled) {
                 modelResponse.setReasoningContent(null);
@@ -631,7 +502,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     return;
                 }
 
-                AgentMessage approval = createMcpToolApproval(conversation.getId(), chatResponse, agent, userId, runId);
+                AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), chatResponse, agent, userId, runId);
                 if (approval != null) {
                     updateConversationMessageCount(conversation.getId());
                     AgentMessageVo approvalVo = new AgentMessageVo();
@@ -648,38 +519,13 @@ public class AgentChatServiceImpl implements AgentChatService {
                     }
                     return;
                 }
-                List<ToolExecutionResult> toolResults = executeToolCalls(chatResponse, agent, userId, runId);
+                List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 addToolResultsToContext(context, chatResponse, toolResults);
 
                 request.setMessages(context);
-                modelResponse = modelClient.stream(request, new ModelStreamCallback() {
-                    @Override
-                    public void onMessage(String chunk) {
-                        if (!callback.isClosed()) {
-                            callback.onMessage(dto.getConversationId(), chunk);
-                        }
-                    }
-
-                    @Override
-                    public void onReasoning(String chunk) {
-                        if (thinkingEnabled && !callback.isClosed()) {
-                            callback.onReasoning(dto.getConversationId(), chunk);
-                        }
-                    }
-
-                    @Override
-                    public void onToolCall(String toolCallJson) {
-                        if (!callback.isClosed()) {
-                            callback.onToolCall(dto.getConversationId(), toolCallJson);
-                        }
-                    }
-
-                    @Override
-                    public boolean isClosed() {
-                        return callback.isClosed();
-                    }
-                });
+                streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
+                modelResponse = modelClient.stream(request, streamCallback);
                 if (!thinkingEnabled) {
                     modelResponse.setReasoningContent(null);
                     modelResponse.setReasoningTokens(null);
@@ -692,8 +538,26 @@ public class AgentChatServiceImpl implements AgentChatService {
             long latencyMs = System.currentTimeMillis() - startTime;
             ToolAuthenticityCheck authenticityCheck = checkToolAuthenticity(modelResponse.getContent(), toolCallAttempted, toolCallSucceeded);
             if (!authenticityCheck.isValid()) {
-                modelResponse.setContent(buildToolAuthenticityFallback(authenticityCheck));
-                chatResponse.setContent(modelResponse.getContent());
+                ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, chatResponse, authenticityCheck);
+                ToolAuthenticityCheck retryCheck = checkToolAuthenticity(retryResponse.getContent(), false, false);
+                if (retryCheck.isValid()) {
+                    modelResponse = toStreamResponse(retryResponse, modelResponse);
+                    chatResponse = retryResponse;
+                    authenticityCheck = retryCheck;
+                    streamCallback.replaceMessage(retryResponse.getContent());
+                } else {
+                    modelResponse.setContent(buildToolAuthenticityFallback(retryCheck));
+                    chatResponse.setContent(modelResponse.getContent());
+                    authenticityCheck = retryCheck;
+                }
+            }
+
+            if (authenticityCheck.isValid()) {
+                modelResponse.setSources(knowledgeContextService.ensureCitations(modelResponse, sources));
+                streamCallback.flush();
+            } else {
+                // 安全降级回复没有使用知识库内容，不能附带原始检索来源。
+                modelResponse.setSources(Collections.<Map<String, Object>>emptyList());
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
@@ -724,6 +588,38 @@ public class AgentChatServiceImpl implements AgentChatService {
                 callback.onError(resolveErrorCode(e), resolveErrorMessage(e));
             }
         }
+    }
+
+    private AgentConversation getOpenReplyConversation(String conversationId, String userId) {
+        AgentConversation conversation = agentConversationService.getById(conversationId);
+        if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
+            throw new ServerException(404, "会话不存在");
+        }
+        if (!userId.equals(conversation.getUserId())) {
+            throw new ServerException(403, "无权访问会话");
+        }
+        if (!Integer.valueOf(CONVERSATION_STATUS_OPEN).equals(conversation.getStatus())) {
+            throw new ServerException(422, "会话已关闭");
+        }
+        return conversation;
+    }
+
+    private AgentMessage getPendingInteraction(String conversationId, String parentMessageId) {
+        AgentMessage question = agentMessageService.getOne(Wrappers.lambdaQuery(AgentMessage.class)
+                .eq(AgentMessage::getId, parentMessageId)
+                .eq(AgentMessage::getConversationId, conversationId)
+                .eq(AgentMessage::getDeleted, false));
+        if (question == null || !MESSAGE_TYPE_INTERACTION.equals(question.getMessageType())) {
+            throw new ServerException(404, "提问消息不存在");
+        }
+        if (!INTERACTION_STATUS_PENDING.equals(question.getInteractionStatus())) {
+            throw new ServerException(409, "提问已处理");
+        }
+        if (question.getExpiresAt() != null && question.getExpiresAt() < System.currentTimeMillis()) {
+            markInteractionStatus(question.getId(), "expired", null);
+            throw new ServerException(409, "提问已过期");
+        }
+        return question;
     }
 
     private void validateRequest(AgentChatDto dto) {
@@ -898,59 +794,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         update.setId(question.getId());
         update.setInteractionStatus(INTERACTION_STATUS_ANSWERED);
         update.setAnsweredAt(answeredAt);
-        update.setQuestionConfig(buildAnsweredQuestionConfig(question, answer, answeredAt));
+        update.setQuestionConfig(interactionReplyService.buildAnsweredQuestionConfig(question, answer, answeredAt));
         agentMessageService.updateById(update);
-    }
-
-    private List<ModelChatMessage> buildContext(AgentDefinition agent, String conversationId) {
-        // 1. 尝试从缓存读取
-        String cacheKey = CONTEXT_CACHE_KEY_PREFIX + conversationId;
-        Object cachedContext = redisTemplate.opsForValue().get(cacheKey);
-        if (cachedContext != null) {
-            try {
-                @SuppressWarnings("unchecked")
-                List<ModelChatMessage> context = (List<ModelChatMessage>) cachedContext;
-                if (context != null && !context.isEmpty()) {
-                    return context;
-                }
-            } catch (Exception e) {
-                // 缓存反序列化失败，忽略并重新从数据库构建
-            }
-        }
-        
-        // 2. 缓存未命中，从数据库构建
-        List<ModelChatMessage> context = buildContextFromDb(agent, conversationId);
-        
-        // 3. 写入缓存（30分钟过期）
-        try {
-            redisTemplate.opsForValue().set(cacheKey, context, CONTEXT_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
-        } catch (Exception e) {
-            // 缓存写入失败不影响主流程
-        }
-        
-        return context;
-    }
-
-    /**
-     * 从数据库构建对话上下文。
-     */
-    private List<ModelChatMessage> buildContextFromDb(AgentDefinition agent, String conversationId) {
-        List<ModelChatMessage> context = new ArrayList<>();
-        if (StringUtils.isNotBlank(agent.getSystemPrompt())) {
-            context.add(new ModelChatMessage("system", agent.getSystemPrompt()));
-        }
-
-        List<AgentMessage> messages = agentMessageService.list(Wrappers.lambdaQuery(AgentMessage.class)
-                .eq(AgentMessage::getConversationId, conversationId)
-                .eq(AgentMessage::getDeleted, false)
-                .in(AgentMessage::getRole, "user", "assistant")
-                .orderByDesc(AgentMessage::getCreatedAt)
-                .last("limit 20"));
-        Collections.reverse(messages);
-        for (AgentMessage message : messages) {
-            context.add(new ModelChatMessage(message.getRole(), message.getContent()));
-        }
-        return context;
     }
 
     private AgentMessage saveAssistantMessage(String conversationId, ModelChatResponse modelResponse, long latencyMs) {
@@ -988,6 +833,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setCompletionTokens(modelResponse.getCompletionTokens());
         message.setTotalTokens(modelResponse.getTotalTokens());
         message.setReasoningTokens(modelResponse.getReasoningTokens());
+        if (modelResponse.getSources() != null && !modelResponse.getSources().isEmpty()) {
+            message.setCitations(JSON.toJSONString(modelResponse.getSources()));
+        }
         message.setLatencyMs((int) latencyMs);
         agentMessageService.save(message);
         
@@ -1036,6 +884,77 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 在工具结果真实性校验完成前暂存模型文本，避免未经验证的内容先到达前端。
+     * 工具调用事件不包含工具执行结果，仍可即时转发用于展示调用状态。
+     */
+    private DeferredStreamCallback createStreamCallback(final AgentStreamCallback callback,
+                                                        final String conversationId,
+                                                        final boolean thinkingEnabled) {
+        return new DeferredStreamCallback(callback, conversationId, thinkingEnabled);
+    }
+
+    private static class DeferredStreamCallback implements ModelStreamCallback {
+        private final AgentStreamCallback callback;
+        private final String conversationId;
+        private final boolean thinkingEnabled;
+        private final List<String> messageChunks = new ArrayList<String>();
+        private final List<String> reasoningChunks = new ArrayList<String>();
+
+        private DeferredStreamCallback(AgentStreamCallback callback, String conversationId, boolean thinkingEnabled) {
+            this.callback = callback;
+            this.conversationId = conversationId;
+            this.thinkingEnabled = thinkingEnabled;
+        }
+
+        @Override
+        public void onMessage(String chunk) {
+            if (chunk != null) {
+                messageChunks.add(chunk);
+            }
+        }
+
+        @Override
+        public void onReasoning(String chunk) {
+            if (thinkingEnabled && chunk != null) {
+                reasoningChunks.add(chunk);
+            }
+        }
+
+        @Override
+        public void onToolCall(String toolCallJson) {
+            if (!callback.isClosed()) {
+                callback.onToolCall(conversationId, toolCallJson);
+            }
+        }
+
+        @Override
+        public boolean isClosed() {
+            return callback.isClosed();
+        }
+
+        /** 仅在最终回复通过真实性校验后，将已缓存的流片段发送给前端。 */
+        private void flush() {
+            if (callback.isClosed()) {
+                return;
+            }
+            for (String chunk : reasoningChunks) {
+                callback.onReasoning(conversationId, chunk);
+            }
+            for (String chunk : messageChunks) {
+                callback.onMessage(conversationId, chunk);
+            }
+        }
+
+        /** 使用安全重试结果替换原始流内容，避免把已拦截的文本发给客户端。 */
+        private void replaceMessage(String content) {
+            messageChunks.clear();
+            if (content != null) {
+                messageChunks.add(content);
+            }
+        }
+    }
+
     private void updateConversationMessageCount(String conversationId) {
         AgentConversation update = new AgentConversation();
         update.setId(conversationId);
@@ -1047,51 +966,19 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     private void saveFailedRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                                String messageId, String input, long latencyMs, RuntimeException e) {
-        ModelChatResponse response = new ModelChatResponse();
-        response.setModel(agent.getModel());
-        saveRun(agent, provider, userId, conversationId, messageId, input, response, latencyMs, RUN_STATUS_FAILED, e.getMessage());
+        chatRunService.saveFailure(agent, provider, userId, conversationId, messageId, input, latencyMs, e);
     }
 
     private String saveRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                          String messageId, String input, ModelChatResponse response, long latencyMs,
                          Integer status, String errorMsg) {
-        AgentRun run = new AgentRun();
-        run.setAgentDefinitionId(agent.getId());
-        run.setUserId(userId);
-        run.setConversationId(conversationId);
-        run.setMessageId(messageId);
-        run.setInputContent(truncate(input, 1024));
-        run.setOutputContent(response == null ? null : truncate(response.getContent(), 1024));
-        run.setModel(response == null ? agent.getModel() : response.getModel());
-        run.setModelProviderId(provider.getId());
-        if (response != null) {
-            run.setPromptTokens(response.getPromptTokens());
-            run.setCompletionTokens(response.getCompletionTokens());
-            run.setTotalTokens(response.getTotalTokens());
-        }
-        run.setLatencyMs((int) latencyMs);
-        run.setStatus(status);
-        run.setErrorMsg(truncate(errorMsg, 1024));
-        agentRunService.save(run);
-        return run.getId();
+        return chatRunService.create(agent, provider, userId, conversationId, messageId, input,
+                response, latencyMs, status, errorMsg);
     }
 
     private void updateRun(String runId, String messageId, ModelChatResponse response, long latencyMs,
                            Integer status, String errorMsg) {
-        AgentRun run = new AgentRun();
-        run.setId(runId);
-        run.setMessageId(messageId);
-        run.setOutputContent(response == null ? null : truncate(response.getContent(), 1024));
-        if (response != null) {
-            run.setModel(response.getModel());
-            run.setPromptTokens(response.getPromptTokens());
-            run.setCompletionTokens(response.getCompletionTokens());
-            run.setTotalTokens(response.getTotalTokens());
-        }
-        run.setLatencyMs((int) latencyMs);
-        run.setStatus(status);
-        run.setErrorMsg(truncate(errorMsg, 1024));
-        agentRunService.updateById(run);
+        chatRunService.update(runId, messageId, response, latencyMs, status, errorMsg);
     }
 
     private String truncate(String value, int maxLength) {
@@ -1168,37 +1055,7 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 在保存新消息后调用，将新消息追加到缓存中的context。
      */
     private void updateContextCache(String conversationId, ModelChatMessage newMessage) {
-        String cacheKey = CONTEXT_CACHE_KEY_PREFIX + conversationId;
-        try {
-            Object cachedContext = redisTemplate.opsForValue().get(cacheKey);
-            if (cachedContext != null) {
-                @SuppressWarnings("unchecked")
-                List<ModelChatMessage> context = (List<ModelChatMessage>) cachedContext;
-                if (context != null) {
-                    // 追加新消息
-                    context.add(newMessage);
-                    
-                    // 保持最多21条消息（1 system + 20 messages）
-                    if (context.size() > 21) {
-                        // 保留 system prompt 和最后 20 条消息
-                        if (context.get(0).getRole().equals("system")) {
-                            context = new ArrayList<>(context.subList(0, 1)); // system
-                            context.addAll(((List<ModelChatMessage>) cachedContext).subList(
-                                Math.max(1, ((List<ModelChatMessage>) cachedContext).size() - 20),
-                                ((List<ModelChatMessage>) cachedContext).size()
-                            ));
-                        } else {
-                            context = new ArrayList<>(context.subList(context.size() - 21, context.size()));
-                        }
-                    }
-                    
-                    // 更新缓存
-                    redisTemplate.opsForValue().set(cacheKey, context, CONTEXT_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
-                }
-            }
-        } catch (Exception e) {
-            // 缓存更新失败不影响主流程，下次 buildContext 时会从数据库重建
-        }
+        conversationContextService.append(conversationId, newMessage);
     }
 
     /**
@@ -1213,118 +1070,12 @@ public class AgentChatServiceImpl implements AgentChatService {
     }
 
     /**
-     * 生成对话历史摘要。
-     * 当对话超过一定轮数时，将早期消息压缩为摘要，减少token消耗。
-     */
-    private String generateSummary(List<AgentMessage> oldMessages, AgentDefinition agent, ModelProvider provider) {
-        if (oldMessages == null || oldMessages.isEmpty()) {
-            return "";
-        }
-
-        try {
-            // 构建摘要请求，限制消息数量避免token过多
-            StringBuilder summaryPrompt = new StringBuilder();
-            summaryPrompt.append("请将以下对话历史总结为关键要点，保留重要信息、用户意图和上下文，200字以内：\n\n");
-            
-            int limit = Math.min(oldMessages.size(), SUMMARY_OLD_MESSAGE_LIMIT);
-            for (int i = oldMessages.size() - limit; i < oldMessages.size(); i++) {
-                AgentMessage msg = oldMessages.get(i);
-                String role = msg.getRole().equals("user") ? "用户" : "助手";
-                summaryPrompt.append(role).append(": ").append(msg.getContent()).append("\n\n");
-            }
-
-            // 调用模型生成摘要
-            ModelChatRequest request = new ModelChatRequest();
-            request.setAgent(agent);
-            request.setProvider(provider);
-            request.setMessages(Collections.singletonList(new ModelChatMessage("user", summaryPrompt.toString())));
-
-            ModelClient modelClient = modelClientFactory.getClient(provider);
-            ModelChatResponse response = modelClient.chat(request);
-            
-            return response.getContent() != null ? response.getContent() : "";
-        } catch (Exception e) {
-            // 摘要生成失败，返回空字符串，降级使用完整消息
-            return "";
-        }
-    }
-
-    /**
-     * 获取或创建会话摘要。
-     * 优先从缓存读取，缓存未命中时调用模型生成。
-     */
-    private String getOrCreateSummary(String conversationId, List<AgentMessage> oldMessages, 
-                                      AgentDefinition agent, ModelProvider provider) {
-        // 1. 尝试从缓存读取
-        String cacheKey = SUMMARY_CACHE_KEY_PREFIX + conversationId;
-        Object cachedSummary = redisTemplate.opsForValue().get(cacheKey);
-        if (cachedSummary != null) {
-            return cachedSummary.toString();
-        }
-
-        // 2. 缓存未命中，异步生成摘要（不阻塞当前请求）
-        // 当前请求降级使用最近消息，下次请求即可命中缓存
-        List<AgentMessage> snapshot = new ArrayList<>(oldMessages);
-        CompletableFuture.runAsync(() -> {
-            try {
-                String summary = generateSummary(snapshot, agent, provider);
-                if (StringUtils.isNotBlank(summary)) {
-                    redisTemplate.opsForValue().set(cacheKey, summary, SUMMARY_CACHE_TTL_HOURS, TimeUnit.HOURS);
-                }
-            } catch (Exception e) {
-                log.warn("异步生成摘要失败, conversationId={}", conversationId, e);
-            }
-        }, summaryExecutor);
-
-        return "";
-    }
-
-    /**
      * 构建带摘要的对话上下文。
      * 当对话超过阈值时，使用摘要+最近消息的模式。
      */
     private List<ModelChatMessage> buildContextWithSummary(AgentDefinition agent, ModelProvider provider, 
                                                            String conversationId) {
-        List<ModelChatMessage> context = new ArrayList<>();
-        
-        // 1. 添加 system prompt
-        if (StringUtils.isNotBlank(agent.getSystemPrompt())) {
-            context.add(new ModelChatMessage("system", agent.getSystemPrompt()));
-        }
-
-        // 2. 查询最近的消息（限制数量，避免全表扫描）
-        int fetchLimit = SUMMARY_TRIGGER_THRESHOLD + KEEP_RECENT_MESSAGES + 1;
-        List<AgentMessage> allMessages = agentMessageService.list(Wrappers.lambdaQuery(AgentMessage.class)
-                .eq(AgentMessage::getConversationId, conversationId)
-                .eq(AgentMessage::getDeleted, false)
-                .in(AgentMessage::getRole, "user", "assistant")
-                .orderByAsc(AgentMessage::getCreatedAt)
-                .last("limit " + fetchLimit));
-
-        if (allMessages.size() <= SUMMARY_TRIGGER_THRESHOLD) {
-            // 消息较少，直接返回完整消息
-            for (AgentMessage message : allMessages) {
-                context.add(new ModelChatMessage(message.getRole(), message.getContent()));
-            }
-        } else {
-            // 3. 消息较多，使用摘要模式
-            int oldMessageCount = allMessages.size() - KEEP_RECENT_MESSAGES;
-            List<AgentMessage> oldMessages = allMessages.subList(0, oldMessageCount);
-            List<AgentMessage> recentMessages = allMessages.subList(oldMessageCount, allMessages.size());
-
-            // 4. 获取或生成摘要
-            String summary = getOrCreateSummary(conversationId, oldMessages, agent, provider);
-            if (StringUtils.isNotBlank(summary)) {
-                context.add(new ModelChatMessage("system", "【对话历史摘要】" + summary));
-            }
-
-            // 5. 添加最近的完整消息
-            for (AgentMessage message : recentMessages) {
-                context.add(new ModelChatMessage(message.getRole(), message.getContent()));
-            }
-        }
-
-        return context;
+        return conversationContextService.buildWithSummary(agent, provider, conversationId);
     }
 
     /**
@@ -1417,20 +1168,6 @@ public class AgentChatServiceImpl implements AgentChatService {
                 + "不要直接编造工具结果；如果无法修复参数，请向用户说明需要补充哪些信息。";
     }
 
-    private void enhanceContext(List<ModelChatMessage> context, String userId, String agentId, String query) {
-        if (context == null) {
-            return;
-        }
-        String preferenceContext = adminPreferenceService.buildPreferenceContext(userId);
-        if (StringUtils.isNotBlank(preferenceContext)) {
-            context.add(new ModelChatMessage("system", preferenceContext));
-        }
-        String knowledgeContext = knowledgeRetrievalService.buildKnowledgeContext(agentId, query);
-        if (StringUtils.isNotBlank(knowledgeContext)) {
-            context.add(new ModelChatMessage("system", knowledgeContext));
-        }
-    }
-
     private void extractAdminPreferenceAsync(String userId,
                                             String conversationId,
                                             AgentMessage userMessage,
@@ -1481,257 +1218,23 @@ public class AgentChatServiceImpl implements AgentChatService {
     }
 
     private ToolResult handleInternalToolCall(String conversationId, ModelChatResponse response, long latencyMs) {
-        for (ToolCallInfo toolCall : parseToolCalls(response)) {
-            Tool handler = toolRegistry.getHandler(toolCall.getName());
-            if (handler == null) {
-                continue;
+        try {
+            ToolResult result = agentToolWorkflow.executeInternalCall(conversationId, response);
+            if (result != null && StringUtils.isNotBlank(result.getContextContent())) {
+                updateContextCache(conversationId, new ModelChatMessage("assistant", result.getContextContent()));
             }
-            try {
-                ToolResult result = handler.handle(conversationId, toolCall.getArguments());
-                if (StringUtils.isNotBlank(result.getContextContent())) {
-                    updateContextCache(conversationId, new ModelChatMessage("assistant", result.getContextContent()));
-                }
-                return result;
-            } catch (ServerException e) {
-                log.warn("内建工具参数不合法，降级为普通助手消息: conversationId={}, tool={}, reason={}",
-                        conversationId, toolCall.getName(), e.getMessage());
-                ModelChatResponse fallback = new ModelChatResponse();
-                fallback.setContent(extractFirstQuestionText(toolCall));
-                AgentMessage message = saveAssistantMessage(conversationId, fallback, latencyMs);
-                return ToolResult.waitingUser(message, null);
-            }
+            return result;
+        } catch (ServerException e) {
+            log.warn("内建工具参数不合法，降级为普通助手消息: conversationId={}, reason={}", conversationId, e.getMessage());
+            ModelChatResponse fallback = new ModelChatResponse();
+            String question = agentToolWorkflow.extractQuestionText(response);
+            fallback.setContent(StringUtils.defaultIfBlank(question, "请补充必要信息后继续。"));
+            return ToolResult.waitingUser(saveAssistantMessage(conversationId, fallback, latencyMs), null);
         }
-        return null;
     }
 
     private boolean hasInternalToolCall(ModelChatResponse response) {
-        for (ToolCallInfo toolCall : parseToolCalls(response)) {
-            if (toolRegistry.getHandler(toolCall.getName()) != null) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String extractFirstQuestionText(ToolCallInfo toolCall) {
-        if (toolCall != null && toolCall.getArguments() != null) {
-            Object questionsObj = toolCall.getArguments().get("questions");
-            if (questionsObj instanceof List) {
-                List<?> questions = (List<?>) questionsObj;
-                if (!questions.isEmpty() && questions.get(0) instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> first = (Map<String, Object>) questions.get(0);
-                    Object question = first.get("question");
-                    if (question != null && StringUtils.isNotBlank(question.toString())) {
-                        return truncate(question.toString(), 1000);
-                    }
-                }
-            }
-        }
-        return "请补充必要信息后继续。";
-    }
-
-    private String renderAnswerContent(AgentMessage question, Map<String, Object> answer) {
-        if (answer == null) {
-            throw new ServerException(400, "回复内容不能为空");
-        }
-        JSONObject config = JSONObject.parseObject(question.getQuestionConfig());
-        String type = config.getString("type");
-        if ("group".equals(type)) {
-            return renderGroupAnswer(config, answer);
-        }
-        if ("choice".equals(type)) {
-            return renderChoiceAnswer(config, answer);
-        }
-        if ("confirm".equals(type)) {
-            Object confirmed = answer.get("confirmed");
-            if (!(confirmed instanceof Boolean)) {
-                throw new ServerException(400, "confirm回复必须包含confirmed布尔值");
-            }
-            return "用户选择：" + (Boolean.TRUE.equals(confirmed) ? "确认" : "取消");
-        }
-        throw new ServerException(400, "未知提问类型");
-    }
-
-    private String buildAnsweredQuestionConfig(AgentMessage question, Map<String, Object> answer, Long answeredAt) {
-        JSONObject config = JSONObject.parseObject(question.getQuestionConfig());
-        String type = config.getString("type");
-        JSONObject answerConfig = new JSONObject();
-        answerConfig.put("answeredAt", answeredAt);
-
-        if ("group".equals(type)) {
-            Object answersObj = answer.get("answers");
-            @SuppressWarnings("unchecked")
-            Map<String, Object> answers = (Map<String, Object>) answersObj;
-            JSONArray questions = config.getJSONArray("questions");
-            JSONObject normalizedAnswers = new JSONObject();
-            for (int i = 0; i < questions.size(); i++) {
-                JSONObject item = questions.getJSONObject(i);
-                String id = item.getString("id");
-                @SuppressWarnings("unchecked")
-                Map<String, Object> itemAnswer = (Map<String, Object>) answers.get(id);
-                JSONObject displayAnswer = buildDisplayAnswer(item, itemAnswer);
-                item.put("answer", displayAnswer);
-                normalizedAnswers.put(id, displayAnswer);
-            }
-            answerConfig.put("answers", normalizedAnswers);
-            config.put("answer", answerConfig);
-            return config.toJSONString();
-        }
-
-        JSONObject displayAnswer = buildDisplayAnswer(config, answer);
-        config.put("answer", displayAnswer);
-        answerConfig.put("value", displayAnswer);
-        config.put("answered", answerConfig);
-        return config.toJSONString();
-    }
-
-    private JSONObject buildDisplayAnswer(JSONObject config, Map<String, Object> answer) {
-        String type = config.getString("type");
-        if ("choice".equals(type)) {
-            return buildChoiceDisplayAnswer(config, answer);
-        }
-        if ("confirm".equals(type)) {
-            Object confirmed = answer.get("confirmed");
-            JSONObject result = new JSONObject();
-            result.put("confirmed", confirmed);
-            result.put("label", Boolean.TRUE.equals(confirmed)
-                    ? StringUtils.defaultIfBlank(config.getString("confirmText"), "确认")
-                    : StringUtils.defaultIfBlank(config.getString("cancelText"), "取消"));
-            return result;
-        }
-        throw new ServerException(400, "未知提问类型");
-    }
-
-    private JSONObject buildChoiceDisplayAnswer(JSONObject config, Map<String, Object> answer) {
-        Object selectedObj = answer.get("selected");
-        List<String> selected = normalizeSelectedValues(selectedObj);
-        JSONArray selectedOptions = new JSONArray();
-        JSONArray options = config.getJSONArray("options");
-        for (String value : selected) {
-            JSONObject matched = null;
-            for (int i = 0; i < options.size(); i++) {
-                JSONObject option = options.getJSONObject(i);
-                if (value.equals(option.getString("id")) || value.equals(option.getString("value"))) {
-                    matched = option;
-                    break;
-                }
-            }
-            if (matched != null) {
-                JSONObject selectedOption = new JSONObject();
-                selectedOption.put("id", matched.getString("id"));
-                selectedOption.put("label", matched.getString("label"));
-                selectedOption.put("value", matched.getString("value"));
-                selectedOptions.add(selectedOption);
-            } else if (Boolean.TRUE.equals(config.getBoolean("allowCustomInput"))) {
-                selectedOptions.add(new JSONObject()
-                        .fluentPut("label", value)
-                        .fluentPut("value", value)
-                        .fluentPut("custom", true));
-            }
-        }
-
-        JSONObject result = new JSONObject();
-        if (Boolean.TRUE.equals(config.getBoolean("multiple"))) {
-            result.put("selected", selected);
-        } else {
-            result.put("selected", selected.isEmpty() ? null : selected.get(0));
-        }
-        result.put("selectedOptions", selectedOptions);
-        return result;
-    }
-
-    private String renderGroupAnswer(JSONObject groupConfig, Map<String, Object> answer) {
-        Object answersObj = answer.get("answers");
-        if (!(answersObj instanceof Map)) {
-            throw new ServerException(400, "group回复必须包含answers对象");
-        }
-        @SuppressWarnings("unchecked")
-        Map<String, Object> answers = (Map<String, Object>) answersObj;
-        JSONArray questions = groupConfig.getJSONArray("questions");
-        if (questions == null || questions.isEmpty()) {
-            throw new ServerException(400, "提问配置不合法");
-        }
-
-        List<String> lines = new ArrayList<>();
-        for (int i = 0; i < questions.size(); i++) {
-            JSONObject item = questions.getJSONObject(i);
-            String id = item.getString("id");
-            Object itemAnswerObj = answers.get(id);
-            if (!(itemAnswerObj instanceof Map)) {
-                throw new ServerException(400, "缺少问题回复: " + id);
-            }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> itemAnswer = (Map<String, Object>) itemAnswerObj;
-            lines.add(item.getString("question") + "：" + renderSingleGroupAnswer(item, itemAnswer));
-        }
-        return "用户回复：" + StringUtils.join(lines, "；");
-    }
-
-    private String renderSingleGroupAnswer(JSONObject config, Map<String, Object> answer) {
-        String type = config.getString("type");
-        if ("choice".equals(type)) {
-            return renderChoiceAnswer(config, answer).replaceFirst("^用户选择：", "");
-        }
-        if ("confirm".equals(type)) {
-            Object confirmed = answer.get("confirmed");
-            if (!(confirmed instanceof Boolean)) {
-                throw new ServerException(400, "confirm回复必须包含confirmed布尔值");
-            }
-            return Boolean.TRUE.equals(confirmed) ? "确认" : "取消";
-        }
-        throw new ServerException(400, "未知提问类型");
-    }
-
-    private String renderChoiceAnswer(JSONObject config, Map<String, Object> answer) {
-        Object selectedObj = answer.get("selected");
-        List<String> selected = normalizeSelectedValues(selectedObj);
-        if (selected.isEmpty()) {
-            throw new ServerException(400, "choice回复必须包含selected");
-        }
-        boolean multiple = Boolean.TRUE.equals(config.getBoolean("multiple"));
-        if (!multiple && selected.size() > 1) {
-            throw new ServerException(400, "该提问只能选择一个选项");
-        }
-
-        JSONArray options = config.getJSONArray("options");
-        List<String> labels = new ArrayList<>();
-        for (String value : selected) {
-            JSONObject matched = null;
-            for (int i = 0; i < options.size(); i++) {
-                JSONObject option = options.getJSONObject(i);
-                if (value.equals(option.getString("id")) || value.equals(option.getString("value"))) {
-                    matched = option;
-                    break;
-                }
-            }
-            if (matched == null) {
-                if (!Boolean.TRUE.equals(config.getBoolean("allowCustomInput"))) {
-                    throw new ServerException(400, "回复选项不在允许范围内");
-                }
-                if (StringUtils.isBlank(value) || value.length() > 200) {
-                    throw new ServerException(400, "自定义输入不能为空且不能超过200个字符");
-                }
-                labels.add(value);
-                continue;
-            }
-            labels.add(matched.getString("label") + "(" + matched.getString("value") + ")");
-        }
-        return "用户选择：" + StringUtils.join(labels, ", ");
-    }
-
-    private List<String> normalizeSelectedValues(Object selectedObj) {
-        List<String> selected = new ArrayList<>();
-        if (selectedObj instanceof List) {
-            for (Object item : (List<?>) selectedObj) {
-                if (item != null) {
-                    selected.add(item.toString());
-                }
-            }
-        } else if (selectedObj != null) {
-            selected.add(selectedObj.toString());
-        }
-        return selected;
+        return agentToolWorkflow.hasInternalCall(response);
     }
 
     private ToolAuthenticityCheck checkToolAuthenticity(String content, boolean toolCallAttempted, boolean toolCallSucceeded) {
@@ -1742,6 +1245,47 @@ public class AgentChatServiceImpl implements AgentChatService {
             return ToolAuthenticityCheck.invalid("模型声称使用了工具或接口，但本轮没有成功工具执行记录");
         }
         return ToolAuthenticityCheck.valid();
+    }
+
+    /**
+     * 对疑似伪造工具结果的回复进行一次无工具重试。
+     * 原始模型回复不会被改写，重试请求仅增加约束提示并移除工具定义。
+     */
+    private ModelChatResponse retryToolAuthenticity(ModelClient modelClient, ModelChatRequest request,
+                                                    ModelChatResponse originalResponse,
+                                                    ToolAuthenticityCheck check) {
+        List<ModelChatMessage> originalMessages = request.getMessages();
+        List<AgentTool> originalTools = request.getTools();
+        String originalToolChoice = request.getToolChoiceName();
+        List<ModelChatMessage> retryMessages = new ArrayList<ModelChatMessage>(originalMessages);
+        retryMessages.add(new ModelChatMessage("system", "上一版回复包含未经证实的工具或接口结果。"
+                + "请重新回答：不得声称调用过工具、接口或获得其结果；只能依据已提供的可信上下文。"
+                + "如确需外部数据，请明确说明无法确认。原因：" + check.getReason()));
+        try {
+            request.setMessages(retryMessages);
+            request.setTools(Collections.<AgentTool>emptyList());
+            request.setToolChoiceName(null);
+            ModelChatResponse retryResponse = modelClient.chat(request);
+            return retryResponse == null ? originalResponse : retryResponse;
+        } catch (Exception e) {
+            log.warn("工具结果幻觉重试失败，将执行安全降级: reason={}", e.getMessage());
+            return originalResponse;
+        } finally {
+            request.setMessages(originalMessages);
+            request.setTools(originalTools);
+            request.setToolChoiceName(originalToolChoice);
+        }
+    }
+
+    /** 将非流式重试结果写回流式最终响应，保留已收集的引用来源。 */
+    private ModelStreamResponse toStreamResponse(ModelChatResponse retryResponse, ModelStreamResponse streamResponse) {
+        streamResponse.setContent(retryResponse.getContent());
+        streamResponse.setModel(retryResponse.getModel());
+        streamResponse.setToolCalls(retryResponse.getToolCalls());
+        streamResponse.setPromptTokens(retryResponse.getPromptTokens());
+        streamResponse.setCompletionTokens(retryResponse.getCompletionTokens());
+        streamResponse.setTotalTokens(retryResponse.getTotalTokens());
+        return streamResponse;
     }
 
     private boolean claimsToolBackedResult(String content) {
@@ -1786,495 +1330,8 @@ public class AgentChatServiceImpl implements AgentChatService {
     }
 
     /**
-     * 执行工具调用
-     */
-    private List<ToolExecutionResult> executeToolCalls(ModelChatResponse modelResponse, AgentDefinition agent,
-                                                       String userId, String runId) {
-        List<ToolExecutionResult> results = new ArrayList<>();
-
-        try {
-            // 解析工具调用
-            List<ToolCallInfo> toolCalls = parseToolCalls(modelResponse);
-            if (toolCalls.isEmpty()) {
-                return results;
-            }
-
-            // 获取Agent绑定的工具
-            List<AgentTool> boundTools = getBoundTools(agent.getId());
-            Map<String, AgentTool> toolMap = new HashMap<>();
-            for (AgentTool tool : boundTools) {
-                toolMap.put(tool.getName(), tool);
-            }
-
-            // 执行每个工具调用
-            for (ToolCallInfo toolCall : toolCalls) {
-                AgentTool tool = toolMap.get(toolCall.getName());
-                if (tool == null) {
-                    log.warn("工具未找到: {}", toolCall.getName());
-                    ToolExecutionResult failure = ToolExecutionResult.failure("工具未找到: " + toolCall.getName(), 1);
-                    failure.setToolCallId(toolCall.getId());
-                    failure.setRequestMethod("MCP tools/call");
-                    results.add(failure);
-                    saveToolCallLog(runId, toolCall.getId(), toolCall.getName(),
-                            JSON.toJSONString(toolCall.getArguments()),
-                            null, agent.getId(), null, null, null,
-                            null, null, null, null, 1, "工具未找到: " + toolCall.getName());
-                    continue;
-                }
-
-                log.info("执行工具调用: name={}, toolId={}, arguments={}", toolCall.getName(), tool.getId(), toolCall.getArguments());
-                
-                ToolExecutionContext context = new ToolExecutionContext();
-                context.setTool(tool);
-                context.setArguments(toolCall.getArguments());
-                context.setRunId(runId);
-                context.setUserId(userId);
-
-                try {
-                    ToolExecutor executor = toolExecutorFactory.getExecutor("mcp");
-                    ToolExecutionResult result = executor.execute(context);
-                    result.setToolCallId(toolCall.getId());
-                    results.add(result);
-
-                    log.info("工具执行完成: name={}, status={}, content={}", toolCall.getName(), result.getStatus(), result.getContent());
-                    
-                    // 保存工具调用日志
-                    saveToolCallLog(
-                            runId,
-                            toolCall.getId(),
-                            toolCall.getName(),
-                            JSON.toJSONString(toolCall.getArguments()),
-                            tool.getId(),
-                            agent.getId(),
-                            result.getRequestUrl(),
-                            result.getRequestMethod(),
-                            result.getRequestHeaders(),
-                            result.getRequestBody(),
-                            result.getHttpStatus(),
-                            result.getRawResponse(),
-                            result.getLatencyMs(),
-                            result.getStatus(),
-                            result.getErrorMsg()
-                    );
-                } catch (Exception e) {
-                    log.error("工具执行异常: {}", tool.getCode(), e);
-                    saveToolCallLog(runId, toolCall.getId(), toolCall.getName(),
-                            JSON.toJSONString(toolCall.getArguments()),
-                            tool.getId(), agent.getId(), null,
-                            "MCP tools/call", null, null, null, null, null,
-                            1, e.getMessage());
-                    ToolExecutionResult failure = ToolExecutionResult.failure(e.getMessage(), 1);
-                    failure.setToolCallId(toolCall.getId());
-                    failure.setRequestUrl(null);
-                    failure.setRequestMethod("MCP tools/call");
-                    results.add(failure);
-                }
-            }
-        } catch (Exception e) {
-            log.error("工具调用处理失败", e);
-        }
-
-        return results;
-    }
-
-    private ApprovalExecution executeApprovedMcpTool(AgentMessage question, Map<String, Object> answer,
-                                                      AgentDefinition agent, String userId) {
-        JSONObject config = JSONObject.parseObject(question.getQuestionConfig());
-        if (!MCP_APPROVAL_TYPE.equals(config.getString("approvalType"))) {
-            return null;
-        }
-        String decision = resolveApprovalDecision(answer);
-        boolean confirmed = "once".equals(decision) || "allow_10m".equals(decision);
-        String runId = config.getString("runId");
-        String toolCallId = config.getString("toolCallId");
-        String toolName = config.getString("toolName");
-        AgentTool tool = agentToolService.getById(config.getString("toolId"));
-        Map<String, Object> arguments = config.getJSONObject("arguments") == null
-                ? new HashMap<String, Object>() : config.getJSONObject("arguments").toJavaObject(Map.class);
-        ToolExecutionResult result;
-        if (!confirmed) {
-            result = ToolExecutionResult.failure("用户拒绝执行此 MCP 工具调用", TOOL_CALL_STATUS_SECURITY_BLOCK);
-        } else if (tool == null || Boolean.TRUE.equals(tool.getDeleted()) || !Integer.valueOf(1).equals(tool.getStatus())) {
-            result = ToolExecutionResult.failure("待确认的工具已不存在或被禁用", TOOL_CALL_STATUS_FAILED);
-        } else {
-            try {
-                ToolExecutionContext context = new ToolExecutionContext();
-                context.setTool(tool);
-                context.setArguments(arguments);
-                context.setRunId(runId);
-                context.setUserId(userId);
-                result = toolExecutorFactory.getExecutor("mcp").execute(context);
-            } catch (Exception e) {
-                result = ToolExecutionResult.failure("MCP 工具执行失败: " + e.getMessage(), TOOL_CALL_STATUS_FAILED);
-            }
-        }
-        result.setToolCallId(toolCallId);
-        if ("allow_10m".equals(decision) && tool != null) {
-            saveToolApprovalGrant(userId, agent.getId(), tool.getId());
-        }
-        updateApprovalAudit(config.getString("auditLogId"), result, confirmed);
-
-        JSONObject function = new JSONObject();
-        function.put("name", toolName);
-        function.put("arguments", JSON.toJSONString(arguments));
-        JSONObject call = new JSONObject();
-        call.put("id", toolCallId);
-        call.put("type", "function");
-        call.put("function", function);
-        ModelChatResponse toolCallResponse = new ModelChatResponse();
-        toolCallResponse.setToolCalls(new JSONArray().fluentAdd(call).toJSONString());
-        return new ApprovalExecution(runId, toolCallResponse, result);
-    }
-
-    private String resolveApprovalDecision(Map<String, Object> answer) {
-        if (answer == null || !(answer.get("answers") instanceof Map)) {
-            return "reject";
-        }
-        Map<?, ?> answers = (Map<?, ?>) answer.get("answers");
-        Object decision = answers.get("decision");
-        if (decision instanceof Map) {
-            Object selected = ((Map<?, ?>) decision).get("selected");
-            if (selected != null && ("once".equals(selected.toString()) || "allow_10m".equals(selected.toString()))) {
-                return selected.toString();
-            }
-        }
-        // Keep pending approval messages created before this change compatible.
-        Object confirm = answers.get("confirm");
-        return confirm instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) confirm).get("confirmed")) ? "once" : "reject";
-    }
-
-    private void updateApprovalAudit(String auditLogId, ToolExecutionResult result, boolean confirmed) {
-        if (StringUtils.isBlank(auditLogId)) {
-            return;
-        }
-        AgentToolCallLog update = new AgentToolCallLog();
-        update.setId(auditLogId);
-        update.setRequestUrl(truncate(result.getRequestUrl(), 2048));
-        update.setRequestMethod(result.getRequestMethod());
-        update.setRequestHeaders(result.getRequestHeaders());
-        update.setRequestBody(truncate(result.getRequestBody(), 65536));
-        update.setResponseStatus(result.getHttpStatus());
-        update.setResponseBody(truncate(result.getRawResponse(), 65536));
-        update.setLatencyMs(result.getLatencyMs());
-        update.setStatus(result.getStatus());
-        // MyBatis ignores null fields during update; use an empty string after a
-        // successful execution so the pending-approval message cannot remain.
-        update.setErrorMsg(truncate(confirmed ? StringUtils.defaultString(result.getErrorMsg()) : "用户拒绝执行", 1024));
-        agentToolCallLogService.updateById(update);
-    }
-
-    /**
-     * MCP calls are never sent immediately. The first pending call is persisted as
-     * an interaction; after it is answered the model can continue with the result.
-     */
-    private AgentMessage createMcpToolApproval(String conversationId, ModelChatResponse response, AgentDefinition agent,
-                                               String userId, String runId) {
-        List<ToolCallInfo> calls = parseToolCalls(response);
-        if (calls.isEmpty()) {
-            return null;
-        }
-        Map<String, AgentTool> tools = new HashMap<>();
-        for (AgentTool tool : getBoundTools(agent.getId())) {
-            tools.put(tool.getName(), tool);
-        }
-        ToolCallInfo call = calls.get(0);
-        AgentTool tool = tools.get(call.getName());
-        if (tool == null) {
-            return null;
-        }
-        if (hasActiveToolApprovalGrant(userId, agent.getId(), tool.getId())) {
-            return null;
-        }
-
-        ToolCallRiskAnalyzer.Risk risk = toolCallRiskAnalyzer.analyze(tool, call.getArguments());
-        String requestUrl = resolveMcpRequestUrl(tool);
-        AgentToolCallLog audit = saveToolCallLog(runId, call.getId(), call.getName(),
-                JSON.toJSONString(call.getArguments()), tool.getId(), agent.getId(), requestUrl,
-                "MCP tools/call", null, null, null, null, null,
-                TOOL_CALL_STATUS_PENDING_APPROVAL, "等待用户确认，尚未发送到 MCP 服务");
-
-        boolean highRisk = "high".equals(risk.getLevel());
-        String prompt = highRisk
-                ? "AI 请求执行高危 MCP 工具操作，请核对调用详情后确认。"
-                : "AI 请求调用 MCP 工具，请核对调用详情后确认。";
-
-        JSONObject question = new JSONObject();
-        question.put("id", "decision");
-        question.put("type", "choice");
-        question.put("question", prompt);
-        question.put("multiple", false);
-        question.put("options", new JSONArray()
-                .fluentAdd(new JSONObject().fluentPut("id", "once").fluentPut("label", "仅本次执行").fluentPut("value", "once"))
-                .fluentAdd(new JSONObject().fluentPut("id", "allow_10m").fluentPut("label", "当前工具 10 分钟内免确认").fluentPut("value", "allow_10m"))
-                .fluentAdd(new JSONObject().fluentPut("id", "reject").fluentPut("label", "拒绝执行").fluentPut("value", "reject")));
-        JSONArray questions = new JSONArray();
-        questions.add(question);
-
-        JSONObject config = new JSONObject();
-        config.put("type", "group");
-        // A tool approval always has one decision question. Use a dedicated
-        // layout so clients do not need to infer it from the generic group type.
-        config.put("layout", "confirm");
-        config.put("question", "请确认 MCP 工具调用");
-        config.put("questions", questions);
-        config.put("approvalType", MCP_APPROVAL_TYPE);
-        config.put("auditLogId", audit.getId());
-        config.put("runId", runId);
-        config.put("toolId", tool.getId());
-        config.put("toolCallId", call.getId());
-        config.put("toolName", call.getName());
-        config.put("arguments", call.getArguments());
-        config.put("riskLevel", risk.getLevel());
-        config.put("riskReason", risk.getReason());
-        // Front-end rendering contract. Keep the execution fields above for the
-        // server-side resume path; the client should render this object instead
-        // of parsing the human-readable confirmation question.
-        JSONObject approval = new JSONObject();
-        approval.put("tool", new JSONObject()
-                .fluentPut("id", tool.getId())
-                .fluentPut("name", call.getName())
-                .fluentPut("mcpServerId", tool.getMcpServerId()));
-        approval.put("request", new JSONObject()
-                .fluentPut("url", requestUrl)
-                .fluentPut("method", "MCP tools/call")
-                .fluentPut("arguments", call.getArguments()));
-        approval.put("risk", new JSONObject()
-                .fluentPut("level", risk.getLevel())
-                .fluentPut("reason", risk.getReason())
-                .fluentPut("commandPreview", truncate(risk.getCommandPreview(), 4000)));
-        approval.put("auditLogId", audit.getId());
-        approval.put("authorizationOptions", new JSONArray()
-                .fluentAdd(new JSONObject().fluentPut("value", "once").fluentPut("ttlSeconds", 0))
-                .fluentAdd(new JSONObject().fluentPut("value", "allow_10m").fluentPut("ttlSeconds", 600))
-                .fluentAdd(new JSONObject().fluentPut("value", "reject").fluentPut("ttlSeconds", 0)));
-        config.put("approval", approval);
-
-        AgentMessage message = new AgentMessage();
-        message.setConversationId(conversationId);
-        message.setRole("assistant");
-        message.setMessageType(MESSAGE_TYPE_INTERACTION);
-        message.setInteractionType("group");
-        message.setInteractionStatus(INTERACTION_STATUS_PENDING);
-        message.setContent(config.getString("question"));
-        message.setQuestionConfig(config.toJSONString());
-        agentMessageService.save(message);
-        return message;
-    }
-
-    private String resolveMcpRequestUrl(AgentTool tool) {
-        if (tool == null || StringUtils.isBlank(tool.getMcpServerId())) {
-            return null;
-        }
-        AgentMcpServer server = agentMcpServerService.getById(tool.getMcpServerId());
-        return server == null ? null : server.getBaseUrl();
-    }
-
-    private boolean hasActiveToolApprovalGrant(String userId, String agentId, String toolId) {
-        try {
-            return Boolean.TRUE.equals(redisTemplate.hasKey(toolApprovalGrantKey(userId, agentId, toolId)));
-        } catch (Exception e) {
-            // Fail closed: Redis failures must not bypass a confirmation.
-            return false;
-        }
-    }
-
-    private void saveToolApprovalGrant(String userId, String agentId, String toolId) {
-        try {
-            redisTemplate.opsForValue().set(toolApprovalGrantKey(userId, agentId, toolId), "approved",
-                    TOOL_APPROVAL_GRANT_TTL_MINUTES, TimeUnit.MINUTES);
-        } catch (Exception e) {
-            log.warn("保存工具临时授权失败，后续调用将继续要求确认: userId={}, agentId={}, toolId={}", userId, agentId, toolId);
-        }
-    }
-
-    private String toolApprovalGrantKey(String userId, String agentId, String toolId) {
-        return TOOL_APPROVAL_GRANT_KEY_PREFIX + userId + ":" + agentId + ":" + toolId;
-    }
-
-    /**
-     * 解析模型返回的工具调用
-     */
-    private List<ToolCallInfo> parseToolCalls(ModelChatResponse response) {
-        List<ToolCallInfo> toolCalls = new ArrayList<>();
-
-        try {
-            if (StringUtils.isBlank(response.getToolCalls())) {
-                return toolCalls;
-            }
-            JSONArray toolCallsArray = JSONArray.parseArray(response.getToolCalls());
-            if (toolCallsArray == null || toolCallsArray.isEmpty()) {
-                return toolCalls;
-            }
-
-            for (int i = 0; i < toolCallsArray.size(); i++) {
-                JSONObject toolCall = toolCallsArray.getJSONObject(i);
-                String id = toolCall.getString("id");
-                String name = toolCall.getJSONObject("function").getString("name");
-                String argumentsStr = toolCall.getJSONObject("function").getString("arguments");
-
-                Map<String, Object> arguments = new HashMap<>();
-                if (StringUtils.isNotBlank(argumentsStr)) {
-                    arguments = JSON.parseObject(argumentsStr, Map.class);
-                }
-                log.info("解析工具调用: id={}, name={}, argumentsRaw={}, arguments={}", id, name, argumentsStr, arguments);
-
-                toolCalls.add(new ToolCallInfo(id, name, arguments));
-            }
-        } catch (Exception e) {
-            log.error("解析工具调用失败", e);
-        }
-
-        return toolCalls;
-    }
-
-    /**
-     * 获取Agent绑定的工具列表
-     */
-    private List<AgentTool> getRequestTools(String agentId) {
-        List<AgentTool> tools = new ArrayList<>(getBoundTools(agentId));
-        tools.addAll(toolRegistry.getTools());
-        return tools;
-    }
-
-    private List<AgentTool> getBoundTools(String agentId) {
-        String cacheKey = TOOLS_CACHE_KEY_PREFIX + agentId;
-        try {
-            Object cached = redisTemplate.opsForValue().get(cacheKey);
-            if (cached instanceof List) {
-                @SuppressWarnings("unchecked")
-                List<AgentTool> tools = (List<AgentTool>) cached;
-                return tools;
-            }
-        } catch (Exception e) {
-            // 缓存读取失败，降级查库
-        }
-
-        List<AgentToolBinding> bindings = agentToolBindingService.list(
-                Wrappers.lambdaQuery(AgentToolBinding.class)
-                        .eq(AgentToolBinding::getAgentDefinitionId, agentId)
-                        .eq(AgentToolBinding::getStatus, 1)
-                        .eq(AgentToolBinding::getDeleted, false)
-                        .orderByAsc(AgentToolBinding::getPriority)
-        );
-
-        List<AgentTool> tools = new ArrayList<>();
-        for (AgentToolBinding binding : bindings) {
-            AgentTool tool = agentToolService.getById(binding.getToolId());
-            if (tool != null && !Boolean.TRUE.equals(tool.getDeleted()) && Integer.valueOf(1).equals(tool.getStatus())) {
-                tools.add(tool);
-            }
-        }
-
-        try {
-            redisTemplate.opsForValue().set(cacheKey, tools, TOOLS_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
-        } catch (Exception e) {
-            // 缓存写入失败不影响主流程
-        }
-
-        return tools;
-    }
-
-    /**
-     * 清除指定工具相关的所有Agent缓存
-     */
-    public void evictToolCacheByToolId(String toolId) {
-        try {
-            // 查找所有绑定该工具的Agent
-            List<AgentToolBinding> bindings = agentToolBindingService.list(
-                    Wrappers.lambdaQuery(AgentToolBinding.class)
-                            .eq(AgentToolBinding::getToolId, toolId)
-                            .eq(AgentToolBinding::getDeleted, false)
-            );
-            for (AgentToolBinding binding : bindings) {
-                evictToolCache(binding.getAgentDefinitionId());
-            }
-        } catch (Exception e) {
-            // 清除缓存失败不影响主流程
-        }
-    }
-
-    /**
-     * 清除指定Agent的工具缓存
-     */
-    public void evictToolCache(String agentId) {
-        try {
-            String cacheKey = TOOLS_CACHE_KEY_PREFIX + agentId;
-            redisTemplate.delete(cacheKey);
-        } catch (Exception e) {
-            // 清除缓存失败不影响主流程
-        }
-    }
-
-    /**
-     * 保存工具调用日志
-     */
-    private AgentToolCallLog saveToolCallLog(String runId, String toolCallId, String toolName, String argumentsJson,
-                                 String toolId, String agentDefinitionId,
-                                 String requestUrl, String requestMethod, String requestHeaders,
-                                 String requestBody, Integer responseStatus, String responseBody,
-                                 Integer latencyMs, Integer status, String errorMsg) {
-        AgentToolCallLog log = new AgentToolCallLog();
-        log.setRunId(runId);
-        log.setToolCallId(toolCallId);
-        log.setToolName(toolName);
-        log.setArguments(truncate(argumentsJson, 65536));
-        log.setToolId(toolId);
-        log.setAgentDefinitionId(agentDefinitionId);
-        log.setRequestUrl(truncate(requestUrl, 2048));
-        log.setRequestMethod(requestMethod);
-        log.setRequestHeaders(requestHeaders);
-        log.setRequestBody(truncate(requestBody, 65536));
-        log.setResponseStatus(responseStatus);
-        log.setResponseBody(truncate(responseBody, 65536));
-        log.setLatencyMs(latencyMs);
-        log.setStatus(status);
-        log.setErrorMsg(truncate(errorMsg, 1024));
-        agentToolCallLogService.save(log);
-        return log;
-    }
-
-    private static class ApprovalExecution {
-        private final String runId;
-        private final ModelChatResponse toolCallResponse;
-        private final ToolExecutionResult result;
-
-        private ApprovalExecution(String runId, ModelChatResponse toolCallResponse, ToolExecutionResult result) {
-            this.runId = runId;
-            this.toolCallResponse = toolCallResponse;
-            this.result = result;
-        }
-
-        public String getRunId() { return runId; }
-        public ModelChatResponse getToolCallResponse() { return toolCallResponse; }
-        public ToolExecutionResult getResult() { return result; }
-    }
-
-    /**
      * 工具调用信息
      */
-    private static class ToolCallInfo {
-        private final String id;
-        private final String name;
-        private final Map<String, Object> arguments;
-
-        public ToolCallInfo(String id, String name, Map<String, Object> arguments) {
-            this.id = id;
-            this.name = name;
-            this.arguments = arguments;
-        }
-
-        public String getId() {
-            return id;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public Map<String, Object> getArguments() {
-            return arguments;
-        }
-    }
 
     private static class ToolAuthenticityCheck {
         private final boolean valid;
