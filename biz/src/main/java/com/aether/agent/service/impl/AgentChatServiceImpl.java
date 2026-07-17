@@ -373,13 +373,11 @@ public class AgentChatServiceImpl implements AgentChatService {
                     authenticityCheck = retryCheck;
                 }
             }
+            if (sources != null && !sources.isEmpty())
+                 modelResponse.setSources(knowledgeContextService.ensureCitations(modelResponse, sources));
+            else
+                modelResponse.setSources(null);
 
-            if (authenticityCheck.isValid()) {
-                modelResponse.setSources(knowledgeContextService.ensureCitations(modelResponse, sources));
-            } else {
-                // 安全降级回复没有使用知识库内容，不能附带原始检索来源。
-                modelResponse.setSources(Collections.<Map<String, Object>>emptyList());
-            }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
