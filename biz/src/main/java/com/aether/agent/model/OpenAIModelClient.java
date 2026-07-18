@@ -67,7 +67,9 @@ public class OpenAIModelClient implements ModelClient {
                     HttpMethod.POST,
                     entity,
                     String.class);
-            return parseResponse(response.getBody(), agent.getModel());
+            String responseBody = response.getBody();
+            log.debug("Model response: {}", responseBody);
+            return parseResponse(responseBody, agent.getModel());
         } catch (ResourceAccessException e) {
             throw new ServerException(503, "model provider timeout");
         } catch (ServerException e) {
@@ -75,7 +77,8 @@ public class OpenAIModelClient implements ModelClient {
         } catch (RestClientException e) {
             throw new ServerException(500, "model call failed");
         } catch (Exception e) {
-            throw new ServerException(500, "model response parse failed");
+            log.error("Failed to parse model response", e);
+            throw new ServerException(500, "model response parse failed: " + e.getMessage());
         }
     }
 
@@ -341,18 +344,39 @@ public class OpenAIModelClient implements ModelClient {
         if (StringUtils.isBlank(responseBody)) {
             throw new ServerException(500, "model response is empty");
         }
-        JSONObject json = JSONObject.parseObject(responseBody);
+        JSONObject json;
+        try {
+            json = JSONObject.parseObject(responseBody);
+        } catch (Exception e) {
+            log.error("Model response is not valid JSON, body={}", responseBody);
+            throw new ServerException(500, "model response is not valid JSON: " + e.getMessage());
+        }
+        if (json == null) {
+            throw new ServerException(500, "model response is not valid JSON");
+        }
+        JSONObject error = json.getJSONObject("error");
+        if (error != null) {
+            String errorMsg = error.getString("message");
+            log.error("Model provider returned error: {}", errorMsg);
+            throw new ServerException(500, "model provider error: " + errorMsg);
+        }
         JSONArray choices = json.getJSONArray("choices");
         if (choices == null || choices.isEmpty()) {
-            throw new ServerException(500, "model response missing choices");
+            throw new ServerException(500, "model response missing choices array");
         }
         JSONObject firstChoice = choices.getJSONObject(0);
+        if (firstChoice == null) {
+            throw new ServerException(500, "model response first choice is null");
+        }
         JSONObject message = firstChoice.getJSONObject("message");
-        String content = message == null ? null : message.getString("content");
-        String reasoningContent = message == null ? null : message.getString("reasoning_content");
-        JSONArray toolCalls = message == null ? null : message.getJSONArray("tool_calls");
+        if (message == null) {
+            throw new ServerException(500, "model response message is null");
+        }
+        String content = message.getString("content");
+        String reasoningContent = message.getString("reasoning_content");
+        JSONArray toolCalls = message.getJSONArray("tool_calls");
         if (StringUtils.isBlank(content) && StringUtils.isBlank(reasoningContent) && (toolCalls == null || toolCalls.isEmpty())) {
-            throw new ServerException(500, "model response content is empty");
+            throw new ServerException(500, "model response content, reasoning_content, and tool_calls are all empty");
         }
 
         JSONObject usage = json.getJSONObject("usage");

@@ -5,43 +5,105 @@ import com.aether.sys.mapper.AdminPreferenceMapper;
 import com.aether.sys.service.AdminPreferenceService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Service
 public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMapper, AdminPreference>
         implements AdminPreferenceService {
 
-    private static final int STATUS_ENABLED = 1;
-    private static final int MAX_CONTEXT_ITEMS = 20;
+    @Autowired
+    private PreferenceReasoningEngine reasoningEngine;
 
     @Override
-    public String buildPreferenceContext(String adminId) {
-        if (StringUtils.isBlank(adminId)) {
-            return null;
+    public String buildPreferenceContext(String adminId, String taskType) {
+        return reasoningEngine.buildPreferenceContext(adminId, taskType);
+    }
+
+    @Override
+    public AdminPreference getEffectivePreference(String adminId, String keyName, String taskType) {
+        List<AdminPreference> effective = reasoningEngine.resolveEffectivePreferences(adminId, taskType);
+        return effective.stream()
+                .filter(p -> p.getKeyName().equals(keyName))
+                .findFirst()
+                .orElse(null);
+    }
+
+    @Override
+    public void incrementUsage(String preferenceId) {
+        AdminPreference pref = getById(preferenceId);
+        if (pref != null) {
+            pref.setUsageCount(pref.getUsageCount() + 1);
+            pref.setLastUsedAt(System.currentTimeMillis());
+            updateById(pref);
+            updateEffectiveScore(preferenceId);
         }
-        List<AdminPreference> preferences = list(Wrappers.lambdaQuery(AdminPreference.class)
+    }
+
+    @Override
+    public void adjustConfidence(String preferenceId, BigDecimal delta) {
+        AdminPreference pref = getById(preferenceId);
+        if (pref != null) {
+            BigDecimal newConfidence = pref.getConfidence().add(delta);
+            if (newConfidence.compareTo(BigDecimal.ZERO) < 0) {
+                newConfidence = BigDecimal.ZERO;
+            }
+            if (newConfidence.compareTo(BigDecimal.ONE) > 0) {
+                newConfidence = BigDecimal.ONE;
+            }
+            pref.setConfidence(newConfidence);
+
+            if (newConfidence.compareTo(BigDecimal.valueOf(0.3)) < 0) {
+                pref.setStatus(AdminPreference.STATUS_DISABLED);
+            }
+
+            updateById(pref);
+            reasoningEngine.clearUserCache(pref.getAdminId());
+        }
+    }
+
+    @Override
+    public void updateEffectiveScore(String preferenceId) {
+        AdminPreference pref = getById(preferenceId);
+        if (pref != null) {
+            BigDecimal decayFactor = BigDecimal.ONE;
+            BigDecimal decayRate = pref.getDecayRate();
+            Long lastUsedAt = pref.getLastUsedAt();
+            if (decayRate != null && lastUsedAt != null && decayRate.compareTo(BigDecimal.ZERO) != 0) {
+                long daysSinceLastUse = (System.currentTimeMillis() - lastUsedAt) / (1000 * 60 * 60 * 24);
+                decayFactor = BigDecimal.ONE.subtract(
+                        decayRate.multiply(BigDecimal.valueOf(daysSinceLastUse)));
+                if (decayFactor.compareTo(BigDecimal.valueOf(0.1)) < 0) {
+                    decayFactor = BigDecimal.valueOf(0.1);
+                }
+            }
+
+            int priority = pref.getPriority() != null ? pref.getPriority() : 50;
+            BigDecimal confidence = pref.getConfidence() != null ? pref.getConfidence() : BigDecimal.ONE;
+            BigDecimal score = BigDecimal.valueOf(priority)
+                    .multiply(decayFactor)
+                    .multiply(confidence);
+
+            pref.setEffectiveScore(score);
+            updateById(pref);
+            reasoningEngine.clearUserCache(pref.getAdminId());
+        }
+    }
+
+    @Override
+    public List<AdminPreference> listByAdminId(String adminId) {
+        return list(Wrappers.lambdaQuery(AdminPreference.class)
                 .eq(AdminPreference::getAdminId, adminId)
-                .eq(AdminPreference::getStatus, STATUS_ENABLED)
                 .eq(AdminPreference::getDeleted, false)
-                .orderByDesc(AdminPreference::getUpdatedAt)
-                .last("LIMIT " + MAX_CONTEXT_ITEMS));
-        if (preferences == null || preferences.isEmpty()) {
-            return null;
-        }
-        StringBuilder builder = new StringBuilder("【后台用户长期偏好】\n");
-        for (AdminPreference preference : preferences) {
-            if (StringUtils.isBlank(preference.getContent())) {
-                continue;
-            }
-            builder.append("- ");
-            if (StringUtils.isNotBlank(preference.getCategory())) {
-                builder.append('[').append(preference.getCategory()).append("] ");
-            }
-            builder.append(preference.getContent()).append('\n');
-        }
-        return builder.toString();
+                .orderByDesc(AdminPreference::getEffectiveScore));
+    }
+
+    @Override
+    public boolean clearUserCache(String adminId) {
+        reasoningEngine.clearUserCache(adminId);
+        return true;
     }
 }

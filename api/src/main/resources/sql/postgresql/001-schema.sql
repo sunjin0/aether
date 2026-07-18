@@ -291,28 +291,6 @@ CREATE TABLE user_member (
 
 );
 
-DROP TABLE IF EXISTS sys_admin_preference CASCADE;
-CREATE TABLE sys_admin_preference (
-    id VARCHAR(32) NOT NULL,
-    admin_id VARCHAR(32) NOT NULL,
-    category VARCHAR(64) NOT NULL DEFAULT 'general',
-    content VARCHAR(512) NOT NULL,
-    source_conversation_id VARCHAR(32),
-    source_message_id VARCHAR(32),
-    confidence NUMERIC(4, 2) NOT NULL DEFAULT 0.80,
-    status SMALLINT NOT NULL DEFAULT 1,
-    created_at BIGINT,
-    updated_at BIGINT,
-    sort_num INTEGER NOT NULL DEFAULT 0,
-    deleted BOOLEAN NOT NULL DEFAULT FALSE,
-    state INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (id)
-);
-
-CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_admin_id ON sys_admin_preference (admin_id);
-CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_status ON sys_admin_preference (status);
-CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_source_conversation ON sys_admin_preference (source_conversation_id);
-
 -- ----------------------------
 -- Records of user_member
 -- ----------------------------
@@ -744,4 +722,62 @@ JOIN knowledge_document_version version
 WHERE chunk.document_id = document.id
   AND chunk.deleted = FALSE
   AND chunk.document_version_id IS NULL;
+
+-- =====================================================
+-- sys_admin_preference (redesigned)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS sys_admin_preference (
+    id              VARCHAR(32)  NOT NULL PRIMARY KEY,
+    admin_id        VARCHAR(32)  NOT NULL,
+    category        VARCHAR(32)  NOT NULL,
+    key_name        VARCHAR(128) NOT NULL,
+    value           VARCHAR(512) NOT NULL,
+    description     VARCHAR(256),
+    priority        INT          NOT NULL DEFAULT 50,
+    scope           VARCHAR(32)  NOT NULL DEFAULT 'global',
+    scope_detail    VARCHAR(64),
+    source          VARCHAR(16)  NOT NULL DEFAULT 'explicit',
+    confidence      DECIMAL(4,2) NOT NULL DEFAULT 1.00,
+    usage_count     INT          NOT NULL DEFAULT 0,
+    last_used_at    BIGINT,
+    expires_at      BIGINT,
+    decay_rate      DECIMAL(4,2) NOT NULL DEFAULT 0.00,
+    effective_score DECIMAL(6,2) NOT NULL DEFAULT 100.00,
+    status          SMALLINT     NOT NULL DEFAULT 1,
+    created_at      BIGINT       NOT NULL,
+    updated_at      BIGINT       NOT NULL,
+    deleted         BOOLEAN      NOT NULL DEFAULT FALSE,
+    sort_num        INT          NOT NULL DEFAULT 0,
+    state           INT          NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_admin_id ON sys_admin_preference(admin_id);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_admin_category ON sys_admin_preference(admin_id, category);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_admin_key ON sys_admin_preference(admin_id, key_name);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_expires ON sys_admin_preference(expires_at);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_effective ON sys_admin_preference(admin_id, effective_score);
+
+-- =====================================================
+-- sys_admin_preference_event
+-- =====================================================
+CREATE TABLE IF NOT EXISTS sys_admin_preference_event (
+    id               VARCHAR(32)  NOT NULL PRIMARY KEY,
+    admin_id         VARCHAR(32)  NOT NULL,
+    preference_id    VARCHAR(32),
+    event_type       VARCHAR(16)  NOT NULL,
+    category         VARCHAR(32),
+    key_name         VARCHAR(128),
+    value            VARCHAR(512),
+    confidence       DECIMAL(4,2),
+    conversation_id  VARCHAR(32),
+    message_id       VARCHAR(32),
+    context_snapshot TEXT,
+    created_at       BIGINT       NOT NULL,
+    updated_at       BIGINT       NOT NULL,
+    deleted         BOOLEAN      NOT NULL DEFAULT FALSE,
+    sort_num        INT          NOT NULL DEFAULT 0,
+    state           INT          NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_event_idx_admin_id ON sys_admin_preference_event(admin_id);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_event_idx_admin_event ON sys_admin_preference_event(admin_id, event_type);
+CREATE INDEX IF NOT EXISTS sys_admin_preference_event_idx_created ON sys_admin_preference_event(created_at);
 

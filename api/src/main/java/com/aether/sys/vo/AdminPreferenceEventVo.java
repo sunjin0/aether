@@ -8,9 +8,13 @@ import java.math.BigDecimal;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class AdminPreferenceVo extends BaseEntity {
+public class AdminPreferenceEventVo extends BaseEntity {
 
     private String adminId;
+
+    private String preferenceId;
+
+    private String eventType;
 
     private String category;
 
@@ -18,29 +22,13 @@ public class AdminPreferenceVo extends BaseEntity {
 
     private String value;
 
-    private String description;
-
-    private Integer priority;
-
-    private String scope;
-
-    private String scopeDetail;
-
-    private String source;
-
     private BigDecimal confidence;
 
-    private Integer usageCount;
+    private String conversationId;
 
-    private Long lastUsedAt;
+    private String messageId;
 
-    private Long expiresAt;
-
-    private BigDecimal decayRate;
-
-    private BigDecimal effectiveScore;
-
-    private Integer status;
+    private String contextSnapshot;
 
     private Long current;
 

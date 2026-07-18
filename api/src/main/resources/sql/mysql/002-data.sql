@@ -349,28 +349,6 @@ INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_ToolCall_Status_Failed', 'Ag
 INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_ToolCall_Status_Timeout', 'Agent_ToolCall_Status', 'Timeout', '超时', '2', '调用超时', 1, b'0', 1783769933, 1783769933, 3);
 INSERT INTO `sys_dict` VALUES (uuid_short(), 'Agent_ToolCall_Status_SecurityBlock', 'Agent_ToolCall_Status', 'Security Block', '安全拦截', '3', '安全拦截', 1, b'0', 1783769933, 1783769933, 4);
 
--- =====================================================
--- 14. Admin_Preference_Category（后台用户偏好分类）
--- =====================================================
-INSERT INTO `sys_dict` (`id`, `code`, `parent`, `name`, `name_cn`, `val`, `remark`, `state`, `deleted`, `created_at`, `updated_at`, `sort_num`)
-SELECT uuid_short(), 'Admin_Preference_Category', NULL, 'Admin Preference Category', '后台用户偏好分类', NULL, NULL, 1, b'0', 1783769933, 1783769933, 1
-WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `code` = 'Admin_Preference_Category');
-INSERT INTO `sys_dict` (`id`, `code`, `parent`, `name`, `name_cn`, `val`, `remark`, `state`, `deleted`, `created_at`, `updated_at`, `sort_num`)
-SELECT uuid_short(), 'Admin_Preference_Category_General', 'Admin_Preference_Category', 'General', '通用', 'general', '通用长期偏好', 1, b'0', 1783769933, 1783769933, 1
-WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `code` = 'Admin_Preference_Category_General');
-INSERT INTO `sys_dict` (`id`, `code`, `parent`, `name`, `name_cn`, `val`, `remark`, `state`, `deleted`, `created_at`, `updated_at`, `sort_num`)
-SELECT uuid_short(), 'Admin_Preference_Category_Language', 'Admin_Preference_Category', 'Language', '语言', 'language', '语言偏好', 1, b'0', 1783769933, 1783769933, 2
-WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `code` = 'Admin_Preference_Category_Language');
-INSERT INTO `sys_dict` (`id`, `code`, `parent`, `name`, `name_cn`, `val`, `remark`, `state`, `deleted`, `created_at`, `updated_at`, `sort_num`)
-SELECT uuid_short(), 'Admin_Preference_Category_Style', 'Admin_Preference_Category', 'Style', '表达风格', 'style', '回答风格偏好', 1, b'0', 1783769933, 1783769933, 3
-WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `code` = 'Admin_Preference_Category_Style');
-INSERT INTO `sys_dict` (`id`, `code`, `parent`, `name`, `name_cn`, `val`, `remark`, `state`, `deleted`, `created_at`, `updated_at`, `sort_num`)
-SELECT uuid_short(), 'Admin_Preference_Category_Format', 'Admin_Preference_Category', 'Format', '输出格式', 'format', '格式与结构偏好', 1, b'0', 1783769933, 1783769933, 4
-WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `code` = 'Admin_Preference_Category_Format');
-INSERT INTO `sys_dict` (`id`, `code`, `parent`, `name`, `name_cn`, `val`, `remark`, `state`, `deleted`, `created_at`, `updated_at`, `sort_num`)
-SELECT uuid_short(), 'Admin_Preference_Category_Tech_Stack', 'Admin_Preference_Category', 'Tech Stack', '技术栈', 'tech_stack', '技术栈偏好', 1, b'0', 1783769933, 1783769933, 5
-WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `code` = 'Admin_Preference_Category_Tech_Stack');
-
 /*
  * Copyright (c) 2026. Lorem ipsum dolor sit amet, consectetur adipiscing elit.
  * Morbi non lorem porttitor neque feugiat blandit. Ut vitae ipsum eget quam lacinia accumsan.

@@ -46,7 +46,7 @@ public class KnowledgeContextService {
         if (context == null) {
             return sources;
         }
-        String preferenceContext = preferenceService.buildPreferenceContext(userId);
+        String preferenceContext = preferenceService.buildPreferenceContext(userId, null);
         if (StringUtils.isNotBlank(preferenceContext)) {
             context.add(new ModelChatMessage("system", preferenceContext));
         }

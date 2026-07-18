@@ -621,28 +621,6 @@ CREATE TABLE IF NOT EXISTS `knowledge_document` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档（V0.7预留）';
 
 -- =====================================================
--- 13. sys_admin_preference（后台用户长期偏好）
--- =====================================================
-CREATE TABLE IF NOT EXISTS `sys_admin_preference` (
-    `id`                     BIGINT       NOT NULL PRIMARY KEY COMMENT '主键',
-    `admin_id`               BIGINT       NOT NULL COMMENT '后台用户ID',
-    `category`               VARCHAR(64)  NOT NULL DEFAULT 'general' COMMENT '偏好分类',
-    `content`                VARCHAR(512) NOT NULL COMMENT '偏好内容',
-    `source_conversation_id` BIGINT                COMMENT '来源会话ID',
-    `source_message_id`      BIGINT                COMMENT '来源消息ID',
-    `confidence`             DECIMAL(4,2) NOT NULL DEFAULT 0.80 COMMENT '置信度',
-    `status`                 TINYINT      NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
-    `created_at`             BIGINT                COMMENT '创建时间',
-    `updated_at`             BIGINT                COMMENT '更新时间',
-    `sort_num`               INT          NOT NULL DEFAULT 0 COMMENT '排序号',
-    `deleted`                TINYINT      NOT NULL DEFAULT 0 COMMENT '删除状态：0-未删除，1-已删除',
-    `state`                  INT          NOT NULL DEFAULT 0 COMMENT '状态 默认0',
-    KEY `idx_admin_id` (`admin_id`),
-    KEY `idx_status` (`status`),
-    KEY `idx_source_conversation` (`source_conversation_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='后台用户长期偏好';
-
--- =====================================================
 -- 14. knowledge_document_chunk（文档分块，MySQL兼容结构，不支持向量检索）
 -- =====================================================
 CREATE TABLE IF NOT EXISTS `knowledge_document_chunk` (
@@ -672,3 +650,55 @@ CREATE TABLE IF NOT EXISTS `knowledge_base_member` (`id` BIGINT NOT NULL PRIMARY
 CREATE TABLE IF NOT EXISTS `knowledge_document_version` (`id` BIGINT NOT NULL PRIMARY KEY, `knowledge_document_id` BIGINT NOT NULL, `version_no` INT NOT NULL, `content` LONGTEXT, `storage_bucket` VARCHAR(128), `storage_object_key` VARCHAR(1024), `file_checksum` VARCHAR(128), `parser_type` VARCHAR(64), `index_status` TINYINT NOT NULL DEFAULT 0, `index_error_message` LONGTEXT, `indexed_at` BIGINT, `chunk_count` INT NOT NULL DEFAULT 0, `created_at` BIGINT, `updated_at` BIGINT, `sort_num` INT NOT NULL DEFAULT 0, `deleted` TINYINT NOT NULL DEFAULT 0, `state` INT NOT NULL DEFAULT 0, UNIQUE KEY `uk_doc_version` (`knowledge_document_id`,`version_no`,`deleted`));
 CREATE TABLE IF NOT EXISTS `knowledge_index_job` (`id` BIGINT NOT NULL PRIMARY KEY, `knowledge_base_id` BIGINT NOT NULL, `document_id` BIGINT NOT NULL, `document_version_id` BIGINT NOT NULL, `job_type` VARCHAR(32) NOT NULL, `status` VARCHAR(16) NOT NULL, `retry_count` INT NOT NULL DEFAULT 0, `max_retry_count` INT NOT NULL DEFAULT 3, `error_message` LONGTEXT, `statistics` LONGTEXT, `started_at` BIGINT, `finished_at` BIGINT, `created_at` BIGINT, `updated_at` BIGINT, `sort_num` INT NOT NULL DEFAULT 0, `deleted` TINYINT NOT NULL DEFAULT 0, `state` INT NOT NULL DEFAULT 0, KEY `idx_kj_status` (`status`,`created_at`));
 CREATE TABLE IF NOT EXISTS `knowledge_reference_log` (`id` BIGINT NOT NULL PRIMARY KEY, `agent_definition_id` BIGINT, `conversation_id` BIGINT, `message_id` BIGINT, `knowledge_base_id` BIGINT NOT NULL, `document_id` BIGINT NOT NULL, `document_version_id` BIGINT, `chunk_id` BIGINT NOT NULL, `similarity` DOUBLE, `citation_no` INT, `referenced_at` BIGINT NOT NULL, `created_at` BIGINT, `updated_at` BIGINT, `sort_num` INT NOT NULL DEFAULT 0, `deleted` TINYINT NOT NULL DEFAULT 0, `state` INT NOT NULL DEFAULT 0, KEY `idx_kr_document` (`document_id`,`referenced_at`));
+
+-- =====================================================
+-- sys_admin_preference (redesigned)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS `sys_admin_preference` (
+    `id`              BIGINT       NOT NULL PRIMARY KEY COMMENT 'Primary key',
+    `admin_id`        BIGINT       NOT NULL COMMENT 'User ID',
+    `category`        VARCHAR(32)  NOT NULL COMMENT 'language/style/format/tech_stack/tool_strategy',
+    `key_name`        VARCHAR(128) NOT NULL COMMENT 'Preference key',
+    `value`           VARCHAR(512) NOT NULL COMMENT 'Preference value',
+    `description`     VARCHAR(256)          COMMENT 'Human-readable description',
+    `priority`        INT          NOT NULL DEFAULT 50 COMMENT 'Priority 0-100',
+    `scope`           VARCHAR(32)  NOT NULL DEFAULT 'global' COMMENT 'global/session/task_type',
+    `scope_detail`    VARCHAR(64)           COMMENT 'Task type when scope=task_type',
+    `source`          VARCHAR(16)  NOT NULL DEFAULT 'explicit' COMMENT 'explicit/implicit',
+    `confidence`      DECIMAL(4,2) NOT NULL DEFAULT 1.00 COMMENT 'Confidence score',
+    `usage_count`     INT          NOT NULL DEFAULT 0 COMMENT 'Usage count',
+    `last_used_at`    BIGINT                COMMENT 'Last used timestamp',
+    `expires_at`      BIGINT                COMMENT 'Expiration time, NULL=never',
+    `decay_rate`      DECIMAL(4,2) NOT NULL DEFAULT 0.00 COMMENT 'Daily decay rate',
+    `effective_score` DECIMAL(6,2) NOT NULL DEFAULT 100.00 COMMENT 'Current effective score',
+    `status`          TINYINT      NOT NULL DEFAULT 1 COMMENT '0=disabled 1=enabled',
+    `created_at`      BIGINT       NOT NULL COMMENT 'Created timestamp',
+    `updated_at`      BIGINT       NOT NULL COMMENT 'Updated timestamp',
+    `deleted`         TINYINT      NOT NULL DEFAULT 0 COMMENT 'Deleted flag',
+    KEY `idx_admin_id` (`admin_id`),
+    KEY `idx_admin_category` (`admin_id`, `category`),
+    KEY `idx_admin_key` (`admin_id`, `key_name`),
+    KEY `idx_expires` (`expires_at`),
+    KEY `idx_effective` (`admin_id`, `effective_score`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Admin user preferences';
+
+-- =====================================================
+-- sys_admin_preference_event
+-- =====================================================
+CREATE TABLE IF NOT EXISTS `sys_admin_preference_event` (
+    `id`               BIGINT       NOT NULL PRIMARY KEY COMMENT 'Primary key',
+    `admin_id`         BIGINT       NOT NULL COMMENT 'User ID',
+    `preference_id`    BIGINT                COMMENT 'Related preference ID',
+    `event_type`       VARCHAR(16)  NOT NULL COMMENT 'extract/confirm/reject/override/use',
+    `category`         VARCHAR(32)           COMMENT 'Extracted category',
+    `key_name`         VARCHAR(128)          COMMENT 'Extracted key',
+    `value`            VARCHAR(512)          COMMENT 'Extracted value',
+    `confidence`       DECIMAL(4,2)          COMMENT 'Confidence score',
+    `conversation_id`  BIGINT                COMMENT 'Source conversation',
+    `message_id`       BIGINT                COMMENT 'Source message',
+    `context_snapshot` TEXT                  COMMENT 'Context summary (JSON)',
+    `created_at`       BIGINT       NOT NULL COMMENT 'Created timestamp',
+    KEY `idx_admin_id` (`admin_id`),
+    KEY `idx_admin_event` (`admin_id`, `event_type`),
+    KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Preference events log';
