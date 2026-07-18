@@ -3,6 +3,8 @@ package com.aether.storage.service.impl;
 import com.aether.storage.service.ObjectStorageService;
 import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.BucketExistsArgs;
+import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.http.Method;
@@ -26,7 +28,14 @@ public class MinioObjectStorageService implements ObjectStorageService {
     }
     /** 上传文件流到指定私有 Bucket；调用方负责生成稳定且不包含敏感信息的对象键。 */
     public String upload(String bucket, String objectKey, MultipartFile file) {
-        try (InputStream in=file.getInputStream()) { client().putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(in,file.getSize(),-1).contentType(blank(file.getContentType()) ? "application/octet-stream" : file.getContentType()).build()); return objectKey; }
+        try (InputStream in=file.getInputStream()) {
+            MinioClient client = client();
+            if (!client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
+                client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+            }
+            client.putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(in,file.getSize(),-1).contentType(blank(file.getContentType()) ? "application/octet-stream" : file.getContentType()).build());
+            return objectKey;
+        }
         catch (Exception e) { throw new IllegalStateException("object storage unavailable", e); }
     }
     /** 仅生成 GET 类型的临时签名 URL，知识库预览当前使用 600 秒。 */
