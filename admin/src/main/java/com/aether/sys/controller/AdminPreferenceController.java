@@ -31,8 +31,8 @@ import java.util.stream.Collectors;
 @Api(tags = "用户偏好 API")
 @Validated
 @RestController
-@Permission(path = "/sys/admin/preference")
-@RequestMapping("/api/sys/admin/preference")
+@Permission(path = "/sys/preference")
+@RequestMapping("/api/sys/preference")
 public class AdminPreferenceController {
 
     private final AdminPreferenceService adminPreferenceService;
@@ -74,7 +74,7 @@ public class AdminPreferenceController {
     }
 
     @ApiOperation("新增用户偏好")
-    @Permission(path = "/sys/admin/preference", type = Permission.Type.Write)
+    @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PostMapping
     public WebResponse<String> save(@RequestBody AdminPreferenceVo vo) {
         AdminPreference preference = new AdminPreference();
@@ -99,7 +99,7 @@ public class AdminPreferenceController {
     }
 
     @ApiOperation("编辑用户偏好")
-    @Permission(path = "/sys/admin/preference", type = Permission.Type.Write)
+    @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PutMapping("/{id}")
     public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody AdminPreferenceVo vo) {
         getExisting(id);
@@ -111,7 +111,7 @@ public class AdminPreferenceController {
     }
 
     @ApiOperation("删除用户偏好")
-    @Permission(path = "/sys/admin/preference", type = Permission.Type.Write)
+    @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         boolean removed = adminPreferenceService.removeById(id);
@@ -119,7 +119,7 @@ public class AdminPreferenceController {
     }
 
     @ApiOperation("启用/禁用用户偏好")
-    @Permission(path = "/sys/admin/preference", type = Permission.Type.Write)
+    @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
     public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody AdminPreferenceVo vo) {
         getExisting(id);
@@ -131,7 +131,7 @@ public class AdminPreferenceController {
     }
 
     @ApiOperation("确认偏好")
-    @Permission(path = "/sys/admin/preference", type = Permission.Type.Write)
+    @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PostMapping("/{id}/feedback")
     public WebResponse<Void> confirm(@PathVariable @NotBlank String id) {
         AdminPreference preference = getExisting(id);
@@ -147,7 +147,7 @@ public class AdminPreferenceController {
     }
 
     @ApiOperation("拒绝偏好")
-    @Permission(path = "/sys/admin/preference", type = Permission.Type.Write)
+    @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @DeleteMapping("/{id}/feedback")
     public WebResponse<Void> reject(@PathVariable @NotBlank String id) {
         AdminPreference preference = getExisting(id);
@@ -158,7 +158,7 @@ public class AdminPreferenceController {
     }
 
     @ApiOperation("覆盖偏好值")
-    @Permission(path = "/sys/admin/preference", type = Permission.Type.Write)
+    @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PutMapping("/{id}/override")
     public WebResponse<Void> override(@PathVariable @NotBlank String id, @RequestBody AdminPreferenceVo vo) {
         AdminPreference preference = getExisting(id);
