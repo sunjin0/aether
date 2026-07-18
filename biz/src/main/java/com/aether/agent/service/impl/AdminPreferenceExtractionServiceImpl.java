@@ -3,12 +3,14 @@ package com.aether.agent.service.impl;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.ModelProvider;
+import com.aether.agent.mapper.AgentMessageMapper;
 import com.aether.agent.model.*;
 import com.aether.agent.service.AdminPreferenceExtractionService;
 import com.aether.sys.entity.AdminPreference;
 import com.aether.sys.entity.AdminPreferenceEvent;
 import com.aether.sys.mapper.AdminPreferenceMapper;
 import com.aether.sys.service.AdminPreferenceEventService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +19,9 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 @Service
 public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtractionService {
@@ -28,9 +32,14 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
     private static final BigDecimal DEFAULT_CONFIDENCE = BigDecimal.valueOf(0.80);
     private static final BigDecimal CONFIDENCE_REDUCE_ON_DUPLICATE = BigDecimal.valueOf(0.10);
     private static final int MAX_CONTENT_LENGTH = 512;
+    private static final int MAX_CONTEXT_MESSAGES = 20;
+    private static final int MAX_CONTEXT_CHARS = 4000;
 
     @Autowired
     private AdminPreferenceMapper preferenceMapper;
+
+    @Autowired
+    private AgentMessageMapper messageMapper;
 
     @Autowired
     private AdminPreferenceEventService eventService;
@@ -53,41 +62,161 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
     private void doExtract(String userId, String conversationId,
                            AgentMessage userMessage, AgentMessage assistantMessage,
                            ModelProvider provider, AgentDefinition agent) {
-        String extractionPrompt = buildExtractionPrompt(userMessage, assistantMessage);
+        List<AgentMessage> history = queryConversationHistory(conversationId);
+        if (!looksLikePreferenceSignal(history)) {
+            return;
+        }
+
+        long lastExtractionAt = getLastExtractionTime(userId);
+        List<AgentMessage> newMessages = filterNewMessages(history, lastExtractionAt);
+        if (newMessages.size() < 2) {
+            return;
+        }
+
+        String summary = summarizeConversation(newMessages, provider, agent);
+        String extractionPrompt = buildExtractionPrompt(summary, userMessage, assistantMessage);
 
         String response = callModel(extractionPrompt, provider, agent);
         if (StringUtils.isBlank(response)) {
             return;
         }
 
-        parseAndSavePreferences(userId, conversationId, response);
+        List<AdminPreference> extracted = parsePreferences(response);
+        for (AdminPreference pref : extracted) {
+            savePreference(userId, conversationId, pref);
+        }
+        recordExtractionTime(userId);
     }
 
-    private String buildExtractionPrompt(AgentMessage userMessage, AgentMessage assistantMessage) {
-        return "Extract stable, long-term preferences from this conversation.\n" +
-                "Return JSON array: [{\"category\":\"language|style|format|tech_stack|tool_strategy\",\"key_name\":\"preference_key\",\"value\":\"preference_value\",\"confidence\":0.0-1.0}]\n" +
-                "Exclude: one-time tasks, temporary questions, passwords, tokens.\n\n" +
-                "User: " + userMessage.getContent() + "\n" +
-                "Assistant: " + assistantMessage.getContent();
+    private long getLastExtractionTime(String userId) {
+        AdminPreferenceEvent lastEvent = eventService.getLastEvent(userId, AdminPreferenceEvent.EVENT_EXTRACT);
+        return lastEvent != null ? lastEvent.getCreatedAt() : 0L;
     }
 
-    private String callModel(String prompt, ModelProvider provider,AgentDefinition agent) {
+    private List<AgentMessage> filterNewMessages(List<AgentMessage> history, long since) {
+        if (since == 0) {
+            return history;
+        }
+        List<AgentMessage> filtered = new ArrayList<>();
+        for (AgentMessage msg : history) {
+            if (msg.getCreatedAt() != null && msg.getCreatedAt() > since) {
+                filtered.add(msg);
+            }
+        }
+        return filtered;
+    }
+
+    private String summarizeConversation(List<AgentMessage> messages, ModelProvider provider, AgentDefinition agent) {
+        StringBuilder raw = new StringBuilder();
+        for (AgentMessage msg : messages) {
+            String role = "user".equals(msg.getRole()) ? "User" : "Assistant";
+            String content = StringUtils.defaultString(msg.getContent(), "");
+            if (content.length() > 300) {
+                content = content.substring(0, 300) + "...";
+            }
+            raw.append(role).append(": ").append(content).append("\n");
+        }
+        if (raw.length() < 200) {
+            return raw.toString();
+        }
+
+        String summaryPrompt = "Summarize this conversation in 2-3 sentences, focusing on:\n"
+                + "1. What the user asked for\n"
+                + "2. Any language/style/format preferences the user expressed\n"
+                + "3. Any tools or technologies mentioned\n\n"
+                + raw.toString();
+
         try {
-            ModelChatMessage msg = new ModelChatMessage("user", prompt);
+            ModelChatMessage msg = new ModelChatMessage("user", summaryPrompt);
             ModelChatRequest request = new ModelChatRequest();
             request.setProvider(provider);
             request.setMessages(Collections.singletonList(msg));
             request.setAgent(agent);
             ModelClient client = modelClientFactory.getClient(provider);
             ModelChatResponse response = client.chat(request);
-            return response.getContent();
+            String summary = response.getContent();
+            if (StringUtils.isNotBlank(summary)) {
+                return summary;
+            }
         } catch (Exception e) {
-            log.error("Failed to call model for preference extraction", e);
-            return null;
+            log.warn("Failed to summarize conversation, using raw messages", e);
         }
+        return raw.toString();
     }
 
-    private void parseAndSavePreferences(String userId, String conversationId, String response) {
+    private List<AgentMessage> queryConversationHistory(String conversationId) {
+        if (StringUtils.isBlank(conversationId)) {
+            return Collections.emptyList();
+        }
+        return messageMapper.selectList(
+                new LambdaQueryWrapper<AgentMessage>()
+                        .eq(AgentMessage::getConversationId, conversationId)
+                        .eq(AgentMessage::getMessageType, "chat")
+                        .orderByAsc(AgentMessage::getCreatedAt)
+                        .last("LIMIT " + MAX_CONTEXT_MESSAGES));
+    }
+
+    private boolean looksLikePreferenceSignal(List<AgentMessage> history) {
+        if (history == null || history.isEmpty()) {
+            return false;
+        }
+        for (AgentMessage msg : history) {
+            if ("user".equals(msg.getRole()) && containsPreferenceSignal(msg.getContent())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsPreferenceSignal(String content) {
+        if (StringUtils.isBlank(content)) {
+            return false;
+        }
+        String lower = content.toLowerCase();
+        String[] signals = {
+                "用中文", "用英文", "用英语", "in chinese", "in english",
+                "简洁", "详细", "简短", "brief", "detailed", "concise",
+                "不要", "别用", "禁止", "don't", "avoid", "never use",
+                "总是", "每次", "always", "every time",
+                "prefer", "偏好", "喜欢", "习惯",
+                "typescript", "javascript", "python", "java",
+                "注释", "comment", "format", "格式"
+        };
+        for (String signal : signals) {
+            if (lower.contains(signal)) {
+                return true;
+            }
+        }
+        return content.length() > 20;
+    }
+
+    private String buildExtractionPrompt(String summary,
+                                         AgentMessage userMessage, AgentMessage assistantMessage) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Analyze the following conversation and extract stable, long-term user preferences.\n\n");
+        sb.append("Return a JSON array: [{\"category\":\"language|style|format|tech_stack|tool_strategy\",\"key_name\":\"preference_key\",\"value\":\"preference_value\",\"confidence\":0.0-1.0}]\n");
+        sb.append("Rules:\n");
+        sb.append("- Only extract RECURRING patterns, not one-time requests\n");
+        sb.append("- Exclude: passwords, tokens, temporary questions, one-off tasks\n");
+        sb.append("- Confidence reflects how certain you are this is a stable preference (0.6-1.0)\n");
+        sb.append("- category must be one of: language, style, format, tech_stack, tool_strategy\n");
+        sb.append("- If the conversation shows a CHANGE in preference (e.g. was brief, now wants detailed), extract the NEW preference\n\n");
+
+        sb.append("=== Conversation Summary ===\n");
+        sb.append(summary).append("\n");
+        sb.append("=== End of Summary ===\n\n");
+
+        sb.append("=== Latest Exchange ===\n");
+        sb.append("User: ").append(StringUtils.defaultString(userMessage.getContent(), "")).append("\n");
+        sb.append("Assistant: ").append(StringUtils.defaultString(assistantMessage.getContent(), "")).append("\n");
+        sb.append("=== End ===\n\n");
+
+        sb.append("Extract preferences based on PATTERNS across the conversation.");
+        return sb.toString();
+    }
+
+    private List<AdminPreference> parsePreferences(String response) {
+        List<AdminPreference> result = new ArrayList<>();
         String json = response;
         if (json.contains("```json")) {
             json = json.substring(json.indexOf("```json") + 7, json.lastIndexOf("```"));
@@ -111,37 +240,83 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                     continue;
                 }
 
-                savePreference(userId, conversationId, category, keyName, value, confidence);
+                AdminPreference pref = new AdminPreference();
+                pref.setCategory(category);
+                pref.setKeyName(keyName);
+                pref.setValue(value);
+                pref.setConfidence(confidence);
+                result.add(pref);
             }
         } catch (Exception e) {
             log.error("Failed to parse extraction response", e);
         }
+        return result;
     }
 
-    private void savePreference(String userId, String conversationId,
-                                String category, String keyName, String value, BigDecimal confidence) {
-        AdminPreference existing = preferenceMapper.selectByKey(userId, keyName);
+    private String callModel(String prompt, ModelProvider provider,AgentDefinition agent) {
+        try {
+            ModelChatMessage msg = new ModelChatMessage("user", prompt);
+            ModelChatRequest request = new ModelChatRequest();
+            request.setProvider(provider);
+            request.setMessages(Collections.singletonList(msg));
+            request.setAgent(agent);
+            ModelClient client = modelClientFactory.getClient(provider);
+            ModelChatResponse response = client.chat(request);
+            return response.getContent();
+        } catch (Exception e) {
+            log.error("Failed to call model for preference extraction", e);
+            return null;
+        }
+    }
+
+    private void savePreference(String userId, String conversationId, AdminPreference extracted) {
+        AdminPreference existing = preferenceMapper.selectByKey(userId, extracted.getKeyName());
         if (existing != null) {
-            if (existing.getValue().equals(value)) {
+            if (existing.getValue().equals(extracted.getValue())) {
+                existing.setUsageCount((existing.getUsageCount() != null ? existing.getUsageCount() : 0) + 1);
                 existing.setLastUsedAt(System.currentTimeMillis());
+                BigDecimal newConfidence = existing.getConfidence().add(new BigDecimal("0.03"));
+                if (newConfidence.compareTo(BigDecimal.ONE) > 0) {
+                    newConfidence = BigDecimal.ONE;
+                }
+                existing.setConfidence(newConfidence);
                 preferenceMapper.updateById(existing);
                 return;
             }
-            confidence = confidence.subtract(CONFIDENCE_REDUCE_ON_DUPLICATE);
+
+            if (isConflict(existing, extracted)) {
+                existing.setValue(extracted.getValue());
+                existing.setConfidence(extracted.getConfidence());
+                existing.setLastUsedAt(System.currentTimeMillis());
+                preferenceMapper.updateById(existing);
+
+                AdminPreferenceEvent conflictEvent = new AdminPreferenceEvent();
+                conflictEvent.setAdminId(userId);
+                conflictEvent.setPreferenceId(existing.getId());
+                conflictEvent.setEventType(AdminPreferenceEvent.EVENT_EXTRACT);
+                conflictEvent.setCategory(existing.getCategory());
+                conflictEvent.setKeyName(existing.getKeyName());
+                conflictEvent.setValue(extracted.getValue());
+                conflictEvent.setConfidence(extracted.getConfidence());
+                conflictEvent.setConversationId(conversationId);
+                conflictEvent.setContextSnapshot("conflict_update");
+                eventService.logEvent(conflictEvent);
+                return;
+            }
         }
 
         AdminPreference pref = new AdminPreference();
         pref.setAdminId(userId);
-        pref.setCategory(category);
-        pref.setKeyName(keyName);
-        pref.setValue(value);
-        pref.setDescription(value);
+        pref.setCategory(extracted.getCategory());
+        pref.setKeyName(extracted.getKeyName());
+        pref.setValue(extracted.getValue());
+        pref.setDescription(extracted.getValue());
         pref.setPriority(50);
         pref.setScope(AdminPreference.SCOPE_GLOBAL);
         pref.setSource(AdminPreference.SOURCE_IMPLICIT);
-        pref.setConfidence(confidence);
+        pref.setConfidence(extracted.getConfidence());
         pref.setUsageCount(0);
-        pref.setDecayRate(BigDecimal.ZERO);
+        pref.setDecayRate(defaultDecayRate(extracted.getCategory()));
         pref.setEffectiveScore(BigDecimal.valueOf(50));
         pref.setStatus(AdminPreference.STATUS_ENABLED);
         preferenceMapper.insert(pref);
@@ -150,11 +325,54 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         event.setAdminId(userId);
         event.setPreferenceId(pref.getId());
         event.setEventType(AdminPreferenceEvent.EVENT_EXTRACT);
-        event.setCategory(category);
-        event.setKeyName(keyName);
-        event.setValue(value);
-        event.setConfidence(confidence);
+        event.setCategory(extracted.getCategory());
+        event.setKeyName(extracted.getKeyName());
+        event.setValue(extracted.getValue());
+        event.setConfidence(extracted.getConfidence());
         event.setConversationId(conversationId);
         eventService.logEvent(event);
+    }
+
+    private boolean isConflict(AdminPreference existing, AdminPreference extracted) {
+        if (!existing.getCategory().equals(extracted.getCategory())) {
+            return false;
+        }
+        String key = existing.getKeyName().toLowerCase();
+        if (key.contains("length") || key.contains("detail") || key.contains("brief")
+                || key.contains("concise") || key.contains("verbose")) {
+            return true;
+        }
+        if (key.contains("language") || key.contains("lang")) {
+            return true;
+        }
+        return false;
+    }
+
+    private void recordExtractionTime(String userId) {
+        AdminPreferenceEvent event = new AdminPreferenceEvent();
+        event.setAdminId(userId);
+        event.setEventType("extraction_marker");
+        event.setContextSnapshot("extraction_time");
+        eventService.logEvent(event);
+    }
+
+    private BigDecimal defaultDecayRate(String category) {
+        if (category == null) {
+            return BigDecimal.ZERO;
+        }
+        switch (category) {
+            case AdminPreference.CATEGORY_LANGUAGE:
+                return BigDecimal.ZERO;
+            case AdminPreference.CATEGORY_STYLE:
+                return new BigDecimal("0.005");
+            case AdminPreference.CATEGORY_FORMAT:
+                return new BigDecimal("0.01");
+            case AdminPreference.CATEGORY_TECH_STACK:
+                return new BigDecimal("0.02");
+            case AdminPreference.CATEGORY_TOOL_STRATEGY:
+                return new BigDecimal("0.01");
+            default:
+                return BigDecimal.ZERO;
+        }
     }
 }

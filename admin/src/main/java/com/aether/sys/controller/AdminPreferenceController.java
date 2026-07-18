@@ -152,7 +152,7 @@ public class AdminPreferenceController {
     @DeleteMapping("/{id}/feedback")
     public WebResponse<Void> reject(@PathVariable @NotBlank String id) {
         AdminPreference preference = getExisting(id);
-        adminPreferenceService.adjustConfidence(id, new BigDecimal("-0.15"));
+        adminPreferenceService.adjustConfidence(id, new BigDecimal("-0.30"));
         adminPreferenceService.updateEffectiveScore(id);
         logFeedbackEvent(preference, AdminPreferenceEvent.EVENT_REJECT);
         return WebResponse.OK(I18nUtils.getMessage("update.success"));
@@ -165,7 +165,7 @@ public class AdminPreferenceController {
         AdminPreference preference = getExisting(id);
         String oldValue = preference.getValue();
         preference.setValue(vo.getValue());
-        preference.setSource("manual_override");
+        preference.setSource(AdminPreference.SOURCE_EXPLICIT);
         preference.setConfidence(new BigDecimal("1.00"));
         preference.setUsageCount(0);
         adminPreferenceService.updateById(preference);

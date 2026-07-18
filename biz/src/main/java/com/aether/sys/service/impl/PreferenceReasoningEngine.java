@@ -20,6 +20,7 @@ public class PreferenceReasoningEngine {
     private static final long CACHE_TTL_MINUTES = 5;
     private static final int MAX_PROMPT_LENGTH = 2000;
     private static final long MILLIS_PER_DAY = 24 * 3600 * 1000L;
+    private static final BigDecimal MIN_EFFECTIVE_SCORE = BigDecimal.valueOf(10);
 
     @Autowired
     private AdminPreferenceMapper preferenceMapper;
@@ -45,10 +46,19 @@ public class PreferenceReasoningEngine {
             BigDecimal score = calculateEffectiveScore(pref, now);
             pref.setEffectiveScore(score);
 
+            if (score.compareTo(MIN_EFFECTIVE_SCORE) < 0) {
+                continue;
+            }
+
             String key = pref.getKeyName();
             AdminPreference existing = bestByKey.get(key);
-            if (existing == null || score.compareTo(existing.getEffectiveScore()) > 0) {
+            if (existing == null) {
                 bestByKey.put(key, pref);
+            } else {
+                int scopeCmp = Integer.compare(scopePriority(pref.getScope()), scopePriority(existing.getScope()));
+                if (scopeCmp > 0 || (scopeCmp == 0 && score.compareTo(existing.getEffectiveScore()) > 0)) {
+                    bestByKey.put(key, pref);
+                }
             }
         }
 
@@ -123,6 +133,16 @@ public class PreferenceReasoningEngine {
             return StringUtils.isNotBlank(taskType) && taskType.equals(pref.getScopeDetail());
         }
         return false;
+    }
+
+    private int scopePriority(String scope) {
+        if (AdminPreference.SCOPE_TASK_TYPE.equals(scope)) {
+            return 3;
+        }
+        if (AdminPreference.SCOPE_SESSION.equals(scope)) {
+            return 2;
+        }
+        return 1;
     }
 
     private BigDecimal calculateEffectiveScore(AdminPreference pref, long now) {

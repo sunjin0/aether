@@ -22,6 +22,8 @@ public class PreferenceDecayScheduler {
     @Autowired
     private PreferenceReasoningEngine reasoningEngine;
 
+    private static final BigDecimal MIN_EFFECTIVE_SCORE = BigDecimal.valueOf(10);
+
     @Scheduled(cron = "0 0 2 * * ?")
     public void recalculateEffectiveScores() {
         List<AdminPreference> allPreferences = preferenceMapper.selectList(

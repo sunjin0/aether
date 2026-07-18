@@ -6,4 +6,6 @@ import com.baomidou.mybatisplus.extension.service.IService;
 public interface AdminPreferenceEventService extends IService<AdminPreferenceEvent> {
 
     void logEvent(AdminPreferenceEvent event);
+
+    AdminPreferenceEvent getLastEvent(String adminId, String eventType);
 }
