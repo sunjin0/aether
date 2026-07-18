@@ -10,6 +10,7 @@ import com.aether.sys.entity.AdminPreferenceEvent;
 import com.aether.sys.service.AdminPreferenceEventService;
 import com.aether.sys.service.AdminPreferenceService;
 import com.aether.sys.vo.AdminPreferenceVo;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -47,9 +48,7 @@ public class AdminPreferenceController {
     @PostMapping("/list")
     public WebResponse<List<AdminPreferenceVo>> list(@RequestBody AdminPreferenceVo vo) {
         Page<AdminPreference> page = new Page<>(vo.getCurrent(), vo.getPageSize());
-        String adminId = StringUtils.defaultIfBlank(vo.getAdminId(), currentAdminId());
         Wrapper<AdminPreference> wrapper = Wrappers.lambdaQuery(AdminPreference.class)
-                .eq(StringUtils.isNotBlank(adminId), AdminPreference::getAdminId, adminId)
                 .like(StringUtils.isNotBlank(vo.getCategory()), AdminPreference::getCategory, vo.getCategory())
                 .like(StringUtils.isNotBlank(vo.getKeyName()), AdminPreference::getKeyName, vo.getKeyName())
                 .like(StringUtils.isNotBlank(vo.getValue()), AdminPreference::getValue, vo.getValue())
@@ -184,6 +183,25 @@ public class AdminPreferenceController {
         event.setContextSnapshot(detail.toString());
         adminPreferenceEventService.logEvent(event);
         return WebResponse.OK(I18nUtils.getMessage("update.success"));
+    }
+
+    @ApiOperation("偏好统计")
+    @GetMapping("/statistics")
+    public WebResponse<Map<String, Object>> statistics() {
+        LambdaQueryWrapper<AdminPreference> base = Wrappers.lambdaQuery(AdminPreference.class)
+                .eq(AdminPreference::getDeleted, false);
+
+        long total = adminPreferenceService.count(base);
+        long enabled = adminPreferenceService.count(base.clone().eq(AdminPreference::getStatus, AdminPreference.STATUS_ENABLED));
+        long implicit = adminPreferenceService.count(base.clone().eq(AdminPreference::getSource, AdminPreference.SOURCE_IMPLICIT));
+        long explicit = adminPreferenceService.count(base.clone().eq(AdminPreference::getSource, AdminPreference.SOURCE_EXPLICIT));
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("total", total);
+        data.put("enabled", enabled);
+        data.put("implicit", implicit);
+        data.put("explicit", explicit);
+        return WebResponse.OK(data);
     }
 
     private void logFeedbackEvent(AdminPreference preference, String eventType) {
