@@ -123,7 +123,6 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         AdminPreference existing = preferenceMapper.selectByKey(userId, keyName);
         if (existing != null) {
             if (existing.getValue().equals(value)) {
-                existing.setUsageCount(existing.getUsageCount() + 1);
                 existing.setLastUsedAt(System.currentTimeMillis());
                 preferenceMapper.updateById(existing);
                 return;

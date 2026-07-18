@@ -44,7 +44,9 @@ public class PreferenceDecayScheduler {
         BigDecimal priority = BigDecimal.valueOf(pref.getPriority() != null ? pref.getPriority() : 50);
         BigDecimal confidence = pref.getConfidence() != null ? pref.getConfidence() : BigDecimal.ONE;
         BigDecimal decayFactor = calculateDecayFactor(pref, now);
-        return priority.multiply(decayFactor).multiply(confidence).setScale(2, RoundingMode.HALF_UP);
+        int usageCount = pref.getUsageCount() != null ? pref.getUsageCount() : 0;
+        BigDecimal usageBoost = BigDecimal.valueOf(Math.log(1 + usageCount));
+        return priority.multiply(decayFactor).multiply(confidence).add(usageBoost).setScale(2, RoundingMode.HALF_UP);
     }
 
     private BigDecimal calculateDecayFactor(AdminPreference pref, long now) {

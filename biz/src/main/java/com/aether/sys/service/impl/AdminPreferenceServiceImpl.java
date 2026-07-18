@@ -38,6 +38,11 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
         if (pref != null) {
             pref.setUsageCount(pref.getUsageCount() + 1);
             pref.setLastUsedAt(System.currentTimeMillis());
+            BigDecimal newConfidence = pref.getConfidence().add(new BigDecimal("0.05"));
+            if (newConfidence.compareTo(BigDecimal.ONE) > 0) {
+                newConfidence = BigDecimal.ONE;
+            }
+            pref.setConfidence(newConfidence);
             updateById(pref);
             updateEffectiveScore(preferenceId);
         }
@@ -83,9 +88,12 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
 
             int priority = pref.getPriority() != null ? pref.getPriority() : 50;
             BigDecimal confidence = pref.getConfidence() != null ? pref.getConfidence() : BigDecimal.ONE;
+            int usageCount = pref.getUsageCount() != null ? pref.getUsageCount() : 0;
+            BigDecimal usageBoost = BigDecimal.valueOf(Math.log(1 + usageCount));
             BigDecimal score = BigDecimal.valueOf(priority)
                     .multiply(decayFactor)
-                    .multiply(confidence);
+                    .multiply(confidence)
+                    .add(usageBoost);
 
             pref.setEffectiveScore(score);
             updateById(pref);

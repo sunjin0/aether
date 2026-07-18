@@ -70,6 +70,20 @@ public class PreferenceReasoningEngine {
             return null;
         }
 
+        long now = System.currentTimeMillis();
+        for (AdminPreference pref : effective) {
+            pref.setUsageCount((pref.getUsageCount() != null ? pref.getUsageCount() : 0) + 1);
+            pref.setLastUsedAt(now);
+            BigDecimal newConfidence = (pref.getConfidence() != null ? pref.getConfidence() : BigDecimal.ONE)
+                    .add(new BigDecimal("0.05"));
+            if (newConfidence.compareTo(BigDecimal.ONE) > 0) {
+                newConfidence = BigDecimal.ONE;
+            }
+            pref.setConfidence(newConfidence);
+            pref.setEffectiveScore(calculateEffectiveScore(pref, now));
+            preferenceMapper.updateById(pref);
+        }
+
         StringBuilder builder = new StringBuilder("【User Preferences (sorted by priority)】\n");
         for (AdminPreference pref : effective) {
             if (StringUtils.isBlank(pref.getValue())) {
@@ -115,7 +129,9 @@ public class PreferenceReasoningEngine {
         BigDecimal priority = BigDecimal.valueOf(pref.getPriority() != null ? pref.getPriority() : 50);
         BigDecimal confidence = pref.getConfidence() != null ? pref.getConfidence() : BigDecimal.ONE;
         BigDecimal decayFactor = calculateDecayFactor(pref, now);
-        return priority.multiply(decayFactor).multiply(confidence).setScale(2, RoundingMode.HALF_UP);
+        int usageCount = pref.getUsageCount() != null ? pref.getUsageCount() : 0;
+        BigDecimal usageBoost = BigDecimal.valueOf(Math.log(1 + usageCount));
+        return priority.multiply(decayFactor).multiply(confidence).add(usageBoost).setScale(2, RoundingMode.HALF_UP);
     }
 
     private BigDecimal calculateDecayFactor(AdminPreference pref, long now) {
