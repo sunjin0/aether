@@ -15,6 +15,21 @@ public class KnowledgeDocumentVersion extends BaseEntity {
     private Integer versionNo;
     /** 该版本的可检索文本快照。 */
     private String content;
+    /** 解析器产生的原始文本，人工和 AI 均不得覆盖。 */
+    private String originalContent;
+    /** 经人工确认的结构化索引文本；为空时索引 content。 */
+    private String structuredContent;
+    /** 当前候选正文的 SHA-256，用于并发和审查过期校验。 */
+    private String contentChecksum;
+    /** DRAFT/AI_REVIEWING/AI_REVIEWED/SUBMITTED/APPROVED/REJECTED。 */
+    private String reviewStatus;
+    /** 回滚或修订所基于的历史版本 ID。 */
+    private String sourceVersionId;
+    private String submittedBy;
+    private Long submittedAt;
+    private String reviewedBy;
+    private Long reviewedAt;
+    private String reviewComment;
     /** 此版本原始文件所在的 MinIO Bucket。 */
     private String storageBucket;
     /** 此版本原始文件的 MinIO 对象键。 */

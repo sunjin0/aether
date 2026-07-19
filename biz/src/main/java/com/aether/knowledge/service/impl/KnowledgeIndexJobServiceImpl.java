@@ -4,4 +4,13 @@ import com.aether.knowledge.mapper.KnowledgeIndexJobMapper;
 import com.aether.knowledge.service.KnowledgeIndexJobService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
-@Service public class KnowledgeIndexJobServiceImpl extends ServiceImpl<KnowledgeIndexJobMapper, KnowledgeIndexJob> implements KnowledgeIndexJobService { }
+
+@Service
+public class KnowledgeIndexJobServiceImpl extends ServiceImpl<KnowledgeIndexJobMapper, KnowledgeIndexJob>
+        implements KnowledgeIndexJobService {
+
+    @Override
+    public boolean claimPending(String jobId, long startedAt) {
+        return baseMapper.claimPending(jobId, startedAt) == 1;
+    }
+}

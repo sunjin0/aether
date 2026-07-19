@@ -19,6 +19,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,11 +32,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
 
     private static final int DOCUMENT_STATUS_INDEXING = 1;
     private static final int DOCUMENT_STATUS_DONE = 2;
-    private static final int KB_INDEX_STATUS_INDEXING = 1;
     private static final int KB_INDEX_STATUS_DONE = 2;
-    private static final int CHUNK_SIZE = 1200;
-    private static final int CHUNK_OVERLAP = 200;
-
     private final KnowledgeDocumentService knowledgeDocumentService;
     private final KnowledgeDocumentChunkService knowledgeDocumentChunkService;
     private final KnowledgeBaseService knowledgeBaseService;
@@ -43,6 +41,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
     private final KnowledgeIndexJobService knowledgeIndexJobService;
     private final KnowledgeIndexWorker knowledgeIndexWorker;
     private final KnowledgeDocumentVersionService knowledgeDocumentVersionService;
+    private final KnowledgeChunkSplitter chunkSplitter;
 
     public KnowledgeDocumentIndexServiceImpl(KnowledgeDocumentService knowledgeDocumentService,
                                          KnowledgeDocumentChunkService knowledgeDocumentChunkService,
@@ -51,7 +50,8 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
                                          KnowledgeEmbeddingService knowledgeEmbeddingService,
                                          KnowledgeIndexJobService knowledgeIndexJobService,
                                          KnowledgeIndexWorker knowledgeIndexWorker,
-                                         KnowledgeDocumentVersionService knowledgeDocumentVersionService) {
+                                         KnowledgeDocumentVersionService knowledgeDocumentVersionService,
+                                         KnowledgeChunkSplitter chunkSplitter) {
         this.knowledgeDocumentService = knowledgeDocumentService;
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
         this.knowledgeBaseService = knowledgeBaseService;
@@ -60,6 +60,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         this.knowledgeIndexJobService = knowledgeIndexJobService;
         this.knowledgeIndexWorker = knowledgeIndexWorker;
         this.knowledgeDocumentVersionService = knowledgeDocumentVersionService;
+        this.chunkSplitter = chunkSplitter;
     }
 
     @Override
@@ -72,8 +73,21 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         job.setDocumentVersionId(version.getId()); job.setJobType(StringUtils.defaultIfBlank(jobType, "reindex"));
         job.setStatus("pending"); job.setRetryCount(0); job.setMaxRetryCount(3);
         knowledgeIndexJobService.save(job);
-        knowledgeIndexWorker.run(job.getId());
+        dispatchAfterCommit(job.getId());
         return job.getId();
+    }
+
+    private void dispatchAfterCommit(String jobId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            knowledgeIndexWorker.run(jobId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                knowledgeIndexWorker.run(jobId);
+            }
+        });
     }
 
     @Override
@@ -98,7 +112,6 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         }
 
         updateDocumentStatus(document.getId(), DOCUMENT_STATUS_INDEXING, null);
-        updateKnowledgeBaseIndexStatus(knowledgeBase.getId(), KB_INDEX_STATUS_INDEXING);
         String documentVersionId = version == null ? null : version.getId();
         if (StringUtils.isNotBlank(documentVersionId)) {
             // 重试同一版本时仅替换该版本的分块，已发布版本仍可被检索和查看。
@@ -110,21 +123,36 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
                     .eq(KnowledgeDocumentChunk::getDocumentId, document.getId()));
         }
 
-        String indexContent = version == null ? document.getContent() : version.getContent();
-        List<String> chunks = split(indexContent);
+        String indexContent = version == null ? document.getContent()
+                : StringUtils.defaultIfBlank(version.getStructuredContent(), version.getContent());
+        List<KnowledgeChunkSplitter.Segment> chunks = chunkSplitter.split(indexContent);
+        if (chunks.isEmpty()) {
+            throw new ServerException(422, "knowledge document content is empty");
+        }
+        List<String> chunkTexts = new ArrayList<>(chunks.size());
+        for (KnowledgeChunkSplitter.Segment segment : chunks) {
+            chunkTexts.add(segment.getContent());
+        }
+        List<List<Double>> embeddings = new ArrayList<>(chunkTexts.size());
+        final int embeddingBatchSize = 32;
+        for (int batchStart = 0; batchStart < chunkTexts.size(); batchStart += embeddingBatchSize) {
+            int batchEnd = Math.min(chunkTexts.size(), batchStart + embeddingBatchSize);
+            embeddings.addAll(knowledgeEmbeddingService.embedAll(provider, chunkTexts.subList(batchStart, batchEnd)));
+        }
         int index = 0;
-        for (String chunkText : chunks) {
-            String vector = knowledgeEmbeddingService.toVectorLiteral(knowledgeEmbeddingService.embed(provider, chunkText));
+        for (KnowledgeChunkSplitter.Segment segment : chunks) {
+            String chunkText = segment.getContent();
+            String vector = knowledgeEmbeddingService.toVectorLiteral(embeddings.get(index));
             KnowledgeDocumentChunk chunk = new KnowledgeDocumentChunk();
             chunk.setKnowledgeBaseId(knowledgeBase.getId());
             chunk.setDocumentId(document.getId());
             chunk.setDocumentVersionId(documentVersionId);
             chunk.setChunkIndex(index++);
             chunk.setContent(chunkText);
-            chunk.setTokenCount(estimateTokens(chunkText));
+            chunk.setTokenCount(chunkSplitter.estimateTokens(chunkText));
             // 当前分块器尚未提供精确页码；0 表示内容没有可追溯的原始页码。
             chunk.setPageNo(0);
-            chunk.setSectionPath(resolveSectionPath(chunkText));
+            chunk.setSectionPath(segment.getSectionPath());
             chunk.setContentHash(sha256(chunkText));
             chunk.setMetadata(buildChunkMetadata(document, chunk));
             // 分块首次入库尚未被回答引用，引用次数必须显式写为 0。
@@ -140,42 +168,6 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         }
         updateDocumentStatus(document.getId(), DOCUMENT_STATUS_DONE, chunks.size());
         updateKnowledgeBaseIndexStatus(knowledgeBase.getId(), KB_INDEX_STATUS_DONE);
-    }
-
-    private List<String> split(String content) {
-        List<String> chunks = new ArrayList<>();
-        if (StringUtils.isBlank(content)) {
-            return chunks;
-        }
-        String normalized = content.trim();
-        int start = 0;
-        while (start < normalized.length()) {
-            int end = Math.min(normalized.length(), start + CHUNK_SIZE);
-            chunks.add(normalized.substring(start, end));
-            if (end >= normalized.length()) {
-                break;
-            }
-            start = Math.max(0, end - CHUNK_OVERLAP);
-        }
-        return chunks;
-    }
-
-    private int estimateTokens(String text) {
-        return StringUtils.isBlank(text) ? 0 : Math.max(1, text.length() / 4);
-    }
-
-    /**
-     * 从 Markdown 分块首行提取标题；无标题或非 Markdown 内容统一归入 ROOT。
-     */
-    private String resolveSectionPath(String chunkText) {
-        if (StringUtils.isBlank(chunkText)) {
-            return "ROOT";
-        }
-        String firstLine = chunkText.split("\\r?\\n", 2)[0].trim();
-        if (firstLine.startsWith("#")) {
-            return firstLine.replaceFirst("^#+\\s*", "");
-        }
-        return "ROOT";
     }
 
     /**

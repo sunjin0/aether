@@ -17,7 +17,8 @@ public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocume
 
     @Select("SELECT chunk.id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
             "chunk.page_no, chunk.section_path, chunk.content_hash, chunk.metadata, chunk.reference_count, chunk.last_referenced_at, " +
-            "chunk.embedding::text AS embedding, chunk.created_at, chunk.updated_at, chunk.sort_num, chunk.deleted, chunk.state " +
+            "chunk.embedding::text AS embedding, 1 - (chunk.embedding <=> CAST(#{embedding} AS vector)) AS similarity, " +
+            "chunk.created_at, chunk.updated_at, chunk.sort_num, chunk.deleted, chunk.state " +
             "FROM knowledge_document_chunk chunk " +
             "JOIN knowledge_document document ON document.id = chunk.document_id " +
             "JOIN knowledge_document_version version ON version.id = chunk.document_version_id " +

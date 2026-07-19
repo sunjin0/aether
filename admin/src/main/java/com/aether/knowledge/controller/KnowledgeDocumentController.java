@@ -3,10 +3,14 @@ package com.aether.knowledge.controller;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
+import com.aether.knowledge.entity.KnowledgeBase;
+import com.aether.knowledge.entity.KnowledgeReviewTask;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.service.KnowledgeDocumentIndexService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
+import com.aether.knowledge.service.KnowledgeAccessService;
+import com.aether.knowledge.service.KnowledgeDocumentWorkflowService;
 import com.aether.storage.service.ObjectStorageService;
 import com.aether.knowledge.service.impl.KnowledgeDocumentContentExtractor;
 import com.aether.knowledge.vo.KnowledgeDocumentVo;
@@ -27,11 +31,14 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.security.MessageDigest;
+import com.alibaba.fastjson2.JSONObject;
 
 @Api(tags = "Agent知识库文档 API")
 @Validated
@@ -39,6 +46,7 @@ import java.security.MessageDigest;
 @Permission(path = "/knowledge/document")
 @RequestMapping("/api/knowledge/document")
 public class KnowledgeDocumentController {
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeDocumentController.class);
 
     private final KnowledgeDocumentService knowledgeDocumentService;
     private final KnowledgeDocumentChunkService knowledgeDocumentChunkService;
@@ -47,6 +55,8 @@ public class KnowledgeDocumentController {
     private final ObjectStorageService objectStorageService;
     private final KnowledgeDocumentContentExtractor contentExtractor;
     private final String knowledgeBucket;
+    private final KnowledgeAccessService knowledgeAccessService;
+    private final KnowledgeDocumentWorkflowService workflowService;
 
     public KnowledgeDocumentController(KnowledgeDocumentService knowledgeDocumentService,
                                    KnowledgeDocumentChunkService knowledgeDocumentChunkService,
@@ -54,6 +64,8 @@ public class KnowledgeDocumentController {
                                    KnowledgeDocumentVersionService knowledgeDocumentVersionService,
                                    ObjectStorageService objectStorageService,
                                    KnowledgeDocumentContentExtractor contentExtractor,
+                                   KnowledgeAccessService knowledgeAccessService,
+                                   KnowledgeDocumentWorkflowService workflowService,
                                    @Value("${knowledge.storage.bucket:${MINIO_KNOWLEDGE_BUCKET:aether-knowledge}}") String knowledgeBucket) {
         this.knowledgeDocumentService = knowledgeDocumentService;
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
@@ -61,17 +73,23 @@ public class KnowledgeDocumentController {
         this.knowledgeDocumentVersionService = knowledgeDocumentVersionService;
         this.objectStorageService = objectStorageService;
         this.contentExtractor = contentExtractor;
+        this.knowledgeAccessService = knowledgeAccessService;
+        this.workflowService = workflowService;
         this.knowledgeBucket = knowledgeBucket;
     }
 
     @ApiOperation("文档列表")
     @PostMapping("/list")
     public WebResponse<List<KnowledgeDocumentVo>> list(@RequestBody KnowledgeDocumentVo vo) {
+        List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
         Page<KnowledgeDocument> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<KnowledgeDocument> wrapper = Wrappers.lambdaQuery(KnowledgeDocument.class)
+                .in(!readableIds.isEmpty(), KnowledgeDocument::getKnowledgeBaseId, readableIds)
+                .apply(readableIds.isEmpty(), "1 = 0")
                 .eq(StringUtils.isNotBlank(vo.getKnowledgeBaseId()), KnowledgeDocument::getKnowledgeBaseId, vo.getKnowledgeBaseId())
                 .like(StringUtils.isNotBlank(vo.getTitle()), KnowledgeDocument::getTitle, vo.getTitle())
                 .eq(vo.getStatus() != null, KnowledgeDocument::getStatus, vo.getStatus())
+                .eq(StringUtils.isNotBlank(vo.getReviewStatus()), KnowledgeDocument::getReviewStatus, vo.getReviewStatus())
                 .eq(KnowledgeDocument::getDeleted, false)
                 .orderByDesc(KnowledgeDocument::getCreatedAt);
         Page<KnowledgeDocument> result = knowledgeDocumentService.page(page, wrapper);
@@ -95,15 +113,25 @@ public class KnowledgeDocumentController {
     @ApiOperation("新增文档并同步索引")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping
+    @Transactional(rollbackFor = Exception.class)
     public WebResponse<String> save(@RequestBody KnowledgeDocumentVo vo) {
+        KnowledgeBase base = knowledgeAccessService.requireWritable(vo.getKnowledgeBaseId());
         KnowledgeDocument document = new KnowledgeDocument();
-        BeanUtils.copyProperties(vo, document);
+        document.setKnowledgeBaseId(vo.getKnowledgeBaseId());
+        document.setTitle(vo.getTitle());
+        document.setContent(null);
+        document.setSourceUrl(vo.getSourceUrl());
+        document.setSourceType(StringUtils.defaultIfBlank(vo.getSourceType(), "text"));
+        document.setParserType(vo.getParserType());
         if (document.getStatus() == null) {
             document.setStatus(0);
         }
         boolean saved = knowledgeDocumentService.save(document);
         if (saved) {
-            queueVersion(document, "create");
+            KnowledgeDocument snapshot = knowledgeDocumentService.getById(document.getId());
+            snapshot.setContent(vo.getContent());
+            KnowledgeDocumentVersion draft = workflowService.createDraft(snapshot, null);
+            startAiReviewIfConfigured(base, draft);
         }
         return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), document.getId());
     }
@@ -111,9 +139,11 @@ public class KnowledgeDocumentController {
     @ApiOperation("Upload knowledge document")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/upload")
+    @Transactional(rollbackFor = Exception.class)
     public WebResponse<String> upload(@RequestParam("knowledgeBaseId") String knowledgeBaseId,
                                       @RequestParam("file") MultipartFile file,
                                       @RequestParam(value = "title", required = false) String title) throws Exception {
+        KnowledgeBase base = knowledgeAccessService.requireWritable(knowledgeBaseId);
         if (file == null || file.isEmpty() || file.getSize() > 50L * 1024 * 1024) throw new ServerException(422, "invalid knowledge file");
         String name = StringUtils.defaultIfBlank(file.getOriginalFilename(), "document.txt");
         String lower = name.toLowerCase();
@@ -122,12 +152,29 @@ public class KnowledgeDocumentController {
         KnowledgeDocument document = new KnowledgeDocument();
         document.setKnowledgeBaseId(knowledgeBaseId); document.setTitle(StringUtils.defaultIfBlank(title, name)); document.setSourceType("file");
         document.setOriginalFileName(name); document.setFileExtension(name.substring(name.lastIndexOf('.') + 1)); document.setMimeType(file.getContentType());
-        document.setFileSize(file.getSize()); document.setFileChecksum(sha256(bytes)); document.setContent(contentExtractor.extract(name, bytes));
-        document.setStatus(0); document.setIndexStatus(0); document.setCurrentVersionNo(0); knowledgeDocumentService.save(document);
+        String extractedContent = contentExtractor.extract(name, bytes);
+        document.setFileSize(file.getSize()); document.setFileChecksum(sha256(bytes)); document.setContent(null);
+        document.setStatus(0); document.setIndexStatus(0); document.setCurrentVersionNo(0);
+        if (!knowledgeDocumentService.save(document)) throw new ServerException(500, "failed to create knowledge document");
         String key = "knowledge/" + knowledgeBaseId + "/" + document.getId() + "/1/" + name.replaceAll("[^a-zA-Z0-9._-]", "_");
-        objectStorageService.upload(knowledgeBucket, key, file);
-        KnowledgeDocument storage = new KnowledgeDocument(); storage.setId(document.getId()); storage.setStorageBucket(knowledgeBucket); storage.setStorageObjectKey(key); knowledgeDocumentService.updateById(storage);
-        return WebResponse.OK("upload accepted", queueVersion(knowledgeDocumentService.getById(document.getId()), "upload"));
+        boolean uploaded = false;
+        try {
+            objectStorageService.upload(knowledgeBucket, key, file);
+            uploaded = true;
+            KnowledgeDocument storage = new KnowledgeDocument(); storage.setId(document.getId()); storage.setStorageBucket(knowledgeBucket); storage.setStorageObjectKey(key); knowledgeDocumentService.updateById(storage);
+            KnowledgeDocument snapshot = knowledgeDocumentService.getById(document.getId());
+            snapshot.setContent(extractedContent);
+            KnowledgeDocumentVersion draft = workflowService.createDraft(snapshot, null);
+            startAiReviewIfConfigured(base, draft);
+            return WebResponse.OK("upload accepted for review", draft.getId());
+        } catch (Exception e) {
+            knowledgeDocumentService.removeById(document.getId());
+            if (uploaded) {
+                try { objectStorageService.removeObject(knowledgeBucket, key); }
+                catch (Exception cleanupError) { log.warn("Failed to clean up abandoned knowledge object: {}", key, cleanupError); }
+            }
+            throw e;
+        }
     }
 
     @ApiOperation("Preview knowledge document")
@@ -148,6 +195,17 @@ public class KnowledgeDocumentController {
                 .orderByDesc(KnowledgeDocumentVersion::getVersionNo)));
     }
 
+    @GetMapping("/version/{versionId}")
+    public WebResponse<KnowledgeDocumentVersion> versionDetail(@PathVariable @NotBlank String versionId) {
+        KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
+        if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
+            throw new ServerException(404, "document version not found");
+        }
+        KnowledgeDocument document = getExisting(version.getKnowledgeDocumentId());
+        knowledgeAccessService.requireReadable(document.getKnowledgeBaseId());
+        return WebResponse.OK(version);
+    }
+
     @ApiOperation("文档版本分块列表")
     @GetMapping("/version/{versionId}/chunk/list")
     public WebResponse<List<KnowledgeDocumentChunkVo>> versionChunks(@PathVariable @NotBlank String versionId) {
@@ -155,6 +213,8 @@ public class KnowledgeDocumentController {
         if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
             throw new ServerException(404, "document version not found");
         }
+        KnowledgeDocument versionDocument = getExisting(version.getKnowledgeDocumentId());
+        knowledgeAccessService.requireReadable(versionDocument.getKnowledgeBaseId());
         List<KnowledgeDocumentChunkVo> chunks = knowledgeDocumentChunkService.list(Wrappers.lambdaQuery(KnowledgeDocumentChunk.class)
                         .eq(KnowledgeDocumentChunk::getDocumentVersionId, versionId)
                         .eq(KnowledgeDocumentChunk::getDeleted, false)
@@ -173,28 +233,47 @@ public class KnowledgeDocumentController {
 
     @ApiOperation("回滚到指定文档版本并异步索引")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
-    @PostMapping("/version/{versionId}/rollback")
+    @PostMapping({"/version/{versionId}/rollback", "/version/{versionId}/revise"})
+    @Transactional(rollbackFor = Exception.class)
     public WebResponse<String> rollback(@PathVariable @NotBlank String versionId) {
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
         if (version == null || Boolean.TRUE.equals(version.getDeleted())) throw new ServerException(404, "document version not found");
         KnowledgeDocument document = getExisting(version.getKnowledgeDocumentId());
-        KnowledgeDocument update = new KnowledgeDocument(); update.setId(document.getId()); update.setContent(version.getContent());
-        update.setStorageBucket(version.getStorageBucket()); update.setStorageObjectKey(version.getStorageObjectKey()); update.setFileChecksum(version.getFileChecksum());
-        knowledgeDocumentService.updateById(update);
-        return WebResponse.OK(queueVersion(knowledgeDocumentService.getById(document.getId()), "rollback"));
+        knowledgeAccessService.requireWritable(document.getKnowledgeBaseId());
+        KnowledgeDocument snapshot = knowledgeDocumentService.getById(document.getId());
+        snapshot.setContent(version.getContent());
+        snapshot.setStorageBucket(version.getStorageBucket());
+        snapshot.setStorageObjectKey(version.getStorageObjectKey());
+        snapshot.setFileChecksum(version.getFileChecksum());
+        KnowledgeDocumentVersion draft = workflowService.createDraft(snapshot, version.getId());
+        startAiReviewIfConfigured(knowledgeAccessService.requireWritable(document.getKnowledgeBaseId()), draft);
+        return WebResponse.OK(draft.getId());
     }
 
     @ApiOperation("Update knowledge document")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PutMapping("/{id}")
+    @Transactional(rollbackFor = Exception.class)
     public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody KnowledgeDocumentVo vo) {
-        getExisting(id);
+        KnowledgeDocument existing = getExisting(id);
+        knowledgeAccessService.requireWritable(existing.getKnowledgeBaseId());
         KnowledgeDocument document = new KnowledgeDocument();
-        BeanUtils.copyProperties(vo, document);
+        document.setTitle(vo.getTitle());
+        document.setSourceUrl(vo.getSourceUrl());
+        document.setParserType(vo.getParserType());
         document.setId(id);
+        // A generic document update must not move data into another knowledge base.
+        document.setKnowledgeBaseId(existing.getKnowledgeBaseId());
         boolean updated = knowledgeDocumentService.updateById(document);
         if (updated) {
-            queueVersion(knowledgeDocumentService.getById(id), "update");
+            KnowledgeDocumentVersion draft;
+            if (StringUtils.isNotBlank(existing.getDraftVersionId())) {
+                draft = workflowService.updateDraft(existing.getDraftVersionId(), vo.getContent(), vo.getExpectedChecksum());
+            } else {
+                KnowledgeDocument snapshot = knowledgeDocumentService.getById(id);
+                snapshot.setContent(vo.getContent());
+                draft = workflowService.createDraft(snapshot, resolveCurrentVersionId(existing));
+            }
         }
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }
@@ -204,12 +283,22 @@ public class KnowledgeDocumentController {
     @Transactional(rollbackFor = Exception.class)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
+        KnowledgeDocument existing = getExisting(id);
+        knowledgeAccessService.requireWritable(existing.getKnowledgeBaseId());
+        if (StringUtils.isNotBlank(existing.getDraftVersionId())
+                || StringUtils.isNotBlank(existing.getSubmittedVersionId())) {
+            throw new ServerException(409, "active draft or review task must be completed before deletion");
+        }
         boolean removed = knowledgeDocumentService.removeById(id);
         if (removed) {
             knowledgeDocumentChunkService.remove(Wrappers.lambdaUpdate(KnowledgeDocumentChunk.class)
                     .eq(KnowledgeDocumentChunk::getDocumentId, id));
             knowledgeDocumentVersionService.remove(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                     .eq(KnowledgeDocumentVersion::getKnowledgeDocumentId, id));
+        }
+        if (removed && StringUtils.isNotBlank(existing.getStorageBucket()) && StringUtils.isNotBlank(existing.getStorageObjectKey())) {
+            try { objectStorageService.removeObject(existing.getStorageBucket(), existing.getStorageObjectKey()); }
+            catch (Exception e) { log.warn("Failed to remove knowledge source object: {}", existing.getStorageObjectKey(), e); }
         }
         return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
     }
@@ -218,8 +307,40 @@ public class KnowledgeDocumentController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/{id}/reindex")
     public WebResponse<Void> reindex(@PathVariable @NotBlank String id) {
-        String jobId = queueVersion(getExisting(id), "reindex");
+        KnowledgeDocument document = getExisting(id);
+        knowledgeAccessService.requireWritable(document.getKnowledgeBaseId());
+        if (document.getCurrentVersionNo() == null || document.getCurrentVersionNo() <= 0) {
+            throw new ServerException(409, "document has no published version");
+        }
+        KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getOne(
+                Wrappers.lambdaQuery(KnowledgeDocumentVersion.class)
+                        .eq(KnowledgeDocumentVersion::getKnowledgeDocumentId, id)
+                        .eq(KnowledgeDocumentVersion::getVersionNo, document.getCurrentVersionNo())
+                        .eq(KnowledgeDocumentVersion::getDeleted, false), false);
+        if (version == null) throw new ServerException(404, "published document version not found");
+        String jobId = knowledgeDocumentIndexService.queueReindex(document, version, "reindex");
         return WebResponse.OK(I18nUtils.getMessage("update.success") + ": " + jobId);
+    }
+
+    @Permission(path = "/knowledge/document", type = Permission.Type.Write)
+    @PutMapping("/version/{versionId}/draft")
+    public WebResponse<KnowledgeDocumentVersion> updateDraft(@PathVariable @NotBlank String versionId,
+                                                              @RequestBody com.aether.knowledge.vo.KnowledgeDraftUpdateVo vo) {
+        return WebResponse.OK(workflowService.updateDraft(versionId, vo.getContent(), vo.getExpectedChecksum()));
+    }
+
+    @Permission(path = "/knowledge/document", type = Permission.Type.Write)
+    @PostMapping("/version/{versionId}/ai-review")
+    public WebResponse<String> startAiReview(@PathVariable @NotBlank String versionId) {
+        return WebResponse.OK(workflowService.startAiReview(versionId));
+    }
+
+    @Permission(path = "/knowledge/document", type = Permission.Type.Write)
+    @PostMapping("/version/{versionId}/submit")
+    public WebResponse<String> submit(@PathVariable @NotBlank String versionId,
+                                      @RequestBody(required = false) com.aether.knowledge.vo.KnowledgeReviewDecisionVo vo) {
+        KnowledgeReviewTask task = workflowService.submit(versionId, vo == null ? null : vo.getComment());
+        return WebResponse.OK(task.getId());
     }
 
     private KnowledgeDocument getExisting(String id) {
@@ -227,26 +348,31 @@ public class KnowledgeDocumentController {
         if (document == null || Boolean.TRUE.equals(document.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
         }
+        knowledgeAccessService.requireReadable(document.getKnowledgeBaseId());
         return document;
     }
 
-    private String queueVersion(KnowledgeDocument document, String jobType) {
-        // 以已有最大版本号递增，避免多个异步任务尚未发布时产生相同版本号。
-        List<KnowledgeDocumentVersion> existingVersions = knowledgeDocumentVersionService.list(
+    private String resolveCurrentVersionId(KnowledgeDocument document) {
+        if (document.getCurrentVersionNo() == null || document.getCurrentVersionNo() <= 0) return null;
+        KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getOne(
                 Wrappers.lambdaQuery(KnowledgeDocumentVersion.class)
                         .eq(KnowledgeDocumentVersion::getKnowledgeDocumentId, document.getId())
-                        .eq(KnowledgeDocumentVersion::getDeleted, false)
-                        .orderByDesc(KnowledgeDocumentVersion::getVersionNo));
-        int versionNo = existingVersions.isEmpty() ? 1 : existingVersions.get(0).getVersionNo() + 1;
-        KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
-        version.setKnowledgeDocumentId(document.getId()); version.setVersionNo(versionNo); version.setContent(document.getContent());
-        version.setStorageBucket(document.getStorageBucket()); version.setStorageObjectKey(document.getStorageObjectKey());
-        version.setFileChecksum(document.getFileChecksum()); version.setIndexStatus(0);
-        knowledgeDocumentVersionService.save(version);
-        // currentVersionNo 是已发布版本指针；异步任务成功前绝不能提前切换。
-        KnowledgeDocument update = new KnowledgeDocument(); update.setId(document.getId()); update.setIndexStatus(1); update.setStatus(1);
-        knowledgeDocumentService.updateById(update);
-        return knowledgeDocumentIndexService.queueReindex(knowledgeDocumentService.getById(document.getId()), version, jobType);
+                        .eq(KnowledgeDocumentVersion::getVersionNo, document.getCurrentVersionNo())
+                        .eq(KnowledgeDocumentVersion::getDeleted, false), false);
+        return version == null ? null : version.getId();
+    }
+
+    private void startAiReviewIfConfigured(KnowledgeBase base, KnowledgeDocumentVersion draft) {
+        boolean autoStart = true;
+        if (StringUtils.isNotBlank(base.getReviewConfig())) {
+            try {
+                Boolean configured = JSONObject.parseObject(base.getReviewConfig()).getBoolean("autoAiReview");
+                if (configured != null) autoStart = configured;
+            } catch (Exception e) {
+                log.warn("Invalid knowledge review config: knowledgeBaseId={}", base.getId(), e);
+            }
+        }
+        if (autoStart) workflowService.startAiReview(draft.getId());
     }
 
     private String sha256(byte[] bytes) throws Exception {

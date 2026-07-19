@@ -9,6 +9,8 @@ import com.aether.knowledge.service.KnowledgeDocumentIndexService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.service.KnowledgeIndexJobService;
+import com.aether.knowledge.service.KnowledgeAccessService;
+import com.aether.knowledge.vo.KnowledgeIndexJobQueryVo;
 import com.aether.permission.Permission;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -21,24 +23,38 @@ import java.util.List;
 public class KnowledgeIndexJobController {
     private final KnowledgeIndexJobService jobService; private final KnowledgeDocumentService documentService;
     private final KnowledgeDocumentVersionService versionService; private final KnowledgeDocumentIndexService indexService;
+    private final KnowledgeAccessService accessService;
     public KnowledgeIndexJobController(KnowledgeIndexJobService jobService, KnowledgeDocumentService documentService,
-                                       KnowledgeDocumentVersionService versionService, KnowledgeDocumentIndexService indexService) {
+                                       KnowledgeDocumentVersionService versionService, KnowledgeDocumentIndexService indexService,
+                                       KnowledgeAccessService accessService) {
         this.jobService=jobService; this.documentService=documentService; this.versionService=versionService; this.indexService=indexService;
+        this.accessService = accessService;
     }
     @PostMapping("/list")
-    public WebResponse<List<KnowledgeIndexJob>> list(@RequestBody(required=false) KnowledgeIndexJob query) {
-        if (query == null) query = new KnowledgeIndexJob();
-        Page<KnowledgeIndexJob> page = jobService.page(new Page<>(1, 50), Wrappers.lambdaQuery(KnowledgeIndexJob.class)
+    public WebResponse<List<KnowledgeIndexJob>> list(@RequestBody(required=false) KnowledgeIndexJobQueryVo query) {
+        if (query == null) query = new KnowledgeIndexJobQueryVo();
+        List<String> readableIds = accessService.readableKnowledgeBaseIds();
+        long current = query.getCurrent() == null || query.getCurrent() < 1 ? 1 : query.getCurrent();
+        long pageSize = query.getPageSize() == null ? 20 : Math.max(1, Math.min(100, query.getPageSize()));
+        Page<KnowledgeIndexJob> page = jobService.page(new Page<>(current, pageSize), Wrappers.lambdaQuery(KnowledgeIndexJob.class)
+                .in(!readableIds.isEmpty(), KnowledgeIndexJob::getKnowledgeBaseId, readableIds)
+                .apply(readableIds.isEmpty(), "1 = 0")
                 .eq(query.getJobType()!=null, KnowledgeIndexJob::getJobType, query.getJobType())
                 .eq(query.getKnowledgeBaseId()!=null, KnowledgeIndexJob::getKnowledgeBaseId, query.getKnowledgeBaseId())
                 .eq(query.getDocumentId()!=null, KnowledgeIndexJob::getDocumentId, query.getDocumentId())
                 .eq(query.getStatus()!=null, KnowledgeIndexJob::getStatus, query.getStatus()).eq(KnowledgeIndexJob::getDeleted, false).orderByDesc(KnowledgeIndexJob::getCreatedAt));
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
-    @GetMapping("/{id}") public WebResponse<KnowledgeIndexJob> detail(@PathVariable String id) { return WebResponse.OK(jobService.getById(id)); }
+    @GetMapping("/{id}") public WebResponse<KnowledgeIndexJob> detail(@PathVariable String id) {
+        KnowledgeIndexJob job = jobService.getById(id);
+        if (job == null || Boolean.TRUE.equals(job.getDeleted())) throw new ServerException(404, "index job not found");
+        accessService.requireReadable(job.getKnowledgeBaseId());
+        return WebResponse.OK(job);
+    }
     @PostMapping("/{id}/retry") @Permission(path="/knowledge/document", type=Permission.Type.Write)
     public WebResponse<String> retry(@PathVariable String id) {
         KnowledgeIndexJob job = jobService.getById(id); if (job == null) throw new ServerException(404, "index job not found");
+        accessService.requireWritable(job.getKnowledgeBaseId());
         KnowledgeDocument document = documentService.getById(job.getDocumentId()); KnowledgeDocumentVersion version = versionService.getById(job.getDocumentVersionId());
         if (document == null || version == null) throw new ServerException(404, "document version not found");
         return WebResponse.OK(indexService.queueReindex(document, version, "retry"));

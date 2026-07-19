@@ -48,6 +48,13 @@ public class KnowledgeDocument extends BaseEntity {
     private String storageObjectKey;
     /** 已完成或正在索引的当前文档版本号。 */
     private Integer currentVersionNo;
+    /** 当前可编辑草稿版本 ID；与已发布版本相互独立。 */
+    private String draftVersionId;
+    /** 当前已提交、等待审批的版本 ID。 */
+    private String submittedVersionId;
+    /** 文档工作流聚合状态，用于列表筛选；版本状态才是事实来源。 */
+    private String reviewStatus;
+    private Long reviewUpdatedAt;
     /** 索引状态：0-未索引，1-索引中，2-已完成，3-失败。 */
     private Integer indexStatus;
     /** 解析器类型：text、pdf、docx；文本输入时为 text。 */

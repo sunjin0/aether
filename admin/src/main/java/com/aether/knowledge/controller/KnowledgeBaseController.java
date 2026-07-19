@@ -2,10 +2,14 @@ package com.aether.knowledge.controller;
 
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.service.KnowledgeBaseService;
+import com.aether.knowledge.service.KnowledgeAccessService;
+import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.entity.ModelProvider;
 import com.aether.knowledge.vo.KnowledgeBaseVo;
 import com.aether.entity.WebResponse;
-import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
+import com.aether.exception.ServerException;
+import com.alibaba.fastjson2.JSONObject;
 import com.aether.permission.Permission;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -29,16 +33,25 @@ import java.util.stream.Collectors;
 public class KnowledgeBaseController {
 
     private final KnowledgeBaseService knowledgeBaseService;
+    private final KnowledgeAccessService knowledgeAccessService;
+    private final ModelProviderService modelProviderService;
 
-    public KnowledgeBaseController(KnowledgeBaseService knowledgeBaseService) {
+    public KnowledgeBaseController(KnowledgeBaseService knowledgeBaseService,
+                                   KnowledgeAccessService knowledgeAccessService,
+                                   ModelProviderService modelProviderService) {
         this.knowledgeBaseService = knowledgeBaseService;
+        this.knowledgeAccessService = knowledgeAccessService;
+        this.modelProviderService = modelProviderService;
     }
 
     @ApiOperation("知识库列表")
     @PostMapping("/list")
     public WebResponse<List<KnowledgeBaseVo>> list(@RequestBody KnowledgeBaseVo vo) {
         Page<KnowledgeBase> page = new Page<>(vo.getCurrent(), vo.getPageSize());
+        List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
         Wrapper<KnowledgeBase> wrapper = Wrappers.lambdaQuery(KnowledgeBase.class)
+                .in(!readableIds.isEmpty(), KnowledgeBase::getId, readableIds)
+                .apply(readableIds.isEmpty(), "1 = 0")
                 .eq(StringUtils.isNotBlank(vo.getScope()), KnowledgeBase::getScope, vo.getScope())
                 .eq(StringUtils.isNotBlank(vo.getEmbeddingProviderId()), KnowledgeBase::getEmbeddingProviderId, vo.getEmbeddingProviderId())
                 .like(StringUtils.isNotBlank(vo.getName()), KnowledgeBase::getName, vo.getName())
@@ -58,7 +71,7 @@ public class KnowledgeBaseController {
     @ApiOperation("知识库详情")
     @GetMapping("/{id}")
     public WebResponse<KnowledgeBaseVo> detail(@PathVariable @NotBlank String id) {
-        KnowledgeBase kb = getExisting(id);
+        KnowledgeBase kb = knowledgeAccessService.requireReadable(id);
         KnowledgeBaseVo vo = new KnowledgeBaseVo();
         BeanUtils.copyProperties(kb, vo);
         return WebResponse.OK(vo);
@@ -68,8 +81,9 @@ public class KnowledgeBaseController {
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PostMapping
     public WebResponse<String> save(@RequestBody KnowledgeBaseVo vo) {
-        KnowledgeBase kb = new KnowledgeBase();
-        BeanUtils.copyProperties(vo, kb);
+        KnowledgeBase kb = mutableFields(vo);
+        kb.setReviewConfig(validateReviewConfig(vo.getReviewConfig()));
+        kb.setOwnerAdminId(knowledgeAccessService.currentAdminId());
         if (kb.getStatus() == null) {
             kb.setStatus(1);
         }
@@ -79,6 +93,9 @@ public class KnowledgeBaseController {
         if (StringUtils.isBlank(kb.getScope())) {
             kb.setScope("PLATFORM");
         }
+        if (StringUtils.isBlank(kb.getVisibility())) {
+            kb.setVisibility("PLATFORM".equalsIgnoreCase(kb.getScope()) ? "platform" : "private");
+        }
         boolean saved = knowledgeBaseService.save(kb);
         return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), kb.getId());
     }
@@ -87,10 +104,14 @@ public class KnowledgeBaseController {
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PutMapping("/{id}")
     public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody KnowledgeBaseVo vo) {
-        getExisting(id);
-        KnowledgeBase kb = new KnowledgeBase();
-        BeanUtils.copyProperties(vo, kb);
+        KnowledgeBase existing = knowledgeAccessService.requireWritable(id);
+        KnowledgeBase kb = mutableFields(vo);
+        if (vo.getReviewConfig() != null) {
+            kb.setReviewConfig(validateReviewConfig(vo.getReviewConfig()));
+        }
         kb.setId(id);
+        // Ownership can only be changed through an explicit membership/transfer workflow.
+        kb.setOwnerAdminId(existing.getOwnerAdminId());
         boolean updated = knowledgeBaseService.updateById(kb);
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }
@@ -99,15 +120,57 @@ public class KnowledgeBaseController {
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
+        knowledgeAccessService.requireWritable(id);
         boolean removed = knowledgeBaseService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
     }
 
-    private KnowledgeBase getExisting(String id) {
-        KnowledgeBase kb = knowledgeBaseService.getById(id);
-        if (kb == null || Boolean.TRUE.equals(kb.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
-        }
+    private KnowledgeBase mutableFields(KnowledgeBaseVo vo) {
+        KnowledgeBase kb = new KnowledgeBase();
+        kb.setScope(vo.getScope());
+        kb.setEmbeddingProviderId(vo.getEmbeddingProviderId());
+        kb.setVisibility(vo.getVisibility());
+        kb.setRetrievalConfig(vo.getRetrievalConfig());
+        kb.setReviewConfig(vo.getReviewConfig());
+        kb.setName(vo.getName());
+        kb.setDescription(vo.getDescription());
+        kb.setStatus(vo.getStatus());
         return kb;
     }
+
+    private String validateReviewConfig(String value) {
+        if (StringUtils.isBlank(value)) {
+            throw new ServerException(400, "knowledge review configuration is required");
+        }
+        try {
+            JSONObject config = JSONObject.parseObject(value);
+            String providerId = config.getString("reviewModelProviderId");
+            if (StringUtils.isBlank(providerId)) {
+                throw new ServerException(400, "AI review model provider is required");
+            }
+            ModelProvider provider = modelProviderService.getById(providerId);
+            if (provider == null || Boolean.TRUE.equals(provider.getDeleted()) || provider.getStatus() == null
+                    || provider.getStatus() != 1 || StringUtils.isBlank(provider.getDefaultModel())
+                    || StringUtils.containsIgnoreCase(provider.getDefaultModel(), "embedding")) {
+                throw new ServerException(400, "AI review model provider is invalid");
+            }
+            if (StringUtils.isBlank(config.getString("reviewModel"))) {
+                config.put("reviewModel", provider.getDefaultModel());
+            }
+            putDefault(config, "autoAiReview", true);
+            putDefault(config, "aiReviewRequired", true);
+            putDefault(config, "blockOnCriticalIssues", true);
+            putDefault(config, "requireDifferentApprover", true);
+            return config.toJSONString();
+        } catch (ServerException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ServerException(400, "knowledge review configuration is invalid");
+        }
+    }
+
+    private void putDefault(JSONObject config, String key, boolean value) {
+        if (!config.containsKey(key)) config.put(key, value);
+    }
+
 }

@@ -7,6 +7,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -18,6 +20,8 @@ import java.util.concurrent.ThreadPoolExecutor;
  * @since 2024/10/08
  */
 @Configuration
+@EnableAsync
+@EnableScheduling
 public class AsyncConfig implements AsyncConfigurer {
     private static final Logger log = LoggerFactory.getLogger(AsyncConfig.class);
 
@@ -66,5 +70,4 @@ public class AsyncConfig implements AsyncConfigurer {
         return (ex, method, params) -> log.error("线程池执行任务发送未知错误, 执行方法：{}", method.getName(), ex);
     }
 }
-
 

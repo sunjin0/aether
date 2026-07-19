@@ -671,6 +671,7 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_document_chunk_embedding_cosine
 ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS owner_admin_id VARCHAR(32);
 ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS visibility VARCHAR(16) NOT NULL DEFAULT 'platform';
 ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS retrieval_config TEXT;
+ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS review_config TEXT;
 ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS reference_count BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS last_referenced_at BIGINT;
 ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS source_type VARCHAR(32) NOT NULL DEFAULT 'text';
@@ -682,6 +683,10 @@ ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS file_checksum VARCHAR(12
 ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS storage_bucket VARCHAR(128);
 ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS storage_object_key VARCHAR(1024);
 ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS current_version_no INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS draft_version_id VARCHAR(32);
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS submitted_version_id VARCHAR(32);
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS review_status VARCHAR(24) NOT NULL DEFAULT 'DRAFT';
+ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS review_updated_at BIGINT;
 ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS index_status SMALLINT NOT NULL DEFAULT 0;
 ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS parser_type VARCHAR(64);
 ALTER TABLE knowledge_document ADD COLUMN IF NOT EXISTS index_error_message TEXT;
@@ -696,12 +701,32 @@ ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS metadata TEXT;
 ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS reference_count BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE knowledge_document_chunk ADD COLUMN IF NOT EXISTS last_referenced_at BIGINT;
 ALTER TABLE agent_message ADD COLUMN IF NOT EXISTS citations TEXT;
-CREATE TABLE IF NOT EXISTS knowledge_base_member (id VARCHAR(32) PRIMARY KEY, knowledge_base_id VARCHAR(32) NOT NULL, admin_id VARCHAR(32) NOT NULL, role VARCHAR(16) NOT NULL, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0, CONSTRAINT uk_knowledge_base_member UNIQUE (knowledge_base_id, admin_id, deleted));
 CREATE TABLE IF NOT EXISTS knowledge_document_version (id VARCHAR(32) PRIMARY KEY, knowledge_document_id VARCHAR(32) NOT NULL, version_no INTEGER NOT NULL, content TEXT, storage_bucket VARCHAR(128), storage_object_key VARCHAR(1024), file_checksum VARCHAR(128), parser_type VARCHAR(64), index_status SMALLINT NOT NULL DEFAULT 0, index_error_message TEXT, indexed_at BIGINT, chunk_count INTEGER NOT NULL DEFAULT 0, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0, CONSTRAINT uk_knowledge_document_version UNIQUE (knowledge_document_id, version_no, deleted));
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS original_content TEXT;
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS structured_content TEXT;
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS content_checksum VARCHAR(128);
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS review_status VARCHAR(24) NOT NULL DEFAULT 'DRAFT';
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS source_version_id VARCHAR(32);
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS submitted_by VARCHAR(32);
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS submitted_at BIGINT;
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(32);
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS reviewed_at BIGINT;
+ALTER TABLE knowledge_document_version ADD COLUMN IF NOT EXISTS review_comment TEXT;
 CREATE TABLE IF NOT EXISTS knowledge_index_job (id VARCHAR(32) PRIMARY KEY, knowledge_base_id VARCHAR(32) NOT NULL, document_id VARCHAR(32) NOT NULL, document_version_id VARCHAR(32) NOT NULL, job_type VARCHAR(32) NOT NULL, status VARCHAR(16) NOT NULL, retry_count INTEGER NOT NULL DEFAULT 0, max_retry_count INTEGER NOT NULL DEFAULT 3, error_message TEXT, statistics TEXT, started_at BIGINT, finished_at BIGINT, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS knowledge_review_task (id VARCHAR(32) PRIMARY KEY, knowledge_base_id VARCHAR(32) NOT NULL, document_id VARCHAR(32) NOT NULL, document_version_id VARCHAR(32) NOT NULL, submitter_id VARCHAR(32) NOT NULL, reviewer_id VARCHAR(32), status VARCHAR(16) NOT NULL, source_checksum VARCHAR(128) NOT NULL, submit_comment TEXT, review_comment TEXT, submitted_at BIGINT NOT NULL, claimed_at BIGINT, reviewed_at BIGINT, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS knowledge_review_action_log (id VARCHAR(32) PRIMARY KEY, review_task_id VARCHAR(32), document_id VARCHAR(32) NOT NULL, document_version_id VARCHAR(32) NOT NULL, operator_id VARCHAR(32), action VARCHAR(32) NOT NULL, before_status VARCHAR(24), after_status VARCHAR(24), comment TEXT, metadata TEXT, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS knowledge_ai_review (id VARCHAR(32) PRIMARY KEY, knowledge_base_id VARCHAR(32) NOT NULL, document_id VARCHAR(32) NOT NULL, document_version_id VARCHAR(32) NOT NULL, source_checksum VARCHAR(128) NOT NULL, model_provider_id VARCHAR(32), model VARCHAR(128), prompt_version VARCHAR(32), status VARCHAR(16) NOT NULL, score INTEGER, summary TEXT, issues TEXT, statistics TEXT, error_message TEXT, started_at BIGINT, finished_at BIGINT, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS knowledge_ai_review_issue (id VARCHAR(32) PRIMARY KEY, ai_review_id VARCHAR(32) NOT NULL, document_version_id VARCHAR(32) NOT NULL, block_id VARCHAR(64), issue_type VARCHAR(32) NOT NULL, severity VARCHAR(16) NOT NULL, message TEXT NOT NULL, original_excerpt TEXT, suggested_patch TEXT, handle_status VARCHAR(16) NOT NULL DEFAULT 'pending', handled_by VARCHAR(32), handled_at BIGINT, handle_comment TEXT, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS knowledge_reference_log (id VARCHAR(32) PRIMARY KEY, agent_definition_id VARCHAR(32), conversation_id VARCHAR(32), message_id VARCHAR(32), knowledge_base_id VARCHAR(32) NOT NULL, document_id VARCHAR(32) NOT NULL, document_version_id VARCHAR(32), chunk_id VARCHAR(32) NOT NULL, similarity DOUBLE PRECISION, citation_no INTEGER, referenced_at BIGINT NOT NULL, created_at BIGINT, updated_at BIGINT, sort_num INTEGER NOT NULL DEFAULT 0, deleted BOOLEAN NOT NULL DEFAULT FALSE, state INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS knowledge_document_version_idx_document ON knowledge_document_version (knowledge_document_id, version_no, deleted);
 CREATE INDEX IF NOT EXISTS knowledge_index_job_idx_status ON knowledge_index_job (status, created_at, deleted);
+CREATE INDEX IF NOT EXISTS knowledge_review_task_idx_assignee ON knowledge_review_task (reviewer_id, status, deleted);
+CREATE INDEX IF NOT EXISTS knowledge_review_task_idx_document ON knowledge_review_task (document_id, submitted_at, deleted);
+CREATE INDEX IF NOT EXISTS knowledge_ai_review_idx_version ON knowledge_ai_review (document_version_id, created_at, deleted);
+UPDATE knowledge_document_version SET review_status = 'APPROVED'
+WHERE index_status = 2 AND review_status = 'DRAFT';
+UPDATE knowledge_document SET review_status = 'APPROVED'
+WHERE current_version_no > 0 AND review_status = 'DRAFT';
 CREATE INDEX IF NOT EXISTS knowledge_reference_log_idx_document ON knowledge_reference_log (document_id, referenced_at, deleted);
 
 -- 兼容旧版本的 (document_id, chunk_index, deleted) 唯一索引。

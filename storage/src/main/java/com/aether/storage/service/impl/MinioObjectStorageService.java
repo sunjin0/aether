@@ -7,6 +7,7 @@ import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import io.minio.http.Method;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,10 @@ public class MinioObjectStorageService implements ObjectStorageService {
     public byte[] getObject(String bucket, String objectKey) {
         try (InputStream in=client().getObject(GetObjectArgs.builder().bucket(bucket).object(objectKey).build()); ByteArrayOutputStream out=new ByteArrayOutputStream()) { byte[] b=new byte[8192]; for(int n;(n=in.read(b))!=-1;) out.write(b,0,n); return out.toByteArray(); }
         catch (Exception e) { throw new IllegalStateException("object storage unavailable", e); }
+    }
+    public void removeObject(String bucket, String objectKey) {
+        try { client().removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build()); }
+        catch (Exception e) { throw new IllegalStateException("failed to remove stored object", e); }
     }
     private MinioClient client() { if(blank(endpoint)||blank(accessKey)||blank(secretKey)) throw new IllegalStateException("MinIO is not configured"); return MinioClient.builder().endpoint(endpoint).credentials(accessKey,secretKey).build(); }
     private boolean blank(String value) { return value == null || value.trim().isEmpty(); }

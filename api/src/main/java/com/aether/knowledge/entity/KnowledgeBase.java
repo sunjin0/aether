@@ -31,6 +31,8 @@ public class KnowledgeBase extends BaseEntity {
     private String visibility;
     /** 检索配置 JSON；预留 topK、最低相似度、混合检索和重排参数。 */
     private String retrievalConfig;
+    /** 文档审批策略 JSON。 */
+    private String reviewConfig;
     /** 最终回答实际引用本知识库的累计次数，不统计仅召回的候选片段。 */
     private Long referenceCount;
     /** 最近一次实际引用时间，Unix 毫秒时间戳。 */

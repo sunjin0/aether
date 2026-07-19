@@ -13,4 +13,6 @@ public interface ObjectStorageService {
     String presignedGetUrl(String bucket, String objectKey, int expirySeconds);
     /** 读取对象的全部字节；仅供后端解析器使用。 */
     byte[] getObject(String bucket, String objectKey);
+    /** Best-effort business cleanup for abandoned or deleted objects. */
+    void removeObject(String bucket, String objectKey);
 }

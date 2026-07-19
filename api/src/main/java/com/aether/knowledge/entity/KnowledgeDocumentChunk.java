@@ -2,6 +2,7 @@ package com.aether.knowledge.entity;
 
 import com.aether.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
@@ -57,4 +58,8 @@ public class KnowledgeDocumentChunk extends BaseEntity {
      */
     @ApiModelProperty(value = "1536维 pgvector 文本表示")
     private String embedding;
+
+    /** Cosine similarity returned by retrieval queries; not persisted as a column. */
+    @TableField(exist = false)
+    private Double similarity;
 }

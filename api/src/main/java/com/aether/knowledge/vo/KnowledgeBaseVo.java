@@ -23,6 +23,7 @@ public class KnowledgeBaseVo extends BaseEntity {
     private String visibility;
     /** 检索配置 JSON；当前只保存，暂不启用混合检索/重排。 */
     private String retrievalConfig;
+    private String reviewConfig;
     /** 实际回答引用累计次数。 */
     private Long referenceCount;
     /** 最近实际引用时间，Unix 毫秒时间戳。 */

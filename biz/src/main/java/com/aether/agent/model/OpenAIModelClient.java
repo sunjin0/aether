@@ -8,6 +8,7 @@ import com.aether.utils.AesUtil;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +58,18 @@ public class OpenAIModelClient implements ModelClient {
     public ModelChatResponse chat(ModelChatRequest request) {
         ModelProvider provider = request.getProvider();
         AgentDefinition agent = request.getAgent();
+        return getModelChatResponse(request, provider, agent.getModel());
+    }
+
+    @Override
+    public ModelChatResponse chatByProvider(ModelChatRequest request) {
+        ModelProvider provider = request.getProvider();
+        String model = request.getModel();
+        return getModelChatResponse(request, provider, model);
+    }
+
+    @NotNull
+    private ModelChatResponse getModelChatResponse(ModelChatRequest request, ModelProvider provider, String model) {
         try {
             RestTemplate restTemplate = createRestTemplate();
             HttpHeaders headers = createHeaders(provider);
@@ -69,7 +82,7 @@ public class OpenAIModelClient implements ModelClient {
                     String.class);
             String responseBody = response.getBody();
             log.debug("Model response: {}", responseBody);
-            return parseResponse(responseBody, agent.getModel());
+            return parseResponse(responseBody, model);
         } catch (ResourceAccessException e) {
             throw new ServerException(503, "model provider timeout");
         } catch (ServerException e) {
@@ -123,7 +136,7 @@ public class OpenAIModelClient implements ModelClient {
     }
 
     private JSONObject createBody(ModelChatRequest request, boolean stream) {
-        AgentDefinition agent = request.getAgent();
+        AgentDefinition agent = request.getAgent() != null ? request.getAgent() : new AgentDefinition();
         List<ModelChatMessage> messages = request.getMessages();
         List<AgentTool> tools = request.getTools();
 
