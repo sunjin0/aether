@@ -12,6 +12,7 @@ import io.minio.http.Method;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 
@@ -22,37 +23,70 @@ import java.io.InputStream;
  */
 public class MinioObjectStorageService implements ObjectStorageService {
     private final String endpoint, accessKey, secretKey;
+
     public MinioObjectStorageService(@Value("${storage.minio.endpoint:${MINIO_ENDPOINT:}}") String endpoint,
                                      @Value("${storage.minio.access-key:${MINIO_ACCESS_KEY:}}") String accessKey,
                                      @Value("${storage.minio.secret-key:${MINIO_SECRET_KEY:}}") String secretKey) {
-        this.endpoint=endpoint; this.accessKey=accessKey; this.secretKey=secretKey;
+        this.endpoint = endpoint;
+        this.accessKey = accessKey;
+        this.secretKey = secretKey;
     }
-    /** 上传文件流到指定私有 Bucket；调用方负责生成稳定且不包含敏感信息的对象键。 */
+
+    /**
+     * 上传文件流到指定私有 Bucket；调用方负责生成稳定且不包含敏感信息的对象键。
+     */
     public String upload(String bucket, String objectKey, MultipartFile file) {
-        try (InputStream in=file.getInputStream()) {
+        try (InputStream in = file.getInputStream()) {
             MinioClient client = client();
             if (!client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
                 client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
             }
-            client.putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(in,file.getSize(),-1).contentType(blank(file.getContentType()) ? "application/octet-stream" : file.getContentType()).build());
+            client.putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(in, file.getSize(), -1).contentType(blank(file.getContentType()) ? "application/octet-stream" : file.getContentType()).build());
             return objectKey;
+        } catch (Exception e) {
+            throw new IllegalStateException("object storage unavailable", e);
         }
-        catch (Exception e) { throw new IllegalStateException("object storage unavailable", e); }
     }
-    /** 仅生成 GET 类型的临时签名 URL，知识库预览当前使用 600 秒。 */
+
+    /**
+     * 仅生成 GET 类型的临时签名 URL，知识库预览当前使用 600 秒。
+     */
     public String presignedGetUrl(String bucket, String objectKey, int expirySeconds) {
-        try { return client().getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder().method(Method.GET).bucket(bucket).object(objectKey).expiry(expirySeconds).build()); }
-        catch (Exception e) { throw new IllegalStateException("object storage unavailable", e); }
+        try {
+            return client().getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder().method(Method.GET).bucket(bucket).object(objectKey).expiry(expirySeconds).build());
+        } catch (Exception e) {
+            throw new IllegalStateException("object storage unavailable", e);
+        }
     }
-    /** 下载对象内容，供 PDF/DOCX 等后端解析器读取。 */
+
+    /**
+     * 下载对象内容，供 PDF/DOCX 等后端解析器读取。
+     */
     public byte[] getObject(String bucket, String objectKey) {
-        try (InputStream in=client().getObject(GetObjectArgs.builder().bucket(bucket).object(objectKey).build()); ByteArrayOutputStream out=new ByteArrayOutputStream()) { byte[] b=new byte[8192]; for(int n;(n=in.read(b))!=-1;) out.write(b,0,n); return out.toByteArray(); }
-        catch (Exception e) { throw new IllegalStateException("object storage unavailable", e); }
+        try (InputStream in = client().getObject(GetObjectArgs.builder().bucket(bucket).object(objectKey).build()); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] b = new byte[8192];
+            for (int n; (n = in.read(b)) != -1; ) out.write(b, 0, n);
+            return out.toByteArray();
+        } catch (Exception e) {
+            throw new IllegalStateException("object storage unavailable", e);
+        }
     }
+
     public void removeObject(String bucket, String objectKey) {
-        try { client().removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build()); }
-        catch (Exception e) { throw new IllegalStateException("failed to remove stored object", e); }
+        try {
+            client().removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to remove stored object", e);
+        }
     }
-    private MinioClient client() { if(blank(endpoint)||blank(accessKey)||blank(secretKey)) throw new IllegalStateException("MinIO is not configured"); return MinioClient.builder().endpoint(endpoint).credentials(accessKey,secretKey).build(); }
-    private boolean blank(String value) { return value == null || value.trim().isEmpty(); }
+
+    private MinioClient client() {
+        if (blank(endpoint) || blank(accessKey) || blank(secretKey))
+            throw new IllegalStateException("MinIO is not configured");
+        return MinioClient.builder().endpoint(endpoint).credentials(accessKey, secretKey).build();
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
 }

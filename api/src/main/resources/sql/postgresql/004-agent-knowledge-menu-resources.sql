@@ -9,6 +9,11 @@ BEGIN;
 
 WITH resources (id, name, name_cn, path, type, icon, parent_id, leaf, description, sort_num) AS (
     VALUES
+        -- System preference route
+        ('sys_admin_preference', 'Preference Management', '偏好管理', '/sys/preference', 'Resource_Type_Route', NULL, '1', TRUE, NULL, 5),
+        ('perm_sys_admin_preference_read', 'Read', '可读', NULL, 'Resource_Type_Permission', NULL, 'sys_admin_preference', TRUE, NULL, 1),
+        ('perm_sys_admin_preference_write', 'Write', '可写', NULL, 'Resource_Type_Permission', NULL, 'sys_admin_preference', TRUE, NULL, 2),
+
         -- Agent platform root and visible routes
         ('menu_agent', 'Agent Platform', 'Agent 平台', '/agent', 'Resource_Type_Route', 'robot', '0', FALSE, 'Agent platform menu', 20),
         ('agent_model_provider', 'Model Provider', '模型供应商', '/agent/model-provider', 'Resource_Type_Route', NULL, 'menu_agent', TRUE, NULL, 1),
@@ -80,6 +85,7 @@ WITH root_role AS (
     SELECT id FROM sys_role WHERE name = 'root' AND deleted = FALSE ORDER BY created_at LIMIT 1
 ), target_resources AS (
     SELECT id FROM sys_resource WHERE id IN (
+        'sys_admin_preference', 'perm_sys_admin_preference_read', 'perm_sys_admin_preference_write',
         'menu_agent', 'agent_model_provider', 'agent_definition', 'agent_mcp_server', 'agent_tool',
         'agent_conversation', 'agent_chat', 'agent_run', 'agent_tool_call_log',
         'menu_knowledge', 'knowledge_base', 'knowledge_document', 'knowledge_reviews', 'knowledge_index_job',
