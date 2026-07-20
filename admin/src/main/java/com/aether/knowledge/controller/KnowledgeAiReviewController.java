@@ -167,6 +167,9 @@ public class KnowledgeAiReviewController {
         if (!"pending".equals(issue.getHandleStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
         }
+        if (parsePatch(issue.getSuggestedPatch()) == null) {
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.not-applicable"));
+        }
         com.aether.knowledge.entity.KnowledgeDocumentVersion version = versionService.getById(issue.getDocumentVersionId());
         if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
@@ -199,6 +202,35 @@ public class KnowledgeAiReviewController {
         result.setIssueStatus("accepted");
         result.setRequiresAiReview(false);
         return WebResponse.OK(result);
+    }
+
+    @PostMapping("/{reviewId}/issues/{issueId}/unaccept")
+    @Permission(path = "/knowledge/document", type = Permission.Type.Write)
+    public WebResponse<Void> unacceptIssue(@PathVariable String reviewId,
+                                           @PathVariable String issueId,
+                                           @RequestBody(required = false) KnowledgeAiReviewIssueHandleVo vo) {
+        KnowledgeAiReview review = requireReview(reviewId);
+        KnowledgeAiReviewIssue issue = requireIssue(issueId, reviewId);
+        accessService.requireWritable(review.getKnowledgeBaseId());
+        requireHandleableVersion(issue);
+        if (!"accepted".equals(issue.getHandleStatus())) {
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.not-accepted"));
+        }
+        if (StringUtils.isNotBlank(issue.getAppliedChecksum())) {
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-applied"));
+        }
+        boolean updated = issueService.update(Wrappers.lambdaUpdate(KnowledgeAiReviewIssue.class)
+                .eq(KnowledgeAiReviewIssue::getId, issueId)
+                .eq(KnowledgeAiReviewIssue::getAiReviewId, reviewId)
+                .eq(KnowledgeAiReviewIssue::getHandleStatus, "accepted")
+                .isNull(KnowledgeAiReviewIssue::getAppliedChecksum)
+                .set(KnowledgeAiReviewIssue::getHandleStatus, "rejected")
+                .set(KnowledgeAiReviewIssue::getHandledBy, accessService.currentAdminId())
+                .set(KnowledgeAiReviewIssue::getHandledAt, System.currentTimeMillis())
+                .set(KnowledgeAiReviewIssue::getHandleComment, vo == null ? null : vo.getComment())
+                .set(KnowledgeAiReviewIssue::getAppliedContent, null));
+        if (!updated) throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
+        return WebResponse.OK((Void) null);
     }
 
     @PostMapping("/{reviewId}/issues/{issueId}/reject")
@@ -255,6 +287,9 @@ public class KnowledgeAiReviewController {
             KnowledgeAiReviewIssue issue = requireIssue(issueId, reviewId);
             if (!"pending".equals(issue.getHandleStatus())) {
                 throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
+            }
+            if (parsePatch(issue.getSuggestedPatch()) == null) {
+                throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.not-applicable"));
             }
             if ("critical".equalsIgnoreCase(issue.getSeverity())) {
                 throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.issue.critical-individual-acceptance"));
@@ -330,7 +365,7 @@ public class KnowledgeAiReviewController {
         result.setContentChecksum(updatedVersion.getContentChecksum());
         result.setReviewStatus(updatedVersion.getReviewStatus());
         result.setIssueStatus("accepted");
-        result.setRequiresAiReview(true);
+        result.setRequiresAiReview(false);
         return WebResponse.OK(result);
     }
 

@@ -1,10 +1,13 @@
 package com.aether.knowledge.service.impl;
 
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nService;
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeAiReview;
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
+import com.aether.knowledge.entity.KnowledgeReviewTask;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.service.KnowledgeAiReviewIssueService;
@@ -26,10 +29,13 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -53,6 +59,7 @@ class KnowledgeDocumentWorkflowServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        new I18nUtils(org.mockito.Mockito.mock(I18nService.class));
         MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "test");
         TableInfoHelper.initTableInfo(assistant, KnowledgeDocumentVersion.class);
         TableInfoHelper.initTableInfo(assistant, KnowledgeDocument.class);
@@ -107,6 +114,82 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         when(aiReviewIssueService.count(any())).thenReturn(1L);
 
         assertThrows(ServerException.class, () -> service.submit("version-1", null));
+    }
+
+    @Test
+    void editingAnAiReviewedVersionKeepsItAiReviewed() {
+        KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
+        KnowledgeDocument document = document();
+        document.setDraftVersionId("version-1");
+        when(versionService.getById("version-1")).thenReturn(version);
+        when(documentService.getById("document-1")).thenReturn(document);
+        when(versionService.update(any())).thenReturn(true);
+
+        service.updateDraft("version-1", "updated content", "checksum");
+
+        ArgumentCaptor<LambdaUpdateWrapper> versionUpdate = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(versionService).update(versionUpdate.capture());
+        assertTrue(versionUpdate.getValue().getParamNameValuePairs().containsValue(KnowledgeReviewStatus.AI_REVIEWED));
+    }
+
+    @Test
+    void refusesSubmissionWhenAnyAiIssueIsPending() {
+        KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
+        KnowledgeDocument document = document();
+        document.setDraftVersionId("version-1");
+        KnowledgeBase base = new KnowledgeBase();
+        base.setId("kb-1");
+        base.setReviewConfig("{\"aiReviewRequired\":true,\"blockOnCriticalIssues\":false}");
+        when(versionService.getById("version-1")).thenReturn(version);
+        when(documentService.getById("document-1")).thenReturn(document);
+        when(accessService.requireSubmittable("kb-1")).thenReturn(base);
+        KnowledgeAiReview review = new KnowledgeAiReview();
+        review.setId("review-1");
+        when(aiReviewRecordService.getOne(any(), org.mockito.ArgumentMatchers.eq(false))).thenReturn(review);
+        when(aiReviewIssueService.count(any())).thenReturn(1L);
+
+        assertThrows(ServerException.class, () -> service.submit("version-1", null));
+    }
+
+    @Test
+    void refusesRequiredAiSubmissionWithoutSuccessfulPrecheck() {
+        KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
+        KnowledgeDocument document = document();
+        document.setDraftVersionId("version-1");
+        KnowledgeBase base = new KnowledgeBase();
+        base.setId("kb-1");
+        base.setReviewConfig("{\"aiReviewRequired\":true}");
+        when(versionService.getById("version-1")).thenReturn(version);
+        when(documentService.getById("document-1")).thenReturn(document);
+        when(accessService.requireSubmittable("kb-1")).thenReturn(base);
+        when(aiReviewRecordService.getOne(any(), org.mockito.ArgumentMatchers.eq(false))).thenReturn(null);
+
+        assertThrows(ServerException.class, () -> service.submit("version-1", null));
+    }
+
+    @Test
+    void submitsRequiredAiVersionAfterSuccessfulPrecheckWithNoPendingIssues() {
+        KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
+        version.setContentChecksum("edited-checksum");
+        KnowledgeDocument document = document();
+        document.setDraftVersionId("version-1");
+        KnowledgeBase base = new KnowledgeBase();
+        base.setId("kb-1");
+        base.setReviewConfig("{\"aiReviewRequired\":true}");
+        KnowledgeAiReview review = new KnowledgeAiReview();
+        review.setId("review-1");
+        review.setSourceChecksum("precheck-checksum");
+        when(versionService.getById("version-1")).thenReturn(version);
+        when(documentService.getById("document-1")).thenReturn(document);
+        when(accessService.requireSubmittable("kb-1")).thenReturn(base);
+        when(aiReviewRecordService.getOne(any(), org.mockito.ArgumentMatchers.eq(false))).thenReturn(review);
+        when(aiReviewIssueService.count(any())).thenReturn(0L);
+        when(versionService.update(any())).thenReturn(true);
+        when(taskService.save(any(KnowledgeReviewTask.class))).thenReturn(true);
+
+        service.submit("version-1", null);
+
+        verify(taskService).save(any(KnowledgeReviewTask.class));
     }
 
     private KnowledgeDocument document() {

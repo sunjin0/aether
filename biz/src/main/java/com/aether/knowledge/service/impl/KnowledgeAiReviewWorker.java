@@ -167,7 +167,7 @@ public class KnowledgeAiReviewWorker {
             issue.setSeverity(normalizeSeverity(item.getString("severity")));
             issue.setMessage(StringUtils.defaultIfBlank(item.getString("message"), "AI review issue"));
             issue.setOriginalExcerpt(truncate(item.getString("originalExcerpt"), 2000));
-            issue.setSuggestedPatch(normalizePatch(item.getJSONObject("patch"), issue.getOriginalExcerpt()));
+            issue.setSuggestedPatch(normalizePatch(item.getJSONObject("patch"), issue.getOriginalExcerpt(), review.getSourceContent()));
             issue.setHandleStatus("pending");
             issueService.save(issue);
         }
@@ -263,7 +263,7 @@ public class KnowledgeAiReviewWorker {
         return JSONObject.parseObject(normalized);
     }
 
-    private String normalizePatch(JSONObject patch, String originalExcerpt) {
+    private String normalizePatch(JSONObject patch, String originalExcerpt, String sourceContent) {
         if (patch == null || StringUtils.isBlank(originalExcerpt)) return null;
         String operation = StringUtils.lowerCase(patch.getString("operation"));
         if (!Arrays.asList("replace", "insert_before", "insert_after", "delete", "set_heading").contains(operation)) {
@@ -273,6 +273,7 @@ public class KnowledgeAiReviewWorker {
         if (target == null || !StringUtils.equals(originalExcerpt, target.getString("original"))) {
             return null;
         }
+        if (!StringUtils.contains(sourceContent, originalExcerpt)) return null;
         if ("set_heading".equals(operation)) {
             Integer level = patch.getInteger("level");
             if (level == null || level < 1 || level > 6 || StringUtils.isBlank(patch.getString("title"))) return null;

@@ -122,6 +122,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft.modified"));
         }
         String newChecksum = checksum(content);
+        String nextReviewStatus = KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus())
+                ? KnowledgeReviewStatus.AI_REVIEWED : KnowledgeReviewStatus.DRAFT;
         boolean updated = versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, versionId)
                 .in(KnowledgeDocumentVersion::getReviewStatus,
@@ -129,11 +131,11 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 .set(KnowledgeDocumentVersion::getContent, content)
                 .set(KnowledgeDocumentVersion::getStructuredContent, null)
                 .set(KnowledgeDocumentVersion::getContentChecksum, newChecksum)
-                .set(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.DRAFT));
+                .set(KnowledgeDocumentVersion::getReviewStatus, nextReviewStatus));
         if (!updated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-state.changed"));
-        updateDocumentReviewStatus(document.getId(), KnowledgeReviewStatus.DRAFT, versionId, null);
+        updateDocumentReviewStatus(document.getId(), nextReviewStatus, versionId, null);
         log(null, document.getId(), versionId, "DRAFT_UPDATED", version.getReviewStatus(),
-                KnowledgeReviewStatus.DRAFT, null);
+                nextReviewStatus, null);
         return versionService.getById(versionId);
     }
 
@@ -178,17 +180,17 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-pointer.changed"));
         }
         boolean aiRequired = booleanConfig(base.getReviewConfig(), "aiReviewRequired", true);
-        if (aiRequired && !KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus())) {
+        KnowledgeAiReview latestSuccessfulReview = latestSuccessfulAiReview(versionId);
+        if (aiRequired && (!KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus())
+                || latestSuccessfulReview == null)) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.required-before-submission"));
         }
         if (!KnowledgeReviewStatus.DRAFT.equals(version.getReviewStatus())
                 && !KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.submit.invalid-state"));
         }
-        if (KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus())
-                && booleanConfig(base.getReviewConfig(), "blockOnCriticalIssues", true)
-                && hasPendingCriticalIssues(versionId)) {
-            throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.critical-issues.pending"));
+        if (aiRequired && hasPendingAiIssues(latestSuccessfulReview)) {
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issues.pending"));
         }
         String submitter = accessService.currentAdminId();
         long now = System.currentTimeMillis();
@@ -354,17 +356,19 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         });
     }
 
-    private boolean hasPendingCriticalIssues(String versionId) {
-        KnowledgeAiReview latest = aiReviewRecordService.getOne(Wrappers.lambdaQuery(KnowledgeAiReview.class)
+    private KnowledgeAiReview latestSuccessfulAiReview(String versionId) {
+        return aiReviewRecordService.getOne(Wrappers.lambdaQuery(KnowledgeAiReview.class)
                 .eq(KnowledgeAiReview::getDocumentVersionId, versionId)
                 .eq(KnowledgeAiReview::getStatus, "success")
                 .eq(KnowledgeAiReview::getDeleted, false)
                 .orderByDesc(KnowledgeAiReview::getCreatedAt)
                 .last("LIMIT 1"), false);
-        return latest != null && aiReviewIssueService.count(
+    }
+
+    private boolean hasPendingAiIssues(KnowledgeAiReview review) {
+        return review != null && aiReviewIssueService.count(
                 Wrappers.lambdaQuery(com.aether.knowledge.entity.KnowledgeAiReviewIssue.class)
-                        .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getAiReviewId, latest.getId())
-                        .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getSeverity, "critical")
+                        .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getAiReviewId, review.getId())
                         .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getHandleStatus, "pending")
                         .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getDeleted, false)) > 0;
     }

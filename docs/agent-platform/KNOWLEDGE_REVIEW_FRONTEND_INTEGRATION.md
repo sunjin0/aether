@@ -23,7 +23,7 @@ stateDiagram-v2
   DRAFT --> AI_REVIEWING: 发起 AI 审查
   AI_REVIEWING --> AI_REVIEWED: 审查完成
   AI_REVIEWING --> DRAFT: 审查失败
-  AI_REVIEWED --> DRAFT: 修改正文
+  AI_REVIEWED --> AI_REVIEWED: 修改正文、应用建议或处理问题
   DRAFT --> SUBMITTED: 无需 AI 或已满足策略
   AI_REVIEWED --> SUBMITTED: 提交人工审批
   SUBMITTED --> APPROVED: 审批通过
@@ -38,7 +38,7 @@ stateDiagram-v2
 | --- | --- | --- |
 | `DRAFT` | 草稿 | 编辑、发起 AI 审查、提交审批（取决于知识库策略） |
 | `AI_REVIEWING` | AI 审查中 | 只读、轮询 AI 审查结果 |
-| `AI_REVIEWED` | 待处理 AI 建议 | 编辑、处理问题、保存为草稿后重新审查、提交审批 |
+| `AI_REVIEWED` | AI 预检完成 | 编辑、处理问题、提交审批；AI 必审时全部问题处理完后才能提交 |
 | `SUBMITTED` | 人工审批中 | 查看审批进度；审批人可认领、通过、拒绝 |
 | `APPROVED` | 已通过，索引中/已发布 | 查看索引任务、失败重试、基于该版本修订 |
 | `REJECTED` | 已拒绝 | 查看理由、基于该版本修订 |
@@ -100,7 +100,7 @@ type MemberRoleConfig = {
 - 版本时间线：显示版本号、来源版本、提交/审批人和时间；点击加载对应版本，只读历史版本。
 - 编辑器：加载 `version.content`；保存时调用草稿更新接口；保存成功后以响应中的新 `contentChecksum` 替换本地并发令牌。
 - AI 审查面板：分数、摘要、模型、问题清单；建议高亮 `originalExcerpt`，展示 `suggestedPatch` 但不自动改写正文。
-- 提交审批前：若存在未处理 `critical` 问题，提示处理或明确忽略；最终以后端 `409` 校验为准。
+- 提交审批前：AI 必审时必须存在成功预检且不存在任何 `pending` 问题；提示作者接受、手动修复、拒绝或忽略每项问题，最终以后端 `409` 校验为准。
 
 ### 3.4 审批中心
 
@@ -170,7 +170,7 @@ type MemberRoleConfig = {
 
 `KnowledgeAiReview.status`：`pending`、`running`、`success`、`failed`、`stale`。轮询 `pending/running`；`failed/stale` 显示 `errorMessage` 并允许回到草稿后重新发起。
 
-问题处理状态：`rejected`（不采纳）、`manually_fixed`（已手动修复）、`ignored`（忽略）。编辑正文后应重新发起 AI 审查；旧审查结果只作为历史参考。
+问题处理状态：`accepted`（已采纳）、`rejected`（不采纳）、`manually_fixed`（已手动修复）、`ignored`（忽略）。AI 审查是预检：完成预检后编辑正文或应用建议仍保持 `AI_REVIEWED`，但手动修改不会自动关闭问题，作者必须逐条标记相关问题的处理结果。
 
 ### 4.4 提交、审批与索引
 

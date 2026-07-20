@@ -19,6 +19,7 @@ import com.aether.knowledge.service.KnowledgeReviewTaskService;
 import com.aether.knowledge.vo.KnowledgeReviewTaskDetailVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewDiffVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueAcceptVo;
+import com.aether.knowledge.vo.KnowledgeAiReviewIssueAcceptResultVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueBatchAcceptVo;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -112,6 +113,7 @@ class KnowledgeReviewControllerTest {
         KnowledgeAiReviewRecordService reviewService = mock(KnowledgeAiReviewRecordService.class);
         KnowledgeAiReviewIssueService issueService = mock(KnowledgeAiReviewIssueService.class);
         KnowledgeDocumentVersionService versionService = mock(KnowledgeDocumentVersionService.class);
+        KnowledgeDocumentWorkflowService workflowService = mock(KnowledgeDocumentWorkflowService.class);
         KnowledgeAiReview review = new KnowledgeAiReview();
         review.setId("review-1");
         review.setKnowledgeBaseId("kb-1");
@@ -136,7 +138,7 @@ class KnowledgeReviewControllerTest {
         when(issueService.list(any())).thenReturn(Collections.singletonList(issue));
         KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
                 mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class),
-                mock(KnowledgeDocumentWorkflowService.class));
+                workflowService);
 
         KnowledgeAiReviewDiffVo result = controller.diff("review-1").getData();
 
@@ -175,7 +177,8 @@ class KnowledgeReviewControllerTest {
         when(versionService.getById("version-1")).thenReturn(version);
         when(issueService.update(any())).thenReturn(true);
         KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
-                mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class), workflowService);
+                mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class),
+                workflowService);
         KnowledgeAiReviewIssueAcceptVo request = new KnowledgeAiReviewIssueAcceptVo();
         request.setExpectedChecksum("checksum-1");
 
@@ -198,7 +201,7 @@ class KnowledgeReviewControllerTest {
         version.setId("version-1"); version.setContent("old text");
         version.setContentChecksum("checksum-1"); version.setReviewStatus("AI_REVIEWED");
         KnowledgeDocumentVersion updatedVersion = new KnowledgeDocumentVersion();
-        updatedVersion.setId("version-1"); updatedVersion.setContentChecksum("checksum-2"); updatedVersion.setReviewStatus("DRAFT");
+        updatedVersion.setId("version-1"); updatedVersion.setContentChecksum("checksum-2"); updatedVersion.setReviewStatus("AI_REVIEWED");
         when(reviewService.getById("review-1")).thenReturn(review);
         when(versionService.getById("version-1")).thenReturn(version);
         when(issueService.list(any())).thenReturn(Collections.singletonList(issue));
@@ -209,8 +212,60 @@ class KnowledgeReviewControllerTest {
         KnowledgeAiReviewIssueAcceptVo request = new KnowledgeAiReviewIssueAcceptVo();
         request.setExpectedChecksum("checksum-1");
 
-        assertEquals("checksum-2", controller.applyAcceptedIssues("review-1", request).getData().getContentChecksum());
+        KnowledgeAiReviewIssueAcceptResultVo result = controller.applyAcceptedIssues("review-1", request).getData();
+
+        assertEquals("checksum-2", result.getContentChecksum());
+        assertEquals("AI_REVIEWED", result.getReviewStatus());
+        assertEquals(false, result.isRequiresAiReview());
         verify(workflowService).updateDraft("version-1", "new text", "checksum-1");
+    }
+
+    @Test
+    void unacceptRevertsAnUnappliedAcceptedIssue() {
+        KnowledgeAiReviewRecordService reviewService = mock(KnowledgeAiReviewRecordService.class);
+        KnowledgeAiReviewIssueService issueService = mock(KnowledgeAiReviewIssueService.class);
+        KnowledgeDocumentVersionService versionService = mock(KnowledgeDocumentVersionService.class);
+        KnowledgeAiReview review = new KnowledgeAiReview();
+        review.setId("review-1"); review.setKnowledgeBaseId("kb-1"); review.setStatus("success");
+        KnowledgeAiReviewIssue issue = issue("issue-1", "review-1", "version-1", "old text", "new text");
+        issue.setHandleStatus("accepted");
+        KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
+        version.setId("version-1"); version.setReviewStatus("AI_REVIEWED");
+        when(reviewService.getById("review-1")).thenReturn(review);
+        when(issueService.getById("issue-1")).thenReturn(issue);
+        when(versionService.getById("version-1")).thenReturn(version);
+        when(issueService.update(any())).thenReturn(true);
+        KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
+                mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class),
+                mock(KnowledgeDocumentWorkflowService.class));
+
+        controller.unacceptIssue("review-1", "issue-1", null);
+
+        verify(issueService).update(any());
+    }
+
+    @Test
+    void unacceptDoesNotAllowAnIssueAlreadyAppliedToDraft() {
+        KnowledgeAiReviewRecordService reviewService = mock(KnowledgeAiReviewRecordService.class);
+        KnowledgeAiReviewIssueService issueService = mock(KnowledgeAiReviewIssueService.class);
+        KnowledgeDocumentVersionService versionService = mock(KnowledgeDocumentVersionService.class);
+        KnowledgeAiReview review = new KnowledgeAiReview();
+        review.setId("review-1"); review.setKnowledgeBaseId("kb-1"); review.setStatus("success");
+        KnowledgeAiReviewIssue issue = issue("issue-1", "review-1", "version-1", "old text", "new text");
+        issue.setHandleStatus("accepted"); issue.setAppliedChecksum("checksum-2");
+        KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
+        version.setId("version-1"); version.setReviewStatus("AI_REVIEWED");
+        when(reviewService.getById("review-1")).thenReturn(review);
+        when(issueService.getById("issue-1")).thenReturn(issue);
+        when(versionService.getById("version-1")).thenReturn(version);
+        KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
+                mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class),
+                mock(KnowledgeDocumentWorkflowService.class));
+
+        assertThrows(com.aether.exception.ServerException.class,
+                () -> controller.unacceptIssue("review-1", "issue-1", null));
+
+        verify(issueService, never()).update(any());
     }
 
     @Test
@@ -233,12 +288,36 @@ class KnowledgeReviewControllerTest {
         when(versionService.getById("version-1")).thenReturn(version);
         when(issueService.update(any())).thenReturn(true);
         KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
-                mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class), workflowService);
+                mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class),
+                workflowService);
         KnowledgeAiReviewIssueBatchAcceptVo request = new KnowledgeAiReviewIssueBatchAcceptVo();
         request.setIssueIds(Arrays.asList("issue-1", "issue-2")); request.setExpectedChecksum("checksum-1");
 
         assertEquals("checksum-1", controller.acceptIssues("review-1", request).getData().getContentChecksum());
         verify(workflowService, never()).updateDraft(any(), any(), any());
+    }
+
+    @Test
+    void rejectingTheLastPendingIssueKeepsTheVersionAiReviewed() {
+        KnowledgeAiReviewRecordService reviewService = mock(KnowledgeAiReviewRecordService.class);
+        KnowledgeAiReviewIssueService issueService = mock(KnowledgeAiReviewIssueService.class);
+        KnowledgeDocumentVersionService versionService = mock(KnowledgeDocumentVersionService.class);
+        KnowledgeAiReview review = new KnowledgeAiReview();
+        review.setId("review-1"); review.setKnowledgeBaseId("kb-1");
+        KnowledgeAiReviewIssue issue = issue("issue-1", "review-1", "version-1", "old text", "new text");
+        KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
+        version.setId("version-1"); version.setReviewStatus("AI_REVIEWED");
+        when(reviewService.getById("review-1")).thenReturn(review);
+        when(issueService.getById("issue-1")).thenReturn(issue);
+        when(versionService.getById("version-1")).thenReturn(version);
+        when(issueService.update(any())).thenReturn(true);
+        KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
+                mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class),
+                mock(KnowledgeDocumentWorkflowService.class));
+
+        controller.rejectIssue("review-1", "issue-1", null);
+
+        assertEquals("AI_REVIEWED", version.getReviewStatus());
     }
 
     @Test
