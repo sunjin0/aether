@@ -84,7 +84,7 @@ public class AgentKnowledgeBaseBindingController {
     @PostMapping
     public WebResponse<String> save(@RequestBody AgentKnowledgeBaseBindingVo vo) {
         if (StringUtils.isBlank(vo.getAgentDefinitionId()) || StringUtils.isBlank(vo.getKnowledgeBaseId())) {
-            throw new ServerException(400, "agentDefinitionId and knowledgeBaseId are required");
+            throw new ServerException(400, I18nUtils.getMessage("agent.knowledge.binding.required"));
         }
         validateKnowledgeBase(vo.getKnowledgeBaseId());
         boolean exists = bindingService.count(Wrappers.lambdaQuery(AgentKnowledgeBaseBinding.class)
@@ -92,7 +92,7 @@ public class AgentKnowledgeBaseBindingController {
                 .eq(AgentKnowledgeBaseBinding::getKnowledgeBaseId, vo.getKnowledgeBaseId())
                 .eq(AgentKnowledgeBaseBinding::getDeleted, false)) > 0;
         if (exists) {
-            throw new ServerException(400, "knowledge base already bound");
+            throw new ServerException(400, I18nUtils.getMessage("agent.knowledge.binding.exists"));
         }
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         BeanUtils.copyProperties(vo, binding);
@@ -125,7 +125,7 @@ public class AgentKnowledgeBaseBindingController {
     private void validateKnowledgeBase(String knowledgeBaseId) {
         KnowledgeBase kb = knowledgeBaseService.getById(knowledgeBaseId);
         if (kb == null || Boolean.TRUE.equals(kb.getDeleted())) {
-            throw new ServerException(404, "knowledge base not found");
+            throw new ServerException(404, I18nUtils.getMessage("agent.knowledge.base.not.found"));
         }
     }
 }

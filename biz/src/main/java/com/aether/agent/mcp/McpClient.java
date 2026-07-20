@@ -4,6 +4,7 @@ import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.mcp.transport.McpTransport;
 import com.aether.agent.mcp.transport.McpTransportFactory;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -45,7 +46,7 @@ public class McpClient {
             request(server, session, "ping", new JSONObject());
         } catch (Exception e) {
             sessionManager.invalidate(server.getId());
-            throw new ServerException(502, "MCP服务不可用，请检查服务状态或连接配置");
+            throw new ServerException(502, I18nUtils.getMessage("agent.mcp.service.unavailable"));
         }
     }
 
@@ -118,7 +119,7 @@ public class McpClient {
         updateSession(session, response);
         JSONObject error = json.getJSONObject("error");
         if (error != null) {
-            throw new ServerException(502, "MCP调用失败: " + StringUtils.defaultIfBlank(error.getString("message"), error.toJSONString()));
+            throw new ServerException(502, I18nUtils.getMessage("agent.mcp.call.failed"));
         }
         JSONObject result = json.getJSONObject("result");
         return result == null ? new JSONObject() : result;
@@ -138,7 +139,7 @@ public class McpClient {
             McpTransport transport = transportFactory.getTransport(server.getTransport());
             return transport.send(server, session, body);
         } catch (IllegalArgumentException e) {
-            throw new ServerException(422, e.getMessage());
+            throw new ServerException(422, I18nUtils.getMessage("agent.mcp.transport.unsupported"));
         }
     }
 
@@ -152,12 +153,12 @@ public class McpClient {
     private JSONObject parseJsonRpcResponse(String body) {
         String payload = extractPayload(body);
         if (StringUtils.isBlank(payload)) {
-            throw new ServerException(502, "MCP响应为空");
+            throw new ServerException(502, I18nUtils.getMessage("agent.mcp.response.empty"));
         }
         try {
             return JSON.parseObject(payload);
         } catch (Exception e) {
-            throw new ServerException(502, "MCP响应JSON解析失败: " + StringUtils.abbreviate(payload, MAX_RESPONSE_BODY));
+            throw new ServerException(502, I18nUtils.getMessage("agent.mcp.response.invalid"));
         }
     }
 

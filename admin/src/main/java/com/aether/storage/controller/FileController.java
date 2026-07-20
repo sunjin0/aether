@@ -2,6 +2,7 @@ package com.aether.storage.controller;
 
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
 import com.aether.storage.model.FileUploadResult;
 import com.aether.storage.service.ObjectStorageService;
@@ -99,13 +100,13 @@ public class FileController {
     }
 
     private void validateFile(MultipartFile file) {
-        if (file == null || file.isEmpty()) throw new ServerException(422, "文件不能为空");
-        if (file.getSize() > maxFileSize) throw new ServerException(413, "文件大小超过限制");
+        if (file == null || file.isEmpty()) throw new ServerException(422, I18nUtils.getMessage("file.required"));
+        if (file.getSize() > maxFileSize) throw new ServerException(413, I18nUtils.getMessage("file.size.exceeded"));
     }
 
     private void validateObjectKey(String objectKey) {
         if (StringUtils.isBlank(objectKey) || objectKey.startsWith("/") || objectKey.contains("..") || objectKey.contains("\\")) {
-            throw new ServerException(400, "非法文件标识");
+            throw new ServerException(400, I18nUtils.getMessage("file.identifier.invalid"));
         }
     }
 

@@ -1,6 +1,7 @@
 package com.aether.knowledge.service.impl;
 
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.service.KnowledgeBaseService;
@@ -22,7 +23,7 @@ public class KnowledgeAccessServiceImpl implements KnowledgeAccessService {
     public String currentAdminId() {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         if (StringUtils.isBlank(userId)) {
-            throw new ServerException(401, "current administrator is required");
+            throw new ServerException(401, I18nUtils.getMessage("knowledge.current-admin.required"));
         }
         return userId;
     }
@@ -62,7 +63,7 @@ public class KnowledgeAccessServiceImpl implements KnowledgeAccessService {
     private KnowledgeBase getActive(String id) {
         KnowledgeBase base = knowledgeBaseService.getById(id);
         if (base == null || Boolean.TRUE.equals(base.getDeleted())) {
-            throw new ServerException(404, "knowledge base not found");
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.base.not-found"));
         }
         return base;
     }

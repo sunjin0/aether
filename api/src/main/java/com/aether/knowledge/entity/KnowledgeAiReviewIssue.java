@@ -22,4 +22,7 @@ public class KnowledgeAiReviewIssue extends BaseEntity {
     private String handledBy;
     private Long handledAt;
     private String handleComment;
+    /** Actual replacement accepted by a human; may differ from the AI proposal. */
+    private String appliedContent;
+    private String appliedChecksum;
 }

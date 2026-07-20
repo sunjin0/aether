@@ -1,6 +1,8 @@
 package com.aether.utils;
 
 
+import com.aether.i18n.I18nUtils;
+
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -28,7 +30,7 @@ public class AesUtil {
             byte[] encryptedBytes = cipher.doFinal(content.getBytes());
             return Base64.getEncoder().encodeToString(encryptedBytes);
         } catch (Exception e) {
-            throw new RuntimeException("加密失败", e);
+            throw new RuntimeException(I18nUtils.getMessage("aes.encrypt.fail"), e);
         }
     }
 
@@ -48,8 +50,7 @@ public class AesUtil {
             byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
             return new String(decryptedBytes);
         } catch (Exception e) {
-            throw new RuntimeException("解密失败", e);
+            throw new RuntimeException(I18nUtils.getMessage("aes.decrypt.fail"), e);
         }
     }
 }
-

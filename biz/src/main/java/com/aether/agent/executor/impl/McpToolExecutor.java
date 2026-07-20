@@ -8,6 +8,7 @@ import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.mcp.McpClient;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -72,20 +73,20 @@ public class McpToolExecutor implements ToolExecutor {
         } catch (ServerException e) {
             return failure(requestUrl, requestBody, e.getMessage(), startTime);
         } catch (Exception e) {
-            return failure(requestUrl, requestBody, "MCP工具执行失败: " + e.getMessage(), startTime);
+            return failure(requestUrl, requestBody, I18nUtils.getMessage("agent.mcp.tool.execution.failed"), startTime);
         }
     }
 
     private AgentMcpServer buildServer(AgentTool tool) {
         if (StringUtils.isBlank(tool.getMcpServerId())) {
-            throw new ServerException(422, "MCP服务不能为空");
+            throw new ServerException(422, I18nUtils.getMessage("agent.mcp.service.required"));
         }
         AgentMcpServer server = agentMcpServerService.getById(tool.getMcpServerId());
         if (server == null || Boolean.TRUE.equals(server.getDeleted())) {
-            throw new ServerException(404, "MCP服务不存在");
+            throw new ServerException(404, I18nUtils.getMessage("agent.mcp.service.not.found"));
         }
         if (!Integer.valueOf(1).equals(server.getStatus())) {
-            throw new ServerException(422, "MCP服务未启用");
+            throw new ServerException(422, I18nUtils.getMessage("agent.mcp.service.disabled"));
         }
         if (tool.getTimeoutMs() != null) {
             server.setTimeoutMs(tool.getTimeoutMs());
@@ -96,10 +97,10 @@ public class McpToolExecutor implements ToolExecutor {
 
     private void validateServer(AgentMcpServer server) {
         if (StringUtils.isBlank(server.getBaseUrl())) {
-            throw new ServerException(422, "MCP endpoint不能为空");
+            throw new ServerException(422, I18nUtils.getMessage("agent.mcp.endpoint.required"));
         }
         if (!mcpClient.supportsTransport(server.getTransport())) {
-            throw new ServerException(422, "当前不支持该MCP transport: " + server.getTransport());
+            throw new ServerException(422, I18nUtils.getMessage("agent.mcp.transport.unsupported"));
         }
     }
 

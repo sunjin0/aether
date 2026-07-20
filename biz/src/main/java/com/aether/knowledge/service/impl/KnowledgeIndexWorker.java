@@ -1,5 +1,6 @@
 package com.aether.knowledge.service.impl;
 
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeIndexJob;
 import com.aether.knowledge.service.KnowledgeDocumentIndexService;
@@ -89,17 +90,17 @@ public class KnowledgeIndexWorker {
                     .eq(KnowledgeIndexJob::getStatus, "running")
                     .eq(KnowledgeIndexJob::getStartedAt, job.getStartedAt())
                     .set(KnowledgeIndexJob::getRetryCount, retryCount)
-                    .set(KnowledgeIndexJob::getErrorMessage, e.getMessage())
+                    .set(KnowledgeIndexJob::getErrorMessage, I18nUtils.getMessage("knowledge.index.failed"))
                     .set(KnowledgeIndexJob::getFinishedAt, System.currentTimeMillis())
                     .set(KnowledgeIndexJob::getStatus, nextStatus));
             if (!released) return;
             if ("failed".equals(nextStatus)) {
-                KnowledgeDocumentVersion version = new KnowledgeDocumentVersion(); version.setId(job.getDocumentVersionId()); version.setIndexStatus(3); version.setIndexErrorMessage(e.getMessage()); versionService.updateById(version);
+                KnowledgeDocumentVersion version = new KnowledgeDocumentVersion(); version.setId(job.getDocumentVersionId()); version.setIndexStatus(3); version.setIndexErrorMessage(I18nUtils.getMessage("knowledge.index.failed")); versionService.updateById(version);
                 KnowledgeDocument current = documentService.getById(job.getDocumentId());
                 KnowledgeDocumentVersion failedVersion = versionService.getById(job.getDocumentVersionId());
                 if (current != null && failedVersion != null && (current.getCurrentVersionNo() == null
                         || failedVersion.getVersionNo() > current.getCurrentVersionNo())) {
-                    KnowledgeDocument failed = new KnowledgeDocument(); failed.setId(job.getDocumentId()); failed.setIndexStatus(3); failed.setIndexErrorMessage(e.getMessage()); documentService.updateById(failed);
+                    KnowledgeDocument failed = new KnowledgeDocument(); failed.setId(job.getDocumentId()); failed.setIndexStatus(3); failed.setIndexErrorMessage(I18nUtils.getMessage("knowledge.index.failed")); documentService.updateById(failed);
                 }
             }
             if ("pending".equals(nextStatus)) {
@@ -119,7 +120,7 @@ public class KnowledgeIndexWorker {
                 .lt(KnowledgeIndexJob::getStartedAt, staleBefore)
                 .eq(KnowledgeIndexJob::getDeleted, false)
                 .set(KnowledgeIndexJob::getStatus, "pending")
-                .set(KnowledgeIndexJob::getErrorMessage, "index worker lease expired"));
+                .set(KnowledgeIndexJob::getErrorMessage, I18nUtils.getMessage("knowledge.index.lease.expired")));
         jobService.list(Wrappers.lambdaQuery(KnowledgeIndexJob.class)
                         .eq(KnowledgeIndexJob::getStatus, "pending")
                         .eq(KnowledgeIndexJob::getDeleted, false)

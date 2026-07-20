@@ -4,6 +4,7 @@ import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.utils.AesUtil;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -84,14 +85,14 @@ public class OpenAIModelClient implements ModelClient {
             log.debug("Model response: {}", responseBody);
             return parseResponse(responseBody, model);
         } catch (ResourceAccessException e) {
-            throw new ServerException(503, "model provider timeout");
+            throw new ServerException(503, I18nUtils.getMessage("agent.model.provider.timeout"));
         } catch (ServerException e) {
             throw e;
         } catch (RestClientException e) {
-            throw new ServerException(500, "model call failed");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.call.failed"));
         } catch (Exception e) {
             log.error("Failed to parse model response", e);
-            throw new ServerException(500, "model response parse failed: " + e.getMessage());
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.response.invalid"));
         }
     }
 
@@ -115,7 +116,7 @@ public class OpenAIModelClient implements ModelClient {
             throw e;
         } catch (Exception e) {
             log.error("模型流式调用异常, provider={}", provider.getName(), e);
-            throw new ServerException(500, "模型调用失败");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.call.failed"));
         }
     }
 
@@ -344,7 +345,7 @@ public class OpenAIModelClient implements ModelClient {
 
     private String buildChatUrl(String apiBaseUrl) {
         if (StringUtils.isBlank(apiBaseUrl)) {
-            throw new ServerException(422, "API 基础地址不能为空");
+            throw new ServerException(422, I18nUtils.getMessage("agent.model.api.base.url.required"));
         }
         String baseUrl = StringUtils.removeEnd(apiBaseUrl, "/");
         if (baseUrl.endsWith("/v1/chat/completions")) {
@@ -355,41 +356,40 @@ public class OpenAIModelClient implements ModelClient {
 
     private ModelChatResponse parseResponse(String responseBody, String defaultModel) {
         if (StringUtils.isBlank(responseBody)) {
-            throw new ServerException(500, "model response is empty");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.response.empty"));
         }
         JSONObject json;
         try {
             json = JSONObject.parseObject(responseBody);
         } catch (Exception e) {
             log.error("Model response is not valid JSON, body={}", responseBody);
-            throw new ServerException(500, "model response is not valid JSON: " + e.getMessage());
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.response.invalid"));
         }
         if (json == null) {
-            throw new ServerException(500, "model response is not valid JSON");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.response.invalid"));
         }
         JSONObject error = json.getJSONObject("error");
         if (error != null) {
-            String errorMsg = error.getString("message");
-            log.error("Model provider returned error: {}", errorMsg);
-            throw new ServerException(500, "model provider error: " + errorMsg);
+            log.error("Model provider returned an error response");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.provider.error"));
         }
         JSONArray choices = json.getJSONArray("choices");
         if (choices == null || choices.isEmpty()) {
-            throw new ServerException(500, "model response missing choices array");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.response.invalid"));
         }
         JSONObject firstChoice = choices.getJSONObject(0);
         if (firstChoice == null) {
-            throw new ServerException(500, "model response first choice is null");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.response.invalid"));
         }
         JSONObject message = firstChoice.getJSONObject("message");
         if (message == null) {
-            throw new ServerException(500, "model response message is null");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.response.invalid"));
         }
         String content = message.getString("content");
         String reasoningContent = message.getString("reasoning_content");
         JSONArray toolCalls = message.getJSONArray("tool_calls");
         if (StringUtils.isBlank(content) && StringUtils.isBlank(reasoningContent) && (toolCalls == null || toolCalls.isEmpty())) {
-            throw new ServerException(500, "model response content, reasoning_content, and tool_calls are all empty");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.response.empty"));
         }
 
         JSONObject usage = json.getJSONObject("usage");

@@ -2,6 +2,7 @@ package com.aether.knowledge.controller;
 
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeIndexJob;
@@ -47,16 +48,16 @@ public class KnowledgeIndexJobController {
     }
     @GetMapping("/{id}") public WebResponse<KnowledgeIndexJob> detail(@PathVariable String id) {
         KnowledgeIndexJob job = jobService.getById(id);
-        if (job == null || Boolean.TRUE.equals(job.getDeleted())) throw new ServerException(404, "index job not found");
+        if (job == null || Boolean.TRUE.equals(job.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("knowledge.index-job.not-found"));
         accessService.requireReadable(job.getKnowledgeBaseId());
         return WebResponse.OK(job);
     }
     @PostMapping("/{id}/retry") @Permission(path="/knowledge/document", type=Permission.Type.Write)
     public WebResponse<String> retry(@PathVariable String id) {
-        KnowledgeIndexJob job = jobService.getById(id); if (job == null) throw new ServerException(404, "index job not found");
+        KnowledgeIndexJob job = jobService.getById(id); if (job == null) throw new ServerException(404, I18nUtils.getMessage("knowledge.index-job.not-found"));
         accessService.requireWritable(job.getKnowledgeBaseId());
         KnowledgeDocument document = documentService.getById(job.getDocumentId()); KnowledgeDocumentVersion version = versionService.getById(job.getDocumentVersionId());
-        if (document == null || version == null) throw new ServerException(404, "document version not found");
+        if (document == null || version == null) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
         return WebResponse.OK(indexService.queueReindex(document, version, "retry"));
     }
 }

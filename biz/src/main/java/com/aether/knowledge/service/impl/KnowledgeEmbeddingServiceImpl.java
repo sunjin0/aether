@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.knowledge.service.KnowledgeEmbeddingService;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.utils.AesUtil;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.HttpEntity;
@@ -59,10 +60,10 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
     @Override
     public List<List<Double>> embedAll(ModelProvider provider, List<String> inputs) {
         if (provider == null || StringUtils.isBlank(provider.getApiBaseUrl())) {
-            throw new ServerException(400, "model provider is required for embedding");
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.embedding.model-provider.required"));
         }
         if (inputs == null || inputs.isEmpty() || inputs.stream().anyMatch(StringUtils::isBlank)) {
-            throw new ServerException(400, "embedding input is required");
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.embedding.input.required"));
         }
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -83,10 +84,10 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
         JSONObject json = JSONObject.parseObject(response.getBody());
         JSONArray data = json.getJSONArray("data");
         if (data == null || data.isEmpty()) {
-            throw new ServerException(500, "embedding response is empty");
+            throw new ServerException(500, I18nUtils.getMessage("knowledge.embedding.response.empty"));
         }
         if (data.size() != inputs.size()) {
-            throw new ServerException(500, "embedding response count mismatch");
+            throw new ServerException(500, I18nUtils.getMessage("knowledge.embedding.response.count-mismatch"));
         }
         List<List<Double>> result = new ArrayList<>(data.size());
         data.sort((left, right) -> Integer.compare(((JSONObject) left).getIntValue("index"),
@@ -94,7 +95,7 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
         for (int itemIndex = 0; itemIndex < data.size(); itemIndex++) {
             JSONArray values = data.getJSONObject(itemIndex).getJSONArray("embedding");
             if (values == null || values.size() != EMBEDDING_DIMENSIONS) {
-                throw new ServerException(500, "embedding dimension mismatch");
+                throw new ServerException(500, I18nUtils.getMessage("knowledge.embedding.dimension.mismatch"));
             }
             List<Double> embedding = new ArrayList<>(values.size());
             for (int valueIndex = 0; valueIndex < values.size(); valueIndex++) {

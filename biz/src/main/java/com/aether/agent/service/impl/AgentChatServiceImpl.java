@@ -1,5 +1,6 @@
 package com.aether.agent.service.impl;
 
+import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -593,13 +594,13 @@ public class AgentChatServiceImpl implements AgentChatService {
     private AgentConversation getOpenReplyConversation(String conversationId, String userId) {
         AgentConversation conversation = agentConversationService.getById(conversationId);
         if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
-            throw new ServerException(404, "会话不存在");
+            throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
         if (!userId.equals(conversation.getUserId())) {
-            throw new ServerException(403, "无权访问会话");
+            throw new ServerException(403, I18nUtils.getMessage("agent.conversation.access.denied"));
         }
         if (!Integer.valueOf(CONVERSATION_STATUS_OPEN).equals(conversation.getStatus())) {
-            throw new ServerException(422, "会话已关闭");
+            throw new ServerException(422, I18nUtils.getMessage("agent.conversation.closed"));
         }
         return conversation;
     }
@@ -610,27 +611,27 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .eq(AgentMessage::getConversationId, conversationId)
                 .eq(AgentMessage::getDeleted, false));
         if (question == null || !MESSAGE_TYPE_INTERACTION.equals(question.getMessageType())) {
-            throw new ServerException(404, "提问消息不存在");
+            throw new ServerException(404, I18nUtils.getMessage("agent.interaction.question.not.found"));
         }
         if (!INTERACTION_STATUS_PENDING.equals(question.getInteractionStatus())) {
-            throw new ServerException(409, "提问已处理");
+            throw new ServerException(409, I18nUtils.getMessage("agent.interaction.question.processed"));
         }
         if (question.getExpiresAt() != null && question.getExpiresAt() < System.currentTimeMillis()) {
             markInteractionStatus(question.getId(), "expired", null);
-            throw new ServerException(409, "提问已过期");
+            throw new ServerException(409, I18nUtils.getMessage("agent.interaction.question.expired"));
         }
         return question;
     }
 
     private void validateRequest(AgentChatDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getAgentId()) || StringUtils.isBlank(dto.getMessage())) {
-            throw new ServerException(400, "参数错误");
+            throw new ServerException(400, I18nUtils.getMessage("agent.request.invalid"));
         }
     }
 
     private void validateStreamRequest(AgentChatDto dto) {
         if (dto == null) {
-            throw new ServerException(400, "参数错误");
+            throw new ServerException(400, I18nUtils.getMessage("agent.request.invalid"));
         }
         if (isInteractionReplyRequest(dto)) {
             if (StringUtils.isNotBlank(dto.getConversationId())
@@ -638,7 +639,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     && dto.getAnswer() != null) {
                 return;
             }
-            throw new ServerException(400, "参数错误");
+            throw new ServerException(400, I18nUtils.getMessage("agent.request.invalid"));
         }
         validateRequest(dto);
     }
@@ -660,7 +661,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (StringUtils.isNotBlank(dto.getReasoningEffort())) {
             String effort = dto.getReasoningEffort().toLowerCase();
             if (!effort.equals("low") && !effort.equals("medium") && !effort.equals("high")) {
-                throw new ServerException(400, "reasoningEffort必须为low/medium/high");
+                throw new ServerException(400, I18nUtils.getMessage("agent.reasoning.effort.invalid"));
             }
             agent.setDefaultReasoningEffort(effort);
         }
@@ -671,7 +672,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (StringUtils.isNotBlank(dto.getReasoningEffort())) {
             String effort = dto.getReasoningEffort().toLowerCase();
             if (!effort.equals("low") && !effort.equals("medium") && !effort.equals("high")) {
-                throw new ServerException(400, "reasoningEffort必须为low/medium/high");
+                throw new ServerException(400, I18nUtils.getMessage("agent.reasoning.effort.invalid"));
             }
             agent.setDefaultReasoningEffort(effort);
         }
@@ -690,7 +691,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             userId = currentUser == null ? null : currentUser.get("userId");
         }
         if (StringUtils.isBlank(userId)) {
-            throw new ServerException(401, "未授权");
+            throw new ServerException(401, I18nUtils.getMessage("agent.authorization.required"));
         }
         return userId;
     }
@@ -698,24 +699,24 @@ public class AgentChatServiceImpl implements AgentChatService {
     private AgentDefinition getEnabledAgent(String agentId) {
         AgentDefinition agent = agentDefinitionService.getById(agentId);
         if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) {
-            throw new ServerException(404, "Agent不存在");
+            throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
         if (!Integer.valueOf(AGENT_STATUS_ENABLED).equals(agent.getStatus())) {
-            throw new ServerException(422, "Agent未启用");
+            throw new ServerException(422, I18nUtils.getMessage("agent.definition.disabled"));
         }
         return agent;
     }
 
     private ModelProvider getEnabledProvider(String providerId) {
         if (StringUtils.isBlank(providerId)) {
-            throw new ServerException(404, "模型供应商不存在");
+            throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
         }
         ModelProvider provider = modelProviderService.getById(providerId);
         if (provider == null || Boolean.TRUE.equals(provider.getDeleted())) {
-            throw new ServerException(404, "模型供应商不存在");
+            throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
         }
         if (!Integer.valueOf(PROVIDER_STATUS_ENABLED).equals(provider.getStatus())) {
-            throw new ServerException(422, "模型供应商已禁用");
+            throw new ServerException(422, I18nUtils.getMessage("agent.model.provider.disabled"));
         }
         return provider;
     }
@@ -734,16 +735,16 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         AgentConversation conversation = agentConversationService.getById(dto.getConversationId());
         if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
-            throw new ServerException(404, "会话不存在");
+            throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
         if (!userId.equals(conversation.getUserId())) {
-            throw new ServerException(403, "无权访问会话");
+            throw new ServerException(403, I18nUtils.getMessage("agent.conversation.access.denied"));
         }
         if (!agent.getId().equals(conversation.getAgentDefinitionId())) {
-            throw new ServerException(422, "会话与Agent不匹配");
+            throw new ServerException(422, I18nUtils.getMessage("agent.conversation.agent.mismatch"));
         }
         if (!Integer.valueOf(CONVERSATION_STATUS_OPEN).equals(conversation.getStatus())) {
-            throw new ServerException(422, "会话已关闭");
+            throw new ServerException(422, I18nUtils.getMessage("agent.conversation.closed"));
         }
         return conversation;
     }
@@ -880,7 +881,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (response == null || (StringUtils.isBlank(response.getContent())
                 && StringUtils.isBlank(response.getReasoningContent())
                 && StringUtils.isBlank(response.getToolCalls()))) {
-            throw new ServerException(500, "模型响应内容为空");
+            throw new ServerException(500, I18nUtils.getMessage("agent.model.response.empty"));
         }
     }
 

@@ -8,6 +8,7 @@ import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.model.ModelClientFactory;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeAiReview;
 import com.aether.knowledge.entity.KnowledgeAiReviewIssue;
 import com.aether.knowledge.entity.KnowledgeBase;
@@ -114,7 +115,7 @@ public class KnowledgeAiReviewWorker {
                 .lt(KnowledgeAiReview::getStartedAt, staleBefore)
                 .eq(KnowledgeAiReview::getDeleted, false)
                 .set(KnowledgeAiReview::getStatus, "pending")
-                .set(KnowledgeAiReview::getErrorMessage, "AI review worker lease expired"));
+                .set(KnowledgeAiReview::getErrorMessage, I18nUtils.getMessage("knowledge.ai-review.lease.expired")));
         reviewService.list(Wrappers.lambdaQuery(KnowledgeAiReview.class)
                         .eq(KnowledgeAiReview::getStatus, "pending")
                         .eq(KnowledgeAiReview::getDeleted, false)
@@ -133,6 +134,10 @@ public class KnowledgeAiReviewWorker {
         String user = "文档标题：" + StringUtils.defaultString(title) + "\n"
                 + (truncated ? "注意：文档过长，本次仅审查前部样本。\n" : "")
                 + "---文档开始---\n" + content + "\n---文档结束---";
+        system += " Every patch must use operation replace, insert_before, insert_after, delete, or set_heading. "
+                + "For replace and insert operations, include patch.target.original and patch.replacement. "
+                + "For set_heading, include patch.target.original, patch.level (1-6), and patch.title. "
+                + "The target.original value must exactly match originalExcerpt.";
         ModelChatRequest request = new ModelChatRequest();
         request.setProvider(provider);
         request.setModel(model);
@@ -162,7 +167,7 @@ public class KnowledgeAiReviewWorker {
             issue.setSeverity(normalizeSeverity(item.getString("severity")));
             issue.setMessage(StringUtils.defaultIfBlank(item.getString("message"), "AI review issue"));
             issue.setOriginalExcerpt(truncate(item.getString("originalExcerpt"), 2000));
-            issue.setSuggestedPatch(item.getJSONObject("patch") == null ? null : item.getJSONObject("patch").toJSONString());
+            issue.setSuggestedPatch(normalizePatch(item.getJSONObject("patch"), issue.getOriginalExcerpt()));
             issue.setHandleStatus("pending");
             issueService.save(issue);
         }
@@ -220,7 +225,7 @@ public class KnowledgeAiReviewWorker {
                 .eq(KnowledgeAiReview::getStatus, "running")
                 .eq(KnowledgeAiReview::getStartedAt, review.getStartedAt())
                 .set(KnowledgeAiReview::getStatus, "failed")
-                .set(KnowledgeAiReview::getErrorMessage, truncate(error.getMessage(), 10000))
+                .set(KnowledgeAiReview::getErrorMessage, I18nUtils.getMessage("knowledge.ai-review.failed"))
                 .set(KnowledgeAiReview::getFinishedAt, now));
         versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, review.getDocumentVersionId())
@@ -256,6 +261,31 @@ public class KnowledgeAiReviewWorker {
             normalized = normalized.replaceFirst("^```(?:json)?\\s*", "").replaceFirst("\\s*```$", "");
         }
         return JSONObject.parseObject(normalized);
+    }
+
+    private String normalizePatch(JSONObject patch, String originalExcerpt) {
+        if (patch == null || StringUtils.isBlank(originalExcerpt)) return null;
+        String operation = StringUtils.lowerCase(patch.getString("operation"));
+        if (!Arrays.asList("replace", "insert_before", "insert_after", "delete", "set_heading").contains(operation)) {
+            return null;
+        }
+        JSONObject target = patch.getJSONObject("target");
+        if (target == null || !StringUtils.equals(originalExcerpt, target.getString("original"))) {
+            return null;
+        }
+        if ("set_heading".equals(operation)) {
+            Integer level = patch.getInteger("level");
+            if (level == null || level < 1 || level > 6 || StringUtils.isBlank(patch.getString("title"))) return null;
+        } else if (!"delete".equals(operation) && StringUtils.isBlank(patch.getString("replacement"))) {
+            return null;
+        }
+        JSONObject normalized = new JSONObject();
+        normalized.put("operation", operation);
+        normalized.put("target", target);
+        if (patch.containsKey("replacement")) normalized.put("replacement", patch.getString("replacement"));
+        if (patch.containsKey("level")) normalized.put("level", patch.getInteger("level"));
+        if (patch.containsKey("title")) normalized.put("title", patch.getString("title"));
+        return normalized.toJSONString();
     }
 
     private String normalizeSeverity(String value) {

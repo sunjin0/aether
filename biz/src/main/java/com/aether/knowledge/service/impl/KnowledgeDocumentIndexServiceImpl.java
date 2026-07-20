@@ -15,6 +15,7 @@ import com.aether.knowledge.service.KnowledgeIndexJobService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -66,7 +67,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
     @Override
     public String queueReindex(KnowledgeDocument document, KnowledgeDocumentVersion version, String jobType) {
         if (document == null || StringUtils.isBlank(document.getId()) || version == null || StringUtils.isBlank(version.getId())) {
-            throw new ServerException(400, "document version is required");
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.document-version.required"));
         }
         KnowledgeIndexJob job = new KnowledgeIndexJob();
         job.setKnowledgeBaseId(document.getKnowledgeBaseId()); job.setDocumentId(document.getId());
@@ -100,15 +101,15 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
     @Transactional(rollbackFor = Exception.class)
     public void reindex(KnowledgeDocument document, KnowledgeDocumentVersion version) {
         if (document == null || StringUtils.isBlank(document.getId())) {
-            throw new ServerException(400, "document is required");
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.document.required"));
         }
         KnowledgeBase knowledgeBase = knowledgeBaseService.getById(document.getKnowledgeBaseId());
         if (knowledgeBase == null || Boolean.TRUE.equals(knowledgeBase.getDeleted())) {
-            throw new ServerException(404, "knowledge base not found");
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.base.not-found"));
         }
         ModelProvider provider = getEmbeddingProvider(knowledgeBase);
         if (provider == null || Boolean.TRUE.equals(provider.getDeleted())) {
-            throw new ServerException(404, "model provider not found");
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.model-provider.not-found"));
         }
 
         updateDocumentStatus(document.getId(), DOCUMENT_STATUS_INDEXING, null);
@@ -127,7 +128,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
                 : StringUtils.defaultIfBlank(version.getStructuredContent(), version.getContent());
         List<KnowledgeChunkSplitter.Segment> chunks = chunkSplitter.split(indexContent);
         if (chunks.isEmpty()) {
-            throw new ServerException(422, "knowledge document content is empty");
+            throw new ServerException(422, I18nUtils.getMessage("knowledge.document.content.empty"));
         }
         List<String> chunkTexts = new ArrayList<>(chunks.size());
         for (KnowledgeChunkSplitter.Segment segment : chunks) {
@@ -190,7 +191,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
             }
             return result.toString();
         } catch (Exception e) {
-            throw new ServerException(500, "failed to calculate chunk content hash");
+            throw new ServerException(500, I18nUtils.getMessage("knowledge.chunk.content-hash.failed"));
         }
     }
 

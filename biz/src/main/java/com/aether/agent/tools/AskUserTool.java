@@ -14,6 +14,7 @@ import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.tools.core.Tool;
 import com.aether.agent.tools.entity.ToolResult;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -81,22 +82,22 @@ public class AskUserTool implements Tool {
 
     private List<JSONObject> normalizeQuestions(Map<String, Object> arguments) {
         if (arguments == null || !(arguments.get("questions") instanceof List)) {
-            throw new ServerException(400, "ask_user必须包含questions数组");
+            throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.questions.required"));
         }
         List<?> inputQuestions = (List<?>) arguments.get("questions");
         if (inputQuestions.isEmpty() || inputQuestions.size() > 4) {
-            throw new ServerException(400, "ask_user questions数量必须为1-4个");
+            throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.questions.size.invalid"));
         }
         Set<String> ids = new HashSet<>();
         List<JSONObject> questions = new ArrayList<>();
         for (Object item : inputQuestions) {
             if (!(item instanceof Map)) {
-                throw new ServerException(400, "ask_user问题格式不合法");
+                throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.question.invalid"));
             }
             @SuppressWarnings("unchecked")
             JSONObject question = normalizeQuestion((Map<String, Object>) item);
             if (!ids.add(question.getString("id"))) {
-                throw new ServerException(400, "ask_user问题id重复: " + question.getString("id"));
+                throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.question.id.duplicate"));
             }
             questions.add(question);
         }
@@ -109,13 +110,13 @@ public class AskUserTool implements Tool {
         String type = normalizeType(input.getString("type"), input);
         String question = input.getString("question");
         if (StringUtils.isBlank(id) || id.length() > 64) {
-            throw new ServerException(400, "ask_user问题id不能为空且不能超过64字符");
+            throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.question.id.invalid"));
         }
         if (!"choice".equals(type) && !"confirm".equals(type)) {
-            throw new ServerException(400, "ask_user.type必须为choice/confirm");
+            throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.question.type.invalid"));
         }
         if (StringUtils.isBlank(question) || question.length() > 1000) {
-            throw new ServerException(400, "ask_user.question不能为空且不能超过1000字符");
+            throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.question.content.invalid"));
         }
         JSONObject normalized = new JSONObject();
         normalized.put("id", id);
@@ -124,7 +125,7 @@ public class AskUserTool implements Tool {
         if ("choice".equals(type)) {
             JSONArray options = input.getJSONArray("options");
             if (options == null || options.isEmpty() || options.size() > 5) {
-                throw new ServerException(400, "choice提问必须包含1-5个选项");
+                throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.choice.options.size.invalid"));
             }
             JSONArray normalizedOptions = new JSONArray();
             for (int i = 0; i < options.size(); i++) {
@@ -133,7 +134,7 @@ public class AskUserTool implements Tool {
                 String label = option.getString("label");
                 String value = option.getString("value");
                 if (StringUtils.isAnyBlank(optionId, label, value) || optionId.length() > 64 || label.length() > 200 || value.length() > 200) {
-                    throw new ServerException(400, "choice选项字段不合法");
+                    throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.choice.option.invalid"));
                 }
                 normalizedOptions.add(new JSONObject().fluentPut("id", optionId).fluentPut("label", label).fluentPut("value", value));
             }

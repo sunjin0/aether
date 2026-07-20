@@ -126,7 +126,7 @@ public class AgentMcpServerController {
                 .eq(AgentTool::getMcpServerId, id)
                 .eq(AgentTool::getDeleted, false));
         if (toolCount > 0) {
-            throw new ServerException(422, "该MCP服务下仍有关联工具，不能删除");
+            throw new ServerException(422, I18nUtils.getMessage("mcp.server.delete.tools.bound"));
         }
         boolean removed = agentMcpServerService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
@@ -194,7 +194,7 @@ public class AgentMcpServerController {
     private AgentMcpServer getEnabledServer(String id) {
         AgentMcpServer server = getExistingServer(id);
         if (!Integer.valueOf(1).equals(server.getStatus())) {
-            throw new ServerException(422, "MCP服务未启用");
+            throw new ServerException(422, I18nUtils.getMessage("mcp.server.disabled"));
         }
         return server;
     }
@@ -234,10 +234,10 @@ public class AgentMcpServerController {
 
     private void validateTransport(AgentMcpServer server) {
         if (StringUtils.isBlank(server.getBaseUrl())) {
-            throw new ServerException(422, "MCP endpoint不能为空");
+            throw new ServerException(422, I18nUtils.getMessage("mcp.server.endpoint.required"));
         }
         if (!mcpClient.supportsTransport(server.getTransport())) {
-            throw new ServerException(422, "当前不支持该MCP transport: " + server.getTransport());
+            throw new ServerException(422, I18nUtils.getMessage("mcp.server.transport.unsupported"));
         }
     }
 

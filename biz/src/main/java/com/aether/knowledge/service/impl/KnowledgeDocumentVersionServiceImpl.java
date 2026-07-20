@@ -1,6 +1,7 @@
 package com.aether.knowledge.service.impl;
 
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.mapper.KnowledgeDocumentMapper;
@@ -26,13 +27,13 @@ public class KnowledgeDocumentVersionServiceImpl
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocumentVersion createNextVersion(KnowledgeDocument snapshot) {
         if (snapshot == null || snapshot.getId() == null) {
-            throw new ServerException(400, "document is required");
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.document.required"));
         }
         // Serialize version allocation per document. The supplied snapshot intentionally
         // remains the content being versioned; the lock is only used for allocation.
         KnowledgeDocument locked = documentMapper.selectActiveForUpdate(snapshot.getId());
         if (locked == null) {
-            throw new ServerException(404, "knowledge document not found");
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.not-found"));
         }
         KnowledgeDocumentVersion latest = getOne(Wrappers.lambdaQuery(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getKnowledgeDocumentId, snapshot.getId())

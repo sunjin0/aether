@@ -2,6 +2,7 @@ package com.aether.knowledge.controller;
 
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeReviewTask;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
@@ -104,11 +105,11 @@ public class KnowledgeReviewTaskController {
     @GetMapping("/{id}")
     public WebResponse<KnowledgeReviewTaskDetailVo> detail(@PathVariable String id) {
         KnowledgeReviewTask task = taskService.getById(id);
-        if (task == null || Boolean.TRUE.equals(task.getDeleted())) throw new ServerException(404, "review task not found");
+        if (task == null || Boolean.TRUE.equals(task.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("knowledge.review-task.not-found"));
         accessService.requireReadable(task.getKnowledgeBaseId());
         KnowledgeDocument document = documentService.getById(task.getDocumentId());
         KnowledgeDocumentVersion version = versionService.getById(task.getDocumentVersionId());
-        if (document == null || version == null) throw new ServerException(404, "review document version not found");
+        if (document == null || version == null) throw new ServerException(404, I18nUtils.getMessage("knowledge.review-task.document-version-not-found"));
         KnowledgeAiReview aiReview = aiReviewService.getOne(Wrappers.lambdaQuery(KnowledgeAiReview.class)
                 .eq(KnowledgeAiReview::getDocumentVersionId, version.getId())
                 .eq(KnowledgeAiReview::getDeleted, false)
@@ -151,7 +152,7 @@ public class KnowledgeReviewTaskController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> claim(@PathVariable String id) {
         workflowService.claim(id);
-        return WebResponse.OK("");
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.review-task.claimed"));
     }
 
     @PostMapping("/{id}/approve")
@@ -165,6 +166,6 @@ public class KnowledgeReviewTaskController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> reject(@PathVariable String id, @RequestBody KnowledgeReviewDecisionVo vo) {
         workflowService.reject(id, vo == null ? null : vo.getComment());
-        return WebResponse.OK("");
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.review-task.rejected"));
     }
 }

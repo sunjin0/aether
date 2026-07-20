@@ -97,7 +97,7 @@ public class KnowledgeBaseController {
             kb.setVisibility("PLATFORM".equalsIgnoreCase(kb.getScope()) ? "platform" : "private");
         }
         boolean saved = knowledgeBaseService.save(kb);
-        return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), kb.getId());
+        return WebResponse.OK(saved ? I18nUtils.getMessage("knowledge.base.create.success") : I18nUtils.getMessage("knowledge.base.create.fail"), kb.getId());
     }
 
     @ApiOperation("编辑知识库")
@@ -113,7 +113,7 @@ public class KnowledgeBaseController {
         // Ownership can only be changed through an explicit membership/transfer workflow.
         kb.setOwnerAdminId(existing.getOwnerAdminId());
         boolean updated = knowledgeBaseService.updateById(kb);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("knowledge.base.update.success") : I18nUtils.getMessage("knowledge.base.update.fail"));
     }
 
     @ApiOperation("删除知识库")
@@ -122,7 +122,7 @@ public class KnowledgeBaseController {
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         knowledgeAccessService.requireWritable(id);
         boolean removed = knowledgeBaseService.removeById(id);
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        return WebResponse.OK(removed ? I18nUtils.getMessage("knowledge.base.delete.success") : I18nUtils.getMessage("knowledge.base.delete.fail"));
     }
 
     private KnowledgeBase mutableFields(KnowledgeBaseVo vo) {
@@ -140,19 +140,19 @@ public class KnowledgeBaseController {
 
     private String validateReviewConfig(String value) {
         if (StringUtils.isBlank(value)) {
-            throw new ServerException(400, "knowledge review configuration is required");
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.base.review-config.required"));
         }
         try {
             JSONObject config = JSONObject.parseObject(value);
             String providerId = config.getString("reviewModelProviderId");
             if (StringUtils.isBlank(providerId)) {
-                throw new ServerException(400, "AI review model provider is required");
+                throw new ServerException(400, I18nUtils.getMessage("knowledge.base.review-provider.required"));
             }
             ModelProvider provider = modelProviderService.getById(providerId);
             if (provider == null || Boolean.TRUE.equals(provider.getDeleted()) || provider.getStatus() == null
                     || provider.getStatus() != 1 || StringUtils.isBlank(provider.getDefaultModel())
                     || StringUtils.containsIgnoreCase(provider.getDefaultModel(), "embedding")) {
-                throw new ServerException(400, "AI review model provider is invalid");
+                throw new ServerException(400, I18nUtils.getMessage("knowledge.base.review-provider.invalid"));
             }
             if (StringUtils.isBlank(config.getString("reviewModel"))) {
                 config.put("reviewModel", provider.getDefaultModel());
@@ -165,7 +165,7 @@ public class KnowledgeBaseController {
         } catch (ServerException e) {
             throw e;
         } catch (Exception e) {
-            throw new ServerException(400, "knowledge review configuration is invalid");
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.base.review-config.invalid"));
         }
     }
 

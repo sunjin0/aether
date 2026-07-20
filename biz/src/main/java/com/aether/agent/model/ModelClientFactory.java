@@ -2,6 +2,7 @@ package com.aether.agent.model;
 
 import com.aether.agent.entity.ModelProvider;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -24,6 +25,6 @@ public class ModelClientFactory {
                 return modelClient;
             }
         }
-        throw new ServerException(503, "不支持的模型供应商类型");
+        throw new ServerException(503, I18nUtils.getMessage("agent.model.provider.unsupported"));
     }
 }

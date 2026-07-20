@@ -133,7 +133,7 @@ public class KnowledgeDocumentController {
             KnowledgeDocumentVersion draft = workflowService.createDraft(snapshot, null);
             startAiReviewIfConfigured(base, draft);
         }
-        return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), document.getId());
+        return WebResponse.OK(saved ? I18nUtils.getMessage("knowledge.document.create.success") : I18nUtils.getMessage("knowledge.document.create.fail"), document.getId());
     }
 
     @ApiOperation("Upload knowledge document")
@@ -144,10 +144,10 @@ public class KnowledgeDocumentController {
                                       @RequestParam("file") MultipartFile file,
                                       @RequestParam(value = "title", required = false) String title) throws Exception {
         KnowledgeBase base = knowledgeAccessService.requireWritable(knowledgeBaseId);
-        if (file == null || file.isEmpty() || file.getSize() > 50L * 1024 * 1024) throw new ServerException(422, "invalid knowledge file");
+        if (file == null || file.isEmpty() || file.getSize() > 50L * 1024 * 1024) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.invalid"));
         String name = StringUtils.defaultIfBlank(file.getOriginalFilename(), "document.txt");
         String lower = name.toLowerCase();
-        if (!(lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".pdf") || lower.endsWith(".docx"))) throw new ServerException(422, "only txt, md, pdf and docx are supported");
+        if (!(lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".pdf") || lower.endsWith(".docx"))) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.unsupported-type"));
         byte[] bytes = file.getBytes();
         KnowledgeDocument document = new KnowledgeDocument();
         document.setKnowledgeBaseId(knowledgeBaseId); document.setTitle(StringUtils.defaultIfBlank(title, name)); document.setSourceType("file");
@@ -155,7 +155,7 @@ public class KnowledgeDocumentController {
         String extractedContent = contentExtractor.extract(name, bytes);
         document.setFileSize(file.getSize()); document.setFileChecksum(sha256(bytes)); document.setContent(null);
         document.setStatus(0); document.setIndexStatus(0); document.setCurrentVersionNo(0);
-        if (!knowledgeDocumentService.save(document)) throw new ServerException(500, "failed to create knowledge document");
+        if (!knowledgeDocumentService.save(document)) throw new ServerException(500, I18nUtils.getMessage("knowledge.document.create.fail"));
         String key = "knowledge/" + knowledgeBaseId + "/" + document.getId() + "/1/" + name.replaceAll("[^a-zA-Z0-9._-]", "_");
         boolean uploaded = false;
         try {
@@ -166,7 +166,7 @@ public class KnowledgeDocumentController {
             snapshot.setContent(extractedContent);
             KnowledgeDocumentVersion draft = workflowService.createDraft(snapshot, null);
             startAiReviewIfConfigured(base, draft);
-            return WebResponse.OK("upload accepted for review", draft.getId());
+            return WebResponse.OK(I18nUtils.getMessage("knowledge.document.upload.accepted-for-review"), draft.getId());
         } catch (Exception e) {
             knowledgeDocumentService.removeById(document.getId());
             if (uploaded) {
@@ -181,8 +181,8 @@ public class KnowledgeDocumentController {
     @GetMapping("/{id}/preview-url")
     public WebResponse<String> previewUrl(@PathVariable @NotBlank String id) {
         KnowledgeDocument document = getExisting(id);
-        if (StringUtils.isBlank(document.getStorageObjectKey())) throw new ServerException(404, "source file not found");
-        return WebResponse.OK("",objectStorageService.presignedGetUrl(document.getStorageBucket(), document.getStorageObjectKey(), 600));
+        if (StringUtils.isBlank(document.getStorageObjectKey())) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.source-file.not-found"));
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.preview-url.ready"), objectStorageService.presignedGetUrl(document.getStorageBucket(), document.getStorageObjectKey(), 600));
     }
 
     @ApiOperation("文档版本列表")
@@ -199,7 +199,7 @@ public class KnowledgeDocumentController {
     public WebResponse<KnowledgeDocumentVersion> versionDetail(@PathVariable @NotBlank String versionId) {
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
         if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
-            throw new ServerException(404, "document version not found");
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
         }
         KnowledgeDocument document = getExisting(version.getKnowledgeDocumentId());
         knowledgeAccessService.requireReadable(document.getKnowledgeBaseId());
@@ -211,7 +211,7 @@ public class KnowledgeDocumentController {
     public WebResponse<List<KnowledgeDocumentChunkVo>> versionChunks(@PathVariable @NotBlank String versionId) {
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
         if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
-            throw new ServerException(404, "document version not found");
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
         }
         KnowledgeDocument versionDocument = getExisting(version.getKnowledgeDocumentId());
         knowledgeAccessService.requireReadable(versionDocument.getKnowledgeBaseId());
@@ -237,7 +237,7 @@ public class KnowledgeDocumentController {
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<String> rollback(@PathVariable @NotBlank String versionId) {
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
-        if (version == null || Boolean.TRUE.equals(version.getDeleted())) throw new ServerException(404, "document version not found");
+        if (version == null || Boolean.TRUE.equals(version.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
         KnowledgeDocument document = getExisting(version.getKnowledgeDocumentId());
         knowledgeAccessService.requireWritable(document.getKnowledgeBaseId());
         KnowledgeDocument snapshot = knowledgeDocumentService.getById(document.getId());
@@ -275,7 +275,7 @@ public class KnowledgeDocumentController {
                 draft = workflowService.createDraft(snapshot, resolveCurrentVersionId(existing));
             }
         }
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("knowledge.document.update.success") : I18nUtils.getMessage("knowledge.document.update.fail"));
     }
 
     @ApiOperation("删除文档")
@@ -287,7 +287,7 @@ public class KnowledgeDocumentController {
         knowledgeAccessService.requireWritable(existing.getKnowledgeBaseId());
         if (StringUtils.isNotBlank(existing.getDraftVersionId())
                 || StringUtils.isNotBlank(existing.getSubmittedVersionId())) {
-            throw new ServerException(409, "active draft or review task must be completed before deletion");
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document.delete.active-workflow"));
         }
         boolean removed = knowledgeDocumentService.removeById(id);
         if (removed) {
@@ -300,7 +300,7 @@ public class KnowledgeDocumentController {
             try { objectStorageService.removeObject(existing.getStorageBucket(), existing.getStorageObjectKey()); }
             catch (Exception e) { log.warn("Failed to remove knowledge source object: {}", existing.getStorageObjectKey(), e); }
         }
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        return WebResponse.OK(removed ? I18nUtils.getMessage("knowledge.document.delete.success") : I18nUtils.getMessage("knowledge.document.delete.fail"));
     }
 
     @ApiOperation("重建文档索引")
@@ -310,16 +310,16 @@ public class KnowledgeDocumentController {
         KnowledgeDocument document = getExisting(id);
         knowledgeAccessService.requireWritable(document.getKnowledgeBaseId());
         if (document.getCurrentVersionNo() == null || document.getCurrentVersionNo() <= 0) {
-            throw new ServerException(409, "document has no published version");
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document.published-version.required"));
         }
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getOne(
                 Wrappers.lambdaQuery(KnowledgeDocumentVersion.class)
                         .eq(KnowledgeDocumentVersion::getKnowledgeDocumentId, id)
                         .eq(KnowledgeDocumentVersion::getVersionNo, document.getCurrentVersionNo())
                         .eq(KnowledgeDocumentVersion::getDeleted, false), false);
-        if (version == null) throw new ServerException(404, "published document version not found");
+        if (version == null) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.published-version.not-found"));
         String jobId = knowledgeDocumentIndexService.queueReindex(document, version, "reindex");
-        return WebResponse.OK(I18nUtils.getMessage("update.success") + ": " + jobId);
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.reindex.queued", new Object[]{jobId}));
     }
 
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
@@ -346,7 +346,7 @@ public class KnowledgeDocumentController {
     private KnowledgeDocument getExisting(String id) {
         KnowledgeDocument document = knowledgeDocumentService.getById(id);
         if (document == null || Boolean.TRUE.equals(document.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.not-found"));
         }
         knowledgeAccessService.requireReadable(document.getKnowledgeBaseId());
         return document;

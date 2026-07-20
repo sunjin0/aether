@@ -7,6 +7,7 @@ import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.aether.entity.Token;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 
 import java.util.Calendar;
 import java.util.Map;
@@ -30,7 +31,7 @@ public class TokenUtils {
      */
     public static Token createToken(Map<String, String> payload) {
         if (payload == null || payload.get("userId").isEmpty()) {
-            throw new ServerException(400, "用户ID不能为空");
+            throw new ServerException(400, I18nUtils.getMessage("user.id.not.empty"));
         }
         // 指定token过期时间为2小时
         Calendar calendar = Calendar.getInstance();

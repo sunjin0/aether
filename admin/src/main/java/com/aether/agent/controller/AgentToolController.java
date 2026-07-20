@@ -259,7 +259,7 @@ public class AgentToolController {
         }
 
         if (!Integer.valueOf(1).equals(tool.getStatus())) {
-            throw new ServerException(422, "工具未启用");
+            throw new ServerException(422, I18nUtils.getMessage("agent.tool.disabled"));
         }
 
         // 2. 构建执行上下文
@@ -275,13 +275,14 @@ public class AgentToolController {
             ToolExecutionResult result = executor.execute(context);
             
             if (result.isSuccess()) {
-                return WebResponse.OK("工具测试成功", result);
+                return WebResponse.OK(I18nUtils.getMessage("agent.tool.test.success"), result);
             } else {
-                return WebResponse.Error(result.getStatus(), "工具测试失败: " + result.getErrorMsg(), result);
+                ToolExecutionResult errorResult = ToolExecutionResult.failure(I18nUtils.getMessage("agent.tool.test.failed"), result.getStatus());
+                return WebResponse.Error(result.getStatus(), I18nUtils.getMessage("agent.tool.test.failed"), errorResult);
             }
         } catch (Exception e) {
-            ToolExecutionResult errorResult = ToolExecutionResult.failure(e.getMessage(), 1);
-            return WebResponse.Error(500, "工具测试异常: " + e.getMessage(), errorResult);
+            ToolExecutionResult errorResult = ToolExecutionResult.failure(I18nUtils.getMessage("agent.tool.test.failed"), 1);
+            return WebResponse.Error(500, I18nUtils.getMessage("agent.tool.test.failed"), errorResult);
         }
     }
     
@@ -333,11 +334,11 @@ public class AgentToolController {
 
     private void validateMcpServer(String mcpServerId) {
         if (StringUtils.isBlank(mcpServerId)) {
-            throw new ServerException(422, "MCP服务不能为空");
+            throw new ServerException(422, I18nUtils.getMessage("mcp.server.required"));
         }
         AgentMcpServer server = agentMcpServerService.getById(mcpServerId);
         if (server == null || Boolean.TRUE.equals(server.getDeleted())) {
-            throw new ServerException(404, "MCP服务不存在");
+            throw new ServerException(404, I18nUtils.getMessage("mcp.server.not.found"));
         }
     }
 

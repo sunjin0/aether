@@ -1,6 +1,7 @@
 package com.aether.knowledge.service.impl;
 
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
@@ -22,7 +23,7 @@ public class KnowledgeDocumentContentExtractor {
             if (name.endsWith(".docx")) {
                 try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes)); XWPFWordExtractor extractor = new XWPFWordExtractor(document)) { return extractor.getText(); }
             }
-        } catch (Exception e) { throw new ServerException(422, "failed to parse knowledge document: " + e.getMessage()); }
-        throw new ServerException(422, "only txt, md, pdf and docx are supported");
+        } catch (Exception e) { throw new ServerException(422, I18nUtils.getMessage("knowledge.document.parse.failed")); }
+        throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file-type.unsupported"));
     }
 }

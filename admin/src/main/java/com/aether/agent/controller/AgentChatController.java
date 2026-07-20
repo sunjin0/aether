@@ -92,7 +92,7 @@ public class AgentChatController {
         // 在主线程中提前获取userId，避免在线程池新线程中无法获取ThreadLocal中的用户信息
         String userId = CurrentUser.getUser() != null ? CurrentUser.getUser().get("userId") : null;
         if (StringUtils.isBlank(userId)) {
-            throw new ServerException(401, "未授权");
+            throw new ServerException(401, I18nUtils.getMessage("agent.unauthorized"));
         }
         dto.setUserId(userId);
 
@@ -136,7 +136,7 @@ public class AgentChatController {
                     try {
                         JSONObject errorData = new JSONObject();
                         errorData.put("code", 500);
-                        errorData.put("message", "服务内部错误");
+                        errorData.put("message", I18nUtils.getMessage("agent.stream.failed"));
                         emitter.send(SseEmitter.event().name("error").data(errorData.toJSONString()));
                         closed.set(true);
                         emitter.complete();

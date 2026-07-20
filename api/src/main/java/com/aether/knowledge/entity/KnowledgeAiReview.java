@@ -13,6 +13,8 @@ public class KnowledgeAiReview extends BaseEntity {
     private String documentId;
     private String documentVersionId;
     private String sourceChecksum;
+    /** Immutable document content snapshot at the time this AI review was started. */
+    private String sourceContent;
     private String modelProviderId;
     private String model;
     private String promptVersion;
