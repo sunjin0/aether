@@ -10,10 +10,7 @@ import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
 /**
- * Knowledge-base document chunk backed by pgvector.
- *
- * This is persistence infrastructure only. Embedding generation and retrieval
- * are intentionally implemented in a later knowledge-base feature.
+ * 知识库文档分块，由 pgvector 存储向量文本表示。
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -22,15 +19,17 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "KnowledgeDocumentChunk", description = "知识库文档分块")
 public class KnowledgeDocumentChunk extends BaseEntity {
 
+    /** 关联知识库 ID。 */
     @ApiModelProperty(value = "关联知识库ID")
     private String knowledgeBaseId;
 
+    /** 关联文档 ID。 */
     @ApiModelProperty(value = "关联文档ID")
     private String documentId;
 
     /** 生成该分块的文档版本 ID；只检索当前成功版本的分块。 */
     private String documentVersionId;
-    /** 原始文件页码；纯文本/Markdown 文档为空。 */
+    /** 原始文件页码；纯文本/Markdown 文档为空或为 0。 */
     private Integer pageNo;
     /** Markdown 标题层级或文档章节路径。 */
     private String sectionPath;
@@ -43,23 +42,23 @@ public class KnowledgeDocumentChunk extends BaseEntity {
     /** 最近一次实际引用时间，Unix 毫秒时间戳。 */
     private Long lastReferencedAt;
 
+    /** 文档内分块序号，从 0 开始。 */
     @ApiModelProperty(value = "文档内分块序号")
     private Integer chunkIndex;
 
+    /** 分块文本。 */
     @ApiModelProperty(value = "分块文本")
     private String content;
 
+    /** 分块估算 Token 数。 */
     @ApiModelProperty(value = "分块Token数")
     private Integer tokenCount;
 
-    /**
-     * pgvector textual representation. The current migration only defines the
-     * persistence field; it does not expose vector CRUD or retrieval APIs.
-     */
+    /** pgvector 文本表示，用于向量检索。 */
     @ApiModelProperty(value = "1536维 pgvector 文本表示")
     private String embedding;
 
-    /** Cosine similarity returned by retrieval queries; not persisted as a column. */
+    /** 检索查询返回的余弦相似度，非数据库字段。 */
     @TableField(exist = false)
     private Double similarity;
 }

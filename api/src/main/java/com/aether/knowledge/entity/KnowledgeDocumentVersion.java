@@ -21,14 +21,19 @@ public class KnowledgeDocumentVersion extends BaseEntity {
     private String structuredContent;
     /** 当前候选正文的 SHA-256，用于并发和审查过期校验。 */
     private String contentChecksum;
-    /** DRAFT/AI_REVIEWING/AI_REVIEWED/SUBMITTED/APPROVED/REJECTED。 */
+    /** 版本审核状态：DRAFT-草稿，AI_REVIEWING-AI 审查中，AI_REVIEWED-AI 已审查，SUBMITTED-已提交人工审核，APPROVED-已通过，REJECTED-已驳回。 */
     private String reviewStatus;
     /** 回滚或修订所基于的历史版本 ID。 */
     private String sourceVersionId;
+    /** 提交审核的管理员 ID。 */
     private String submittedBy;
+    /** 提交审核时间，Unix 毫秒时间戳。 */
     private Long submittedAt;
+    /** 审核该版本的管理员 ID。 */
     private String reviewedBy;
+    /** 审核完成时间，Unix 毫秒时间戳。 */
     private Long reviewedAt;
+    /** 审核意见；通过时为通过意见，驳回时为驳回原因。 */
     private String reviewComment;
     /** 此版本原始文件所在的 MinIO Bucket。 */
     private String storageBucket;

@@ -31,16 +31,18 @@ public class KnowledgeBase extends BaseEntity {
     private String visibility;
     /** 检索配置 JSON；预留 topK、最低相似度、混合检索和重排参数。 */
     private String retrievalConfig;
-    /** 文档审批策略 JSON。 */
+    /** 文档审批策略 JSON，例如 requireDifferentApprover。 */
     private String reviewConfig;
     /** 最终回答实际引用本知识库的累计次数，不统计仅召回的候选片段。 */
     private Long referenceCount;
     /** 最近一次实际引用时间，Unix 毫秒时间戳。 */
     private Long lastReferencedAt;
 
+    /** 知识库名称。 */
     @ApiModelProperty(value = "知识库名称")
     private String name;
 
+    /** 知识库描述。 */
     @ApiModelProperty(value = "描述")
     private String description;
 
@@ -48,6 +50,7 @@ public class KnowledgeBase extends BaseEntity {
     @ApiModelProperty(value = "索引状态：0-未索引，1-索引中，2-已完成，3-索引失败")
     private Integer indexStatus;
 
+    /** 知识库状态：0-禁用，1-启用。 */
     @ApiModelProperty(value = "状态：0-禁用，1-启用")
     private Integer status;
 }

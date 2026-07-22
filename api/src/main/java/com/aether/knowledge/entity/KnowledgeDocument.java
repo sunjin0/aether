@@ -18,15 +18,19 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "KnowledgeDocument对象", description = "文档")
 public class KnowledgeDocument extends BaseEntity {
 
+    /** 关联知识库 ID。 */
     @ApiModelProperty(value = "关联知识库ID")
     private String knowledgeBaseId;
 
+    /** 文档标题。 */
     @ApiModelProperty(value = "文档标题")
     private String title;
 
+    /** 文档内容，支持纯文本或 Markdown。 */
     @ApiModelProperty(value = "文档内容（纯文本或Markdown）")
     private String content;
 
+    /** 来源 URL；手工录入或文件上传时可为空。 */
     @ApiModelProperty(value = "来源URL（可选）")
     private String sourceUrl;
 
@@ -52,8 +56,9 @@ public class KnowledgeDocument extends BaseEntity {
     private String draftVersionId;
     /** 当前已提交、等待审批的版本 ID。 */
     private String submittedVersionId;
-    /** 文档工作流聚合状态，用于列表筛选；版本状态才是事实来源。 */
+    /** 文档工作流聚合状态：DRAFT-草稿，AI_REVIEWING-AI 审查中，AI_REVIEWED-AI 已审查，SUBMITTED-已提交人工审核，APPROVED-已通过，REJECTED-已驳回；版本状态才是事实来源。 */
     private String reviewStatus;
+    /** 文档工作流状态最近更新时间，Unix 毫秒时间戳。 */
     private Long reviewUpdatedAt;
     /** 索引状态：0-未索引，1-索引中，2-已完成，3-失败。 */
     private Integer indexStatus;
@@ -68,6 +73,7 @@ public class KnowledgeDocument extends BaseEntity {
     /** 最近一次实际引用时间，Unix 毫秒时间戳。 */
     private Long lastReferencedAt;
 
+    /** 当前文档已写入的向量分块数量。 */
     @ApiModelProperty(value = "分块数（预留）")
     private Integer chunkCount;
 
