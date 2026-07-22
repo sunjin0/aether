@@ -34,6 +34,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
     private static final int DOCUMENT_STATUS_INDEXING = 1;
     private static final int DOCUMENT_STATUS_DONE = 2;
     private static final int KB_INDEX_STATUS_DONE = 2;
+    private static final int EMBEDDING_BATCH_SIZE = 10;
     private final KnowledgeDocumentService knowledgeDocumentService;
     private final KnowledgeDocumentChunkService knowledgeDocumentChunkService;
     private final KnowledgeBaseService knowledgeBaseService;
@@ -135,9 +136,8 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
             chunkTexts.add(segment.getContent());
         }
         List<List<Double>> embeddings = new ArrayList<>(chunkTexts.size());
-        final int embeddingBatchSize = 32;
-        for (int batchStart = 0; batchStart < chunkTexts.size(); batchStart += embeddingBatchSize) {
-            int batchEnd = Math.min(chunkTexts.size(), batchStart + embeddingBatchSize);
+        for (int batchStart = 0; batchStart < chunkTexts.size(); batchStart += EMBEDDING_BATCH_SIZE) {
+            int batchEnd = Math.min(chunkTexts.size(), batchStart + EMBEDDING_BATCH_SIZE);
             embeddings.addAll(knowledgeEmbeddingService.embedAll(provider, chunkTexts.subList(batchStart, batchEnd)));
         }
         int index = 0;
