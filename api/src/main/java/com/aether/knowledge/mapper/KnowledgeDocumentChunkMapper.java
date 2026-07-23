@@ -15,19 +15,22 @@ import java.util.List;
 @Mapper
 public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocumentChunk> {
 
-    @Select("SELECT chunk.id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
+    @Select("<script>SELECT chunk.id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
             "chunk.page_no, chunk.section_path, chunk.content_hash, chunk.metadata, chunk.reference_count, chunk.last_referenced_at, " +
-            "chunk.embedding::text AS embedding, 1 - (chunk.embedding <=> CAST(#{embedding} AS vector)) AS similarity, " +
+            "chunk.embedding::text AS embedding, 1 - (chunk.embedding <![CDATA[<=>]]> CAST(#{embedding} AS vector)) AS similarity, " +
             "chunk.created_at, chunk.updated_at, chunk.sort_num, chunk.deleted, chunk.state " +
             "FROM knowledge_document_chunk chunk " +
             "JOIN knowledge_document document ON document.id = chunk.document_id " +
             "JOIN knowledge_document_version version ON version.id = chunk.document_version_id " +
             "WHERE chunk.deleted = FALSE AND document.deleted = FALSE AND version.deleted = FALSE " +
             "AND version.index_status = 2 AND version.version_no = document.current_version_no " +
-            "AND chunk.knowledge_base_id IN (${knowledgeBaseIds}) " +
-            "ORDER BY chunk.embedding <=> CAST(#{embedding} AS vector) " +
-            "LIMIT #{limit}")
-    List<KnowledgeDocumentChunk> selectSimilarChunks(@Param("knowledgeBaseIds") String knowledgeBaseIds,
+            "<if test='knowledgeBaseIds != null and knowledgeBaseIds.size() > 0'>" +
+            "AND chunk.knowledge_base_id IN " +
+            "<foreach collection='knowledgeBaseIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>" +
+            "</if>" +
+            "ORDER BY chunk.embedding <![CDATA[<=>]]> CAST(#{embedding} AS vector) " +
+            "LIMIT #{limit}</script>")
+    List<KnowledgeDocumentChunk> selectSimilarChunks(@Param("knowledgeBaseIds") List<String> knowledgeBaseIds,
                                                  @Param("embedding") String embedding,
                                                  @Param("limit") int limit);
 

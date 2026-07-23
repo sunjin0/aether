@@ -25,14 +25,13 @@ public class KnowledgeDocumentChunkServiceImpl
         if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || StringUtils.isBlank(embedding) || limit <= 0) {
             return Collections.emptyList();
         }
-        String ids = knowledgeBaseIds.stream()
+        List<String> filteredIds = knowledgeBaseIds.stream()
                 .filter(StringUtils::isNotBlank)
-                .map(id -> "'" + id.replace("'", "''") + "'")
-                .collect(Collectors.joining(","));
-        if (StringUtils.isBlank(ids)) {
+                .collect(Collectors.toList());
+        if (filteredIds.isEmpty()) {
             return Collections.emptyList();
         }
-        return baseMapper.selectSimilarChunks(ids, embedding, limit);
+        return baseMapper.selectSimilarChunks(filteredIds, embedding, limit);
     }
 
     @Override

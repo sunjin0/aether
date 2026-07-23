@@ -1,6 +1,7 @@
 package com.aether.agent.service;
 
 import com.aether.agent.model.ModelChatMessage;
+import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.knowledge.model.KnowledgeRetrievalResult;
 import com.aether.knowledge.entity.KnowledgeDocument;
@@ -46,16 +47,20 @@ public class KnowledgeContextService {
         if (context == null) {
             return sources;
         }
+        int insertIndex = 0;
+        while (insertIndex < context.size() && "system".equals(context.get(insertIndex).getRole())) {
+            insertIndex++;
+        }
         String preferenceContext = preferenceService.buildPreferenceContext(userId, null);
         if (StringUtils.isNotBlank(preferenceContext)) {
-            context.add(new ModelChatMessage("system", preferenceContext));
+            context.add(insertIndex++, new ModelChatMessage("system", preferenceContext));
         }
         KnowledgeRetrievalResult retrieval = retrievalService.retrieve(agentId, query);
         if (retrieval == null) {
             retrieval = new KnowledgeRetrievalResult();
         }
         if (StringUtils.isNotBlank(retrieval.getContext())) {
-            context.add(new ModelChatMessage("system", retrieval.getContext()));
+            context.add(insertIndex++, new ModelChatMessage("system", retrieval.getContext()));
         }
         List<KnowledgeDocumentChunk> chunks = retrieval.getChunks() == null
                 ? Collections.<KnowledgeDocumentChunk>emptyList() : retrieval.getChunks();
@@ -69,28 +74,24 @@ public class KnowledgeContextService {
             source.put("chunkId", chunk.getId());
             source.put("chunkIndex", chunk.getChunkIndex());
             source.put("sectionPath", chunk.getSectionPath());
+            source.put("similarity", chunk.getSimilarity());
             source.put("content", truncate(chunk.getContent(), 500));
             sources.add(source);
         }
         if (!sources.isEmpty()) {
-            context.add(new ModelChatMessage("system", buildCitationInstruction(sources)));
+            context.add(insertIndex++, new ModelChatMessage("system", buildCitationInstruction(sources)));
         }
         return sources;
     }
 
-    /** 仅返回回答实际标注的来源；模型未标注时补充来源列表，保证前端可展示依据。 */
+    /** 仅返回回答实际标注的来源；不修改回答内容。 */
     public List<Map<String, Object>> ensureCitations(ModelStreamResponse response, List<Map<String, Object>> sources) {
-        List<Map<String, Object>> citedSources = filterCitedSources(response.getContent(), sources);
-        if (!citedSources.isEmpty() || sources == null || sources.isEmpty()) {
-            return citedSources;
-        }
-        List<String> labels = new ArrayList<>();
-        for (Map<String, Object> source : sources) {
-            labels.add("【" + source.get("citationIndex") + "】"
-                    + StringUtils.defaultIfBlank((String) source.get("documentName"), "未命名文档"));
-        }
-        response.setContent(StringUtils.defaultString(response.getContent()) + "\n\n参考来源：" + StringUtils.join(labels, "，"));
-        return sources;
+        return filterCitedSources(response.getContent(), sources);
+    }
+
+    /** 非流式版本：计算引用来源，不修改回答内容。 */
+    public List<Map<String, Object>> ensureCitations(ModelChatResponse response, List<Map<String, Object>> sources) {
+        return filterCitedSources(response.getContent(), sources);
     }
 
     private Map<String, String> resolveDocumentNames(List<KnowledgeDocumentChunk> chunks) {

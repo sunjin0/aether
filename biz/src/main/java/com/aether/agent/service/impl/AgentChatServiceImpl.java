@@ -122,7 +122,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         try {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            knowledgeContextService.enhance(context, userId, agent.getId(), dto.getMessage());
+            List<Map<String, Object>> sources = knowledgeContextService.enhance(context, userId, agent.getId(), dto.getMessage());
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
@@ -198,6 +198,13 @@ public class AgentChatServiceImpl implements AgentChatService {
                     modelResponse.setContent(buildToolAuthenticityFallback(retryCheck));
                     authenticityCheck = retryCheck;
                 }
+            }
+
+            if (sources != null && !sources.isEmpty()) {
+                List<Map<String, Object>> cited = knowledgeContextService.ensureCitations(modelResponse, sources);
+                modelResponse.setSources(cited != null && !cited.isEmpty() ? cited : null);
+            } else {
+                modelResponse.setSources(null);
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
@@ -374,10 +381,12 @@ public class AgentChatServiceImpl implements AgentChatService {
                     authenticityCheck = retryCheck;
                 }
             }
-            if (sources != null && !sources.isEmpty())
-                 modelResponse.setSources(knowledgeContextService.ensureCitations(modelResponse, sources));
-            else
+            if (sources != null && !sources.isEmpty()) {
+                List<Map<String, Object>> cited = knowledgeContextService.ensureCitations(modelResponse, sources);
+                modelResponse.setSources(cited != null && !cited.isEmpty() ? cited : null);
+            } else {
                 modelResponse.setSources(null);
+            }
 
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
@@ -555,10 +564,10 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
 
             if (authenticityCheck.isValid()) {
-                modelResponse.setSources(knowledgeContextService.ensureCitations(modelResponse, sources));
+                List<Map<String, Object>> cited = knowledgeContextService.ensureCitations(modelResponse, sources);
+                modelResponse.setSources(cited != null && !cited.isEmpty() ? cited : null);
             } else {
-                // 安全降级回复没有使用知识库内容，不能附带原始检索来源。
-                modelResponse.setSources(Collections.<Map<String, Object>>emptyList());
+                modelResponse.setSources(null);
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
@@ -812,6 +821,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setCompletionTokens(modelResponse.getCompletionTokens());
         message.setTotalTokens(modelResponse.getTotalTokens());
         message.setReasoningTokens(modelResponse.getReasoningTokens());
+        if (modelResponse.getSources() != null && !modelResponse.getSources().isEmpty()) {
+            message.setCitations(JSON.toJSONString(modelResponse.getSources()));
+        }
         message.setLatencyMs((int) latencyMs);
         agentMessageService.save(message);
         
