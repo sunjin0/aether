@@ -7,22 +7,23 @@ import com.aether.knowledge.entity.KnowledgeAiReviewIssue;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeReviewActionLog;
-import com.aether.knowledge.entity.KnowledgeReviewTask;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.service.KnowledgeAiReviewIssueService;
 import com.aether.knowledge.service.KnowledgeAiReviewRecordService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.service.KnowledgeDocumentWorkflowService;
-import com.aether.knowledge.service.KnowledgeReviewActionLogService;
-import com.aether.knowledge.service.KnowledgeReviewTaskService;
+import com.aether.knowledge.service.KnowledgeReviewTaskQueryService;
 import com.aether.knowledge.vo.KnowledgeReviewTaskDetailVo;
+import com.aether.knowledge.vo.KnowledgeReviewTaskQueryVo;
+import com.aether.knowledge.vo.KnowledgeReviewTaskVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewDiffVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueAcceptVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueAcceptResultVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueBatchAcceptVo;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,9 +37,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
 
 class KnowledgeReviewControllerTest {
     @BeforeEach
@@ -51,40 +52,34 @@ class KnowledgeReviewControllerTest {
     }
 
     @Test
-    void taskDetailAggregatesDocumentAndVersion() {
-        KnowledgeReviewTaskService taskService = mock(KnowledgeReviewTaskService.class);
-        KnowledgeDocumentService documentService = mock(KnowledgeDocumentService.class);
-        KnowledgeDocumentVersionService versionService = mock(KnowledgeDocumentVersionService.class);
-        KnowledgeAiReviewRecordService aiReviewService = mock(KnowledgeAiReviewRecordService.class);
-        KnowledgeReviewActionLogService actionLogService = mock(KnowledgeReviewActionLogService.class);
-        KnowledgeReviewTask task = new KnowledgeReviewTask();
-        task.setId("task-1");
-        task.setKnowledgeBaseId("kb-1");
-        task.setDocumentId("doc-1");
-        task.setDocumentVersionId("version-1");
-        KnowledgeDocument document = new KnowledgeDocument();
-        document.setId("doc-1");
-        document.setTitle("Test document");
-        KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
-        version.setId("version-1");
-        version.setVersionNo(3);
-        version.setReviewStatus("SUBMITTED");
-        when(taskService.getById("task-1")).thenReturn(task);
-        when(documentService.getById("doc-1")).thenReturn(document);
-        when(versionService.getById("version-1")).thenReturn(version);
-        when(aiReviewService.getOne(any(), eq(false))).thenReturn(null);
-        when(actionLogService.list(any())).thenReturn(Collections.emptyList());
-        KnowledgeReviewTaskController controller = new KnowledgeReviewTaskController(taskService,
-                mock(KnowledgeDocumentWorkflowService.class), mock(KnowledgeAccessService.class),
-                documentService, versionService, aiReviewService,
-                mock(KnowledgeAiReviewIssueService.class), actionLogService);
+    void taskDetailDelegatesToQueryService() {
+        KnowledgeReviewTaskQueryService queryService = mock(KnowledgeReviewTaskQueryService.class);
+        KnowledgeReviewTaskDetailVo detail = new KnowledgeReviewTaskDetailVo();
+        detail.setId("task-1");
+        when(queryService.detail("task-1")).thenReturn(detail);
+        KnowledgeReviewTaskController controller = new KnowledgeReviewTaskController(queryService,
+                mock(KnowledgeDocumentWorkflowService.class));
 
         KnowledgeReviewTaskDetailVo result = controller.detail("task-1").getData();
 
-        assertEquals("Test document", result.getDocumentTitle());
-        assertEquals(3, result.getVersionNo());
-        assertEquals("SUBMITTED", result.getVersionReviewStatus());
-        assertEquals("version-1", result.getVersion().getId());
+        assertEquals("task-1", result.getId());
+        verify(queryService).detail("task-1");
+    }
+
+    @Test
+    void taskListWrapsQueryServicePage() {
+        KnowledgeReviewTaskQueryService queryService = mock(KnowledgeReviewTaskQueryService.class);
+        KnowledgeReviewTaskController controller = new KnowledgeReviewTaskController(queryService,
+                mock(KnowledgeDocumentWorkflowService.class));
+        KnowledgeReviewTaskQueryVo query = new KnowledgeReviewTaskQueryVo();
+        KnowledgeReviewTaskVo task = new KnowledgeReviewTaskVo();
+        task.setId("task-1");
+        when(queryService.list(query)).thenReturn(new Page<KnowledgeReviewTaskVo>(1, 20, 1)
+                .setRecords(Collections.singletonList(task)));
+
+        assertEquals("task-1", controller.list(query).getData().get(0).getId());
+
+        verify(queryService).list(query);
     }
 
     @Test
@@ -205,7 +200,8 @@ class KnowledgeReviewControllerTest {
         when(reviewService.getById("review-1")).thenReturn(review);
         when(versionService.getById("version-1")).thenReturn(version);
         when(issueService.list(any())).thenReturn(Collections.singletonList(issue));
-        when(workflowService.updateDraft("version-1", "new text", "checksum-1")).thenReturn(updatedVersion);
+        when(workflowService.applyAiReviewedChanges("version-1", "new text", "checksum-1"))
+                .thenReturn(updatedVersion);
         KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
                 mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class), workflowService);
 
@@ -217,7 +213,7 @@ class KnowledgeReviewControllerTest {
         assertEquals("checksum-2", result.getContentChecksum());
         assertEquals("AI_REVIEWED", result.getReviewStatus());
         assertEquals(false, result.isRequiresAiReview());
-        verify(workflowService).updateDraft("version-1", "new text", "checksum-1");
+        verify(workflowService).applyAiReviewedChanges("version-1", "new text", "checksum-1");
     }
 
     @Test
