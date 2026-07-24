@@ -1,4 +1,10 @@
 spring:
+  flyway:
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
+    locations: classpath:db/migration/postgresql
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/aether}
+    user: ${DB_USERNAME:sunjin}
+    password: ${DB_PASSWORD:192837}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/aether}
     username: ${DB_USERNAME:sunjin}
