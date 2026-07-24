@@ -15,6 +15,8 @@ import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
+import com.aether.knowledge.model.KnowledgeAiReviewStatus;
+import com.aether.knowledge.model.KnowledgeAiReviewIssueStatus;
 import com.aether.knowledge.service.KnowledgeAiReviewIssueService;
 import com.aether.knowledge.service.KnowledgeAiReviewRecordService;
 import com.aether.knowledge.service.KnowledgeBaseService;
@@ -72,8 +74,8 @@ public class KnowledgeAiReviewWorker {
         long now = System.currentTimeMillis();
         boolean claimed = reviewService.update(Wrappers.lambdaUpdate(KnowledgeAiReview.class)
                 .eq(KnowledgeAiReview::getId, reviewId)
-                .eq(KnowledgeAiReview::getStatus, "pending")
-                .set(KnowledgeAiReview::getStatus, "running")
+                .eq(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.PENDING)
+                .set(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.RUNNING)
                 .set(KnowledgeAiReview::getStartedAt, now));
         if (!claimed) return;
         KnowledgeAiReview review = reviewService.getById(reviewId);
@@ -111,13 +113,13 @@ public class KnowledgeAiReviewWorker {
     public void dispatchPendingReviews() {
         long staleBefore = System.currentTimeMillis() - RUNNING_LEASE_MILLIS;
         reviewService.update(Wrappers.lambdaUpdate(KnowledgeAiReview.class)
-                .eq(KnowledgeAiReview::getStatus, "running")
+                .eq(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.RUNNING)
                 .lt(KnowledgeAiReview::getStartedAt, staleBefore)
                 .eq(KnowledgeAiReview::getDeleted, false)
-                .set(KnowledgeAiReview::getStatus, "pending")
+                .set(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.PENDING)
                 .set(KnowledgeAiReview::getErrorMessage, I18nUtils.getMessage("knowledge.ai-review.lease.expired")));
         reviewService.list(Wrappers.lambdaQuery(KnowledgeAiReview.class)
-                        .eq(KnowledgeAiReview::getStatus, "pending")
+                        .eq(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.PENDING)
                         .eq(KnowledgeAiReview::getDeleted, false)
                         .orderByAsc(KnowledgeAiReview::getCreatedAt)
                         .last("LIMIT 10"))
@@ -168,15 +170,15 @@ public class KnowledgeAiReviewWorker {
             issue.setMessage(StringUtils.defaultIfBlank(item.getString("message"), "AI review issue"));
             issue.setOriginalExcerpt(truncate(item.getString("originalExcerpt"), 2000));
             issue.setSuggestedPatch(normalizePatch(item.getJSONObject("patch"), issue.getOriginalExcerpt(), review.getSourceContent()));
-            issue.setHandleStatus("pending");
+            issue.setHandleStatus(KnowledgeAiReviewIssueStatus.PENDING);
             issueService.save(issue);
         }
         long now = System.currentTimeMillis();
         boolean reviewUpdated = reviewService.update(Wrappers.lambdaUpdate(KnowledgeAiReview.class)
                 .eq(KnowledgeAiReview::getId, review.getId())
-                .eq(KnowledgeAiReview::getStatus, "running")
+                .eq(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.RUNNING)
                 .eq(KnowledgeAiReview::getStartedAt, review.getStartedAt())
-                .set(KnowledgeAiReview::getStatus, "success")
+                .set(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.SUCCESS)
                 .set(KnowledgeAiReview::getScore, Math.max(0, Math.min(100, result.getIntValue("score", 0))))
                 .set(KnowledgeAiReview::getSummary, truncate(result.getString("summary"), 10000))
                 .set(KnowledgeAiReview::getIssues, issues.toJSONString())
@@ -202,12 +204,13 @@ public class KnowledgeAiReviewWorker {
     }
 
     private void markStale(KnowledgeAiReview review, KnowledgeDocumentVersion version, KnowledgeDocument document) {
-        reviewService.update(Wrappers.lambdaUpdate(KnowledgeAiReview.class)
+        boolean reviewUpdated = reviewService.update(Wrappers.lambdaUpdate(KnowledgeAiReview.class)
                 .eq(KnowledgeAiReview::getId, review.getId())
-                .eq(KnowledgeAiReview::getStatus, "running")
+                .eq(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.RUNNING)
                 .eq(KnowledgeAiReview::getStartedAt, review.getStartedAt())
-                .set(KnowledgeAiReview::getStatus, "stale")
+                .set(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.STALE)
                 .set(KnowledgeAiReview::getFinishedAt, System.currentTimeMillis()));
+        if (!reviewUpdated) return;
         versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, version.getId())
                 .eq(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.AI_REVIEWING)
@@ -220,13 +223,14 @@ public class KnowledgeAiReviewWorker {
 
     private void fail(KnowledgeAiReview review, Exception error) {
         long now = System.currentTimeMillis();
-        reviewService.update(Wrappers.lambdaUpdate(KnowledgeAiReview.class)
+        boolean reviewUpdated = reviewService.update(Wrappers.lambdaUpdate(KnowledgeAiReview.class)
                 .eq(KnowledgeAiReview::getId, review.getId())
-                .eq(KnowledgeAiReview::getStatus, "running")
+                .eq(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.RUNNING)
                 .eq(KnowledgeAiReview::getStartedAt, review.getStartedAt())
-                .set(KnowledgeAiReview::getStatus, "failed")
+                .set(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.FAILED)
                 .set(KnowledgeAiReview::getErrorMessage, I18nUtils.getMessage("knowledge.ai-review.failed"))
                 .set(KnowledgeAiReview::getFinishedAt, now));
+        if (!reviewUpdated) return;
         versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, review.getDocumentVersionId())
                 .eq(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.AI_REVIEWING)

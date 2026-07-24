@@ -1,16 +1,17 @@
 package com.aether.knowledge.service.impl;
 
-import com.alibaba.fastjson2.JSONObject;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeAiReview;
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
-import com.aether.knowledge.entity.KnowledgeReviewActionLog;
 import com.aether.knowledge.entity.KnowledgeReviewTask;
 import com.aether.knowledge.mapper.KnowledgeDocumentMapper;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
+import com.aether.knowledge.model.KnowledgeReviewTaskStatus;
+import com.aether.knowledge.model.KnowledgeAiReviewStatus;
+import com.aether.knowledge.model.KnowledgeAiReviewIssueStatus;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.service.KnowledgeAiReviewRecordService;
 import com.aether.knowledge.service.KnowledgeAiReviewIssueService;
@@ -18,15 +19,16 @@ import com.aether.knowledge.service.KnowledgeDocumentIndexService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.service.KnowledgeDocumentWorkflowService;
-import com.aether.knowledge.service.KnowledgeReviewActionLogService;
 import com.aether.knowledge.service.KnowledgeReviewTaskService;
+import com.aether.knowledge.workflow.KnowledgeDocumentWorkflowStateManager;
+import com.aether.knowledge.workflow.KnowledgeReviewAuditWriter;
+import com.aether.knowledge.workflow.KnowledgeReviewConfigResolver;
+import com.aether.knowledge.workflow.TransactionAfterCommitExecutor;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -36,7 +38,6 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
     private final KnowledgeDocumentService documentService;
     private final KnowledgeDocumentVersionService versionService;
     private final KnowledgeReviewTaskService taskService;
-    private final KnowledgeReviewActionLogService actionLogService;
     private final KnowledgeAiReviewRecordService aiReviewRecordService;
     private final KnowledgeAiReviewIssueService aiReviewIssueService;
     private final KnowledgeAccessService accessService;
@@ -44,22 +45,28 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
     private final KnowledgeAiReviewWorker aiReviewWorker;
     private final TransactionTemplate transactionTemplate;
     private final KnowledgeDocumentMapper documentMapper;
+    private final KnowledgeDocumentWorkflowStateManager stateManager;
+    private final KnowledgeReviewConfigResolver configResolver;
+    private final KnowledgeReviewAuditWriter auditWriter;
+    private final TransactionAfterCommitExecutor afterCommitExecutor;
 
     public KnowledgeDocumentWorkflowServiceImpl(KnowledgeDocumentService documentService,
                                                 KnowledgeDocumentVersionService versionService,
                                                 KnowledgeReviewTaskService taskService,
-                                                KnowledgeReviewActionLogService actionLogService,
                                                 KnowledgeAiReviewRecordService aiReviewRecordService,
                                                 KnowledgeAiReviewIssueService aiReviewIssueService,
                                                 KnowledgeAccessService accessService,
                                                 KnowledgeDocumentIndexService indexService,
                                                 KnowledgeAiReviewWorker aiReviewWorker,
                                                 TransactionTemplate transactionTemplate,
-                                                KnowledgeDocumentMapper documentMapper) {
+                                                KnowledgeDocumentMapper documentMapper,
+                                                KnowledgeDocumentWorkflowStateManager stateManager,
+                                                KnowledgeReviewConfigResolver configResolver,
+                                                KnowledgeReviewAuditWriter auditWriter,
+                                                TransactionAfterCommitExecutor afterCommitExecutor) {
         this.documentService = documentService;
         this.versionService = versionService;
         this.taskService = taskService;
-        this.actionLogService = actionLogService;
         this.aiReviewRecordService = aiReviewRecordService;
         this.aiReviewIssueService = aiReviewIssueService;
         this.accessService = accessService;
@@ -67,6 +74,10 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         this.aiReviewWorker = aiReviewWorker;
         this.transactionTemplate = transactionTemplate;
         this.documentMapper = documentMapper;
+        this.stateManager = stateManager;
+        this.configResolver = configResolver;
+        this.auditWriter = auditWriter;
+        this.afterCommitExecutor = afterCommitExecutor;
     }
 
     @Override
@@ -88,7 +99,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         version.setReviewStatus(KnowledgeReviewStatus.DRAFT);
         version.setSourceVersionId(sourceVersionId);
         version.setParserType(document.getParserType());
-        versionService.updateById(version);
+        if (!versionService.updateById(version)) {
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
+        }
 
         KnowledgeDocument update = new KnowledgeDocument();
         update.setId(document.getId());
@@ -97,7 +110,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         update.setReviewStatus(KnowledgeReviewStatus.DRAFT);
         update.setReviewUpdatedAt(System.currentTimeMillis());
         updateDocumentPointers(update, true);
-        log(null, document.getId(), version.getId(), "DRAFT_CREATED", null,
+        auditWriter.write(accessService.currentAdminId(), null, document.getId(), version.getId(),
+                "DRAFT_CREATED", null,
                 KnowledgeReviewStatus.DRAFT, null);
         return version;
     }
@@ -105,14 +119,29 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
     @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocumentVersion updateDraft(String versionId, String content, String expectedChecksum) {
+        return updateDraft(versionId, content, expectedChecksum, KnowledgeReviewStatus.DRAFT);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public KnowledgeDocumentVersion applyAiReviewedChanges(String versionId, String content,
+                                                            String expectedChecksum) {
+        return updateDraft(versionId, content, expectedChecksum, KnowledgeReviewStatus.AI_REVIEWED);
+    }
+
+    private KnowledgeDocumentVersion updateDraft(String versionId, String content,
+                                                  String expectedChecksum, String nextReviewStatus) {
         KnowledgeDocumentVersion version = requireVersion(versionId);
         KnowledgeDocument document = requireDocument(version.getKnowledgeDocumentId());
         accessService.requireWritable(document.getKnowledgeBaseId());
         if (!StringUtils.equals(document.getDraftVersionId(), versionId)) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-pointer.changed"));
         }
-        if (!KnowledgeReviewStatus.DRAFT.equals(version.getReviewStatus())
-                && !KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus())) {
+        boolean preservingAiReview = KnowledgeReviewStatus.AI_REVIEWED.equals(nextReviewStatus);
+        if ((preservingAiReview && !KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus()))
+                || (!preservingAiReview
+                && !KnowledgeReviewStatus.DRAFT.equals(version.getReviewStatus())
+                && !KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus()))) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.edit.invalid-state"));
         }
         if (StringUtils.isBlank(expectedChecksum)) {
@@ -122,19 +151,21 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft.modified"));
         }
         String newChecksum = checksum(content);
-        String nextReviewStatus = KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus())
-                ? KnowledgeReviewStatus.AI_REVIEWED : KnowledgeReviewStatus.DRAFT;
         boolean updated = versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, versionId)
-                .in(KnowledgeDocumentVersion::getReviewStatus,
+                .eq(KnowledgeDocumentVersion::getContentChecksum, expectedChecksum)
+                .in(!preservingAiReview, KnowledgeDocumentVersion::getReviewStatus,
                         KnowledgeReviewStatus.DRAFT, KnowledgeReviewStatus.AI_REVIEWED)
+                .eq(preservingAiReview, KnowledgeDocumentVersion::getReviewStatus,
+                        KnowledgeReviewStatus.AI_REVIEWED)
                 .set(KnowledgeDocumentVersion::getContent, content)
                 .set(KnowledgeDocumentVersion::getStructuredContent, null)
                 .set(KnowledgeDocumentVersion::getContentChecksum, newChecksum)
                 .set(KnowledgeDocumentVersion::getReviewStatus, nextReviewStatus));
         if (!updated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-state.changed"));
-        updateDocumentReviewStatus(document.getId(), nextReviewStatus, versionId, null);
-        log(null, document.getId(), versionId, "DRAFT_UPDATED", version.getReviewStatus(),
+        stateManager.updateActiveDraftStatus(document.getId(), versionId, nextReviewStatus);
+        auditWriter.write(accessService.currentAdminId(), null, document.getId(), versionId,
+                "DRAFT_UPDATED", version.getReviewStatus(),
                 nextReviewStatus, null);
         return versionService.getById(versionId);
     }
@@ -155,17 +186,22 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         review.setSourceChecksum(version.getContentChecksum());
         review.setSourceContent(version.getContent());
         review.setPromptVersion("v1");
-        review.setStatus("pending");
-        aiReviewRecordService.save(review);
+        review.setStatus(KnowledgeAiReviewStatus.PENDING);
+        if (!aiReviewRecordService.save(review)) {
+            throw new ServerException(500, I18nUtils.getMessage("knowledge.ai-review.create.failed"));
+        }
         boolean transitioned = versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, versionId)
                 .eq(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.DRAFT)
                 .set(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.AI_REVIEWING));
         if (!transitioned) throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-state.changed"));
-        updateDocumentReviewStatus(document.getId(), KnowledgeReviewStatus.AI_REVIEWING, versionId, null);
-        log(null, document.getId(), versionId, "AI_REVIEW_STARTED", KnowledgeReviewStatus.DRAFT,
+        stateManager.updateActiveDraftStatus(document.getId(), versionId,
+                KnowledgeReviewStatus.AI_REVIEWING);
+        auditWriter.write(accessService.currentAdminId(), null, document.getId(), versionId,
+                "AI_REVIEW_STARTED",
+                KnowledgeReviewStatus.DRAFT,
                 KnowledgeReviewStatus.AI_REVIEWING, null);
-        dispatchAiReviewAfterCommit(review.getId());
+        afterCommitExecutor.execute(() -> aiReviewWorker.run(review.getId()));
         return review.getId();
     }
 
@@ -179,7 +215,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 || StringUtils.isNotBlank(document.getSubmittedVersionId())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-pointer.changed"));
         }
-        boolean aiRequired = booleanConfig(base.getReviewConfig(), "aiReviewRequired", true);
+        boolean aiRequired = configResolver.isAiReviewRequired(base.getReviewConfig());
         KnowledgeAiReview latestSuccessfulReview = latestSuccessfulAiReview(versionId);
         if (aiRequired && (!KnowledgeReviewStatus.AI_REVIEWED.equals(version.getReviewStatus())
                 || latestSuccessfulReview == null)) {
@@ -196,6 +232,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         long now = System.currentTimeMillis();
         boolean transitioned = versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, versionId)
+                .eq(KnowledgeDocumentVersion::getContentChecksum, version.getContentChecksum())
                 .in(KnowledgeDocumentVersion::getReviewStatus,
                         KnowledgeReviewStatus.DRAFT, KnowledgeReviewStatus.AI_REVIEWED)
                 .set(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.SUBMITTED)
@@ -207,13 +244,16 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         task.setDocumentId(document.getId());
         task.setDocumentVersionId(versionId);
         task.setSubmitterId(submitter);
-        task.setStatus("pending");
+        task.setStatus(KnowledgeReviewTaskStatus.PENDING);
         task.setSourceChecksum(version.getContentChecksum());
         task.setSubmitComment(comment);
         task.setSubmittedAt(now);
-        taskService.save(task);
-        updateDocumentReviewStatus(document.getId(), KnowledgeReviewStatus.SUBMITTED, null, versionId);
-        log(task.getId(), document.getId(), versionId, "SUBMITTED", version.getReviewStatus(),
+        if (!taskService.save(task)) {
+            throw new ServerException(500, I18nUtils.getMessage("knowledge.review-task.create.failed"));
+        }
+        stateManager.markSubmitted(document.getId(), versionId, now);
+        auditWriter.write(submitter, task.getId(), document.getId(), versionId, "SUBMITTED",
+                version.getReviewStatus(),
                 KnowledgeReviewStatus.SUBMITTED, comment);
         return task;
     }
@@ -222,13 +262,19 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
     @Transactional(rollbackFor = Exception.class)
     public void claim(String taskId) {
         KnowledgeReviewTask task = requireTask(taskId);
-        accessService.requireApprovable(task.getKnowledgeBaseId());
+        KnowledgeBase base = accessService.requireApprovable(task.getKnowledgeBaseId());
         String reviewer = accessService.currentAdminId();
+        if (configResolver.isDifferentApproverRequired(base.getReviewConfig())
+                && reviewer.equals(task.getSubmitterId())) {
+            throw new ServerException(403, I18nUtils.getMessage("knowledge.document.self-approval.forbidden"));
+        }
+        stateManager.requireActiveSubmission(task);
         if (!taskService.claim(taskId, reviewer, System.currentTimeMillis())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.review-task.already-claimed"));
         }
-        log(taskId, task.getDocumentId(), task.getDocumentVersionId(), "CLAIMED",
-                task.getStatus(), "claimed", null);
+        auditWriter.write(reviewer, taskId, task.getDocumentId(), task.getDocumentVersionId(),
+                "CLAIMED",
+                task.getStatus(), KnowledgeReviewTaskStatus.CLAIMED, null);
     }
 
     @Override
@@ -249,15 +295,14 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         accessService.requireApprovable(task.getKnowledgeBaseId());
         String reviewer = accessService.currentAdminId();
         ensureReviewer(task, reviewer);
-        KnowledgeDocument document = requireDocument(task.getDocumentId());
-        if (!StringUtils.equals(document.getSubmittedVersionId(), task.getDocumentVersionId())) {
-            throw new ServerException(409, I18nUtils.getMessage("knowledge.document.submission-pointer.changed"));
-        }
+        KnowledgeDocumentWorkflowStateManager.ActiveSubmission submission =
+                stateManager.requireActiveSubmission(task);
         long now = System.currentTimeMillis();
         boolean updated = taskService.update(Wrappers.lambdaUpdate(KnowledgeReviewTask.class)
                 .eq(KnowledgeReviewTask::getId, taskId)
-                .in(KnowledgeReviewTask::getStatus, "pending", "claimed")
-                .set(KnowledgeReviewTask::getStatus, "rejected")
+                .eq(KnowledgeReviewTask::getStatus, KnowledgeReviewTaskStatus.CLAIMED)
+                .eq(KnowledgeReviewTask::getReviewerId, reviewer)
+                .set(KnowledgeReviewTask::getStatus, KnowledgeReviewTaskStatus.REJECTED)
                 .set(KnowledgeReviewTask::getReviewerId, reviewer)
                 .set(KnowledgeReviewTask::getReviewComment, reason)
                 .set(KnowledgeReviewTask::getReviewedAt, now));
@@ -265,13 +310,17 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         boolean versionUpdated = versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, task.getDocumentVersionId())
                 .eq(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.SUBMITTED)
+                .eq(KnowledgeDocumentVersion::getContentChecksum, task.getSourceChecksum())
                 .set(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.REJECTED)
                 .set(KnowledgeDocumentVersion::getReviewedBy, reviewer)
                 .set(KnowledgeDocumentVersion::getReviewedAt, now)
                 .set(KnowledgeDocumentVersion::getReviewComment, reason));
         if (!versionUpdated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
-        updateDocumentReviewStatus(task.getDocumentId(), KnowledgeReviewStatus.REJECTED, null, null);
-        log(taskId, task.getDocumentId(), task.getDocumentVersionId(), "REJECTED",
+        stateManager.finishSubmission(submission.getDocument().getId(),
+                submission.getVersion().getId(),
+                KnowledgeReviewStatus.REJECTED, now, null);
+        auditWriter.write(reviewer, taskId, task.getDocumentId(), task.getDocumentVersionId(),
+                "REJECTED",
                 KnowledgeReviewStatus.SUBMITTED, KnowledgeReviewStatus.REJECTED, reason);
     }
 
@@ -280,24 +329,20 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         KnowledgeBase base = accessService.requireApprovable(task.getKnowledgeBaseId());
         String reviewer = accessService.currentAdminId();
         ensureReviewer(task, reviewer);
-        if (booleanConfig(base.getReviewConfig(), "requireDifferentApprover", true)
+        if (configResolver.isDifferentApproverRequired(base.getReviewConfig())
                 && reviewer.equals(task.getSubmitterId())) {
             throw new ServerException(403, I18nUtils.getMessage("knowledge.document.self-approval.forbidden"));
         }
-        KnowledgeDocumentVersion version = requireVersion(task.getDocumentVersionId());
-        KnowledgeDocument document = requireDocument(task.getDocumentId());
-        if (!StringUtils.equals(document.getSubmittedVersionId(), version.getId())) {
-            throw new ServerException(409, I18nUtils.getMessage("knowledge.document.submission-pointer.changed"));
-        }
-        if (!KnowledgeReviewStatus.SUBMITTED.equals(version.getReviewStatus())
-                || !StringUtils.equals(task.getSourceChecksum(), version.getContentChecksum())) {
-            throw new ServerException(409, I18nUtils.getMessage("knowledge.document.submitted-content-or-state.changed"));
-        }
+        KnowledgeDocumentWorkflowStateManager.ActiveSubmission submission =
+                stateManager.requireActiveSubmission(task);
+        KnowledgeDocumentVersion version = submission.getVersion();
+        KnowledgeDocument document = submission.getDocument();
         long now = System.currentTimeMillis();
         boolean taskUpdated = taskService.update(Wrappers.lambdaUpdate(KnowledgeReviewTask.class)
                 .eq(KnowledgeReviewTask::getId, taskId)
-                .in(KnowledgeReviewTask::getStatus, "pending", "claimed")
-                .set(KnowledgeReviewTask::getStatus, "approved")
+                .eq(KnowledgeReviewTask::getStatus, KnowledgeReviewTaskStatus.CLAIMED)
+                .eq(KnowledgeReviewTask::getReviewerId, reviewer)
+                .set(KnowledgeReviewTask::getStatus, KnowledgeReviewTaskStatus.APPROVED)
                 .set(KnowledgeReviewTask::getReviewerId, reviewer)
                 .set(KnowledgeReviewTask::getReviewComment, comment)
                 .set(KnowledgeReviewTask::getReviewedAt, now));
@@ -305,61 +350,35 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         boolean versionUpdated = versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, version.getId())
                 .eq(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.SUBMITTED)
+                .eq(KnowledgeDocumentVersion::getContentChecksum, task.getSourceChecksum())
                 .set(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.APPROVED)
                 .set(KnowledgeDocumentVersion::getReviewedBy, reviewer)
                 .set(KnowledgeDocumentVersion::getReviewedAt, now)
                 .set(KnowledgeDocumentVersion::getReviewComment, comment));
         if (!versionUpdated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
-        KnowledgeDocument update = new KnowledgeDocument();
-        update.setId(document.getId());
-        update.setSubmittedVersionId(null);
-        update.setReviewStatus(KnowledgeReviewStatus.APPROVED);
-        update.setReviewUpdatedAt(now);
-        update.setIndexStatus(1);
-        updateDocumentPointers(update, true);
-        log(taskId, task.getDocumentId(), version.getId(), "APPROVED",
+        stateManager.finishSubmission(document.getId(), version.getId(),
+                KnowledgeReviewStatus.APPROVED, now, 1);
+        auditWriter.write(reviewer, taskId, task.getDocumentId(), version.getId(), "APPROVED",
                 KnowledgeReviewStatus.SUBMITTED, KnowledgeReviewStatus.APPROVED, comment);
         return new ApprovalResult(documentService.getById(document.getId()), versionService.getById(version.getId()));
     }
 
     private void ensureReviewer(KnowledgeReviewTask task, String reviewer) {
-        if ("claimed".equals(task.getStatus()) && !reviewer.equals(task.getReviewerId())) {
-            throw new ServerException(403, I18nUtils.getMessage("knowledge.review-task.claimed-by-another-admin"));
+        if (KnowledgeReviewTaskStatus.PENDING.equals(task.getStatus())) {
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.review-task.claim-required"));
         }
-        if (!"pending".equals(task.getStatus()) && !"claimed".equals(task.getStatus())) {
+        if (!KnowledgeReviewTaskStatus.CLAIMED.equals(task.getStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.review-task.already-completed"));
         }
-    }
-
-    private void updateDocumentReviewStatus(String documentId, String status,
-                                            String draftVersionId, String submittedVersionId) {
-        documentService.update(Wrappers.lambdaUpdate(KnowledgeDocument.class)
-                .eq(KnowledgeDocument::getId, documentId)
-                .set(KnowledgeDocument::getReviewStatus, status)
-                .set(KnowledgeDocument::getReviewUpdatedAt, System.currentTimeMillis())
-                .set(draftVersionId != null || KnowledgeReviewStatus.SUBMITTED.equals(status),
-                        KnowledgeDocument::getDraftVersionId, draftVersionId)
-                .set(submittedVersionId != null || !KnowledgeReviewStatus.SUBMITTED.equals(status),
-                        KnowledgeDocument::getSubmittedVersionId, submittedVersionId));
-    }
-
-    private void dispatchAiReviewAfterCommit(String reviewId) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            aiReviewWorker.run(reviewId);
-            return;
+        if (!reviewer.equals(task.getReviewerId())) {
+            throw new ServerException(403, I18nUtils.getMessage("knowledge.review-task.claimed-by-another-admin"));
         }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                aiReviewWorker.run(reviewId);
-            }
-        });
     }
 
     private KnowledgeAiReview latestSuccessfulAiReview(String versionId) {
         return aiReviewRecordService.getOne(Wrappers.lambdaQuery(KnowledgeAiReview.class)
                 .eq(KnowledgeAiReview::getDocumentVersionId, versionId)
-                .eq(KnowledgeAiReview::getStatus, "success")
+                .eq(KnowledgeAiReview::getStatus, KnowledgeAiReviewStatus.SUCCESS)
                 .eq(KnowledgeAiReview::getDeleted, false)
                 .orderByDesc(KnowledgeAiReview::getCreatedAt)
                 .last("LIMIT 1"), false);
@@ -369,7 +388,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return review != null && aiReviewIssueService.count(
                 Wrappers.lambdaQuery(com.aether.knowledge.entity.KnowledgeAiReviewIssue.class)
                         .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getAiReviewId, review.getId())
-                        .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getHandleStatus, "pending")
+                        .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getHandleStatus,
+                                KnowledgeAiReviewIssueStatus.PENDING)
                         .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getDeleted, false)) > 0;
     }
 
@@ -407,18 +427,6 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return task;
     }
 
-    private boolean booleanConfig(String value, String key, boolean defaultValue) {
-        if (StringUtils.isBlank(value)) {
-            throw new ServerException(500, I18nUtils.getMessage("knowledge.review.configuration.required"));
-        }
-        try {
-            Boolean configured = JSONObject.parseObject(value).getBoolean(key);
-            return configured == null ? defaultValue : configured;
-        } catch (Exception e) {
-            throw new ServerException(500, I18nUtils.getMessage("knowledge.review.configuration.invalid"));
-        }
-    }
-
     private String checksum(String content) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
@@ -429,20 +437,6 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         } catch (Exception e) {
             throw new ServerException(500, I18nUtils.getMessage("knowledge.document.checksum.failed"));
         }
-    }
-
-    private void log(String taskId, String documentId, String versionId, String action,
-                     String before, String after, String comment) {
-        KnowledgeReviewActionLog entry = new KnowledgeReviewActionLog();
-        entry.setReviewTaskId(taskId);
-        entry.setDocumentId(documentId);
-        entry.setDocumentVersionId(versionId);
-        entry.setOperatorId(accessService.currentAdminId());
-        entry.setAction(action);
-        entry.setBeforeStatus(before);
-        entry.setAfterStatus(after);
-        entry.setComment(comment);
-        actionLogService.save(entry);
     }
 
     private static class ApprovalResult {

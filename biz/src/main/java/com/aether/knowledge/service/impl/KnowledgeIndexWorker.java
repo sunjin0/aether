@@ -11,6 +11,7 @@ import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
+import com.aether.knowledge.model.KnowledgeIndexJobStatus;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
@@ -69,9 +70,9 @@ public class KnowledgeIndexWorker {
                     .eq(KnowledgeDocumentChunk::getDeleted, false));
             boolean completed = jobService.update(Wrappers.lambdaUpdate(KnowledgeIndexJob.class)
                     .eq(KnowledgeIndexJob::getId, jobId)
-                    .eq(KnowledgeIndexJob::getStatus, "running")
+                    .eq(KnowledgeIndexJob::getStatus, KnowledgeIndexJobStatus.RUNNING)
                     .eq(KnowledgeIndexJob::getStartedAt, job.getStartedAt())
-                    .set(KnowledgeIndexJob::getStatus, "success")
+                    .set(KnowledgeIndexJob::getStatus, KnowledgeIndexJobStatus.SUCCESS)
                     .set(KnowledgeIndexJob::getFinishedAt, System.currentTimeMillis()));
             // A recovered lease owns publication; an expired worker may not publish stale state.
             if (!completed) return;
@@ -84,17 +85,18 @@ public class KnowledgeIndexWorker {
             }
         } catch (Exception e) {
             int retryCount = job.getRetryCount() + 1;
-            String nextStatus = retryCount >= job.getMaxRetryCount() ? "failed" : "pending";
+            String nextStatus = retryCount >= job.getMaxRetryCount()
+                    ? KnowledgeIndexJobStatus.FAILED : KnowledgeIndexJobStatus.PENDING;
             boolean released = jobService.update(Wrappers.lambdaUpdate(KnowledgeIndexJob.class)
                     .eq(KnowledgeIndexJob::getId, jobId)
-                    .eq(KnowledgeIndexJob::getStatus, "running")
+                    .eq(KnowledgeIndexJob::getStatus, KnowledgeIndexJobStatus.RUNNING)
                     .eq(KnowledgeIndexJob::getStartedAt, job.getStartedAt())
                     .set(KnowledgeIndexJob::getRetryCount, retryCount)
                     .set(KnowledgeIndexJob::getErrorMessage, I18nUtils.getMessage("knowledge.index.failed"))
                     .set(KnowledgeIndexJob::getFinishedAt, System.currentTimeMillis())
                     .set(KnowledgeIndexJob::getStatus, nextStatus));
             if (!released) return;
-            if ("failed".equals(nextStatus)) {
+            if (KnowledgeIndexJobStatus.FAILED.equals(nextStatus)) {
                 KnowledgeDocumentVersion version = new KnowledgeDocumentVersion(); version.setId(job.getDocumentVersionId()); version.setIndexStatus(3); version.setIndexErrorMessage(I18nUtils.getMessage("knowledge.index.failed")); versionService.updateById(version);
                 KnowledgeDocument current = documentService.getById(job.getDocumentId());
                 KnowledgeDocumentVersion failedVersion = versionService.getById(job.getDocumentVersionId());
@@ -103,7 +105,7 @@ public class KnowledgeIndexWorker {
                     KnowledgeDocument failed = new KnowledgeDocument(); failed.setId(job.getDocumentId()); failed.setIndexStatus(3); failed.setIndexErrorMessage(I18nUtils.getMessage("knowledge.index.failed")); documentService.updateById(failed);
                 }
             }
-            if ("pending".equals(nextStatus)) {
+            if (KnowledgeIndexJobStatus.PENDING.equals(nextStatus)) {
                 long delayMillis = Math.min(30000L, 1000L << Math.min(5, retryCount - 1));
                 taskScheduler.schedule(() -> selfProvider.getObject().run(jobId),
                         new java.util.Date(System.currentTimeMillis() + delayMillis));
@@ -116,13 +118,13 @@ public class KnowledgeIndexWorker {
     public void dispatchPendingJobs() {
         long staleBefore = System.currentTimeMillis() - RUNNING_LEASE_MILLIS;
         jobService.update(Wrappers.lambdaUpdate(KnowledgeIndexJob.class)
-                .eq(KnowledgeIndexJob::getStatus, "running")
+                .eq(KnowledgeIndexJob::getStatus, KnowledgeIndexJobStatus.RUNNING)
                 .lt(KnowledgeIndexJob::getStartedAt, staleBefore)
                 .eq(KnowledgeIndexJob::getDeleted, false)
-                .set(KnowledgeIndexJob::getStatus, "pending")
+                .set(KnowledgeIndexJob::getStatus, KnowledgeIndexJobStatus.PENDING)
                 .set(KnowledgeIndexJob::getErrorMessage, I18nUtils.getMessage("knowledge.index.lease.expired")));
         jobService.list(Wrappers.lambdaQuery(KnowledgeIndexJob.class)
-                        .eq(KnowledgeIndexJob::getStatus, "pending")
+                        .eq(KnowledgeIndexJob::getStatus, KnowledgeIndexJobStatus.PENDING)
                         .eq(KnowledgeIndexJob::getDeleted, false)
                         .orderByAsc(KnowledgeIndexJob::getCreatedAt)
                         .last("LIMIT 20"))

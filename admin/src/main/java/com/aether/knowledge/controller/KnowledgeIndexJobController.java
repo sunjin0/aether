@@ -16,6 +16,7 @@ import com.aether.permission.Permission;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.*;
+import java.util.Collections;
 import java.util.List;
 
 @RestController
@@ -37,9 +38,11 @@ public class KnowledgeIndexJobController {
         List<String> readableIds = accessService.readableKnowledgeBaseIds();
         long current = query.getCurrent() == null || query.getCurrent() < 1 ? 1 : query.getCurrent();
         long pageSize = query.getPageSize() == null ? 20 : Math.max(1, Math.min(100, query.getPageSize()));
+        if (readableIds.isEmpty()) {
+            return WebResponse.Page(Collections.emptyList(), 0L);
+        }
         Page<KnowledgeIndexJob> page = jobService.page(new Page<>(current, pageSize), Wrappers.lambdaQuery(KnowledgeIndexJob.class)
-                .in(!readableIds.isEmpty(), KnowledgeIndexJob::getKnowledgeBaseId, readableIds)
-                .apply(readableIds.isEmpty(), "1 = 0")
+                .in(KnowledgeIndexJob::getKnowledgeBaseId, readableIds)
                 .eq(query.getJobType()!=null, KnowledgeIndexJob::getJobType, query.getJobType())
                 .eq(query.getKnowledgeBaseId()!=null, KnowledgeIndexJob::getKnowledgeBaseId, query.getKnowledgeBaseId())
                 .eq(query.getDocumentId()!=null, KnowledgeIndexJob::getDocumentId, query.getDocumentId())

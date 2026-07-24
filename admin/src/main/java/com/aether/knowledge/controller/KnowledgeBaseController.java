@@ -22,6 +22,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -49,9 +50,11 @@ public class KnowledgeBaseController {
     public WebResponse<List<KnowledgeBaseVo>> list(@RequestBody KnowledgeBaseVo vo) {
         Page<KnowledgeBase> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
+        if (readableIds.isEmpty()) {
+            return WebResponse.Page(Collections.emptyList(), 0L);
+        }
         Wrapper<KnowledgeBase> wrapper = Wrappers.lambdaQuery(KnowledgeBase.class)
-                .in(!readableIds.isEmpty(), KnowledgeBase::getId, readableIds)
-                .apply(readableIds.isEmpty(), "1 = 0")
+                .in(KnowledgeBase::getId, readableIds)
                 .eq(StringUtils.isNotBlank(vo.getScope()), KnowledgeBase::getScope, vo.getScope())
                 .eq(StringUtils.isNotBlank(vo.getEmbeddingProviderId()), KnowledgeBase::getEmbeddingProviderId, vo.getEmbeddingProviderId())
                 .like(StringUtils.isNotBlank(vo.getName()), KnowledgeBase::getName, vo.getName())

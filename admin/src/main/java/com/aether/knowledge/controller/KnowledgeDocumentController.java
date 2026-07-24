@@ -35,6 +35,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.validation.constraints.NotBlank;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.security.MessageDigest;
@@ -83,9 +84,11 @@ public class KnowledgeDocumentController {
     public WebResponse<List<KnowledgeDocumentVo>> list(@RequestBody KnowledgeDocumentVo vo) {
         List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
         Page<KnowledgeDocument> page = new Page<>(vo.getCurrent(), vo.getPageSize());
+        if (readableIds.isEmpty()) {
+            return WebResponse.Page(Collections.emptyList(), 0L);
+        }
         Wrapper<KnowledgeDocument> wrapper = Wrappers.lambdaQuery(KnowledgeDocument.class)
-                .in(!readableIds.isEmpty(), KnowledgeDocument::getKnowledgeBaseId, readableIds)
-                .apply(readableIds.isEmpty(), "1 = 0")
+                .in(KnowledgeDocument::getKnowledgeBaseId, readableIds)
                 .eq(StringUtils.isNotBlank(vo.getKnowledgeBaseId()), KnowledgeDocument::getKnowledgeBaseId, vo.getKnowledgeBaseId())
                 .like(StringUtils.isNotBlank(vo.getTitle()), KnowledgeDocument::getTitle, vo.getTitle())
                 .eq(vo.getStatus() != null, KnowledgeDocument::getStatus, vo.getStatus())

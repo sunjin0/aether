@@ -15,6 +15,6 @@ public class KnowledgeReviewTaskDetailVo extends KnowledgeReviewTaskVo {
     private KnowledgeDocumentVo document;
     private KnowledgeDocumentVersion version;
     private KnowledgeAiReview aiReview;
-    private List<KnowledgeAiReviewIssue> aiIssues;
+    private List<KnowledgeAiReviewIssue> issues;
     private List<KnowledgeReviewActionLog> actionLogs;
 }

@@ -5,6 +5,7 @@ import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeIndexJob;
+import com.aether.knowledge.model.KnowledgeIndexJobStatus;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.service.KnowledgeDocumentIndexService;
@@ -13,6 +14,7 @@ import com.aether.knowledge.service.KnowledgeEmbeddingService;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.knowledge.service.KnowledgeIndexJobService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
+import com.aether.knowledge.workflow.TransactionAfterCommitExecutor;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -20,8 +22,6 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +44,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
     private final KnowledgeIndexWorker knowledgeIndexWorker;
     private final KnowledgeDocumentVersionService knowledgeDocumentVersionService;
     private final KnowledgeChunkSplitter chunkSplitter;
+    private final TransactionAfterCommitExecutor afterCommitExecutor;
 
     public KnowledgeDocumentIndexServiceImpl(KnowledgeDocumentService knowledgeDocumentService,
                                          KnowledgeDocumentChunkService knowledgeDocumentChunkService,
@@ -53,7 +54,8 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
                                          KnowledgeIndexJobService knowledgeIndexJobService,
                                          KnowledgeIndexWorker knowledgeIndexWorker,
                                          KnowledgeDocumentVersionService knowledgeDocumentVersionService,
-                                         KnowledgeChunkSplitter chunkSplitter) {
+                                         KnowledgeChunkSplitter chunkSplitter,
+                                         TransactionAfterCommitExecutor afterCommitExecutor) {
         this.knowledgeDocumentService = knowledgeDocumentService;
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
         this.knowledgeBaseService = knowledgeBaseService;
@@ -63,6 +65,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         this.knowledgeIndexWorker = knowledgeIndexWorker;
         this.knowledgeDocumentVersionService = knowledgeDocumentVersionService;
         this.chunkSplitter = chunkSplitter;
+        this.afterCommitExecutor = afterCommitExecutor;
     }
 
     @Override
@@ -73,23 +76,15 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         KnowledgeIndexJob job = new KnowledgeIndexJob();
         job.setKnowledgeBaseId(document.getKnowledgeBaseId()); job.setDocumentId(document.getId());
         job.setDocumentVersionId(version.getId()); job.setJobType(StringUtils.defaultIfBlank(jobType, "reindex"));
-        job.setStatus("pending"); job.setRetryCount(0); job.setMaxRetryCount(3);
-        knowledgeIndexJobService.save(job);
-        dispatchAfterCommit(job.getId());
-        return job.getId();
-    }
-
-    private void dispatchAfterCommit(String jobId) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            knowledgeIndexWorker.run(jobId);
-            return;
+        job.setStatus(KnowledgeIndexJobStatus.PENDING);
+        job.setRetryCount(0);
+        job.setMaxRetryCount(3);
+        if (!knowledgeIndexJobService.save(job) || StringUtils.isBlank(job.getId())) {
+            throw new ServerException(500,
+                    I18nUtils.getMessage("knowledge.index-job.create.failed"));
         }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                knowledgeIndexWorker.run(jobId);
-            }
-        });
+        afterCommitExecutor.execute(() -> knowledgeIndexWorker.run(job.getId()));
+        return job.getId();
     }
 
     @Override

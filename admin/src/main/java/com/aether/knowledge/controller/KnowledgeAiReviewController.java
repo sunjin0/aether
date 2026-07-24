@@ -18,6 +18,8 @@ import com.aether.knowledge.vo.KnowledgeAiReviewIssueAcceptVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueBatchAcceptVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueHandleVo;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
+import com.aether.knowledge.model.KnowledgeAiReviewStatus;
+import com.aether.knowledge.model.KnowledgeAiReviewIssueStatus;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.permission.Permission;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -26,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -136,10 +137,10 @@ public class KnowledgeAiReviewController {
             item.setProposedStartLine(proposedLines[0]);
             item.setProposedEndLine(proposedLines[1]);
             issues.add(item);
-            if ("pending".equals(issue.getHandleStatus())) {
+            if (KnowledgeAiReviewIssueStatus.PENDING.equals(issue.getHandleStatus())) {
                 pending++;
                 if ("critical".equalsIgnoreCase(issue.getSeverity())) criticalPending++;
-            } else if ("accepted".equals(issue.getHandleStatus())) {
+            } else if (KnowledgeAiReviewIssueStatus.ACCEPTED.equals(issue.getHandleStatus())) {
                 accepted++;
             } else {
                 rejected++;
@@ -160,11 +161,11 @@ public class KnowledgeAiReviewController {
                                                                            @PathVariable String issueId,
                                                                            @RequestBody KnowledgeAiReviewIssueAcceptVo vo) {
         KnowledgeAiReview review = requireReview(reviewId);
-        if (!"success".equals(review.getStatus())) {
+        if (!KnowledgeAiReviewStatus.SUCCESS.equals(review.getStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.suggestions.not-ready"));
         }
         KnowledgeAiReviewIssue issue = requireIssue(issueId, reviewId);
-        if (!"pending".equals(issue.getHandleStatus())) {
+        if (!KnowledgeAiReviewIssueStatus.PENDING.equals(issue.getHandleStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
         }
         if (parsePatch(issue.getSuggestedPatch()) == null) {
@@ -187,8 +188,10 @@ public class KnowledgeAiReviewController {
         boolean updated = issueService.update(Wrappers.lambdaUpdate(KnowledgeAiReviewIssue.class)
                 .eq(KnowledgeAiReviewIssue::getId, issueId)
                 .eq(KnowledgeAiReviewIssue::getAiReviewId, reviewId)
-                .eq(KnowledgeAiReviewIssue::getHandleStatus, "pending")
-                .set(KnowledgeAiReviewIssue::getHandleStatus, "accepted")
+                .eq(KnowledgeAiReviewIssue::getHandleStatus,
+                        KnowledgeAiReviewIssueStatus.PENDING)
+                .set(KnowledgeAiReviewIssue::getHandleStatus,
+                        KnowledgeAiReviewIssueStatus.ACCEPTED)
                 .set(KnowledgeAiReviewIssue::getHandledBy, accessService.currentAdminId())
                 .set(KnowledgeAiReviewIssue::getHandledAt, System.currentTimeMillis())
                 .set(KnowledgeAiReviewIssue::getHandleComment, vo.getComment())
@@ -199,7 +202,7 @@ public class KnowledgeAiReviewController {
         result.setDocumentVersionId(version.getId());
         result.setContentChecksum(version.getContentChecksum());
         result.setReviewStatus(version.getReviewStatus());
-        result.setIssueStatus("accepted");
+        result.setIssueStatus(KnowledgeAiReviewIssueStatus.ACCEPTED);
         result.setRequiresAiReview(false);
         return WebResponse.OK(result);
     }
@@ -213,7 +216,7 @@ public class KnowledgeAiReviewController {
         KnowledgeAiReviewIssue issue = requireIssue(issueId, reviewId);
         accessService.requireWritable(review.getKnowledgeBaseId());
         requireHandleableVersion(issue);
-        if (!"accepted".equals(issue.getHandleStatus())) {
+        if (!KnowledgeAiReviewIssueStatus.ACCEPTED.equals(issue.getHandleStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.not-accepted"));
         }
         if (StringUtils.isNotBlank(issue.getAppliedChecksum())) {
@@ -222,9 +225,11 @@ public class KnowledgeAiReviewController {
         boolean updated = issueService.update(Wrappers.lambdaUpdate(KnowledgeAiReviewIssue.class)
                 .eq(KnowledgeAiReviewIssue::getId, issueId)
                 .eq(KnowledgeAiReviewIssue::getAiReviewId, reviewId)
-                .eq(KnowledgeAiReviewIssue::getHandleStatus, "accepted")
+                .eq(KnowledgeAiReviewIssue::getHandleStatus,
+                        KnowledgeAiReviewIssueStatus.ACCEPTED)
                 .isNull(KnowledgeAiReviewIssue::getAppliedChecksum)
-                .set(KnowledgeAiReviewIssue::getHandleStatus, "rejected")
+                .set(KnowledgeAiReviewIssue::getHandleStatus,
+                        KnowledgeAiReviewIssueStatus.REJECTED)
                 .set(KnowledgeAiReviewIssue::getHandledBy, accessService.currentAdminId())
                 .set(KnowledgeAiReviewIssue::getHandledAt, System.currentTimeMillis())
                 .set(KnowledgeAiReviewIssue::getHandleComment, vo == null ? null : vo.getComment())
@@ -245,8 +250,10 @@ public class KnowledgeAiReviewController {
         boolean updated = issueService.update(Wrappers.lambdaUpdate(KnowledgeAiReviewIssue.class)
                 .eq(KnowledgeAiReviewIssue::getId, issueId)
                 .eq(KnowledgeAiReviewIssue::getAiReviewId, reviewId)
-                .eq(KnowledgeAiReviewIssue::getHandleStatus, "pending")
-                .set(KnowledgeAiReviewIssue::getHandleStatus, "rejected")
+                .eq(KnowledgeAiReviewIssue::getHandleStatus,
+                        KnowledgeAiReviewIssueStatus.PENDING)
+                .set(KnowledgeAiReviewIssue::getHandleStatus,
+                        KnowledgeAiReviewIssueStatus.REJECTED)
                 .set(KnowledgeAiReviewIssue::getHandledBy, accessService.currentAdminId())
                 .set(KnowledgeAiReviewIssue::getHandledAt, System.currentTimeMillis())
                 .set(KnowledgeAiReviewIssue::getHandleComment, vo == null ? null : vo.getComment()));
@@ -266,7 +273,7 @@ public class KnowledgeAiReviewController {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.draft-checksum.required"));
         }
         KnowledgeAiReview review = requireReview(reviewId);
-        if (!"success".equals(review.getStatus())) {
+        if (!KnowledgeAiReviewStatus.SUCCESS.equals(review.getStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.suggestions.not-ready"));
         }
         com.aether.knowledge.entity.KnowledgeDocumentVersion version = versionService.getById(review.getDocumentVersionId());
@@ -285,7 +292,7 @@ public class KnowledgeAiReviewController {
         List<KnowledgeAiReviewIssue> issues = new ArrayList<>();
         for (String issueId : distinctIds) {
             KnowledgeAiReviewIssue issue = requireIssue(issueId, reviewId);
-            if (!"pending".equals(issue.getHandleStatus())) {
+            if (!KnowledgeAiReviewIssueStatus.PENDING.equals(issue.getHandleStatus())) {
                 throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
             }
             if (parsePatch(issue.getSuggestedPatch()) == null) {
@@ -301,8 +308,10 @@ public class KnowledgeAiReviewController {
             boolean updated = issueService.update(Wrappers.lambdaUpdate(KnowledgeAiReviewIssue.class)
                     .eq(KnowledgeAiReviewIssue::getId, issue.getId())
                     .eq(KnowledgeAiReviewIssue::getAiReviewId, reviewId)
-                    .eq(KnowledgeAiReviewIssue::getHandleStatus, "pending")
-                    .set(KnowledgeAiReviewIssue::getHandleStatus, "accepted")
+                    .eq(KnowledgeAiReviewIssue::getHandleStatus,
+                            KnowledgeAiReviewIssueStatus.PENDING)
+                    .set(KnowledgeAiReviewIssue::getHandleStatus,
+                            KnowledgeAiReviewIssueStatus.ACCEPTED)
                     .set(KnowledgeAiReviewIssue::getHandledBy, accessService.currentAdminId())
                     .set(KnowledgeAiReviewIssue::getHandledAt, now)
                     .set(KnowledgeAiReviewIssue::getHandleComment, vo.getComment())
@@ -314,7 +323,7 @@ public class KnowledgeAiReviewController {
         result.setDocumentVersionId(version.getId());
         result.setContentChecksum(version.getContentChecksum());
         result.setReviewStatus(version.getReviewStatus());
-        result.setIssueStatus("accepted");
+        result.setIssueStatus(KnowledgeAiReviewIssueStatus.ACCEPTED);
         result.setRequiresAiReview(false);
         return WebResponse.OK(result);
     }
@@ -328,7 +337,7 @@ public class KnowledgeAiReviewController {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.draft-checksum.required"));
         }
         KnowledgeAiReview review = requireReview(reviewId);
-        if (!"success".equals(review.getStatus())) {
+        if (!KnowledgeAiReviewStatus.SUCCESS.equals(review.getStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.suggestions.not-ready"));
         }
         com.aether.knowledge.entity.KnowledgeDocumentVersion version = versionService.getById(review.getDocumentVersionId());
@@ -342,7 +351,8 @@ public class KnowledgeAiReviewController {
         }
         List<KnowledgeAiReviewIssue> acceptedIssues = issueService.list(Wrappers.lambdaQuery(KnowledgeAiReviewIssue.class)
                 .eq(KnowledgeAiReviewIssue::getAiReviewId, reviewId)
-                .eq(KnowledgeAiReviewIssue::getHandleStatus, "accepted")
+                .eq(KnowledgeAiReviewIssue::getHandleStatus,
+                        KnowledgeAiReviewIssueStatus.ACCEPTED)
                 .eq(KnowledgeAiReviewIssue::getDeleted, false)
                 .orderByAsc(KnowledgeAiReviewIssue::getCreatedAt));
         if (acceptedIssues.isEmpty()) {
@@ -352,19 +362,20 @@ public class KnowledgeAiReviewController {
         for (KnowledgeAiReviewIssue issue : acceptedIssues) {
             updatedContent = applyPatch(updatedContent, issue, issue.getAppliedContent());
         }
-        com.aether.knowledge.entity.KnowledgeDocumentVersion updatedVersion = workflowService.updateDraft(
+        com.aether.knowledge.entity.KnowledgeDocumentVersion updatedVersion = workflowService.applyAiReviewedChanges(
                 version.getId(), updatedContent, vo.getExpectedChecksum());
         for (KnowledgeAiReviewIssue issue : acceptedIssues) {
             issueService.update(Wrappers.lambdaUpdate(KnowledgeAiReviewIssue.class)
                     .eq(KnowledgeAiReviewIssue::getId, issue.getId())
-                    .eq(KnowledgeAiReviewIssue::getHandleStatus, "accepted")
+                    .eq(KnowledgeAiReviewIssue::getHandleStatus,
+                            KnowledgeAiReviewIssueStatus.ACCEPTED)
                     .set(KnowledgeAiReviewIssue::getAppliedChecksum, updatedVersion.getContentChecksum()));
         }
         KnowledgeAiReviewIssueAcceptResultVo result = new KnowledgeAiReviewIssueAcceptResultVo();
         result.setDocumentVersionId(updatedVersion.getId());
         result.setContentChecksum(updatedVersion.getContentChecksum());
         result.setReviewStatus(updatedVersion.getReviewStatus());
-        result.setIssueStatus("accepted");
+        result.setIssueStatus(KnowledgeAiReviewIssueStatus.ACCEPTED);
         result.setRequiresAiReview(false);
         return WebResponse.OK(result);
     }
@@ -388,12 +399,13 @@ public class KnowledgeAiReviewController {
         KnowledgeAiReview review = requireReview(issue.getAiReviewId());
         accessService.requireWritable(review.getKnowledgeBaseId());
         String status = StringUtils.lowerCase(StringUtils.trimToEmpty(vo.getStatus()));
-        if (!Arrays.asList("rejected", "manually_fixed", "ignored").contains(status)) {
+        if (!KnowledgeAiReviewIssueStatus.isManualResolution(status)) {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.issue.handle-status.invalid"));
         }
         boolean updated = issueService.update(Wrappers.lambdaUpdate(KnowledgeAiReviewIssue.class)
                 .eq(KnowledgeAiReviewIssue::getId, issueId)
-                .eq(KnowledgeAiReviewIssue::getHandleStatus, "pending")
+                .eq(KnowledgeAiReviewIssue::getHandleStatus,
+                        KnowledgeAiReviewIssueStatus.PENDING)
                 .set(KnowledgeAiReviewIssue::getHandleStatus, status)
                 .set(KnowledgeAiReviewIssue::getHandledBy, accessService.currentAdminId())
                 .set(KnowledgeAiReviewIssue::getHandledAt, System.currentTimeMillis())
@@ -424,9 +436,13 @@ public class KnowledgeAiReviewController {
     private String buildProposedContent(String sourceContent, List<KnowledgeAiReviewIssue> issues) {
         String proposed = StringUtils.defaultString(sourceContent);
         for (KnowledgeAiReviewIssue issue : issues) {
-            if (!"pending".equals(issue.getHandleStatus()) && !"accepted".equals(issue.getHandleStatus())) continue;
+            if (!KnowledgeAiReviewIssueStatus.PENDING.equals(issue.getHandleStatus())
+                    && !KnowledgeAiReviewIssueStatus.ACCEPTED.equals(issue.getHandleStatus())) {
+                continue;
+            }
             try {
-                proposed = applyPatch(proposed, issue, "accepted".equals(issue.getHandleStatus())
+                proposed = applyPatch(proposed, issue,
+                        KnowledgeAiReviewIssueStatus.ACCEPTED.equals(issue.getHandleStatus())
                         ? issue.getAppliedContent() : null);
             } catch (ServerException ignored) {
                 // A conflicting or incomplete suggestion stays visible in the issue list but is not auto-previewed.
