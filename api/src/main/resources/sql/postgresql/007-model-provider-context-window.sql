@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE agent_model_provider
+    ADD COLUMN IF NOT EXISTS context_window INTEGER NOT NULL DEFAULT 32768;
+
+COMMIT;

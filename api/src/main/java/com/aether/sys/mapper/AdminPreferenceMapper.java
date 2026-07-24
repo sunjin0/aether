@@ -19,6 +19,15 @@ public interface AdminPreferenceMapper extends BaseMapper<AdminPreference> {
     @Select("SELECT * FROM sys_admin_preference WHERE admin_id = #{adminId} AND key_name = #{keyName} AND deleted = false LIMIT 1")
     AdminPreference selectByKey(@Param("adminId") String adminId, @Param("keyName") String keyName);
 
+    @Select("SELECT * FROM sys_admin_preference WHERE admin_id = #{adminId} AND category = #{category} "
+            + "AND key_name = #{keyName} AND scope = #{scope} AND COALESCE(scope_detail, '') = #{scopeDetail} "
+            + "AND deleted = false LIMIT 1")
+    AdminPreference selectByIdentity(@Param("adminId") String adminId,
+                                     @Param("category") String category,
+                                     @Param("keyName") String keyName,
+                                     @Param("scope") String scope,
+                                     @Param("scopeDetail") String scopeDetail);
+
     @Select("SELECT COUNT(*) FROM sys_admin_preference WHERE admin_id = #{adminId} AND key_name = #{keyName} AND value = #{value} AND deleted = false")
     int countDuplicate(@Param("adminId") String adminId, @Param("keyName") String keyName, @Param("value") String value);
 

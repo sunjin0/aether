@@ -42,7 +42,8 @@ public class KnowledgeContextService {
     }
 
     /** 将偏好、检索文本和可引用来源添加到模型上下文，并返回来源供 SSE 最终事件使用。 */
-    public List<Map<String, Object>> enhance(List<ModelChatMessage> context, String userId, String agentId, String query) {
+    public List<Map<String, Object>> enhance(List<ModelChatMessage> context, String userId,
+                                             String conversationId, String agentId, String query) {
         List<Map<String, Object>> sources = new ArrayList<>();
         if (context == null) {
             return sources;
@@ -51,7 +52,7 @@ public class KnowledgeContextService {
         while (insertIndex < context.size() && "system".equals(context.get(insertIndex).getRole())) {
             insertIndex++;
         }
-        String preferenceContext = preferenceService.buildPreferenceContext(userId, null);
+        String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
         if (StringUtils.isNotBlank(preferenceContext)) {
             context.add(insertIndex++, new ModelChatMessage("system", preferenceContext));
         }

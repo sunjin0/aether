@@ -10,6 +10,7 @@ import com.aether.sys.entity.AdminPreference;
 import com.aether.sys.entity.AdminPreferenceEvent;
 import com.aether.sys.mapper.AdminPreferenceMapper;
 import com.aether.sys.service.AdminPreferenceEventService;
+import com.aether.sys.service.impl.PreferenceReasoningEngine;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -21,7 +22,10 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtractionService {
@@ -30,10 +34,18 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
 
     private static final BigDecimal MIN_CONFIDENCE = BigDecimal.valueOf(0.60);
     private static final BigDecimal DEFAULT_CONFIDENCE = BigDecimal.valueOf(0.80);
-    private static final BigDecimal CONFIDENCE_REDUCE_ON_DUPLICATE = BigDecimal.valueOf(0.10);
     private static final int MAX_CONTENT_LENGTH = 512;
     private static final int MAX_CONTEXT_MESSAGES = 20;
-    private static final int MAX_CONTEXT_CHARS = 4000;
+    private static final Set<String> ALLOWED_CATEGORIES = new HashSet<String>();
+    private final Set<String> activeExtractions = ConcurrentHashMap.newKeySet();
+
+    static {
+        ALLOWED_CATEGORIES.add(AdminPreference.CATEGORY_LANGUAGE);
+        ALLOWED_CATEGORIES.add(AdminPreference.CATEGORY_STYLE);
+        ALLOWED_CATEGORIES.add(AdminPreference.CATEGORY_FORMAT);
+        ALLOWED_CATEGORIES.add(AdminPreference.CATEGORY_TECH_STACK);
+        ALLOWED_CATEGORIES.add(AdminPreference.CATEGORY_TOOL_STRATEGY);
+    }
 
     @Autowired
     private AdminPreferenceMapper preferenceMapper;
@@ -47,34 +59,45 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
     @Autowired
     private ModelClientFactory modelClientFactory;
 
+    @Autowired
+    private PreferenceReasoningEngine reasoningEngine;
+
     @Override
     @Async
     public void extractAsync(String userId, String conversationId,
                              AgentMessage userMessage, AgentMessage assistantMessage,
                              AgentDefinition agent, ModelProvider provider) {
+        String extractionKey = userId + ":" + conversationId;
+        if (!activeExtractions.add(extractionKey)) {
+            return;
+        }
         try {
             doExtract(userId, conversationId, userMessage, assistantMessage, provider, agent);
         } catch (Exception e) {
             log.error("Failed to extract preferences for user {}", userId, e);
+        } finally {
+            activeExtractions.remove(extractionKey);
         }
     }
 
     private void doExtract(String userId, String conversationId,
                            AgentMessage userMessage, AgentMessage assistantMessage,
                            ModelProvider provider, AgentDefinition agent) {
-        List<AgentMessage> history = queryConversationHistory(conversationId);
+        AdminPreferenceEvent marker = eventService.getLastEvent(
+                userId, AdminPreferenceEvent.EVENT_EXTRACTION_MARKER, conversationId);
+        List<AgentMessage> history = queryConversationHistory(conversationId, marker);
+        if (history.size() < 2) {
+            return;
+        }
         if (!looksLikePreferenceSignal(history)) {
+            recordExtractionMarker(userId, conversationId, history.get(history.size() - 1));
             return;
         }
 
-        long lastExtractionAt = getLastExtractionTime(userId);
-        List<AgentMessage> newMessages = filterNewMessages(history, lastExtractionAt);
-        if (newMessages.size() < 2) {
-            return;
-        }
-
-        String summary = summarizeConversation(newMessages, provider, agent);
-        String extractionPrompt = buildExtractionPrompt(summary, userMessage, assistantMessage);
+        String summary = summarizeConversation(history, provider, agent);
+        String extractionPrompt = buildExtractionPrompt(summary,
+                findLastMessage(history, "user", userMessage),
+                findLastMessage(history, "assistant", assistantMessage));
 
         String response = callModel(extractionPrompt, provider, agent);
         if (StringUtils.isBlank(response)) {
@@ -85,25 +108,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         for (AdminPreference pref : extracted) {
             savePreference(userId, conversationId, pref);
         }
-        recordExtractionTime(userId);
-    }
-
-    private long getLastExtractionTime(String userId) {
-        AdminPreferenceEvent lastEvent = eventService.getLastEvent(userId, AdminPreferenceEvent.EVENT_EXTRACT);
-        return lastEvent != null ? lastEvent.getCreatedAt() : 0L;
-    }
-
-    private List<AgentMessage> filterNewMessages(List<AgentMessage> history, long since) {
-        if (since == 0) {
-            return history;
-        }
-        List<AgentMessage> filtered = new ArrayList<>();
-        for (AgentMessage msg : history) {
-            if (msg.getCreatedAt() != null && msg.getCreatedAt() > since) {
-                filtered.add(msg);
-            }
-        }
-        return filtered;
+        recordExtractionMarker(userId, conversationId, history.get(history.size() - 1));
     }
 
     private String summarizeConversation(List<AgentMessage> messages, ModelProvider provider, AgentDefinition agent) {
@@ -144,16 +149,29 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         return raw.toString();
     }
 
-    private List<AgentMessage> queryConversationHistory(String conversationId) {
+    private List<AgentMessage> queryConversationHistory(String conversationId,
+                                                        AdminPreferenceEvent marker) {
         if (StringUtils.isBlank(conversationId)) {
             return Collections.emptyList();
         }
-        return messageMapper.selectList(
-                new LambdaQueryWrapper<AgentMessage>()
-                        .eq(AgentMessage::getConversationId, conversationId)
-                        .eq(AgentMessage::getMessageType, "chat")
-                        .orderByAsc(AgentMessage::getCreatedAt)
-                        .last("LIMIT " + MAX_CONTEXT_MESSAGES));
+        LambdaQueryWrapper<AgentMessage> query = new LambdaQueryWrapper<AgentMessage>()
+                .eq(AgentMessage::getConversationId, conversationId)
+                .eq(AgentMessage::getMessageType, "chat")
+                .eq(AgentMessage::getDeleted, false)
+                .in(AgentMessage::getRole, "user", "assistant");
+        AgentMessage coveredMessage = marker == null || StringUtils.isBlank(marker.getMessageId())
+                ? null : messageMapper.selectById(marker.getMessageId());
+        if (coveredMessage != null && coveredMessage.getCreatedAt() != null) {
+            query.and(wrapper -> wrapper
+                    .gt(AgentMessage::getCreatedAt, coveredMessage.getCreatedAt())
+                    .or(nested -> nested
+                            .eq(AgentMessage::getCreatedAt, coveredMessage.getCreatedAt())
+                            .gt(AgentMessage::getId, coveredMessage.getId())));
+        }
+        return messageMapper.selectList(query
+                .orderByAsc(AgentMessage::getCreatedAt)
+                .orderByAsc(AgentMessage::getId)
+                .last("LIMIT " + MAX_CONTEXT_MESSAGES));
     }
 
     private boolean looksLikePreferenceSignal(List<AgentMessage> history) {
@@ -187,7 +205,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                 return true;
             }
         }
-        return content.length() > 20;
+        return false;
     }
 
     private String buildExtractionPrompt(String summary,
@@ -228,15 +246,19 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
             org.json.JSONArray arr = new org.json.JSONArray(json.trim());
             for (int i = 0; i < arr.length(); i++) {
                 org.json.JSONObject obj = arr.getJSONObject(i);
-                String category = obj.optString("category", "general");
-                String keyName = obj.optString("key_name", "");
-                String value = obj.optString("value", "");
+                String category = obj.optString("category", "").trim().toLowerCase();
+                String keyName = obj.optString("key_name", "").trim().toLowerCase();
+                String value = obj.optString("value", "").trim();
                 BigDecimal confidence = new BigDecimal(obj.optString("confidence", DEFAULT_CONFIDENCE.toString()));
 
-                if (StringUtils.isBlank(value) || value.length() > MAX_CONTENT_LENGTH) {
+                if (!ALLOWED_CATEGORIES.contains(category)
+                        || !keyName.matches("[a-z0-9_.-]{1,128}")
+                        || StringUtils.isBlank(value)
+                        || value.length() > MAX_CONTENT_LENGTH) {
                     continue;
                 }
-                if (confidence.compareTo(MIN_CONFIDENCE) < 0) {
+                if (confidence.compareTo(MIN_CONFIDENCE) < 0
+                        || confidence.compareTo(BigDecimal.ONE) > 0) {
                     continue;
                 }
 
@@ -270,7 +292,10 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
     }
 
     private void savePreference(String userId, String conversationId, AdminPreference extracted) {
-        AdminPreference existing = preferenceMapper.selectByKey(userId, extracted.getKeyName());
+        String scope = AdminPreference.SCOPE_GLOBAL;
+        String scopeDetail = "";
+        AdminPreference existing = preferenceMapper.selectByIdentity(
+                userId, extracted.getCategory(), extracted.getKeyName(), scope, scopeDetail);
         if (existing != null) {
             if (existing.getValue().equals(extracted.getValue())) {
                 existing.setUsageCount((existing.getUsageCount() != null ? existing.getUsageCount() : 0) + 1);
@@ -281,6 +306,18 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                 }
                 existing.setConfidence(newConfidence);
                 preferenceMapper.updateById(existing);
+                reasoningEngine.clearUserCache(userId);
+                AdminPreferenceEvent reinforcementEvent = new AdminPreferenceEvent();
+                reinforcementEvent.setAdminId(userId);
+                reinforcementEvent.setPreferenceId(existing.getId());
+                reinforcementEvent.setEventType(AdminPreferenceEvent.EVENT_EXTRACT);
+                reinforcementEvent.setCategory(existing.getCategory());
+                reinforcementEvent.setKeyName(existing.getKeyName());
+                reinforcementEvent.setValue(extracted.getValue());
+                reinforcementEvent.setConfidence(extracted.getConfidence());
+                reinforcementEvent.setConversationId(conversationId);
+                reinforcementEvent.setContextSnapshot("reinforcement");
+                eventService.logEvent(reinforcementEvent);
                 return;
             }
 
@@ -289,6 +326,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                 existing.setConfidence(extracted.getConfidence());
                 existing.setLastUsedAt(System.currentTimeMillis());
                 preferenceMapper.updateById(existing);
+                reasoningEngine.clearUserCache(userId);
 
                 AdminPreferenceEvent conflictEvent = new AdminPreferenceEvent();
                 conflictEvent.setAdminId(userId);
@@ -313,6 +351,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         pref.setDescription(extracted.getValue());
         pref.setPriority(50);
         pref.setScope(AdminPreference.SCOPE_GLOBAL);
+        pref.setScopeDetail("");
         pref.setSource(AdminPreference.SOURCE_IMPLICIT);
         pref.setConfidence(extracted.getConfidence());
         pref.setUsageCount(0);
@@ -320,6 +359,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         pref.setEffectiveScore(BigDecimal.valueOf(50));
         pref.setStatus(AdminPreference.STATUS_ENABLED);
         preferenceMapper.insert(pref);
+        reasoningEngine.clearUserCache(userId);
 
         AdminPreferenceEvent event = new AdminPreferenceEvent();
         event.setAdminId(userId);
@@ -348,12 +388,25 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         return false;
     }
 
-    private void recordExtractionTime(String userId) {
+    private void recordExtractionMarker(String userId, String conversationId,
+                                        AgentMessage coveredMessage) {
         AdminPreferenceEvent event = new AdminPreferenceEvent();
         event.setAdminId(userId);
-        event.setEventType("extraction_marker");
-        event.setContextSnapshot("extraction_time");
+        event.setEventType(AdminPreferenceEvent.EVENT_EXTRACTION_MARKER);
+        event.setConversationId(conversationId);
+        event.setMessageId(coveredMessage.getId());
+        event.setContextSnapshot("processed_through_message");
         eventService.logEvent(event);
+    }
+
+    private AgentMessage findLastMessage(List<AgentMessage> messages, String role,
+                                         AgentMessage fallback) {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (role.equals(messages.get(i).getRole())) {
+                return messages.get(i);
+            }
+        }
+        return fallback;
     }
 
     private BigDecimal defaultDecayRate(String category) {

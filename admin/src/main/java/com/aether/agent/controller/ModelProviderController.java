@@ -25,6 +25,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
+import javax.validation.Valid;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -101,7 +102,7 @@ public class ModelProviderController {
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     @PostMapping
-    public WebResponse<String> save(@RequestBody ModelProviderDto dto) {
+    public WebResponse<String> save(@RequestBody @Valid ModelProviderDto dto) {
         ModelProvider provider = new ModelProvider();
         BeanUtils.copyProperties(dto, provider);
         if (StringUtils.isNotBlank(provider.getApiKey())) {
@@ -123,7 +124,7 @@ public class ModelProviderController {
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}")
-    public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody ModelProviderDto dto) {
+    public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody @Valid ModelProviderDto dto) {
         ModelProvider provider = new ModelProvider();
         BeanUtils.copyProperties(dto, provider);
         provider.setId(id);

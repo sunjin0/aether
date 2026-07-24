@@ -4,11 +4,14 @@ import com.aether.sys.entity.AdminPreference;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.List;
 
 public interface AdminPreferenceService extends IService<AdminPreference> {
 
     String buildPreferenceContext(String adminId, String taskType);
+
+    String buildPreferenceContext(String adminId, String taskType, String conversationId);
 
     AdminPreference getEffectivePreference(String adminId, String keyName, String taskType);
 
@@ -21,4 +24,6 @@ public interface AdminPreferenceService extends IService<AdminPreference> {
     List<AdminPreference> listByAdminId(String adminId);
 
     boolean clearUserCache(String adminId);
+
+    void reconcileAfterEvidenceRemoval(Collection<String> preferenceIds);
 }

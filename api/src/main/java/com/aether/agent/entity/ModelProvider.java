@@ -33,6 +33,9 @@ public class ModelProvider extends BaseEntity {
     @ApiModelProperty(value = "默认模型名称")
     private String defaultModel;
 
+    @ApiModelProperty(value = "模型上下文窗口大小（token）")
+    private Integer contextWindow;
+
     @ApiModelProperty(value = "状态：0-禁用，1-启用")
     private Integer status;
 

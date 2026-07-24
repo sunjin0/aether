@@ -3,6 +3,8 @@ package com.aether.agent.dto;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 
+import javax.validation.constraints.Max;
+import javax.validation.constraints.Min;
 import java.math.BigDecimal;
 
 /**
@@ -25,6 +27,11 @@ public class ModelProviderDto {
 
     @ApiModelProperty(value = "默认模型名称")
     private String defaultModel;
+
+    @ApiModelProperty(value = "模型上下文窗口大小（token），默认32768")
+    @Min(value = 4096, message = "contextWindow不能小于4096")
+    @Max(value = 2000000, message = "contextWindow不能大于2000000")
+    private Integer contextWindow;
 
     @ApiModelProperty(value = "状态：0-禁用，1-启用")
     private Integer status;

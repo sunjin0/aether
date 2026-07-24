@@ -33,6 +33,7 @@ public class AdminPreferenceEvent extends BaseEntity {
     private String contextSnapshot;
 
     public static final String EVENT_EXTRACT = "extract";
+    public static final String EVENT_EXTRACTION_MARKER = "extract_marker";
     public static final String EVENT_CONFIRM = "confirm";
     public static final String EVENT_REJECT = "reject";
     public static final String EVENT_OVERRIDE = "override";

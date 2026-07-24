@@ -315,6 +315,7 @@ CREATE TABLE IF NOT EXISTS agent_model_provider (
     api_base_url    VARCHAR(256),
     api_key         VARCHAR(512),
     default_model   VARCHAR(64),
+    context_window  INTEGER          NOT NULL DEFAULT 32768,
     status          SMALLINT      NOT NULL DEFAULT 1,
     sort            INTEGER          NOT NULL DEFAULT 0,
     remark          VARCHAR(512),
@@ -421,6 +422,10 @@ CREATE TABLE IF NOT EXISTS agent_conversation (
     title               VARCHAR(256),
     message_count       INTEGER          NOT NULL DEFAULT 0,
     status              SMALLINT      NOT NULL DEFAULT 0,
+    summary             TEXT,
+    summary_covered_message_id VARCHAR(32),
+    summary_covered_created_at BIGINT,
+    summary_updated_at  BIGINT,
     created_at          BIGINT,
     updated_at          BIGINT,
     sort_num            INTEGER          NOT NULL DEFAULT 0,
@@ -607,6 +612,7 @@ CREATE INDEX IF NOT EXISTS agent_conversation_idx_user_id ON agent_conversation 
 CREATE INDEX IF NOT EXISTS agent_conversation_idx_agent_id ON agent_conversation (agent_definition_id);
 CREATE INDEX IF NOT EXISTS agent_conversation_idx_status ON agent_conversation (state);
 CREATE INDEX IF NOT EXISTS agent_message_idx_conversation_id ON agent_message (conversation_id);
+CREATE INDEX IF NOT EXISTS agent_message_idx_conversation_history ON agent_message (conversation_id, deleted, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS agent_message_idx_role ON agent_message (role);
 CREATE INDEX IF NOT EXISTS agent_message_idx_parent_message_id ON agent_message (parent_message_id);
 CREATE INDEX IF NOT EXISTS agent_message_idx_interaction_status ON agent_message (conversation_id, interaction_status, deleted);
@@ -760,7 +766,7 @@ CREATE TABLE IF NOT EXISTS sys_admin_preference (
     description     VARCHAR(256),
     priority        INT          NOT NULL DEFAULT 50,
     scope           VARCHAR(32)  NOT NULL DEFAULT 'global',
-    scope_detail    VARCHAR(64),
+    scope_detail    VARCHAR(64)  NOT NULL DEFAULT '',
     source          VARCHAR(16)  NOT NULL DEFAULT 'explicit',
     confidence      DECIMAL(4,2) NOT NULL DEFAULT 1.00,
     usage_count     INT          NOT NULL DEFAULT 0,
@@ -778,6 +784,9 @@ CREATE TABLE IF NOT EXISTS sys_admin_preference (
 CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_admin_id ON sys_admin_preference(admin_id);
 CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_admin_category ON sys_admin_preference(admin_id, category);
 CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_admin_key ON sys_admin_preference(admin_id, key_name);
+CREATE UNIQUE INDEX IF NOT EXISTS sys_admin_preference_uk_identity
+    ON sys_admin_preference(admin_id, category, key_name, scope, scope_detail)
+    WHERE deleted = FALSE;
 CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_expires ON sys_admin_preference(expires_at);
 CREATE INDEX IF NOT EXISTS sys_admin_preference_idx_effective ON sys_admin_preference(admin_id, effective_score);
 

@@ -8,6 +8,8 @@ import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentToolCallLogService;
+import com.aether.agent.service.ConversationCacheService;
+import com.aether.agent.service.ConversationSummaryService;
 import com.aether.agent.vo.AgentConversationLifecycleVo;
 import com.aether.agent.vo.AgentConversationVo;
 import com.aether.agent.vo.AgentMessageStatisticsVo;
@@ -18,6 +20,9 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
 import com.aether.permission.Permission;
+import com.aether.sys.entity.AdminPreferenceEvent;
+import com.aether.sys.service.AdminPreferenceEventService;
+import com.aether.sys.service.AdminPreferenceService;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -29,6 +34,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -54,16 +61,28 @@ public class AgentConversationController {
     private final AgentMessageService agentMessageService;
     private final AgentRunService agentRunService;
     private final AgentToolCallLogService agentToolCallLogService;
+    private final AdminPreferenceEventService adminPreferenceEventService;
+    private final AdminPreferenceService adminPreferenceService;
+    private final ConversationCacheService conversationCacheService;
+    private final ConversationSummaryService conversationSummaryService;
 
     @Autowired
     public AgentConversationController(AgentConversationService agentConversationService,
                                        AgentMessageService agentMessageService,
                                        AgentRunService agentRunService,
-                                       AgentToolCallLogService agentToolCallLogService) {
+                                       AgentToolCallLogService agentToolCallLogService,
+                                       AdminPreferenceEventService adminPreferenceEventService,
+                                       AdminPreferenceService adminPreferenceService,
+                                       ConversationCacheService conversationCacheService,
+                                       ConversationSummaryService conversationSummaryService) {
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
         this.agentRunService = agentRunService;
         this.agentToolCallLogService = agentToolCallLogService;
+        this.adminPreferenceEventService = adminPreferenceEventService;
+        this.adminPreferenceService = adminPreferenceService;
+        this.conversationCacheService = conversationCacheService;
+        this.conversationSummaryService = conversationSummaryService;
     }
 
     @ApiOperation("会话列表")
@@ -218,11 +237,40 @@ public class AgentConversationController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @Permission(path = "/agent/conversation", type = Permission.Type.Write)
+    @Transactional(rollbackFor = Exception.class)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
-        getOwnedConversation(id);
+        AgentConversation conversation = getOwnedConversation(id);
+        List<AdminPreferenceEvent> preferenceEvents = adminPreferenceEventService.list(
+                Wrappers.lambdaQuery(AdminPreferenceEvent.class)
+                        .eq(AdminPreferenceEvent::getConversationId, id)
+                        .eq(AdminPreferenceEvent::getDeleted, false));
+        List<String> affectedPreferenceIds = preferenceEvents.stream()
+                .map(AdminPreferenceEvent::getPreferenceId)
+                .filter(StringUtils::isNotBlank)
+                .distinct()
+                .collect(Collectors.toList());
+        List<AgentRun> runs = agentRunService.list(Wrappers.lambdaQuery(AgentRun.class)
+                .eq(AgentRun::getConversationId, id)
+                .eq(AgentRun::getDeleted, false));
+        if (!runs.isEmpty()) {
+            List<String> runIds = runs.stream().map(AgentRun::getId).collect(Collectors.toList());
+            agentToolCallLogService.remove(Wrappers.lambdaQuery(AgentToolCallLog.class)
+                    .in(AgentToolCallLog::getRunId, runIds));
+        }
+        agentRunService.remove(Wrappers.lambdaQuery(AgentRun.class)
+                .eq(AgentRun::getConversationId, id));
+        agentMessageService.remove(Wrappers.lambdaQuery(AgentMessage.class)
+                .eq(AgentMessage::getConversationId, id));
+        adminPreferenceEventService.remove(Wrappers.lambdaQuery(AdminPreferenceEvent.class)
+                .eq(AdminPreferenceEvent::getConversationId, id));
+        adminPreferenceService.reconcileAfterEvidenceRemoval(affectedPreferenceIds);
         boolean removed = agentConversationService.removeById(id);
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        if (!removed) {
+            throw new ServerException(500, I18nUtils.getMessage("delete.fail"));
+        }
+        evictConversationMemoryAfterCommit(id, conversation.getUserId());
+        return WebResponse.OK(I18nUtils.getMessage("delete.success"));
     }
 
     @ApiOperation("会话生命周期查询")
@@ -264,5 +312,25 @@ public class AgentConversationController {
             throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
         }
         return conversation;
+    }
+
+    private void evictConversationMemoryAfterCommit(String conversationId, String userId) {
+        Runnable cleanup = () -> {
+            conversationCacheService.evict(conversationId);
+            conversationSummaryService.evict(conversationId);
+            adminPreferenceService.clearUserCache(userId);
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            cleanup.run();
+                        }
+                    });
+        } else {
+            cleanup.run();
+        }
     }
 }

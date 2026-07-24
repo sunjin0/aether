@@ -298,6 +298,7 @@ CREATE TABLE IF NOT EXISTS `agent_model_provider` (
     `api_base_url`    VARCHAR(256)          COMMENT 'API基础地址',
     `api_key`         VARCHAR(512)          COMMENT 'API Key（AES加密存储）',
     `default_model`   VARCHAR(64)           COMMENT '默认模型名称',
+    `context_window`  INT          NOT NULL DEFAULT 32768 COMMENT '模型上下文窗口大小（token）',
     `status`          TINYINT      NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
     `sort`            INT          NOT NULL DEFAULT 0 COMMENT '排序号',
     `remark`          VARCHAR(512)          COMMENT '备注',
@@ -425,6 +426,10 @@ CREATE TABLE IF NOT EXISTS `agent_conversation` (
     `title`               VARCHAR(256)          COMMENT '会话标题',
     `message_count`       INT          NOT NULL DEFAULT 0 COMMENT '消息数',
     `status`              TINYINT      NOT NULL DEFAULT 0 COMMENT '状态：0-进行中，1-关闭，2-归档',
+    `summary`             TEXT                  COMMENT '持久化会话摘要',
+    `summary_covered_message_id` BIGINT         COMMENT '摘要覆盖到的消息ID',
+    `summary_covered_created_at` BIGINT         COMMENT '摘要覆盖到的消息创建时间',
+    `summary_updated_at`  BIGINT                COMMENT '摘要更新时间',
     `created_at`          BIGINT                COMMENT '创建时间',
     `updated_at`          BIGINT                COMMENT '更新时间',
     `sort_num`            INT          NOT NULL DEFAULT 0 COMMENT '排序号',
@@ -470,6 +475,7 @@ CREATE TABLE IF NOT EXISTS `agent_message` (
     `deleted`           TINYINT      NOT NULL DEFAULT 0 COMMENT '删除状态：0-未删除，1-已删除',
     `state`             INT          NOT NULL DEFAULT 0 COMMENT '状态 默认0',
     KEY `idx_conversation_id` (`conversation_id`),
+    KEY `idx_conversation_history` (`conversation_id`, `deleted`, `created_at`, `id`),
     KEY `idx_role` (`role`),
     KEY `idx_parent_message_id` (`parent_message_id`),
     KEY `idx_interaction_status` (`conversation_id`, `interaction_status`, `deleted`),
@@ -671,7 +677,7 @@ CREATE TABLE IF NOT EXISTS `sys_admin_preference` (
     `description`     VARCHAR(256)          COMMENT 'Human-readable description',
     `priority`        INT          NOT NULL DEFAULT 50 COMMENT 'Priority 0-100',
     `scope`           VARCHAR(32)  NOT NULL DEFAULT 'global' COMMENT 'global/session/task_type',
-    `scope_detail`    VARCHAR(64)           COMMENT 'Task type when scope=task_type',
+    `scope_detail`    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT 'Conversation or task value for scoped preference',
     `source`          VARCHAR(16)  NOT NULL DEFAULT 'explicit' COMMENT 'explicit/implicit',
     `confidence`      DECIMAL(4,2) NOT NULL DEFAULT 1.00 COMMENT 'Confidence score',
     `usage_count`     INT          NOT NULL DEFAULT 0 COMMENT 'Usage count',
@@ -683,8 +689,15 @@ CREATE TABLE IF NOT EXISTS `sys_admin_preference` (
     `created_at`      BIGINT       NOT NULL COMMENT 'Created timestamp',
     `updated_at`      BIGINT       NOT NULL COMMENT 'Updated timestamp',
     `deleted`         TINYINT      NOT NULL DEFAULT 0 COMMENT 'Deleted flag',
+    `active_identity_key` CHAR(64) GENERATED ALWAYS AS (
+        CASE WHEN `deleted` = 0
+            THEN SHA2(CONCAT_WS('|', `admin_id`, `category`, `key_name`, `scope`, `scope_detail`), 256)
+            ELSE NULL
+        END
+    ) STORED,
     KEY `idx_admin_id` (`admin_id`),
     KEY `idx_admin_category` (`admin_id`, `category`),
+    UNIQUE KEY `uk_admin_preference_identity` (`active_identity_key`),
     KEY `idx_admin_key` (`admin_id`, `key_name`),
     KEY `idx_expires` (`expires_at`),
     KEY `idx_effective` (`admin_id`, `effective_score`)

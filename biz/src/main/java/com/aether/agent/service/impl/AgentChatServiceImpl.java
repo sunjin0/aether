@@ -122,7 +122,9 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         try {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            List<Map<String, Object>> sources = knowledgeContextService.enhance(context, userId, agent.getId(), dto.getMessage());
+            List<Map<String, Object>> sources = knowledgeContextService.enhance(
+                    context, userId, conversation.getId(), agent.getId(), dto.getMessage());
+            conversationContextService.enforceBudget(context, agent, provider);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
@@ -178,6 +180,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 addToolResultsToContext(context, modelResponse, toolResults);
+                conversationContextService.enforceBudget(context, agent, provider);
                 
                 // 继续调用模型
                 request.setMessages(context);
@@ -256,7 +259,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
             long t0 = System.currentTimeMillis();
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            List<Map<String, Object>> sources = knowledgeContextService.enhance(context, userId, agent.getId(), dto.getMessage());
+            List<Map<String, Object>> sources = knowledgeContextService.enhance(
+                    context, userId, conversation.getId(), agent.getId(), dto.getMessage());
+            conversationContextService.enforceBudget(context, agent, provider);
             long t1 = System.currentTimeMillis();
             log.info("上下文构建耗时: {}ms", t1 - t0);
 
@@ -345,6 +350,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 addToolResultsToContext(context, chatResponse, toolResults);
+                conversationContextService.enforceBudget(context, agent, provider);
                 
                 // 继续调用模型（流式）
                 request.setMessages(context);
@@ -442,13 +448,15 @@ public class AgentChatServiceImpl implements AgentChatService {
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
 
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
-            List<Map<String, Object>> sources = knowledgeContextService.enhance(context, userId, agent.getId(), answerContent);
+            List<Map<String, Object>> sources = knowledgeContextService.enhance(
+                    context, userId, conversation.getId(), agent.getId(), answerContent);
             approvalExecution = agentToolWorkflow.executeApprovedMcpTool(question, dto.getAnswer(), agent, userId);
             if (approvalExecution != null) {
                 runId = approvalExecution.getRunId();
                 addToolResultsToContext(context, approvalExecution.getToolCallResponse(),
                         Collections.singletonList(approvalExecution.getResult()));
             }
+            conversationContextService.enforceBudget(context, agent, provider);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
@@ -531,6 +539,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 addToolResultsToContext(context, chatResponse, toolResults);
+                conversationContextService.enforceBudget(context, agent, provider);
 
                 request.setMessages(context);
                 streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
@@ -1010,32 +1019,15 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
         
         // 估算prompt tokens（基于完整context：system prompt + 历史消息/摘要 + 当前消息）
-        int promptTokens = estimateTokensFromContext(context);
+        int promptTokens = conversationContextService.estimateContextTokens(context);
         response.setPromptTokens(promptTokens);
         
         // 估算completion tokens（基于输出内容）
-        int completionTokens = estimateTokens(response.getContent());
+        int completionTokens = conversationContextService.estimateTokens(response.getContent());
         response.setCompletionTokens(completionTokens);
         
         // 设置total tokens
         response.setTotalTokens(promptTokens + completionTokens);
-    }
-
-    /**
-     * 基于对话上下文估算prompt token数量。
-     * 累加所有消息内容的字符数后估算token数。
-     */
-    private int estimateTokensFromContext(List<ModelChatMessage> context) {
-        if (context == null || context.isEmpty()) {
-            return 0;
-        }
-        int totalLength = 0;
-        for (ModelChatMessage message : context) {
-            if (StringUtils.isNotBlank(message.getContent())) {
-                totalLength += message.getContent().length();
-            }
-        }
-        return (int) Math.ceil(totalLength / 3.0);
     }
 
     /**
@@ -1044,17 +1036,6 @@ public class AgentChatServiceImpl implements AgentChatService {
      */
     private void updateContextCache(String conversationId, ModelChatMessage newMessage) {
         conversationContextService.append(conversationId, newMessage);
-    }
-
-    /**
-     * 估算token数量（当模型未提供准确统计时）。
-     * 粗略估算：平均每3个字符约等于1个token。
-     */
-    private int estimateTokens(String content) {
-        if (StringUtils.isBlank(content)) {
-            return 0;
-        }
-        return (int) Math.ceil(content.length() / 3.0);
     }
 
     /**

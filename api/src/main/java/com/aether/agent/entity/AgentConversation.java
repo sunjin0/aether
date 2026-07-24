@@ -32,4 +32,16 @@ public class AgentConversation extends BaseEntity {
 
     @ApiModelProperty(value = "状态：0-进行中，1-关闭，2-归档")
     private Integer status;
+
+    @ApiModelProperty(value = "持久化会话摘要")
+    private String summary;
+
+    @ApiModelProperty(value = "摘要覆盖到的消息ID")
+    private String summaryCoveredMessageId;
+
+    @ApiModelProperty(value = "摘要覆盖到的消息创建时间")
+    private Long summaryCoveredCreatedAt;
+
+    @ApiModelProperty(value = "摘要更新时间")
+    private Long summaryUpdatedAt;
 }

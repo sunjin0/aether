@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="DataSourcePerFileMappings">
-    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/004-agent-knowledge-menu-resources.sql" value="c8fe226b-eb68-4453-b0fb-d52a959186ba" />
-    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/006-knowledge-ai-review-diff.sql" value="c8fe226b-eb68-4453-b0fb-d52a959186ba" />
+    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/007-model-provider-context-window.sql" value="c8fe226b-eb68-4453-b0fb-d52a959186ba" />
+    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/008-conversation-summary-persistence.sql" value="c8fe226b-eb68-4453-b0fb-d52a959186ba" />
   </component>
 </project>

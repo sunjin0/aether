@@ -49,6 +49,7 @@ public class AdminPreferenceController {
     public WebResponse<List<AdminPreferenceVo>> list(@RequestBody AdminPreferenceVo vo) {
         Page<AdminPreference> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<AdminPreference> wrapper = Wrappers.lambdaQuery(AdminPreference.class)
+                .eq(AdminPreference::getAdminId, currentAdminId())
                 .like(StringUtils.isNotBlank(vo.getCategory()), AdminPreference::getCategory, vo.getCategory())
                 .like(StringUtils.isNotBlank(vo.getKeyName()), AdminPreference::getKeyName, vo.getKeyName())
                 .like(StringUtils.isNotBlank(vo.getValue()), AdminPreference::getValue, vo.getValue())
@@ -79,14 +80,15 @@ public class AdminPreferenceController {
     public WebResponse<String> save(@RequestBody AdminPreferenceVo vo) {
         AdminPreference preference = new AdminPreference();
         BeanUtils.copyProperties(vo, preference);
-        if (StringUtils.isBlank(preference.getAdminId())) {
-            preference.setAdminId(currentAdminId());
-        }
+        preference.setAdminId(currentAdminId());
         if (preference.getStatus() == null) {
             preference.setStatus(1);
         }
         if (preference.getConfidence() == null) {
-            preference.setConfidence(new BigDecimal("0.50"));
+            preference.setConfidence(BigDecimal.ONE);
+        }
+        if (StringUtils.isBlank(preference.getSource())) {
+            preference.setSource(AdminPreference.SOURCE_EXPLICIT);
         }
         if (preference.getUsageCount() == null) {
             preference.setUsageCount(0);
@@ -95,6 +97,9 @@ public class AdminPreferenceController {
             preference.setEffectiveScore(BigDecimal.ZERO);
         }
         boolean saved = adminPreferenceService.save(preference);
+        if (saved) {
+            adminPreferenceService.updateEffectiveScore(preference.getId());
+        }
         return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), preference.getId());
     }
 
@@ -106,6 +111,7 @@ public class AdminPreferenceController {
         AdminPreference preference = new AdminPreference();
         BeanUtils.copyProperties(vo, preference);
         preference.setId(id);
+        preference.setAdminId(currentAdminId());
         boolean updated = adminPreferenceService.updateById(preference);
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }
@@ -114,6 +120,7 @@ public class AdminPreferenceController {
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
+        getExisting(id);
         boolean removed = adminPreferenceService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
     }
@@ -189,6 +196,7 @@ public class AdminPreferenceController {
     @GetMapping("/statistics")
     public WebResponse<Map<String, Object>> statistics() {
         LambdaQueryWrapper<AdminPreference> base = Wrappers.lambdaQuery(AdminPreference.class)
+                .eq(AdminPreference::getAdminId, currentAdminId())
                 .eq(AdminPreference::getDeleted, false);
 
         long total = adminPreferenceService.count(base);
@@ -217,8 +225,12 @@ public class AdminPreferenceController {
     }
 
     private AdminPreference getExisting(String id) {
-        AdminPreference preference = adminPreferenceService.getById(id);
-        if (preference == null || Boolean.TRUE.equals(preference.getDeleted())) {
+        AdminPreference preference = adminPreferenceService.getOne(
+                Wrappers.lambdaQuery(AdminPreference.class)
+                        .eq(AdminPreference::getId, id)
+                        .eq(AdminPreference::getAdminId, currentAdminId())
+                        .eq(AdminPreference::getDeleted, false));
+        if (preference == null) {
             throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
         }
         return preference;

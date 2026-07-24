@@ -1,15 +1,22 @@
 package com.aether.sys.service.impl;
 
 import com.aether.sys.entity.AdminPreference;
+import com.aether.sys.entity.AdminPreferenceEvent;
 import com.aether.sys.mapper.AdminPreferenceMapper;
+import com.aether.sys.service.AdminPreferenceEventService;
 import com.aether.sys.service.AdminPreferenceService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMapper, AdminPreference>
@@ -18,9 +25,17 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
     @Autowired
     private PreferenceReasoningEngine reasoningEngine;
 
+    @Autowired
+    private AdminPreferenceEventService preferenceEventService;
+
     @Override
     public String buildPreferenceContext(String adminId, String taskType) {
         return reasoningEngine.buildPreferenceContext(adminId, taskType);
+    }
+
+    @Override
+    public String buildPreferenceContext(String adminId, String taskType, String conversationId) {
+        return reasoningEngine.buildPreferenceContext(adminId, taskType, conversationId);
     }
 
     @Override
@@ -43,7 +58,7 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
                 newConfidence = BigDecimal.ONE;
             }
             pref.setConfidence(newConfidence);
-            updateById(pref);
+            super.updateById(pref);
             updateEffectiveScore(preferenceId);
         }
     }
@@ -65,7 +80,7 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
                 pref.setStatus(AdminPreference.STATUS_DISABLED);
             }
 
-            updateById(pref);
+            super.updateById(pref);
             reasoningEngine.clearUserCache(pref.getAdminId());
         }
     }
@@ -96,7 +111,7 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
                     .add(usageBoost);
 
             pref.setEffectiveScore(score);
-            updateById(pref);
+            super.updateById(pref);
             reasoningEngine.clearUserCache(pref.getAdminId());
         }
     }
@@ -113,5 +128,102 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
     public boolean clearUserCache(String adminId) {
         reasoningEngine.clearUserCache(adminId);
         return true;
+    }
+
+    @Override
+    public void reconcileAfterEvidenceRemoval(Collection<String> preferenceIds) {
+        if (preferenceIds == null || preferenceIds.isEmpty()) {
+            return;
+        }
+        Set<String> uniqueIds = new HashSet<String>(preferenceIds);
+        for (String preferenceId : uniqueIds) {
+            AdminPreference preference = super.getById(preferenceId);
+            if (preference == null
+                    || AdminPreference.SOURCE_EXPLICIT.equals(preference.getSource())) {
+                continue;
+            }
+            long remainingEvidence = preferenceEventService.count(
+                    Wrappers.lambdaQuery(AdminPreferenceEvent.class)
+                            .eq(AdminPreferenceEvent::getPreferenceId, preferenceId)
+                            .eq(AdminPreferenceEvent::getEventType,
+                                    AdminPreferenceEvent.EVENT_EXTRACT)
+                            .eq(AdminPreferenceEvent::getDeleted, false));
+            long explicitFeedback = preferenceEventService.count(
+                    Wrappers.lambdaQuery(AdminPreferenceEvent.class)
+                            .eq(AdminPreferenceEvent::getPreferenceId, preferenceId)
+                            .in(AdminPreferenceEvent::getEventType,
+                                    AdminPreferenceEvent.EVENT_CONFIRM,
+                                    AdminPreferenceEvent.EVENT_OVERRIDE)
+                            .eq(AdminPreferenceEvent::getDeleted, false));
+            if (remainingEvidence == 0L && explicitFeedback == 0L) {
+                preference.setStatus(AdminPreference.STATUS_DISABLED);
+                preference.setConfidence(BigDecimal.ZERO);
+                preference.setEffectiveScore(BigDecimal.ZERO);
+                super.updateById(preference);
+            }
+        }
+    }
+
+    @Override
+    public boolean save(AdminPreference preference) {
+        normalizeForSave(preference);
+        boolean saved = super.save(preference);
+        if (saved) {
+            reasoningEngine.clearUserCache(preference.getAdminId());
+        }
+        return saved;
+    }
+
+    @Override
+    public boolean updateById(AdminPreference preference) {
+        AdminPreference existing = preference == null || preference.getId() == null
+                ? null : super.getById(preference.getId());
+        normalizeForUpdate(preference);
+        boolean updated = super.updateById(preference);
+        if (updated && existing != null) {
+            reasoningEngine.clearUserCache(existing.getAdminId());
+        }
+        return updated;
+    }
+
+    @Override
+    public boolean removeById(Serializable id) {
+        AdminPreference existing = id == null ? null : super.getById(id);
+        boolean removed = super.removeById(id);
+        if (removed && existing != null) {
+            reasoningEngine.clearUserCache(existing.getAdminId());
+        }
+        return removed;
+    }
+
+    private void normalizeForSave(AdminPreference preference) {
+        if (preference == null) {
+            return;
+        }
+        if (StringUtils.isBlank(preference.getScope())) {
+            preference.setScope(AdminPreference.SCOPE_GLOBAL);
+        }
+        if (preference.getScopeDetail() == null) {
+            preference.setScopeDetail("");
+        }
+        normalizeForUpdate(preference);
+    }
+
+    private void normalizeForUpdate(AdminPreference preference) {
+        if (preference == null) {
+            return;
+        }
+        if (StringUtils.isNotBlank(preference.getCategory())) {
+            preference.setCategory(preference.getCategory().trim().toLowerCase());
+        }
+        if (StringUtils.isNotBlank(preference.getKeyName())) {
+            preference.setKeyName(preference.getKeyName().trim().toLowerCase());
+        }
+        if (StringUtils.isNotBlank(preference.getScope())) {
+            preference.setScope(preference.getScope().trim().toLowerCase());
+        }
+        if (preference.getScopeDetail() != null) {
+            preference.setScopeDetail(preference.getScopeDetail().trim());
+        }
     }
 }

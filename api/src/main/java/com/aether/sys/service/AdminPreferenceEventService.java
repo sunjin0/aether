@@ -8,4 +8,6 @@ public interface AdminPreferenceEventService extends IService<AdminPreferenceEve
     void logEvent(AdminPreferenceEvent event);
 
     AdminPreferenceEvent getLastEvent(String adminId, String eventType);
+
+    AdminPreferenceEvent getLastEvent(String adminId, String eventType, String conversationId);
 }

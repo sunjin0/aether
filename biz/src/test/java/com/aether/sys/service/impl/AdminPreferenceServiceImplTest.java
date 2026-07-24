@@ -1,6 +1,7 @@
 package com.aether.sys.service.impl;
 
 import com.aether.sys.entity.AdminPreference;
+import com.aether.sys.service.AdminPreferenceEventService;
 import com.aether.sys.mapper.AdminPreferenceMapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -28,6 +29,8 @@ class AdminPreferenceServiceImplTest {
 
     @Mock
     private PreferenceReasoningEngine reasoningEngine;
+    @Mock
+    private AdminPreferenceEventService preferenceEventService;
 
     private AdminPreferenceServiceImpl service;
 
@@ -40,6 +43,10 @@ class AdminPreferenceServiceImplTest {
         java.lang.reflect.Field reasoningEngineField = AdminPreferenceServiceImpl.class.getDeclaredField("reasoningEngine");
         reasoningEngineField.setAccessible(true);
         reasoningEngineField.set(service, reasoningEngine);
+        java.lang.reflect.Field eventServiceField =
+                AdminPreferenceServiceImpl.class.getDeclaredField("preferenceEventService");
+        eventServiceField.setAccessible(true);
+        eventServiceField.set(service, preferenceEventService);
     }
 
     @Test
@@ -219,5 +226,52 @@ class AdminPreferenceServiceImplTest {
 
         assertTrue(result);
         verify(reasoningEngine).clearUserCache(adminId);
+    }
+
+    @Test
+    void evidenceRemovalDisablesOrphanedImplicitPreference() {
+        AdminPreference preference = new AdminPreference();
+        preference.setId("pref1");
+        preference.setAdminId("admin1");
+        preference.setSource(AdminPreference.SOURCE_IMPLICIT);
+        preference.setStatus(AdminPreference.STATUS_ENABLED);
+        preference.setConfidence(new BigDecimal("0.80"));
+        preference.setEffectiveScore(new BigDecimal("40"));
+        when(adminPreferenceMapper.selectById("pref1")).thenReturn(preference);
+        when(preferenceEventService.count(any(Wrapper.class))).thenReturn(0L);
+        when(adminPreferenceMapper.updateById(any(AdminPreference.class))).thenReturn(1);
+
+        service.reconcileAfterEvidenceRemoval(Collections.singletonList("pref1"));
+
+        verify(adminPreferenceMapper).updateById(argThat(updated ->
+                updated.getStatus() == AdminPreference.STATUS_DISABLED
+                        && BigDecimal.ZERO.compareTo(updated.getConfidence()) == 0
+                        && BigDecimal.ZERO.compareTo(updated.getEffectiveScore()) == 0));
+    }
+
+    @Test
+    void evidenceRemovalKeepsImplicitPreferenceWithOtherEvidence() {
+        AdminPreference preference = new AdminPreference();
+        preference.setId("pref1");
+        preference.setSource(AdminPreference.SOURCE_IMPLICIT);
+        when(adminPreferenceMapper.selectById("pref1")).thenReturn(preference);
+        when(preferenceEventService.count(any(Wrapper.class))).thenReturn(1L, 0L);
+
+        service.reconcileAfterEvidenceRemoval(Collections.singletonList("pref1"));
+
+        verify(adminPreferenceMapper, never()).updateById(any(AdminPreference.class));
+    }
+
+    @Test
+    void evidenceRemovalNeverDisablesExplicitPreference() {
+        AdminPreference preference = new AdminPreference();
+        preference.setId("pref1");
+        preference.setSource(AdminPreference.SOURCE_EXPLICIT);
+        when(adminPreferenceMapper.selectById("pref1")).thenReturn(preference);
+
+        service.reconcileAfterEvidenceRemoval(Collections.singletonList("pref1"));
+
+        verify(preferenceEventService, never()).count(any(Wrapper.class));
+        verify(adminPreferenceMapper, never()).updateById(any(AdminPreference.class));
     }
 }

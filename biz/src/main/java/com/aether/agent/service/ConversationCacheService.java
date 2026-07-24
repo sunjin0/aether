@@ -16,8 +16,6 @@ import java.util.concurrent.TimeUnit;
 public class ConversationCacheService {
     private static final String CACHE_KEY_PREFIX = "agent:context:";
     private static final long CACHE_TTL_MINUTES = 30;
-    private static final int MAX_CONTEXT_MESSAGES = 21;
-    private static final int MAX_HISTORY_MESSAGES = 20;
 
     private final RedisTemplate<String, Object> redisTemplate;
 
@@ -43,27 +41,12 @@ public class ConversationCacheService {
         }
     }
 
-    /** 追加一条消息，并保留系统提示和最近消息。 */
-    public void append(String conversationId, ModelChatMessage message) {
-        List<ModelChatMessage> context = get(conversationId);
-        if (context == null) {
-            return;
+    public void evict(String conversationId) {
+        try {
+            redisTemplate.delete(key(conversationId));
+        } catch (Exception ignored) {
+            // 缓存失效失败不影响聊天主流程。
         }
-        context.add(message);
-        put(conversationId, trim(context));
-    }
-
-    private List<ModelChatMessage> trim(List<ModelChatMessage> context) {
-        if (context.size() <= MAX_CONTEXT_MESSAGES) {
-            return context;
-        }
-        if ("system".equals(context.get(0).getRole())) {
-            List<ModelChatMessage> trimmed = new ArrayList<ModelChatMessage>();
-            trimmed.add(context.get(0));
-            trimmed.addAll(context.subList(Math.max(1, context.size() - MAX_HISTORY_MESSAGES), context.size()));
-            return trimmed;
-        }
-        return new ArrayList<ModelChatMessage>(context.subList(context.size() - MAX_CONTEXT_MESSAGES, context.size()));
     }
 
     private String key(String conversationId) {

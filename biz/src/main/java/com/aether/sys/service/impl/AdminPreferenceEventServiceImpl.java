@@ -21,10 +21,17 @@ public class AdminPreferenceEventServiceImpl extends ServiceImpl<AdminPreference
 
     @Override
     public AdminPreferenceEvent getLastEvent(String adminId, String eventType) {
+        return getLastEvent(adminId, eventType, null);
+    }
+
+    @Override
+    public AdminPreferenceEvent getLastEvent(String adminId, String eventType, String conversationId) {
         return getOne(new LambdaQueryWrapper<AdminPreferenceEvent>()
                 .eq(AdminPreferenceEvent::getAdminId, adminId)
                 .eq(AdminPreferenceEvent::getEventType, eventType)
+                .eq(conversationId != null, AdminPreferenceEvent::getConversationId, conversationId)
                 .orderByDesc(AdminPreferenceEvent::getCreatedAt)
+                .orderByDesc(AdminPreferenceEvent::getId)
                 .last("LIMIT 1"));
     }
 }
