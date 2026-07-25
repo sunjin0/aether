@@ -260,8 +260,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return task;
     }
 
-    @Override
     @Transactional(rollbackFor = Exception.class)
+    @Override
     public void claim(String taskId) {
         KnowledgeReviewTask task = requireTask(taskId);
         KnowledgeBase base = accessService.requireApprovable(task.getKnowledgeBaseId());
@@ -324,6 +324,44 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         auditWriter.write(reviewer, taskId, task.getDocumentId(), task.getDocumentVersionId(),
                 KnowledgeReviewAction.REJECTED,
                 KnowledgeReviewStatus.SUBMITTED, KnowledgeReviewStatus.REJECTED, reason);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public KnowledgeDocumentVersion editReviewContent(String taskId, String content, String expectedChecksum) {
+        KnowledgeReviewTask task = requireTask(taskId);
+        KnowledgeBase base = accessService.requireApprovable(task.getKnowledgeBaseId());
+        String reviewer = accessService.currentAdminId();
+        ensureReviewer(task, reviewer);
+        if (StringUtils.isBlank(expectedChecksum)) {
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.document.draft-checksum.required"));
+        }
+        KnowledgeDocumentVersion version = requireVersion(task.getDocumentVersionId());
+        if (!KnowledgeReviewStatus.SUBMITTED.equals(version.getReviewStatus())) {
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.edit.invalid-state"));
+        }
+        if (!StringUtils.equals(expectedChecksum, version.getContentChecksum())) {
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft.modified"));
+        }
+        String newChecksum = checksum(content);
+        long now = System.currentTimeMillis();
+        boolean versionUpdated = versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
+                .eq(KnowledgeDocumentVersion::getId, version.getId())
+                .eq(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.SUBMITTED)
+                .eq(KnowledgeDocumentVersion::getContentChecksum, expectedChecksum)
+                .set(KnowledgeDocumentVersion::getContent, content)
+                .set(KnowledgeDocumentVersion::getStructuredContent, null)
+                .set(KnowledgeDocumentVersion::getContentChecksum, newChecksum));
+        if (!versionUpdated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-state.changed"));
+        boolean taskUpdated = taskService.update(Wrappers.lambdaUpdate(KnowledgeReviewTask.class)
+                .eq(KnowledgeReviewTask::getId, taskId)
+                .eq(KnowledgeReviewTask::getStatus, KnowledgeReviewTaskStatus.CLAIMED)
+                .eq(KnowledgeReviewTask::getReviewerId, reviewer)
+                .set(KnowledgeReviewTask::getSourceChecksum, newChecksum));
+        if (!taskUpdated) throw new ServerException(409, I18nUtils.getMessage("knowledge.review-task.state.changed"));
+        auditWriter.write(reviewer, taskId, task.getDocumentId(), version.getId(), KnowledgeReviewAction.EDITED,
+                KnowledgeReviewStatus.SUBMITTED, KnowledgeReviewStatus.SUBMITTED, null);
+        return versionService.getById(version.getId());
     }
 
     private ApprovalResult approveInTransaction(String taskId, String comment) {
