@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 组装模型调用所需的会话上下文。
@@ -79,8 +80,7 @@ public class ConversationContextService {
 
     /** 追加已持久化的用户、助手或工具交互消息。 */
     public void append(String conversationId, ModelChatMessage message) {
-        // 数据库是上下文事实来源。写后失效可避免并发 read-modify-write 覆盖缓存中的消息。
-        cacheService.evict(conversationId);
+        cacheService.append(conversationId, message);
     }
 
     /** 从持久化消息构建系统提示与最近 20 条用户/助手消息。 */
@@ -95,8 +95,18 @@ public class ConversationContextService {
     /** 构建摘要与最近消息混合的模型上下文。 */
     public List<ModelChatMessage> buildWithSummary(AgentDefinition agent, ModelProvider provider, String conversationId) {
         List<ModelChatMessage> context = createSystemContext(agent);
-        long messageCount = countMessages(conversationId);
+        List<ModelChatMessage> cachedMessages = cacheService.get(conversationId);
+        long messageCount;
+        if (cachedMessages != null && !cachedMessages.isEmpty()) {
+            messageCount = cachedMessages.size();
+        } else {
+            messageCount = countMessages(conversationId);
+        }
         if (messageCount <= SUMMARY_TRIGGER_THRESHOLD) {
+            if (cachedMessages != null && !cachedMessages.isEmpty()) {
+                context.addAll(cachedMessages);
+                return context;
+            }
             List<AgentMessage> messages = queryRecentMessages(conversationId, SUMMARY_TRIGGER_THRESHOLD);
             Collections.reverse(messages);
             addMessages(context, messages);
@@ -345,27 +355,70 @@ public class ConversationContextService {
         trimProtectedContentToTokenBudget(context, maxTokens);
     }
 
+    private static final Map<String, Double> MODEL_TOKEN_RATIOS = new ConcurrentHashMap<>();
+
+    static {
+        MODEL_TOKEN_RATIOS.put("gpt-4o", 3.5);
+        MODEL_TOKEN_RATIOS.put("gpt-4-turbo", 3.5);
+        MODEL_TOKEN_RATIOS.put("gpt-4", 3.5);
+        MODEL_TOKEN_RATIOS.put("gpt-3.5-turbo", 3.5);
+        MODEL_TOKEN_RATIOS.put("claude-3-5", 4.0);
+        MODEL_TOKEN_RATIOS.put("claude-3", 4.0);
+        MODEL_TOKEN_RATIOS.put("qwen", 3.0);
+        MODEL_TOKEN_RATIOS.put("deepseek", 3.5);
+        MODEL_TOKEN_RATIOS.put("gemma", 3.0);
+        MODEL_TOKEN_RATIOS.put("llama", 3.0);
+        MODEL_TOKEN_RATIOS.put("mistral", 3.5);
+    }
+
+    public int estimateTokens(String value) {
+        return estimateTokens(value, null);
+    }
+
+    public int estimateTokens(String value, String model) {
+        if (StringUtils.isEmpty(value)) {
+            return 0;
+        }
+        double divisor = resolveTokenDivisor(model);
+        return (int) Math.ceil(value.getBytes(StandardCharsets.UTF_8).length / divisor);
+    }
+
     public int estimateContextTokens(List<ModelChatMessage> context) {
+        return estimateContextTokens(context, null);
+    }
+
+    public int estimateContextTokens(List<ModelChatMessage> context, String model) {
         if (context == null || context.isEmpty()) {
             return 0;
         }
         long total = 0;
         for (ModelChatMessage message : context) {
-            total += 4; // role、消息边界及序列化开销
-            total += estimateTokens(message.getRole());
-            total += estimateTokens(message.getContent());
-            total += estimateTokens(message.getToolCalls());
-            total += estimateTokens(message.getToolCallId());
+            if (message.getCachedTokens() != null) {
+                total += message.getCachedTokens();
+                continue;
+            }
+            int tokens = 4;
+            tokens += estimateTokens(message.getRole(), model);
+            tokens += estimateTokens(message.getContent(), model);
+            tokens += estimateTokens(message.getToolCalls(), model);
+            tokens += estimateTokens(message.getToolCallId(), model);
+            message.setCachedTokens(tokens);
+            total += tokens;
         }
         return total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
     }
 
-    public int estimateTokens(String value) {
-        if (StringUtils.isEmpty(value)) {
-            return 0;
+    private double resolveTokenDivisor(String model) {
+        if (model == null) {
+            return 3.0;
         }
-        // UTF-8 字节数 / 3 对中文约为一字一 token，对英文也保留了安全余量。
-        return (int) Math.ceil(value.getBytes(StandardCharsets.UTF_8).length / 3.0);
+        String lowerModel = model.toLowerCase();
+        for (Map.Entry<String, Double> entry : MODEL_TOKEN_RATIOS.entrySet()) {
+            if (lowerModel.startsWith(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return 3.0;
     }
 
     private void trimOptionalSystemsToTokenBudget(List<ModelChatMessage> context, int maxTokens) {

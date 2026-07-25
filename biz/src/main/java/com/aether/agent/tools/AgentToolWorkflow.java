@@ -22,6 +22,8 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -39,6 +41,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Component
 public class AgentToolWorkflow {
+    private static final Logger log = LoggerFactory.getLogger(AgentToolWorkflow.class);
     private static final String MCP_APPROVAL_TYPE = "mcp_tool_approval";
     private static final String TOOL_APPROVAL_GRANT_KEY_PREFIX = "agent:tool-approval:";
     private static final long TOOL_APPROVAL_GRANT_TTL_MINUTES = 10;
@@ -356,8 +359,8 @@ public class AgentToolWorkflow {
     private boolean hasActiveGrant(String userId, String agentId, String toolId) {
         try {
             return Boolean.TRUE.equals(redisTemplate.hasKey(grantKey(userId, agentId, toolId)));
-        } catch (Exception ignored) {
-            // Redis 不可用时必须保持确认步骤，不能意外放行高风险调用。
+        } catch (Exception e) {
+            log.warn("检查工具授权失败, 按未授权处理: userId={}, agentId={}, toolId={}", userId, agentId, toolId, e);
             return false;
         }
     }
@@ -366,8 +369,8 @@ public class AgentToolWorkflow {
         try {
             redisTemplate.opsForValue().set(grantKey(userId, agentId, toolId), "approved",
                     TOOL_APPROVAL_GRANT_TTL_MINUTES, TimeUnit.MINUTES);
-        } catch (Exception ignored) {
-            // 临时授权失败仅影响体验，后续调用会再次要求用户确认。
+        } catch (Exception e) {
+            log.warn("保存工具授权失败: userId={}, agentId={}, toolId={}", userId, agentId, toolId, e);
         }
     }
 

@@ -25,36 +25,24 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class AsyncConfig implements AsyncConfigurer {
     private static final Logger log = LoggerFactory.getLogger(AsyncConfig.class);
 
+    private ThreadPoolTaskExecutor executor;
+
     @Bean(name = "asyncPoolTaskExecutor")
     public ThreadPoolTaskExecutor executor() {
-        ThreadPoolTaskExecutor taskExecutor = new ThreadPoolTaskExecutor();
-        //核心线程数
-        taskExecutor.setCorePoolSize(10);
-        //线程池维护线程的最大数量,只有在缓冲队列满了之后才会申请超过核心线程数的线程
-        taskExecutor.setMaxPoolSize(100);
-        //缓存队列
-        taskExecutor.setQueueCapacity(50);
-        //设置线程的空闲时间,当超过了核心线程出之外的线程在空闲时间到达之后会被销毁
-        taskExecutor.setKeepAliveSeconds(200);
-        //异步方法内部线程名称
-        taskExecutor.setThreadNamePrefix("async-");
-        /*
-          当线程池的任务缓存队列已满并且线程池中的线程数目达到maximumPoolSize，如果还有任务到来就会采取任务拒绝策略
-          通常有以下四种策略：
-          ThreadPoolExecutor.AbortPolicy:丢弃任务并抛出RejectedExecutionException异常。
-          ThreadPoolExecutor.DiscardPolicy：也是丢弃任务，但是不抛出异常。
-          ThreadPoolExecutor.DiscardOldestPolicy：丢弃队列最前面的任务，然后重新尝试执行任务（重复此过程）
-          ThreadPoolExecutor.CallerRunsPolicy：重试添加当前的任务，自动重复调用 execute() 方法，直到成功
-         */
-        taskExecutor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
-        taskExecutor.initialize();
-        return taskExecutor;
+        if (executor != null) {
+            return executor;
+        }
+        executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(10);
+        executor.setMaxPoolSize(100);
+        executor.setQueueCapacity(50);
+        executor.setKeepAliveSeconds(200);
+        executor.setThreadNamePrefix("async-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
     }
 
-    /**
-     * 指定默认线程池
-     * The {@link Executor} instance to be used when processing async method invocations.
-     */
     @Override
     public Executor getAsyncExecutor() {
         return executor();

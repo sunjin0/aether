@@ -26,7 +26,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -45,9 +44,9 @@ public class ConversationSummaryService {
     private final ModelClientFactory modelClientFactory;
     private final AgentConversationService conversationService;
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(
-            2, 2, 0L, TimeUnit.MILLISECONDS,
+            4, 8, 30L, TimeUnit.SECONDS,
             new ArrayBlockingQueue<Runnable>(SUMMARY_QUEUE_CAPACITY),
-            new ThreadPoolExecutor.AbortPolicy());
+            new ThreadPoolExecutor.CallerRunsPolicy());
     private final Set<String> refreshingConversations = ConcurrentHashMap.newKeySet();
     private final Set<String> invalidatedConversations = ConcurrentHashMap.newKeySet();
     private static final DefaultRedisScript<Long> RELEASE_LOCK_SCRIPT =
@@ -105,31 +104,26 @@ public class ConversationSummaryService {
             return;
         }
         final List<AgentMessage> snapshot = new ArrayList<AgentMessage>(messages);
-        try {
-            executor.execute(() -> {
-                String lockToken = null;
-                try {
-                    if (isInvalidated(conversationId)) {
-                        return;
-                    }
-                    lockToken = acquireLock(conversationId);
-                    if (lockToken == null) {
-                        return;
-                    }
-                    AgentMessage target = snapshot.get(snapshot.size() - 1);
-                    if (isAtOrAfter(get(conversationId), target)) {
-                        return;
-                    }
-                    saveSummary(conversationId, previous, snapshot, agent, provider);
-                } finally {
-                    releaseLock(conversationId, lockToken);
-                    refreshingConversations.remove(conversationId);
+        executor.execute(() -> {
+            String lockToken = null;
+            try {
+                if (isInvalidated(conversationId)) {
+                    return;
                 }
-            });
-        } catch (RejectedExecutionException e) {
-            refreshingConversations.remove(conversationId);
-            log.warn("会话摘要队列已满，跳过本次刷新: conversationId={}", conversationId);
-        }
+                lockToken = acquireLock(conversationId);
+                if (lockToken == null) {
+                    return;
+                }
+                AgentMessage target = snapshot.get(snapshot.size() - 1);
+                if (isAtOrAfter(get(conversationId), target)) {
+                    return;
+                }
+                saveSummary(conversationId, previous, snapshot, agent, provider);
+            } finally {
+                releaseLock(conversationId, lockToken);
+                refreshingConversations.remove(conversationId);
+            }
+        });
     }
 
     private void saveSummary(String conversationId,
@@ -329,6 +323,14 @@ public class ConversationSummaryService {
     @PreDestroy
     public void shutdown() {
         executor.shutdown();
+        try {
+            if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     public static class SummarySnapshot {

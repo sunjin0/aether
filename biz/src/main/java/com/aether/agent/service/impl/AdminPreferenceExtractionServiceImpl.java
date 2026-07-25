@@ -63,7 +63,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
     private PreferenceReasoningEngine reasoningEngine;
 
     @Override
-    @Async
+    @Async("asyncPoolTaskExecutor")
     public void extractAsync(String userId, String conversationId,
                              AgentMessage userMessage, AgentMessage assistantMessage,
                              AgentDefinition agent, ModelProvider provider) {
@@ -94,12 +94,10 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
             return;
         }
 
-        String summary = summarizeConversation(history, provider, agent);
-        String extractionPrompt = buildExtractionPrompt(summary,
+        String response = callCombinedAnalysis(history,
                 findLastMessage(history, "user", userMessage),
-                findLastMessage(history, "assistant", assistantMessage));
-
-        String response = callModel(extractionPrompt, provider, agent);
+                findLastMessage(history, "assistant", assistantMessage),
+                provider, agent);
         if (StringUtils.isBlank(response)) {
             return;
         }
@@ -111,7 +109,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         recordExtractionMarker(userId, conversationId, history.get(history.size() - 1));
     }
 
-    private String summarizeConversation(List<AgentMessage> messages, ModelProvider provider, AgentDefinition agent) {
+    private String callCombinedAnalysis(List<AgentMessage> messages,
+                                         AgentMessage userMessage, AgentMessage assistantMessage,
+                                         ModelProvider provider, AgentDefinition agent) {
         StringBuilder raw = new StringBuilder();
         for (AgentMessage msg : messages) {
             String role = "user".equals(msg.getRole()) ? "User" : "Assistant";
@@ -121,32 +121,36 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
             }
             raw.append(role).append(": ").append(content).append("\n");
         }
-        if (raw.length() < 200) {
-            return raw.toString();
-        }
+        AgentMessage lastUser = userMessage != null ? userMessage
+                : findLastMessage(messages, "user", null);
+        AgentMessage lastAssistant = assistantMessage != null ? assistantMessage
+                : findLastMessage(messages, "assistant", null);
 
-        String summaryPrompt = "Summarize this conversation in 2-3 sentences, focusing on:\n"
-                + "1. What the user asked for\n"
-                + "2. Any language/style/format preferences the user expressed\n"
-                + "3. Any tools or technologies mentioned\n\n"
-                + raw.toString();
-
-        try {
-            ModelChatMessage msg = new ModelChatMessage("user", summaryPrompt);
-            ModelChatRequest request = new ModelChatRequest();
-            request.setProvider(provider);
-            request.setMessages(Collections.singletonList(msg));
-            request.setAgent(agent);
-            ModelClient client = modelClientFactory.getClient(provider);
-            ModelChatResponse response = client.chat(request);
-            String summary = response.getContent();
-            if (StringUtils.isNotBlank(summary)) {
-                return summary;
-            }
-        } catch (Exception e) {
-            log.warn("Failed to summarize conversation, using raw messages", e);
+        StringBuilder promptBuilder = new StringBuilder();
+        promptBuilder.append("Analyze the following conversation. Return a JSON object with two fields:\n");
+        promptBuilder.append("1. \"summary\": a 2-3 sentence summary of what happened in this conversation\n");
+        promptBuilder.append("2. \"preferences\": an array of stable, long-term user preferences\n\n");
+        promptBuilder.append("=== Full Conversation History ===\n");
+        promptBuilder.append(raw.length() > 200 ? raw.substring(0, Math.min(raw.length(), 6000)) : raw);
+        promptBuilder.append("\n=== End of History ===\n\n");
+        if (lastUser != null) {
+            promptBuilder.append("=== Latest User Message ===\n");
+            promptBuilder.append(StringUtils.defaultString(lastUser.getContent(), "")).append("\n");
         }
-        return raw.toString();
+        if (lastAssistant != null) {
+            promptBuilder.append("=== Latest Assistant Message ===\n");
+            promptBuilder.append(StringUtils.defaultString(lastAssistant.getContent(), "")).append("\n");
+        }
+        promptBuilder.append("=== End ===\n\n");
+        promptBuilder.append("Preferences format: [{\"category\":\"language|style|format|tech_stack|tool_strategy\",\"key_name\":\"...\",\"value\":\"...\",\"confidence\":0.0-1.0}]\n");
+        promptBuilder.append("Rules:\n");
+        promptBuilder.append("- Only extract RECURRING patterns, not one-time requests\n");
+        promptBuilder.append("- Exclude: passwords, tokens, temporary questions, one-off tasks\n");
+        promptBuilder.append("- Confidence reflects how certain you are this is a stable preference (0.6-1.0)\n");
+        promptBuilder.append("- category must be one of: language, style, format, tech_stack, tool_strategy\n");
+        promptBuilder.append("- If the conversation shows a CHANGE in preference, extract the NEW preference\n");
+
+        return callModel(promptBuilder.toString(), provider, agent);
     }
 
     private List<AgentMessage> queryConversationHistory(String conversationId,
@@ -206,31 +210,6 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
             }
         }
         return false;
-    }
-
-    private String buildExtractionPrompt(String summary,
-                                         AgentMessage userMessage, AgentMessage assistantMessage) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Analyze the following conversation and extract stable, long-term user preferences.\n\n");
-        sb.append("Return a JSON array: [{\"category\":\"language|style|format|tech_stack|tool_strategy\",\"key_name\":\"preference_key\",\"value\":\"preference_value\",\"confidence\":0.0-1.0}]\n");
-        sb.append("Rules:\n");
-        sb.append("- Only extract RECURRING patterns, not one-time requests\n");
-        sb.append("- Exclude: passwords, tokens, temporary questions, one-off tasks\n");
-        sb.append("- Confidence reflects how certain you are this is a stable preference (0.6-1.0)\n");
-        sb.append("- category must be one of: language, style, format, tech_stack, tool_strategy\n");
-        sb.append("- If the conversation shows a CHANGE in preference (e.g. was brief, now wants detailed), extract the NEW preference\n\n");
-
-        sb.append("=== Conversation Summary ===\n");
-        sb.append(summary).append("\n");
-        sb.append("=== End of Summary ===\n\n");
-
-        sb.append("=== Latest Exchange ===\n");
-        sb.append("User: ").append(StringUtils.defaultString(userMessage.getContent(), "")).append("\n");
-        sb.append("Assistant: ").append(StringUtils.defaultString(assistantMessage.getContent(), "")).append("\n");
-        sb.append("=== End ===\n\n");
-
-        sb.append("Extract preferences based on PATTERNS across the conversation.");
-        return sb.toString();
     }
 
     private List<AdminPreference> parsePreferences(String response) {

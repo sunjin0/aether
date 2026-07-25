@@ -24,6 +24,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -427,48 +428,29 @@ public class OpenAIModelClient implements ModelClient {
         int chunkCount = 0;
 
         // 按 SSE data 行解析流式响应，避免等待服务端关闭连接。
-        try (InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
-            char[] buffer = new char[1];
-            StringBuilder lineBuffer = new StringBuilder();
-            while (reader.read(buffer) != -1) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
                 if (callback != null && callback.isClosed()) {
                     break;
                 }
-                char c = buffer[0];
-                if (c == '\n') {
-                    String line = lineBuffer.toString();
-                    lineBuffer.setLength(0);
-                    
-                    if (!line.startsWith("data:")) {
-                        continue;
-                    }
-                    String data = line.substring("data:".length()).trim();
-                    if (StringUtils.isBlank(data)) {
-                        continue;
-                    }
-                    raw.append(data).append('\n');
-                    if ("[DONE]".equals(data)) {
-                        break;
-                    }
-                    chunkCount++;
-                    if (firstTokenTime == -1) {
-                        firstTokenTime = System.currentTimeMillis();
-                        log.info("首个流式 token 延迟: {}ms", firstTokenTime - parseStart);
-                    }
-                    parseStreamData(data, defaultModel, callback, content, reasoningContent, response, toolCallsMap);
-                } else if (c != '\r') {
-                    lineBuffer.append(c);
+                if (!line.startsWith("data:")) {
+                    continue;
                 }
-            }
-            // 处理最后一行没有换行符的情况。
-            if (lineBuffer.length() > 0) {
-                String line = lineBuffer.toString();
-                if (line.startsWith("data:")) {
-                    String data = line.substring("data:".length()).trim();
-                    if (StringUtils.isNotBlank(data) && !"[DONE]".equals(data)) {
-                        parseStreamData(data, defaultModel, callback, content, reasoningContent, response, toolCallsMap);
-                    }
+                String data = line.substring("data:".length()).trim();
+                if (StringUtils.isBlank(data)) {
+                    continue;
                 }
+                raw.append(data).append('\n');
+                if ("[DONE]".equals(data)) {
+                    break;
+                }
+                chunkCount++;
+                if (firstTokenTime == -1) {
+                    firstTokenTime = System.currentTimeMillis();
+                    log.info("首个流式 token 延迟: {}ms", firstTokenTime - parseStart);
+                }
+                parseStreamData(data, defaultModel, callback, content, reasoningContent, response, toolCallsMap);
             }
         }
 

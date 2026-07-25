@@ -1,10 +1,13 @@
 package com.aether.agent.service;
 
 import com.aether.agent.model.ModelChatMessage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -14,6 +17,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 public class ConversationCacheService {
+    private static final Logger log = LoggerFactory.getLogger(ConversationCacheService.class);
     private static final String CACHE_KEY_PREFIX = "agent:context:";
     private static final long CACHE_TTL_MINUTES = 30;
 
@@ -26,26 +30,82 @@ public class ConversationCacheService {
     @SuppressWarnings("unchecked")
     public List<ModelChatMessage> get(String conversationId) {
         try {
-            Object cached = redisTemplate.opsForValue().get(key(conversationId));
-            return cached instanceof List ? new ArrayList<ModelChatMessage>((List<ModelChatMessage>) cached) : null;
-        } catch (Exception ignored) {
+            List<Object> cached = redisTemplate.opsForList().range(key(conversationId), 0, -1);
+            if (cached == null || cached.isEmpty()) {
+                return null;
+            }
+            List<ModelChatMessage> result = new ArrayList<ModelChatMessage>(cached.size());
+            for (Object obj : cached) {
+                if (obj instanceof ModelChatMessage) {
+                    result.add((ModelChatMessage) obj);
+                }
+            }
+            return result.isEmpty() ? null : result;
+        } catch (Exception e) {
+            log.warn("读取会话缓存失败: conversationId={}", conversationId, e);
             return null;
         }
     }
 
     public void put(String conversationId, List<ModelChatMessage> context) {
         try {
-            redisTemplate.opsForValue().set(key(conversationId), context, CACHE_TTL_MINUTES, TimeUnit.MINUTES);
-        } catch (Exception ignored) {
-            // 缓存失败不影响聊天主流程。
+            String cacheKey = key(conversationId);
+            redisTemplate.delete(cacheKey);
+            if (context != null && !context.isEmpty()) {
+                redisTemplate.opsForList().rightPushAll(cacheKey, context.toArray());
+                redisTemplate.expire(cacheKey, CACHE_TTL_MINUTES, TimeUnit.MINUTES);
+            }
+        } catch (Exception e) {
+            log.warn("写入会话缓存失败: conversationId={}", conversationId, e);
+        }
+    }
+
+    public void append(String conversationId, ModelChatMessage message) {
+        try {
+            String cacheKey = key(conversationId);
+            Long size = redisTemplate.opsForList().rightPush(cacheKey, message);
+            if (size != null && size == 1) {
+                redisTemplate.expire(cacheKey, CACHE_TTL_MINUTES, TimeUnit.MINUTES);
+            }
+        } catch (Exception e) {
+            log.warn("追加会话缓存失败: conversationId={}", conversationId, e);
         }
     }
 
     public void evict(String conversationId) {
         try {
             redisTemplate.delete(key(conversationId));
-        } catch (Exception ignored) {
-            // 缓存失效失败不影响聊天主流程。
+        } catch (Exception e) {
+            log.warn("清理会话缓存失败: conversationId={}", conversationId, e);
+        }
+    }
+
+    public long size(String conversationId) {
+        try {
+            Long size = redisTemplate.opsForList().size(key(conversationId));
+            return size != null ? size : 0;
+        } catch (Exception e) {
+            log.warn("读取会话缓存大小失败: conversationId={}", conversationId, e);
+            return 0;
+        }
+    }
+
+    public List<ModelChatMessage> getRecent(String conversationId, int count) {
+        try {
+            List<Object> cached = redisTemplate.opsForList().range(key(conversationId), -count, -1);
+            if (cached == null || cached.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<ModelChatMessage> result = new ArrayList<ModelChatMessage>(cached.size());
+            for (Object obj : cached) {
+                if (obj instanceof ModelChatMessage) {
+                    result.add((ModelChatMessage) obj);
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("读取会话最近缓存失败: conversationId={}", conversationId, e);
+            return Collections.emptyList();
         }
     }
 

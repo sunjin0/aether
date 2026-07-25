@@ -66,6 +66,8 @@ public class CrossConversationPatternService {
 
         Map<String, List<PatternSignal>> userLanguagePatterns = new HashMap<>();
         Map<String, List<PatternSignal>> userToolPatterns = new HashMap<>();
+        Map<String, List<PatternSignal>> userFormatPatterns = new HashMap<>();
+        Map<String, List<PatternSignal>> userTechStackPatterns = new HashMap<>();
 
         for (AgentConversation conv : recentConversations) {
             List<AgentMessage> messages = messageMapper.selectList(
@@ -82,7 +84,7 @@ public class CrossConversationPatternService {
                 if (!"user".equals(msg.getRole()) || StringUtils.isBlank(msg.getContent())) {
                     continue;
                 }
-                String content = msg.getContent().toLowerCase();
+                String content = msg.getContent();
 
                 String languagePattern = detectLanguagePattern(content);
                 if (languagePattern != null) {
@@ -94,6 +96,16 @@ public class CrossConversationPatternService {
                     userToolPatterns.computeIfAbsent(userId, k -> new ArrayList<>())
                             .add(new PatternSignal(toolPattern, conv.getId(), msg.getId()));
                 }
+                String formatPattern = detectFormatPattern(content);
+                if (formatPattern != null) {
+                    userFormatPatterns.computeIfAbsent(userId, k -> new ArrayList<>())
+                            .add(new PatternSignal(formatPattern, conv.getId(), msg.getId()));
+                }
+                String techStackPattern = detectTechStackPattern(content);
+                if (techStackPattern != null) {
+                    userTechStackPatterns.computeIfAbsent(userId, k -> new ArrayList<>())
+                            .add(new PatternSignal(techStackPattern, conv.getId(), msg.getId()));
+                }
             }
         }
 
@@ -104,6 +116,14 @@ public class CrossConversationPatternService {
         for (Map.Entry<String, List<PatternSignal>> entry : userToolPatterns.entrySet()) {
             detectAndSavePattern(entry.getKey(), "tool_strategy", entry.getValue(),
                     "tool_usage_pattern", "User shows consistent tool usage patterns");
+        }
+        for (Map.Entry<String, List<PatternSignal>> entry : userFormatPatterns.entrySet()) {
+            detectAndSavePattern(entry.getKey(), "format", entry.getValue(),
+                    "response_format", "User shows consistent format preferences");
+        }
+        for (Map.Entry<String, List<PatternSignal>> entry : userTechStackPatterns.entrySet()) {
+            detectAndSavePattern(entry.getKey(), "tech_stack", entry.getValue(),
+                    "preferred_tech", "User shows consistent technology stack preferences");
         }
 
         log.info("Cross-conversation pattern analysis completed");
@@ -214,15 +234,19 @@ public class CrossConversationPatternService {
     }
 
     private String detectLanguagePattern(String content) {
-        String[] chinese = {"用中文", "中文回答", "in chinese", "chinese"};
-        for (String keyword : chinese) {
-            if (content.contains(keyword)) {
+        String lower = content.toLowerCase();
+        String[] zhCN = {"用中文", "中文回答", "请用中文", "in chinese", "chinese please",
+                "speak chinese", "说中文", "讲中文", "使用中文", "汉语"};
+        for (String keyword : zhCN) {
+            if (lower.contains(keyword)) {
                 return "zh-CN";
             }
         }
-        String[] english = {"用英文", "用英语", "英文回答", "in english", "english"};
-        for (String keyword : english) {
-            if (content.contains(keyword)) {
+        String[] en = {"用英文", "用英语", "英文回答", "请用英文", "in english", "english please",
+                "speak english", "说英文", "讲英文", "使用英文", "in english.",
+                "please answer in english"};
+        for (String keyword : en) {
+            if (lower.contains(keyword)) {
                 return "en";
             }
         }
@@ -230,16 +254,66 @@ public class CrossConversationPatternService {
     }
 
     private String detectToolPattern(String content) {
-        String[] commandLine = {"shell", "terminal", "命令行"};
+        String lower = content.toLowerCase();
+        String[] commandLine = {"shell", "terminal", "命令行", "在终端", "bash", "zsh",
+                "powershell", "cmd.exe", "cli", "command line"};
         for (String keyword : commandLine) {
-            if (content.contains(keyword)) {
+            if (lower.contains(keyword)) {
                 return "command_line";
             }
         }
-        String[] buildTools = {"maven", "gradle", "npm", "yarn", "pip"};
+        String[] buildTools = {"maven", "gradle", "npm", "yarn", "pnpm", "pip",
+                "poetry", "go build", "cargo", "make", "cmake", "ant", "sbt"};
         for (String keyword : buildTools) {
-            if (content.contains(keyword)) {
+            if (lower.contains(keyword)) {
                 return keyword;
+            }
+        }
+        return null;
+    }
+
+    private String detectFormatPattern(String content) {
+        String lower = content.toLowerCase();
+        if (lower.contains("简洁") || lower.contains("简短") || lower.contains("brief")
+                || lower.contains("concise") || lower.contains("short answer")
+                || lower.contains("keep it short")) {
+            return "concise";
+        }
+        if (lower.contains("详细") || lower.contains("详细说明") || lower.contains("detailed")
+                || lower.contains("in detail") || lower.contains("go into detail")
+                || lower.contains("elaborate")) {
+            return "detailed";
+        }
+        if (lower.contains("用表格") || lower.contains("table format") || lower.contains("as a table")
+                || lower.contains("tabular")) {
+            return "table";
+        }
+        if (lower.contains("用列表") || lower.contains("bullet point") || lower.contains("bulleted")
+                || lower.contains("numbered list") || lower.contains("as a list")) {
+            return "list";
+        }
+        if (lower.contains("代码") || lower.contains("code snippet") || lower.contains("show code")
+                || lower.contains("code example") || lower.contains("code block")) {
+            return "code_first";
+        }
+        return null;
+    }
+
+    private String detectTechStackPattern(String content) {
+        String lower = content.toLowerCase();
+        Map<String, String[]> techMap = new LinkedHashMap<>();
+        techMap.put("typescript", new String[]{"typescript", "ts", "tsx"});
+        techMap.put("javascript", new String[]{"javascript", "js", "jsx", "node.js", "nodejs", "deno"});
+        techMap.put("python", new String[]{"python", "py", "django", "flask", "fastapi"});
+        techMap.put("java", new String[]{"java", "spring", "spring boot", "maven", "jpa", "mybatis"});
+        techMap.put("go", new String[]{"golang", "go language", "go programming"});
+        techMap.put("rust", new String[]{"rust", "rustlang", "cargo"});
+
+        for (Map.Entry<String, String[]> entry : techMap.entrySet()) {
+            for (String keyword : entry.getValue()) {
+                if (lower.contains(keyword)) {
+                    return entry.getKey();
+                }
             }
         }
         return null;

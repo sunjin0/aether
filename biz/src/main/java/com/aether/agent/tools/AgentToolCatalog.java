@@ -6,6 +6,8 @@ import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.tools.core.ToolRegistry;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +22,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Component
 public class AgentToolCatalog {
+    private static final Logger log = LoggerFactory.getLogger(AgentToolCatalog.class);
     private static final String CACHE_KEY_PREFIX = "agent:tools:";
     private static final long CACHE_TTL_MINUTES = 10;
 
@@ -50,8 +53,8 @@ public class AgentToolCatalog {
             if (cached instanceof List) {
                 return (List<AgentTool>) cached;
             }
-        } catch (Exception ignored) {
-            // 缓存不可用时直接查询数据库，不影响聊天主流程。
+        } catch (Exception e) {
+            log.warn("读取Agent工具缓存失败: agentId={}", agentId, e);
         }
         List<AgentToolBinding> bindings = bindingService.list(Wrappers.lambdaQuery(AgentToolBinding.class)
                 .eq(AgentToolBinding::getAgentDefinitionId, agentId).eq(AgentToolBinding::getStatus, 1)
@@ -65,8 +68,8 @@ public class AgentToolCatalog {
         }
         try {
             redisTemplate.opsForValue().set(cacheKey, tools, CACHE_TTL_MINUTES, TimeUnit.MINUTES);
-        } catch (Exception ignored) {
-            // 写缓存失败不应影响本次已经查到的工具列表。
+        } catch (Exception e) {
+            log.warn("写入Agent工具缓存失败: agentId={}", agentId, e);
         }
         return tools;
     }
@@ -74,8 +77,8 @@ public class AgentToolCatalog {
     public void evict(String agentId) {
         try {
             redisTemplate.delete(CACHE_KEY_PREFIX + agentId);
-        } catch (Exception ignored) {
-            // 缓存失效失败只会在 TTL 内保留旧数据，不阻塞配置更新。
+        } catch (Exception e) {
+            log.warn("清理Agent工具缓存失败: agentId={}", agentId, e);
         }
     }
 
@@ -86,8 +89,8 @@ public class AgentToolCatalog {
             for (AgentToolBinding binding : bindings) {
                 evict(binding.getAgentDefinitionId());
             }
-        } catch (Exception ignored) {
-            // 工具与绑定关系查询失败时交由 TTL 兜底失效。
+        } catch (Exception e) {
+            log.warn("按工具ID清理Agent工具缓存失败: toolId={}", toolId, e);
         }
     }
 }

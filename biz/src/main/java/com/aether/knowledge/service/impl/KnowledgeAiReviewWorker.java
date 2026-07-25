@@ -24,6 +24,8 @@ import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -37,6 +39,7 @@ import java.util.List;
 
 @Component
 public class KnowledgeAiReviewWorker {
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeAiReviewWorker.class);
     private static final int MAX_REVIEW_CHARS = 40000;
     private static final long RUNNING_LEASE_MILLIS = 30L * 60L * 1000L;
     private final KnowledgeAiReviewRecordService reviewService;
@@ -256,7 +259,7 @@ public class KnowledgeAiReviewWorker {
     private String configString(String config, String key) {
         if (StringUtils.isBlank(config)) return null;
         try { return JSONObject.parseObject(config).getString(key); }
-        catch (Exception ignored) { return null; }
+        catch (Exception e) { log.warn("解析配置JSON失败: key={}", key, e); return null; }
     }
 
     private JSONObject parseJson(String value) {

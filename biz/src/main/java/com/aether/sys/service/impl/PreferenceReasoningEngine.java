@@ -2,17 +2,21 @@ package com.aether.sys.service.impl;
 
 import com.aether.sys.entity.AdminPreference;
 import com.aether.sys.mapper.AdminPreferenceMapper;
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-
+@Log4j2
 @Component
 public class PreferenceReasoningEngine {
 
@@ -175,16 +179,27 @@ public class PreferenceReasoningEngine {
     }
 
     public void clearUserCache(String adminId) {
-        if (adminId == null) {
-            Set<String> keys = redisTemplate.keys(CACHE_PREFIX + "*");
-            if (keys != null && !keys.isEmpty()) {
-                redisTemplate.delete(keys);
+        try {
+            String pattern = adminId == null
+                    ? CACHE_PREFIX + "*"
+                    : CACHE_PREFIX + adminId + ":*";
+            Set<String> keysToDelete = new HashSet<>();
+            ScanOptions options = ScanOptions.scanOptions().match(pattern).count(100).build();
+            redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
+                try (Cursor<byte[]> cursor = connection.scan(options)) {
+                    while (cursor.hasNext()) {
+                        keysToDelete.add(new String(cursor.next(), StandardCharsets.UTF_8));
+                    }
+                } catch (Exception e) {
+                    log.warn("SCAN遍历偏好缓存键失败", e);
+                }
+                return null;
+            });
+            if (!keysToDelete.isEmpty()) {
+                redisTemplate.delete(keysToDelete);
             }
-        } else {
-            Set<String> keys = redisTemplate.keys(CACHE_PREFIX + adminId + ":*");
-            if (keys != null && !keys.isEmpty()) {
-                redisTemplate.delete(keys);
-            }
+        } catch (Exception e) {
+            log.warn("清理用户偏好缓存失败: adminId={}", adminId, e);
         }
     }
 

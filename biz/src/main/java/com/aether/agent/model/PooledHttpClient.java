@@ -107,11 +107,13 @@ public class PooledHttpClient {
         public void close() {
             try {
                 inputStream.close();
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                log.warn("关闭流式响应输入流失败", e);
             }
             try {
                 response.close();
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                log.warn("关闭流式HTTP响应失败", e);
             }
         }
     }

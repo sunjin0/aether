@@ -18,6 +18,8 @@ public class ModelChatMessage {
 
     private String toolCallId;
 
+    private transient Integer cachedTokens;
+
     public ModelChatMessage(String role, String content) {
         this.role = role;
         this.content = content;
