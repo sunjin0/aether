@@ -10,6 +10,7 @@ import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
+import com.aether.knowledge.model.KnowledgeJobType;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
 import com.aether.knowledge.model.KnowledgeIndexJobStatus;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -59,7 +60,7 @@ public class KnowledgeIndexWorker {
             if (targetVersion == null || Boolean.TRUE.equals(targetVersion.getDeleted())) {
                 throw new IllegalStateException("document version not found");
             }
-            if (!"reindex".equals(job.getJobType())
+            if (!KnowledgeJobType.REINDEX.equals(job.getJobType())
                     && !KnowledgeReviewStatus.APPROVED.equals(targetVersion.getReviewStatus())) {
                 throw new IllegalStateException("document version is not approved");
             }

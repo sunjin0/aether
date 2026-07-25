@@ -9,6 +9,7 @@ import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeReviewTask;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
+import com.aether.knowledge.model.KnowledgeJobType;
 import com.aether.knowledge.model.KnowledgeReviewTaskStatus;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.service.KnowledgeAiReviewIssueService;
@@ -366,7 +367,7 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         when(versionService.update(any())).thenReturn(true);
         when(documentService.getById("document-1")).thenReturn(document);
         when(versionService.getById("version-1")).thenReturn(version);
-        when(indexService.queueReindex(document, version, "approved"))
+        when(indexService.queueReindex(document, version, KnowledgeJobType.UPLOAD))
                 .thenThrow(new ServerException(500, "index queue failed"));
 
         assertThrows(ServerException.class,

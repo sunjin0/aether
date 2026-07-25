@@ -14,6 +14,7 @@ import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.service.KnowledgeEmbeddingService;
+import com.aether.knowledge.model.KnowledgeJobType;
 import com.aether.knowledge.service.KnowledgeIndexJobService;
 import com.aether.knowledge.workflow.TransactionAfterCommitExecutor;
 import org.junit.jupiter.api.BeforeEach;
@@ -113,7 +114,7 @@ class KnowledgeDocumentIndexServiceImplTest {
 
         TransactionSynchronizationManager.initSynchronization();
         try {
-            assertEquals("job-1", service(executor).queueReindex(document, version, "approved"));
+            assertEquals("job-1", service(executor).queueReindex(document, version, KnowledgeJobType.UPLOAD));
             verifyNoInteractions(indexWorker);
             for (TransactionSynchronization synchronization
                     : TransactionSynchronizationManager.getSynchronizations()) {
@@ -135,7 +136,7 @@ class KnowledgeDocumentIndexServiceImplTest {
 
         assertThrows(ServerException.class,
                 () -> service(new TransactionAfterCommitExecutor())
-                        .queueReindex(document, version, "approved"));
+                        .queueReindex(document, version, KnowledgeJobType.UPLOAD));
 
         verifyNoInteractions(indexWorker);
     }

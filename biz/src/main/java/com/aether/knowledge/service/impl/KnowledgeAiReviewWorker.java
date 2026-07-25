@@ -17,6 +17,7 @@ import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
 import com.aether.knowledge.model.KnowledgeAiReviewStatus;
 import com.aether.knowledge.model.KnowledgeAiReviewIssueStatus;
+import com.aether.knowledge.model.KnowledgeAiReviewSeverity;
 import com.aether.knowledge.service.KnowledgeAiReviewIssueService;
 import com.aether.knowledge.service.KnowledgeAiReviewRecordService;
 import com.aether.knowledge.service.KnowledgeBaseService;
@@ -305,7 +306,7 @@ public class KnowledgeAiReviewWorker {
 
     private String normalizeSeverity(String value) {
         String normalized = StringUtils.lowerCase(value);
-        return Arrays.asList("info", "warning", "critical").contains(normalized) ? normalized : "warning";
+        return Arrays.asList(KnowledgeAiReviewSeverity.INFO, KnowledgeAiReviewSeverity.WARNING, KnowledgeAiReviewSeverity.CRITICAL).contains(normalized) ? normalized : KnowledgeAiReviewSeverity.WARNING;
     }
 
     private String truncate(String value, int max) {

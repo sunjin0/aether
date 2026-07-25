@@ -8,6 +8,8 @@ import com.aether.knowledge.entity.KnowledgeReviewTask;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.service.KnowledgeDocumentIndexService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
+import com.aether.knowledge.model.KnowledgeDocumentSourceType;
+import com.aether.knowledge.model.KnowledgeJobType;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.service.KnowledgeDocumentWorkflowService;
@@ -124,7 +126,7 @@ public class KnowledgeDocumentController {
         document.setTitle(vo.getTitle());
         document.setContent(null);
         document.setSourceUrl(vo.getSourceUrl());
-        document.setSourceType(StringUtils.defaultIfBlank(vo.getSourceType(), "text"));
+        document.setSourceType(StringUtils.defaultIfBlank(vo.getSourceType(), KnowledgeDocumentSourceType.TEXT));
         document.setParserType(vo.getParserType());
         if (document.getStatus() == null) {
             document.setStatus(0);
@@ -153,7 +155,7 @@ public class KnowledgeDocumentController {
         if (!(lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".pdf") || lower.endsWith(".docx"))) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.unsupported-type"));
         byte[] bytes = file.getBytes();
         KnowledgeDocument document = new KnowledgeDocument();
-        document.setKnowledgeBaseId(knowledgeBaseId); document.setTitle(StringUtils.defaultIfBlank(title, name)); document.setSourceType("file");
+        document.setKnowledgeBaseId(knowledgeBaseId); document.setTitle(StringUtils.defaultIfBlank(title, name)); document.setSourceType(KnowledgeDocumentSourceType.FILE);
         document.setOriginalFileName(name); document.setFileExtension(name.substring(name.lastIndexOf('.') + 1)); document.setMimeType(file.getContentType());
         String extractedContent = contentExtractor.extract(name, bytes);
         document.setFileSize(file.getSize()); document.setFileChecksum(sha256(bytes)); document.setContent(null);
@@ -320,7 +322,7 @@ public class KnowledgeDocumentController {
                         .eq(KnowledgeDocumentVersion::getVersionNo, document.getCurrentVersionNo())
                         .eq(KnowledgeDocumentVersion::getDeleted, false), false);
         if (version == null) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.published-version.not-found"));
-        String jobId = knowledgeDocumentIndexService.queueReindex(document, version, "reindex");
+        String jobId = knowledgeDocumentIndexService.queueReindex(document, version, KnowledgeJobType.REINDEX);
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.reindex.queued", new Object[]{jobId}));
     }
 

@@ -6,6 +6,8 @@ import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeIndexJob;
 import com.aether.knowledge.model.KnowledgeIndexJobStatus;
+import com.aether.knowledge.model.KnowledgeDocumentSourceType;
+import com.aether.knowledge.model.KnowledgeJobType;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.service.KnowledgeDocumentIndexService;
@@ -75,7 +77,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         }
         KnowledgeIndexJob job = new KnowledgeIndexJob();
         job.setKnowledgeBaseId(document.getKnowledgeBaseId()); job.setDocumentId(document.getId());
-        job.setDocumentVersionId(version.getId()); job.setJobType(StringUtils.defaultIfBlank(jobType, "reindex"));
+        job.setDocumentVersionId(version.getId()); job.setJobType(StringUtils.defaultIfBlank(jobType, KnowledgeJobType.REINDEX));
         job.setStatus(KnowledgeIndexJobStatus.PENDING);
         job.setRetryCount(0);
         job.setMaxRetryCount(3);
@@ -170,7 +172,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
      * 保存最小可用的分块来源元数据；后续页级解析器可在此 JSON 中补充精确页码和章节位置。
      */
     private String buildChunkMetadata(KnowledgeDocument document, KnowledgeDocumentChunk chunk) {
-        String sourceType = StringUtils.defaultIfBlank(document.getSourceType(), "text");
+        String sourceType = StringUtils.defaultIfBlank(document.getSourceType(), KnowledgeDocumentSourceType.TEXT);
         String parserType = StringUtils.defaultIfBlank(document.getParserType(), sourceType);
         return "{\"sourceType\":\"" + jsonEscape(sourceType) + "\",\"parserType\":\""
                 + jsonEscape(parserType) + "\",\"pageNo\":" + chunk.getPageNo()

@@ -10,6 +10,7 @@ import com.aether.knowledge.service.KnowledgeEmbeddingService;
 import com.aether.agent.service.AgentKnowledgeBaseBindingService;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
+import com.aether.knowledge.model.KnowledgeBaseScope;
 import com.aether.knowledge.model.KnowledgeRetrievalResult;
 import com.aether.agent.service.ModelProviderService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -71,7 +72,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                     .distinct()
                     .collect(Collectors.toList());
             List<KnowledgeBase> platformBases = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
-                    .eq(KnowledgeBase::getScope, "PLATFORM").eq(KnowledgeBase::getStatus, STATUS_ENABLED)
+                    .eq(KnowledgeBase::getScope, KnowledgeBaseScope.PLATFORM).eq(KnowledgeBase::getStatus, STATUS_ENABLED)
                     .eq(KnowledgeBase::getIndexStatus, KB_INDEX_STATUS_DONE).eq(KnowledgeBase::getDeleted, false));
             if (platformBases != null) platformBases.forEach(item -> boundKbIds.add(item.getId()));
             if (boundKbIds.isEmpty()) return result;

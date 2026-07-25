@@ -17,6 +17,7 @@ import com.aether.knowledge.vo.KnowledgeAiReviewIssueAcceptResultVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueAcceptVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueBatchAcceptVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueHandleVo;
+import com.aether.knowledge.model.KnowledgeAiReviewSeverity;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
 import com.aether.knowledge.model.KnowledgeAiReviewStatus;
 import com.aether.knowledge.model.KnowledgeAiReviewIssueStatus;
@@ -139,7 +140,7 @@ public class KnowledgeAiReviewController {
             issues.add(item);
             if (KnowledgeAiReviewIssueStatus.PENDING.equals(issue.getHandleStatus())) {
                 pending++;
-                if ("critical".equalsIgnoreCase(issue.getSeverity())) criticalPending++;
+                if (KnowledgeAiReviewSeverity.CRITICAL.equalsIgnoreCase(issue.getSeverity())) criticalPending++;
             } else if (KnowledgeAiReviewIssueStatus.ACCEPTED.equals(issue.getHandleStatus())) {
                 accepted++;
             } else {
@@ -298,7 +299,7 @@ public class KnowledgeAiReviewController {
             if (parsePatch(issue.getSuggestedPatch()) == null) {
                 throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.not-applicable"));
             }
-            if ("critical".equalsIgnoreCase(issue.getSeverity())) {
+            if (KnowledgeAiReviewSeverity.CRITICAL.equalsIgnoreCase(issue.getSeverity())) {
                 throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.issue.critical-individual-acceptance"));
             }
             issues.add(issue);

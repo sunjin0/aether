@@ -8,6 +8,7 @@ import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeIndexJob;
 import com.aether.knowledge.service.KnowledgeDocumentIndexService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
+import com.aether.knowledge.model.KnowledgeJobType;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.service.KnowledgeIndexJobService;
 import com.aether.knowledge.service.KnowledgeAccessService;
@@ -61,6 +62,6 @@ public class KnowledgeIndexJobController {
         accessService.requireWritable(job.getKnowledgeBaseId());
         KnowledgeDocument document = documentService.getById(job.getDocumentId()); KnowledgeDocumentVersion version = versionService.getById(job.getDocumentVersionId());
         if (document == null || version == null) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
-        return WebResponse.OK(indexService.queueReindex(document, version, "retry"));
+        return WebResponse.OK(indexService.queueReindex(document, version, KnowledgeJobType.RETRY));
     }
 }

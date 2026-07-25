@@ -8,6 +8,8 @@ import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeReviewTask;
 import com.aether.knowledge.mapper.KnowledgeDocumentMapper;
+import com.aether.knowledge.model.KnowledgeJobType;
+import com.aether.knowledge.model.KnowledgeReviewAction;
 import com.aether.knowledge.model.KnowledgeReviewStatus;
 import com.aether.knowledge.model.KnowledgeReviewTaskStatus;
 import com.aether.knowledge.model.KnowledgeAiReviewStatus;
@@ -252,7 +254,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
             throw new ServerException(500, I18nUtils.getMessage("knowledge.review-task.create.failed"));
         }
         stateManager.markSubmitted(document.getId(), versionId, now);
-        auditWriter.write(submitter, task.getId(), document.getId(), versionId, "SUBMITTED",
+        auditWriter.write(submitter, task.getId(), document.getId(), versionId, KnowledgeReviewAction.SUBMITTED,
                 version.getReviewStatus(),
                 KnowledgeReviewStatus.SUBMITTED, comment);
         return task;
@@ -273,7 +275,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
             throw new ServerException(409, I18nUtils.getMessage("knowledge.review-task.already-claimed"));
         }
         auditWriter.write(reviewer, taskId, task.getDocumentId(), task.getDocumentVersionId(),
-                "CLAIMED",
+                KnowledgeReviewAction.CLAIMED,
                 task.getStatus(), KnowledgeReviewTaskStatus.CLAIMED, null);
     }
 
@@ -281,7 +283,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
     public String approve(String taskId, String comment) {
         String jobId = transactionTemplate.execute(status -> {
             ApprovalResult approved = approveInTransaction(taskId, comment);
-            return indexService.queueReindex(approved.document, approved.version, "approved");
+            return indexService.queueReindex(approved.document, approved.version, KnowledgeJobType.UPLOAD);
         });
         if (jobId == null) throw new ServerException(500, I18nUtils.getMessage("knowledge.document.approve.failed"));
         return jobId;
@@ -320,7 +322,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 submission.getVersion().getId(),
                 KnowledgeReviewStatus.REJECTED, now, null);
         auditWriter.write(reviewer, taskId, task.getDocumentId(), task.getDocumentVersionId(),
-                "REJECTED",
+                KnowledgeReviewAction.REJECTED,
                 KnowledgeReviewStatus.SUBMITTED, KnowledgeReviewStatus.REJECTED, reason);
     }
 
@@ -358,7 +360,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         if (!versionUpdated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
         stateManager.finishSubmission(document.getId(), version.getId(),
                 KnowledgeReviewStatus.APPROVED, now, 1);
-        auditWriter.write(reviewer, taskId, task.getDocumentId(), version.getId(), "APPROVED",
+        auditWriter.write(reviewer, taskId, task.getDocumentId(), version.getId(), KnowledgeReviewAction.APPROVED,
                 KnowledgeReviewStatus.SUBMITTED, KnowledgeReviewStatus.APPROVED, comment);
         return new ApprovalResult(documentService.getById(document.getId()), versionService.getById(version.getId()));
     }

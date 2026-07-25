@@ -9,6 +9,8 @@ import com.aether.knowledge.vo.KnowledgeBaseVo;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.exception.ServerException;
+import com.aether.knowledge.model.KnowledgeBaseScope;
+import com.aether.knowledge.model.KnowledgeBaseVisibility;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.permission.Permission;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
@@ -94,10 +96,10 @@ public class KnowledgeBaseController {
             kb.setIndexStatus(0);
         }
         if (StringUtils.isBlank(kb.getScope())) {
-            kb.setScope("PLATFORM");
+            kb.setScope(KnowledgeBaseScope.PLATFORM);
         }
         if (StringUtils.isBlank(kb.getVisibility())) {
-            kb.setVisibility("PLATFORM".equalsIgnoreCase(kb.getScope()) ? "platform" : "private");
+            kb.setVisibility(KnowledgeBaseScope.PLATFORM.equalsIgnoreCase(kb.getScope()) ? KnowledgeBaseVisibility.PLATFORM : KnowledgeBaseVisibility.PRIVATE);
         }
         boolean saved = knowledgeBaseService.save(kb);
         return WebResponse.OK(saved ? I18nUtils.getMessage("knowledge.base.create.success") : I18nUtils.getMessage("knowledge.base.create.fail"), kb.getId());
