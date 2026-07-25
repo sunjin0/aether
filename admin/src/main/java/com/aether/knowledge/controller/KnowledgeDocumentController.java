@@ -288,8 +288,7 @@ public class KnowledgeDocumentController {
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         KnowledgeDocument existing = getExisting(id);
         knowledgeAccessService.requireWritable(existing.getKnowledgeBaseId());
-        if (StringUtils.isNotBlank(existing.getDraftVersionId())
-                || StringUtils.isNotBlank(existing.getSubmittedVersionId())) {
+        if (StringUtils.isNotBlank(existing.getSubmittedVersionId())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document.delete.active-workflow"));
         }
         boolean removed = knowledgeDocumentService.removeById(id);

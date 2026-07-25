@@ -1,13 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="SqlDialectMappings">
-    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/001-schema.sql" dialect="PostgreSQL" />
-    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/002-data.sql" dialect="PostgreSQL" />
-    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/003-knowledge-review-workflow.sql" dialect="PostgreSQL" />
-    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/004-agent-knowledge-menu-resources.sql" dialect="PostgreSQL" />
-    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/006-knowledge-ai-review-diff.sql" dialect="PostgreSQL" />
-    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/007-model-provider-context-window.sql" dialect="PostgreSQL" />
-    <file url="file://$PROJECT_DIR$/api/src/main/resources/sql/postgresql/008-conversation-summary-persistence.sql" dialect="PostgreSQL" />
+    <file url="file://$PROJECT_DIR$/api/src/main/resources/db/migration/postgresql/V1__init.sql" dialect="PostgreSQL" />
     <file url="PROJECT" dialect="MySQL" />
   </component>
 </project>

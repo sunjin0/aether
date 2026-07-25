@@ -1075,122 +1075,127 @@ SELECT setval(
 );
 
 -- =====================================================
--- 1. Agent_Status (宸ュ叿/渚涘簲鍟嗙姸鎬?
+-- 1. Agent_Status
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Status', NULL, 'Agent Status', 'Agent Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Status', NULL, 'Agent Status', 'Agent Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Status_Enabled', 'Agent_Status', 'Enabled', 'Enabled', '1', 'Enabled status', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Status', NULL, 'Agent Status', '工具状态', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Status_Disabled', 'Agent_Status', 'Disabled', '已禁用', '0', '已禁用', 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Status_Enabled', 'Agent_Status', 'Enabled', '已启用', '1', '已启用', 1, FALSE, 1783769933, 1783769933, 2);
 
 -- =====================================================
--- 2. Agent_Tool_Type (宸ュ叿绫诲瀷)
+-- 2. Agent_Tool_Type (工具类型)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Type', NULL, 'Agent Tool Type', '宸ュ叿绫诲瀷', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Type_MCP', 'Agent_Tool_Type', 'MCP', 'MCP', 'mcp', 'MCP 宸ュ叿', 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Type', NULL, 'Agent Tool Type', '工具类型', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Type_MCP', 'Agent_Tool_Type', 'MCP', 'MCP', 'mcp', 'MCP 工具', 1, FALSE, 1783769933, 1783769933, 1);
 
 -- =====================================================
--- 3. Agent_Tool_Business_Type (宸ュ叿涓氬姟鍒嗙被)
+-- 3. Agent_Tool_Business_Type (工具业务分类)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Business_Type', NULL, 'Agent Tool Business Type', '宸ュ叿涓氬姟鍒嗙被', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Business_Type', NULL, 'Agent Tool Business Type', '工具业务分类', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Business_Type_Knowledge', 'Agent_Tool_Business_Type', 'Knowledge', 'Knowledge', 'knowledge', 'Knowledge tool', 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Business_Type_Ops', 'Agent_Tool_Business_Type', 'Operations', '杩愮淮鐩戞帶', 'ops', '杩愮淮鐩戞帶宸ュ叿', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Business_Type_Ops', 'Agent_Tool_Business_Type', 'Operations', '运维监控', 'ops', '运维监控工具', 1, FALSE, 1783769933, 1783769933, 2);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Business_Type_Dev', 'Agent_Tool_Business_Type', 'Development', 'Development', 'dev', 'Development collaboration tool', 1, FALSE, 1783769933, 1783769933, 3);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Business_Type_General', 'Agent_Tool_Business_Type', 'General', '閫氱敤', 'general', '閫氱敤宸ュ叿', 1, FALSE, 1783769933, 1783769933, 4);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Tool_Business_Type_General', 'Agent_Tool_Business_Type', 'General', '通用', 'general', '通用工具', 1, FALSE, 1783769933, 1783769933, 4);
 
 -- =====================================================
--- 4. Agent_Mcp_Transport (MCP浼犺緭绫诲瀷)
+-- 4. Agent_Mcp_Transport (MCP传输类型)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Transport', NULL, 'Agent MCP Transport', 'MCP浼犺緭绫诲瀷', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Transport', NULL, 'Agent MCP Transport', 'MCP传输类型', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Transport_HTTP', 'Agent_Mcp_Transport', 'HTTP', 'HTTP', 'http', 'HTTP MCP transport', 1, FALSE, 1783769933, 1783769933, 1);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Transport_SSE', 'Agent_Mcp_Transport', 'SSE', 'SSE', 'sse', 'SSE MCP transport', 1, FALSE, 1783769933, 1783769933, 2);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Transport_Streamable_HTTP', 'Agent_Mcp_Transport', 'Streamable HTTP', 'Streamable HTTP', 'streamable_http', 'Streamable HTTP MCP transport', 1, FALSE, 1783769933, 1783769933, 3);
 
 -- =====================================================
--- 4. Agent_Mcp_Auth_Type (MCP璁よ瘉绫诲瀷)
+-- 5. Agent_Mcp_Auth_Type (MCP认证类型)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Auth_Type', NULL, 'Agent MCP Auth Type', 'MCP璁よ瘉绫诲瀷', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Auth_Type', NULL, 'Agent MCP Auth Type', 'MCP认证类型', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Auth_Type_None', 'Agent_Mcp_Auth_Type', 'None', 'None', 'none', 'No authentication', 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Auth_Type_Bearer', 'Agent_Mcp_Auth_Type', 'Bearer', 'Bearer Token', 'bearer', 'Bearer Token璁よ瘉', 1, FALSE, 1783769933, 1783769933, 2);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Auth_Type_Api_Key', 'Agent_Mcp_Auth_Type', 'API Key', 'API Key', 'api_key', 'API Key璁よ瘉', 1, FALSE, 1783769933, 1783769933, 3);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Auth_Type_Bearer', 'Agent_Mcp_Auth_Type', 'Bearer', 'Bearer Token', 'bearer', 'Bearer Token认证', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Mcp_Auth_Type_Api_Key', 'Agent_Mcp_Auth_Type', 'API Key', 'API Key', 'api_key', 'API Key认证', 1, FALSE, 1783769933, 1783769933, 3);
 
 -- =====================================================
--- 5. Agent_Http_Method (HTTP 璇锋眰鏂规硶锛屽巻鍙蹭繚鐣?
+-- 6. Agent_Http_Method (HTTP 请求方法)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method', NULL, 'Agent HTTP Method', 'HTTP 璇锋眰鏂规硶', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_GET', 'Agent_Http_Method', 'GET', 'GET', 'GET', 'GET 璇锋眰', 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_POST', 'Agent_Http_Method', 'POST', 'POST', 'POST', 'POST 璇锋眰', 1, FALSE, 1783769933, 1783769933, 2);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_PUT', 'Agent_Http_Method', 'PUT', 'PUT', 'PUT', 'PUT 璇锋眰', 1, FALSE, 1783769933, 1783769933, 3);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_DELETE', 'Agent_Http_Method', 'DELETE', 'DELETE', 'DELETE', 'DELETE 璇锋眰', 1, FALSE, 1783769933, 1783769933, 4);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_PATCH', 'Agent_Http_Method', 'PATCH', 'PATCH', 'PATCH', 'PATCH 璇锋眰', 1, FALSE, 1783769933, 1783769933, 5);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method', NULL, 'Agent HTTP Method', 'HTTP 请求方法', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_GET', 'Agent_Http_Method', 'GET', 'GET', 'GET', 'GET 请求', 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_POST', 'Agent_Http_Method', 'POST', 'POST', 'POST', 'POST 请求', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_PUT', 'Agent_Http_Method', 'PUT', 'PUT', 'PUT', 'PUT 请求', 1, FALSE, 1783769933, 1783769933, 3);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_DELETE', 'Agent_Http_Method', 'DELETE', 'DELETE', 'DELETE', 'DELETE 请求', 1, FALSE, 1783769933, 1783769933, 4);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Http_Method_PATCH', 'Agent_Http_Method', 'PATCH', 'PATCH', 'PATCH', 'PATCH 请求', 1, FALSE, 1783769933, 1783769933, 5);
 
 -- =====================================================
--- 6. Agent_Content_Type (Content-Type 绫诲瀷锛屽巻鍙蹭繚鐣?
+-- 7. Agent_Content_Type (Content-Type 类型)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type', NULL, 'Agent Content Type', 'Content-Type 绫诲瀷', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type_JSON', 'Agent_Content_Type', 'application/json', 'application/json', 'application/json', 'JSON 鏍煎紡', 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type_Form', 'Agent_Content_Type', 'application/x-www-form-urlencoded', 'application/x-www-form-urlencoded', 'application/x-www-form-urlencoded', '琛ㄥ崟鏍煎紡', 1, FALSE, 1783769933, 1783769933, 2);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type_Multipart', 'Agent_Content_Type', 'multipart/form-data', 'multipart/form-data', 'multipart/form-data', '鏂囦欢涓婁紶鏍煎紡', 1, FALSE, 1783769933, 1783769933, 3);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type', NULL, 'Agent Content Type', 'Content-Type 类型', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type_JSON', 'Agent_Content_Type', 'application/json', 'application/json', 'application/json', 'JSON 格式', 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type_Form', 'Agent_Content_Type', 'application/x-www-form-urlencoded', 'application/x-www-form-urlencoded', 'application/x-www-form-urlencoded', '表单格式', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type_Multipart', 'Agent_Content_Type', 'multipart/form-data', 'multipart/form-data', 'multipart/form-data', '文件上传格式', 1, FALSE, 1783769933, 1783769933, 3);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type_Plain', 'Agent_Content_Type', 'text/plain', 'text/plain', 'text/plain', 'Plain text format', 1, FALSE, 1783769933, 1783769933, 4);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type_XML', 'Agent_Content_Type', 'text/xml', 'text/xml', 'text/xml', 'XML 鏍煎紡', 1, FALSE, 1783769933, 1783769933, 5);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Content_Type_XML', 'Agent_Content_Type', 'text/xml', 'text/xml', 'text/xml', 'XML 格式', 1, FALSE, 1783769933, 1783769933, 5);
 
 -- =====================================================
--- 7. Agent_Response_Type (鍝嶅簲鎻愬彇绫诲瀷锛屽巻鍙蹭繚鐣?
+-- 8. Agent_Response_Type (响应提取类型)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Response_Type', NULL, 'Agent Response Type', '鍝嶅簲鎻愬彇绫诲瀷', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Response_Type', NULL, 'Agent Response Type', '响应提取类型', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Response_Type_JSONPath', 'Agent_Response_Type', 'JSONPath', 'JSONPath', 'jsonpath', 'JSONPath expression', 1, FALSE, 1783769933, 1783769933, 1);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Response_Type_Regex', 'Agent_Response_Type', 'Regex', 'Regex', 'regex', 'Regex expression', 1, FALSE, 1783769933, 1783769933, 2);
 INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Response_Type_Empty', 'Agent_Response_Type', 'Empty', 'Empty', 'empty', 'Return full response', 1, FALSE, 1783769933, 1783769933, 3);
 
 -- =====================================================
--- 8. Model_Provider_Type (渚涘簲鍟嗙被鍨?
+-- 9. Model_Provider_Type (模型供应商类型)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Model_Provider_Type', NULL, 'Model Provider Type', 'Model Provider Type', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Model_Provider_Type', NULL, 'Model Provider Type', 'Model Provider Type', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Model_Provider_Type', NULL, 'Model Provider Type', 'Model Provider Type', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Model_Provider_Type', NULL, 'Model Provider Type', '模型供应商类型', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Model_Provider_Type_OpenAI', 'Model_Provider_Type', 'OpenAI', 'OpenAI', 'openai', 'OpenAI model provider', 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Model_Provider_Type_Azure', 'Model_Provider_Type', 'Azure', 'Azure', 'azure', 'Azure OpenAI model provider', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Model_Provider_Type_Anthropic', 'Model_Provider_Type', 'Anthropic', 'Anthropic', 'anthropic', 'Anthropic model provider', 1, FALSE, 1783769933, 1783769933, 3);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Model_Provider_Type_Local', 'Model_Provider_Type', 'Local', '本地', 'local', 'Local model provider', 1, FALSE, 1783769933, 1783769933, 4);
 
 -- =====================================================
--- 9. Agent_Definition_Status (Agent 瀹氫箟鐘舵€?
+-- 10. Agent_Definition_Status (Agent 定义状态) 状态：0-草稿，1-启用，2-禁用
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Definition_Status', NULL, 'Agent Definition Status', 'Agent Definition Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Definition_Status_Draft', 'Agent_Definition_Status', 'Draft', 'Draft', '0', 'Draft status', 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Definition_Status', NULL, 'Agent Definition Status', 'Agent Definition Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Definition_Status', NULL, 'Agent Definition Status', 'Agent Definition Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Definition_Status', NULL, 'Agent Definition Status', 'Agent定义状态', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Definition_Status_Draft', 'Agent_Definition_Status', 'Draft', '草稿', '0', '草稿状态', 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Definition_Status_Enabled', 'Agent_Definition_Status', 'Enabled', '启用', '1', '启用状态', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Definition_Status_Disabled', 'Agent_Definition_Status', 'Disabled', '禁用', '2', '禁用状态', 1, FALSE, 1783769933, 1783769933, 3);
+
+
 
 -- =====================================================
--- 10. Agent_Access_Type (璁块棶绫诲瀷)
+-- 11. Agent_Access_Type (访问类型)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Access_Type', NULL, 'Agent Access Type', '璁块棶绫诲瀷', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Access_Type_Private', 'Agent_Access_Type', 'Private', '绉佹湁', 'private', '浠呰嚜宸卞彲璁块棶', 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Access_Type_Public', 'Agent_Access_Type', 'Public', 'Public', 'public', 'Accessible to all users', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Access_Type', NULL, 'Agent Access Type', '访问类型', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Access_Type_Private', 'Agent_Access_Type', 'Private', '私有', 'private', '仅自己可访问', 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Access_Type_Public', 'Agent_Access_Type', 'Public', '公开', 'public', '所有用户可访问', 1, FALSE, 1783769933, 1783769933, 2);
 
 -- =====================================================
--- 11. Agent_Reasoning_Effort (鎺ㄧ悊鍔涘害)
+-- 12. Agent_Reasoning_Effort (推理力度)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Reasoning_Effort', NULL, 'Agent Reasoning Effort', '鎺ㄧ悊鍔涘害', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Reasoning_Effort_Low', 'Agent_Reasoning_Effort', 'Low', '杞诲害', 'low', '杞诲害鎺ㄧ悊', 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Reasoning_Effort_Medium', 'Agent_Reasoning_Effort', 'Medium', '涓害', 'medium', '涓害鎺ㄧ悊', 1, FALSE, 1783769933, 1783769933, 2);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Reasoning_Effort_High', 'Agent_Reasoning_Effort', 'High', '娣卞害', 'high', '娣卞害鎺ㄧ悊', 1, FALSE, 1783769933, 1783769933, 3);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Reasoning_Effort', NULL, 'Agent Reasoning Effort', '推理力度', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Reasoning_Effort_Low', 'Agent_Reasoning_Effort', 'Low', '轻度', 'low', '轻度推理', 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Reasoning_Effort_Medium', 'Agent_Reasoning_Effort', 'Medium', '中度', 'medium', '中度推理', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Reasoning_Effort_High', 'Agent_Reasoning_Effort', 'High', '深度', 'high', '深度推理', 1, FALSE, 1783769933, 1783769933, 3);
 
 -- =====================================================
--- 12. Agent_Run_Status (杩愯鐘舵€?
+-- 13. Agent_Run_Status (运行状态)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Run_Status', NULL, 'Agent Run Status', 'Agent Run Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Run_Status', NULL, 'Agent Run Status', 'Agent Run Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Run_Status', NULL, 'Agent Run Status', 'Agent Run Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Run_Status', NULL, 'Agent Run Status', 'Agent Run Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Run_Status', NULL, 'Agent Run Status', '运行状态', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
 
 -- =====================================================
--- 13. Agent_ToolCall_Status (宸ュ叿璋冪敤鐘舵€?
+-- 14. Agent_ToolCall_Status (工具调用状态)
 -- =====================================================
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_ToolCall_Status', NULL, 'Agent ToolCall Status', 'Agent ToolCall Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_ToolCall_Status', NULL, 'Agent ToolCall Status', 'Agent ToolCall Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_ToolCall_Status', NULL, 'Agent ToolCall Status', 'Agent ToolCall Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
-INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_ToolCall_Status', NULL, 'Agent ToolCall Status', 'Agent ToolCall Status', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_ToolCall_Status', NULL, 'Agent ToolCall Status', '工具调用状态', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
 
 -- ============================================================================
 -- Consolidated source: V3__knowledge_review_workflow.sql
 -- ============================================================================
 -- Strict knowledge document review workflow migration.
 -- Flyway executes this migration transactionally after V1 and V2.
+-- 15. Agent_Conversation_Status (会话状态) 状态：0-进行中，1-关闭，2-归档
+-- =====================================================
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Conversation_Status', NULL, 'Agent Conversation Status', '会话状态', NULL, NULL, 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Conversation_Status_Ongoing', 'Agent_Conversation_Status', 'Ongoing', '进行中', '0', '进行中状态', 1, FALSE, 1783769933, 1783769933, 1);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Conversation_Status_Closed', 'Agent_Conversation_Status', 'Closed', '关闭', '1', '关闭状态', 1, FALSE, 1783769933, 1783769933, 2);
+INSERT INTO sys_dict VALUES (nextval('sys_dict_id_seq')::text, 'Agent_Conversation_Status_Archived', 'Agent_Conversation_Status', 'Archived', '归档', '2', '归档状态', 1, FALSE, 1783769933, 1783769933, 3);
+
 
 DO $$
 DECLARE

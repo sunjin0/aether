@@ -127,8 +127,7 @@ public class AgentConversationController {
     @GetMapping("/{id}/messages")
     public WebResponse<List<AgentMessageVo>> messages(@PathVariable @NotBlank String id,
                                                        @RequestParam(defaultValue = "1") Long current,
-                                                       @RequestParam(defaultValue = "20") Long pageSize,
-                                                       @RequestParam(defaultValue = "false") Boolean includeToolCalls) {
+                                                       @RequestParam(defaultValue = "20") Long pageSize) {
         getOwnedConversation(id);
         Page<AgentMessage> page = new Page<>(current, pageSize);
         Wrapper<AgentMessage> wrapper = Wrappers.lambdaQuery(AgentMessage.class)
@@ -144,9 +143,7 @@ public class AgentConversationController {
         }).collect(Collectors.toList());
 
         // 聚合工具调用日志
-        if (Boolean.TRUE.equals(includeToolCalls) && !list.isEmpty()) {
-            aggregateToolCallLogs(id, list);
-        }
+        aggregateToolCallLogs(id, list);
 
         return WebResponse.Page(list, result.getTotal());
     }
