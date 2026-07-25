@@ -78,10 +78,6 @@ public class ConversationSummaryService {
             if (cached == null) {
                 return loadPersistentSnapshot(conversationId);
             }
-            if (cached instanceof SummarySnapshot) {
-                SummarySnapshot snapshot = (SummarySnapshot) cached;
-                return isValid(snapshot) ? snapshot : loadPersistentSnapshot(conversationId);
-            }
             SummarySnapshot snapshot = JSON.parseObject(cached.toString(), SummarySnapshot.class);
             return isValid(snapshot) ? snapshot : loadPersistentSnapshot(conversationId);
         } catch (Exception e) {
@@ -301,9 +297,10 @@ public class ConversationSummaryService {
         if (!isValid(current) || target == null || target.getCreatedAt() == null) {
             return false;
         }
-        int timeComparison = current.getCoveredUntilCreatedAt().compareTo(target.getCreatedAt());
-        if (timeComparison != 0) {
-            return timeComparison > 0;
+        long currentTime = current.getCoveredUntilCreatedAt();
+        long targetTime = target.getCreatedAt();
+        if (currentTime != targetTime) {
+            return currentTime > targetTime;
         }
         return current.getCoveredUntilMessageId().compareTo(
                 StringUtils.defaultString(target.getId())) >= 0;

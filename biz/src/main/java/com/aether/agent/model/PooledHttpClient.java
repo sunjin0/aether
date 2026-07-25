@@ -75,11 +75,17 @@ public class PooledHttpClient {
             CloseableHttpResponse response = httpClient.execute(post);
             int statusCode = response.getStatusLine().getStatusCode();
             if (statusCode < 200 || statusCode >= 300) {
-                String body = EntityUtils.toString(response.getEntity(), "UTF-8");
+                HttpEntity entity = response.getEntity();
+                String body = entity != null ? EntityUtils.toString(entity, "UTF-8") : "(no body)";
                 response.close();
                 throw new RuntimeException("模型调用失败, status=" + statusCode + ", body=" + body);
             }
-            InputStream inputStream = response.getEntity().getContent();
+            HttpEntity entity = response.getEntity();
+            if (entity == null) {
+                response.close();
+                throw new RuntimeException("模型调用返回空响应体, status=" + statusCode);
+            }
+            InputStream inputStream = entity.getContent();
             return new HttpStreamResult(response, inputStream);
         } catch (IOException e) {
             post.abort();

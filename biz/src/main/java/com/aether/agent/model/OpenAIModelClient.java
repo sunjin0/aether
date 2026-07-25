@@ -45,6 +45,7 @@ public class OpenAIModelClient implements ModelClient {
     private static final int DEFAULT_TIMEOUT_MS = 30000;
 
     private final PooledHttpClient pooledHttpClient;
+    private volatile RestTemplate restTemplate;
 
     @Autowired
     public OpenAIModelClient(PooledHttpClient pooledHttpClient) {
@@ -122,10 +123,17 @@ public class OpenAIModelClient implements ModelClient {
     }
 
     private RestTemplate createRestTemplate() {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(DEFAULT_TIMEOUT_MS);
-        requestFactory.setReadTimeout(DEFAULT_TIMEOUT_MS);
-        return new RestTemplate(requestFactory);
+        if (restTemplate == null) {
+            synchronized (this) {
+                if (restTemplate == null) {
+                    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+                    requestFactory.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+                    requestFactory.setReadTimeout(DEFAULT_TIMEOUT_MS);
+                    restTemplate = new RestTemplate(requestFactory);
+                }
+            }
+        }
+        return restTemplate;
     }
 
     private HttpHeaders createHeaders(ModelProvider provider) {

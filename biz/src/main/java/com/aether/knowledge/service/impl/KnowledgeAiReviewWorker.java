@@ -104,7 +104,14 @@ public class KnowledgeAiReviewWorker {
             String reviewContent = truncated ? content.substring(0, MAX_REVIEW_CHARS) : content;
             ModelChatRequest request = buildRequest(provider, model, document.getTitle(), reviewContent, truncated);
             ModelChatResponse response = clientFactory.getClient(provider).chatByProvider(request);
-            JSONObject result = parseJson(response.getContent());
+            String responseContent = response.getContent();
+            if (StringUtils.isBlank(responseContent)) {
+                throw new IllegalStateException("AI review model returned empty content");
+            }
+            JSONObject result = parseJson(responseContent);
+            if (result == null) {
+                throw new IllegalStateException("AI review model returned unparseable content");
+            }
             transactionTemplate.executeWithoutResult(status ->
                     saveResult(review, version, document, provider, model, result, response, truncated));
         } catch (Exception e) {

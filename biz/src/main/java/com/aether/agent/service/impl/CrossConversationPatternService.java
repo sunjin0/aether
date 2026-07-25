@@ -243,7 +243,7 @@ public class CrossConversationPatternService {
             }
         }
         String[] en = {"用英文", "用英语", "英文回答", "请用英文", "in english", "english please",
-                "speak english", "说英文", "讲英文", "使用英文", "in english.",
+                "speak english", "说英文", "讲英文", "使用英文",
                 "please answer in english"};
         for (String keyword : en) {
             if (lower.contains(keyword)) {
@@ -302,8 +302,8 @@ public class CrossConversationPatternService {
     private String detectTechStackPattern(String content) {
         String lower = content.toLowerCase();
         Map<String, String[]> techMap = new LinkedHashMap<>();
-        techMap.put("typescript", new String[]{"typescript", "ts", "tsx"});
-        techMap.put("javascript", new String[]{"javascript", "js", "jsx", "node.js", "nodejs", "deno"});
+        techMap.put("typescript", new String[]{"typescript", "tsx"});
+        techMap.put("javascript", new String[]{"javascript", "jsx", "node.js", "nodejs", "deno"});
         techMap.put("python", new String[]{"python", "py", "django", "flask", "fastapi"});
         techMap.put("java", new String[]{"java", "spring", "spring boot", "maven", "jpa", "mybatis"});
         techMap.put("go", new String[]{"golang", "go language", "go programming"});

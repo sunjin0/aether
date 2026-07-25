@@ -19,6 +19,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONObject;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -222,13 +224,23 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         }
 
         try {
-            org.json.JSONArray arr = new org.json.JSONArray(json.trim());
-            for (int i = 0; i < arr.length(); i++) {
-                org.json.JSONObject obj = arr.getJSONObject(i);
-                String category = obj.optString("category", "").trim().toLowerCase();
-                String keyName = obj.optString("key_name", "").trim().toLowerCase();
-                String value = obj.optString("value", "").trim();
-                BigDecimal confidence = new BigDecimal(obj.optString("confidence", DEFAULT_CONFIDENCE.toString()));
+            JSONArray arr = JSONArray.parseArray(json.trim());
+            if (arr == null) {
+                return result;
+            }
+            for (int i = 0; i < arr.size(); i++) {
+                JSONObject obj = arr.getJSONObject(i);
+                String category = obj.getString("category");
+                String keyName = obj.getString("key_name");
+                String value = obj.getString("value");
+                BigDecimal confidence = obj.getBigDecimal("confidence");
+                if (category == null) category = "";
+                if (keyName == null) keyName = "";
+                if (value == null) value = "";
+                if (confidence == null) confidence = DEFAULT_CONFIDENCE;
+                category = category.trim().toLowerCase();
+                keyName = keyName.trim().toLowerCase();
+                value = value.trim();
 
                 if (!ALLOWED_CATEGORIES.contains(category)
                         || !keyName.matches("[a-z0-9_.-]{1,128}")
@@ -285,7 +297,6 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                 }
                 existing.setConfidence(newConfidence);
                 preferenceMapper.updateById(existing);
-                reasoningEngine.clearUserCache(userId);
                 AdminPreferenceEvent reinforcementEvent = new AdminPreferenceEvent();
                 reinforcementEvent.setAdminId(userId);
                 reinforcementEvent.setPreferenceId(existing.getId());
@@ -297,6 +308,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                 reinforcementEvent.setConversationId(conversationId);
                 reinforcementEvent.setContextSnapshot("reinforcement");
                 eventService.logEvent(reinforcementEvent);
+                reasoningEngine.clearUserCache(userId);
                 return;
             }
 
@@ -305,8 +317,6 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                 existing.setConfidence(extracted.getConfidence());
                 existing.setLastUsedAt(System.currentTimeMillis());
                 preferenceMapper.updateById(existing);
-                reasoningEngine.clearUserCache(userId);
-
                 AdminPreferenceEvent conflictEvent = new AdminPreferenceEvent();
                 conflictEvent.setAdminId(userId);
                 conflictEvent.setPreferenceId(existing.getId());
@@ -318,6 +328,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                 conflictEvent.setConversationId(conversationId);
                 conflictEvent.setContextSnapshot("conflict_update");
                 eventService.logEvent(conflictEvent);
+                reasoningEngine.clearUserCache(userId);
                 return;
             }
         }

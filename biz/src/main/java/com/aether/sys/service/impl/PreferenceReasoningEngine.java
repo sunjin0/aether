@@ -183,21 +183,18 @@ public class PreferenceReasoningEngine {
             String pattern = adminId == null
                     ? CACHE_PREFIX + "*"
                     : CACHE_PREFIX + adminId + ":*";
-            Set<String> keysToDelete = new HashSet<>();
             ScanOptions options = ScanOptions.scanOptions().match(pattern).count(100).build();
             redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
                 try (Cursor<byte[]> cursor = connection.scan(options)) {
                     while (cursor.hasNext()) {
-                        keysToDelete.add(new String(cursor.next(), StandardCharsets.UTF_8));
+                        String key = new String(cursor.next(), StandardCharsets.UTF_8);
+                        redisTemplate.delete(key);
                     }
                 } catch (Exception e) {
-                    log.warn("SCAN遍历偏好缓存键失败", e);
+                    log.warn("SCAN增量删除偏好缓存键失败", e);
                 }
                 return null;
             });
-            if (!keysToDelete.isEmpty()) {
-                redisTemplate.delete(keysToDelete);
-            }
         } catch (Exception e) {
             log.warn("清理用户偏好缓存失败: adminId={}", adminId, e);
         }

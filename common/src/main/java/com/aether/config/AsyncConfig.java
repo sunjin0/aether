@@ -25,14 +25,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class AsyncConfig implements AsyncConfigurer {
     private static final Logger log = LoggerFactory.getLogger(AsyncConfig.class);
 
-    private ThreadPoolTaskExecutor executor;
-
     @Bean(name = "asyncPoolTaskExecutor")
     public ThreadPoolTaskExecutor executor() {
-        if (executor != null) {
-            return executor;
-        }
-        executor = new ThreadPoolTaskExecutor();
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(10);
         executor.setMaxPoolSize(100);
         executor.setQueueCapacity(50);
@@ -55,7 +50,7 @@ public class AsyncConfig implements AsyncConfigurer {
      */
     @Override
     public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
-        return (ex, method, params) -> log.error("线程池执行任务发送未知错误, 执行方法：{}", method.getName(), ex);
+        return (ex, method, params) -> log.error("线程池执行任务发现未知错误, 执行方法：{}", method.getName(), ex);
     }
 }
 

@@ -22,7 +22,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+
 
 /**
  * 组装模型调用所需的会话上下文。
@@ -41,6 +41,7 @@ public class ConversationContextService {
     private static final int DEFAULT_COMPLETION_RESERVE_TOKENS = 2048;
     private static final int MIN_INPUT_BUDGET_TOKENS = 256;
     private static final int MIN_OPTIONAL_SYSTEM_TOKENS = 128;
+    private static final int MESSAGE_BASE_TOKENS = 4;
 
     private final AgentMessageService messageService;
     private final ConversationCacheService cacheService;
@@ -355,20 +356,22 @@ public class ConversationContextService {
         trimProtectedContentToTokenBudget(context, maxTokens);
     }
 
-    private static final Map<String, Double> MODEL_TOKEN_RATIOS = new ConcurrentHashMap<>();
+    private static final Map<String, Double> MODEL_TOKEN_RATIOS;
 
     static {
-        MODEL_TOKEN_RATIOS.put("gpt-4o", 3.5);
-        MODEL_TOKEN_RATIOS.put("gpt-4-turbo", 3.5);
-        MODEL_TOKEN_RATIOS.put("gpt-4", 3.5);
-        MODEL_TOKEN_RATIOS.put("gpt-3.5-turbo", 3.5);
-        MODEL_TOKEN_RATIOS.put("claude-3-5", 4.0);
-        MODEL_TOKEN_RATIOS.put("claude-3", 4.0);
-        MODEL_TOKEN_RATIOS.put("qwen", 3.0);
-        MODEL_TOKEN_RATIOS.put("deepseek", 3.5);
-        MODEL_TOKEN_RATIOS.put("gemma", 3.0);
-        MODEL_TOKEN_RATIOS.put("llama", 3.0);
-        MODEL_TOKEN_RATIOS.put("mistral", 3.5);
+        Map<String, Double> ratios = new HashMap<>();
+        ratios.put("gpt-4o", 3.5);
+        ratios.put("gpt-4-turbo", 3.5);
+        ratios.put("gpt-4", 3.5);
+        ratios.put("gpt-3.5-turbo", 3.5);
+        ratios.put("claude-3-5", 4.0);
+        ratios.put("claude-3", 4.0);
+        ratios.put("qwen", 3.0);
+        ratios.put("deepseek", 3.5);
+        ratios.put("gemma", 3.0);
+        ratios.put("llama", 3.0);
+        ratios.put("mistral", 3.5);
+        MODEL_TOKEN_RATIOS = Collections.unmodifiableMap(ratios);
     }
 
     public int estimateTokens(String value) {
@@ -397,7 +400,7 @@ public class ConversationContextService {
                 total += message.getCachedTokens();
                 continue;
             }
-            int tokens = 4;
+            int tokens = MESSAGE_BASE_TOKENS;
             tokens += estimateTokens(message.getRole(), model);
             tokens += estimateTokens(message.getContent(), model);
             tokens += estimateTokens(message.getToolCalls(), model);
@@ -422,7 +425,11 @@ public class ConversationContextService {
     }
 
     private void trimOptionalSystemsToTokenBudget(List<ModelChatMessage> context, int maxTokens) {
-        while (estimateContextTokens(context) > maxTokens) {
+        while (true) {
+            int currentTotal = estimateContextTokens(context);
+            if (currentTotal <= maxTokens) {
+                return;
+            }
             int longestIndex = -1;
             int longestTokens = MIN_OPTIONAL_SYSTEM_TOKENS;
             for (int i = 1; i < context.size(); i++) {
@@ -436,7 +443,7 @@ public class ConversationContextService {
             if (longestIndex < 0) {
                 return;
             }
-            int excess = estimateContextTokens(context) - maxTokens;
+            int excess = currentTotal - maxTokens;
             int target = Math.max(MIN_OPTIONAL_SYSTEM_TOKENS, longestTokens - excess);
             ModelChatMessage message = context.get(longestIndex);
             message.setContent(abbreviateToTokenBudget(message.getContent(), target));
@@ -444,7 +451,11 @@ public class ConversationContextService {
     }
 
     private void trimProtectedContentToTokenBudget(List<ModelChatMessage> context, int maxTokens) {
-        while (estimateContextTokens(context) > maxTokens) {
+        while (true) {
+            int currentTotal = estimateContextTokens(context);
+            if (currentTotal <= maxTokens) {
+                return;
+            }
             int longestIndex = -1;
             int longestTokens = 0;
             for (int i = 0; i < context.size(); i++) {
@@ -457,7 +468,7 @@ public class ConversationContextService {
             if (longestIndex < 0) {
                 return;
             }
-            int excess = estimateContextTokens(context) - maxTokens;
+            int excess = currentTotal - maxTokens;
             int target = Math.max(0, longestTokens - excess);
             ModelChatMessage message = context.get(longestIndex);
             message.setContent(abbreviateToTokenBudget(message.getContent(), target));

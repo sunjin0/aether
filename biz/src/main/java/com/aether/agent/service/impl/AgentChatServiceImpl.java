@@ -1,7 +1,7 @@
 package com.aether.agent.service.impl;
 
 import com.aether.i18n.I18nUtils;
-import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.agent.dto.AgentChatDto;

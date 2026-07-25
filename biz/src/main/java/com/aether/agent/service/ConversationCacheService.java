@@ -60,6 +60,8 @@ public class ConversationCacheService {
         }
     }
 
+    private static final long MAX_CACHE_SIZE = 20;
+
     public void append(String conversationId, ModelChatMessage message) {
         try {
             String cacheKey = key(conversationId);
@@ -67,6 +69,7 @@ public class ConversationCacheService {
             if (size != null && size == 1) {
                 redisTemplate.expire(cacheKey, CACHE_TTL_MINUTES, TimeUnit.MINUTES);
             }
+            redisTemplate.opsForList().trim(cacheKey, -MAX_CACHE_SIZE, -1);
         } catch (Exception e) {
             log.warn("追加会话缓存失败: conversationId={}", conversationId, e);
         }
