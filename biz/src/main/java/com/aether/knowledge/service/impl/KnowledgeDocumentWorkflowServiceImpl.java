@@ -187,7 +187,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         review.setDocumentVersionId(versionId);
         review.setSourceChecksum(version.getContentChecksum());
         review.setSourceContent(version.getContent());
-        review.setPromptVersion("v1");
+        review.setPromptVersion("v2");
         review.setStatus(KnowledgeAiReviewStatus.PENDING);
         if (!aiReviewRecordService.save(review)) {
             throw new ServerException(500, I18nUtils.getMessage("knowledge.ai-review.create.failed"));
