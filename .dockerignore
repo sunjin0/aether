@@ -1,0 +1,9 @@
+.git/
+.gitignore
+.idea/
+*.md
+target/
+**/target/
+**/node_modules/
+**/*.log
+**/.gitkeep

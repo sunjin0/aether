@@ -1,21 +1,23 @@
-# 使用官方 OpenJDK 镜像作为基础镜像
+FROM maven:3.8-openjdk-11-slim AS builder
+WORKDIR /build
+COPY pom.xml ./
+COPY common/pom.xml common/
+COPY api/pom.xml api/
+COPY biz/pom.xml biz/
+COPY admin/pom.xml admin/
+RUN mvn dependency:go-offline -pl admin -am -q 2>/dev/null || true
+COPY common/ common/
+COPY api/ api/
+COPY biz/ biz/
+COPY admin/ admin/
+RUN mvn clean package -pl admin -am -DskipTests -q
+
 FROM openjdk:11-jre-slim
-
-# 设置工作目录
 WORKDIR /app
-
-# 从构建上下文复制 jar 包到容器中
-COPY target/admin-*.jar admin.jar
-
-# 暴露 Web 服务端口
+COPY --from=builder /build/admin/target/admin-*.jar admin.jar
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 EXPOSE 8080
-
-# 设置 JVM 参数
 ENV JAVA_OPTS="-Xmx1g -Xms512m -server"
-
-# 添加健康检查
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
-
-# 设置容器启动时执行的命令
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar admin.jar"]
