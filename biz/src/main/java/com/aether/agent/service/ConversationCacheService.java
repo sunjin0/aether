@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class ConversationCacheService {
     private static final Logger log = LoggerFactory.getLogger(ConversationCacheService.class);
-    private static final String CACHE_KEY_PREFIX = "agent:context:";
+    private static final String CACHE_KEY_PREFIX = "agent:context:v2:";
     private static final long CACHE_TTL_MINUTES = 30;
 
     private final RedisTemplate<String, Object> redisTemplate;

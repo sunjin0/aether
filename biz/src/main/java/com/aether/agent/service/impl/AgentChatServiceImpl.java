@@ -31,6 +31,7 @@ import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.service.KnowledgeContextService;
 import com.aether.agent.service.InteractionReplyService;
 import com.aether.agent.service.ConversationContextService;
+import com.aether.agent.service.QueryRewriteService;
 import com.aether.agent.service.ChatRunService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
 import com.aether.agent.vo.AgentMessageVo;
@@ -82,6 +83,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final InteractionReplyService interactionReplyService;
     private final ConversationContextService conversationContextService;
     private final AdminPreferenceExtractionService adminPreferenceExtractionService;
+    private final QueryRewriteService queryRewriteService;
 
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
                                 ModelProviderService modelProviderService,
@@ -93,7 +95,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                                  KnowledgeContextService knowledgeContextService,
                                  InteractionReplyService interactionReplyService,
                                  ConversationContextService conversationContextService,
-                                 AdminPreferenceExtractionService adminPreferenceExtractionService) {
+                                 AdminPreferenceExtractionService adminPreferenceExtractionService,
+                                 QueryRewriteService queryRewriteService) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.agentConversationService = agentConversationService;
@@ -105,6 +108,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.interactionReplyService = interactionReplyService;
         this.conversationContextService = conversationContextService;
         this.adminPreferenceExtractionService = adminPreferenceExtractionService;
+        this.queryRewriteService = queryRewriteService;
     }
 
     @Override
@@ -117,13 +121,14 @@ public class AgentChatServiceImpl implements AgentChatService {
         ModelProvider provider = getEnabledProvider(agent.getModelProviderId());
         applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
-        AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage());
+        String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
+        AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent);
         String runId = null;
 
         try {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                    context, userId, conversation.getId(), agent.getId(), dto.getMessage());
+                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()));
             conversationContextService.enforceBudget(context, agent, provider);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
@@ -147,7 +152,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             boolean toolCallSucceeded = false;
             while (hasToolCalls(modelResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
                 if (runId == null) {
-                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), modelResponse, 0, RUN_STATUS_SUCCESS, null);
+                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), modelResponse, 0, RUN_STATUS_SUCCESS, null);
                 }
                 iteration++;
                 toolCallAttempted = true;
@@ -214,7 +219,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
-                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), modelResponse, latencyMs,
+                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), modelResponse, latencyMs,
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
                         authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             } else {
@@ -229,7 +234,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         } catch (RuntimeException e) {
             long latencyMs = System.currentTimeMillis() - startTime;
             if (runId == null) {
-                saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), latencyMs, e);
+                saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), latencyMs, e);
             } else {
                 updateRun(runId, userMessage.getId(), null, latencyMs, RUN_STATUS_FAILED, e.getMessage());
             }
@@ -251,7 +256,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         ModelProvider provider = getEnabledProvider(agent.getModelProviderId());
         applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
-        AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage());
+        String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
+        AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent);
         String runId = null;
 
         log.info("流式请求开始: agent={}, model={}, thinking={}", agent.getId(), agent.getModel(), agent.getDefaultThinking());
@@ -260,7 +266,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             long t0 = System.currentTimeMillis();
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                    context, userId, conversation.getId(), agent.getId(), dto.getMessage());
+                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()));
             conversationContextService.enforceBudget(context, agent, provider);
             long t1 = System.currentTimeMillis();
             log.info("上下文构建耗时: {}ms", t1 - t0);
@@ -285,7 +291,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             validateNonEmptyStreamResponse(modelResponse);
             
             // 当模型未提供token统计时（如Google Gemma流式响应），补充估算值
-            fillDefaultTokens(modelResponse, context, dto.getMessage());
+            fillDefaultTokens(modelResponse, context, effectiveContent(rewrittenContent, dto.getMessage()));
             
             log.info("流式请求完成: 总耗时={}ms", System.currentTimeMillis() - startTime);
             
@@ -296,7 +302,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             ModelChatResponse chatResponse = toChatResponse(modelResponse);
             while (hasToolCalls(chatResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
                 if (runId == null) {
-                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), chatResponse, 0, RUN_STATUS_SUCCESS, null);
+                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), chatResponse, 0, RUN_STATUS_SUCCESS, null);
                 }
                 iteration++;
                 toolCallAttempted = true;
@@ -363,7 +369,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 validateNonEmptyStreamResponse(modelResponse);
                 
-                fillDefaultTokens(modelResponse, context, dto.getMessage());
+                fillDefaultTokens(modelResponse, context, effectiveContent(rewrittenContent, dto.getMessage()));
                 chatResponse = toChatResponse(modelResponse);
             }
             
@@ -399,7 +405,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
-                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), dto.getMessage(), chatResponse, latencyMs,
+                runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), chatResponse, latencyMs,
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
                         authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             } else {
@@ -413,7 +419,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         } catch (RuntimeException e) {
             long latencyMs = System.currentTimeMillis() - startTime;
             if (runId == null) {
-                saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), dto.getMessage(), latencyMs, e);
+                saveFailedRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), latencyMs, e);
             } else {
                 updateRun(runId, userMessage.getId(), null, latencyMs, RUN_STATUS_FAILED, e.getMessage());
             }
@@ -772,16 +778,17 @@ public class AgentChatServiceImpl implements AgentChatService {
         return title.length() > 50 ? title.substring(0, 50) : title;
     }
 
-    private AgentMessage saveUserMessage(String conversationId, String content) {
+    private AgentMessage saveUserMessage(String conversationId, String content, String rewrittenContent) {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
         message.setRole("user");
         message.setMessageType(MESSAGE_TYPE_CHAT);
         message.setContent(content);
+        message.setRewrittenContent(rewrittenContent);
         agentMessageService.save(message);
         
         // 更新缓存：添加用户消息
-        updateContextCache(conversationId, new ModelChatMessage("user", content));
+        updateContextCache(conversationId, new ModelChatMessage("user", effectiveContent(rewrittenContent, content)));
         
         return message;
     }
@@ -793,9 +800,25 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setMessageType(MESSAGE_TYPE_ANSWER);
         message.setParentMessageId(parentMessageId);
         message.setContent(content);
+        message.setRewrittenContent(content);
         agentMessageService.save(message);
         updateContextCache(conversationId, new ModelChatMessage("user", content));
         return message;
+    }
+
+    private String rewriteUserMessage(String conversationId, String originalContent,
+                                      AgentDefinition agent, ModelProvider provider) {
+        try {
+            List<ModelChatMessage> history = conversationContextService.buildRewriteHistory(conversationId);
+            return queryRewriteService.rewrite(history, originalContent, agent, provider).getRewrittenContent();
+        } catch (Exception e) {
+            log.warn("查询重写不可用，使用原始消息继续: conversationId={}", conversationId, e);
+            return null;
+        }
+    }
+
+    private String effectiveContent(String rewrittenContent, String originalContent) {
+        return StringUtils.defaultIfBlank(rewrittenContent, originalContent);
     }
 
     private void markInteractionStatus(String messageId, String status, Long answeredAt) {

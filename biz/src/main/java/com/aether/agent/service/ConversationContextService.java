@@ -81,7 +81,27 @@ public class ConversationContextService {
 
     /** 追加已持久化的用户、助手或工具交互消息。 */
     public void append(String conversationId, ModelChatMessage message) {
-        cacheService.append(conversationId, message);
+        // Rebuild from persisted messages on the next request. This keeps the
+        // cache consistent with rewrittenContent and with asynchronously
+        // generated summaries.
+        cacheService.evict(conversationId);
+    }
+
+    /**
+     * Returns a compact, model-safe history for query rewriting. User entries
+     * already use rewrittenContent when it is available.
+     */
+    public List<ModelChatMessage> buildRewriteHistory(String conversationId) {
+        List<AgentMessage> messages = queryRecentMessages(conversationId, 6);
+        Collections.reverse(messages);
+        List<ModelChatMessage> history = new ArrayList<ModelChatMessage>();
+        for (AgentMessage message : messages) {
+            if ("user".equals(message.getRole()) || "assistant".equals(message.getRole())) {
+                history.add(new ModelChatMessage(message.getRole(),
+                        AgentMessageContentResolver.getEffectiveContent(message)));
+            }
+        }
+        return history;
     }
 
     /** 从持久化消息构建系统提示与最近 20 条用户/助手消息。 */
@@ -194,7 +214,7 @@ public class ConversationContextService {
         List<AgentMessage> limited = new ArrayList<AgentMessage>();
         int totalChars = 0;
         for (AgentMessage message : messages) {
-            int messageChars = StringUtils.length(message.getContent());
+            int messageChars = StringUtils.length(AgentMessageContentResolver.getEffectiveContent(message));
             if (!limited.isEmpty() && totalChars + messageChars > SUMMARY_BATCH_MAX_CHARS) {
                 break;
             }
@@ -213,7 +233,8 @@ public class ConversationContextService {
                     addToolRun(context, logs);
                 }
             }
-            context.add(new ModelChatMessage(message.getRole(), message.getContent()));
+            context.add(new ModelChatMessage(message.getRole(),
+                    AgentMessageContentResolver.getEffectiveContent(message)));
         }
     }
 

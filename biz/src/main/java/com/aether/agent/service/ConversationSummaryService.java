@@ -33,9 +33,9 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class ConversationSummaryService {
     private static final Logger log = LoggerFactory.getLogger(ConversationSummaryService.class);
-    private static final String SUMMARY_KEY_PREFIX = "agent:summary:v2:";
-    private static final String SUMMARY_LOCK_KEY_PREFIX = "agent:summary:lock:v2:";
-    private static final String SUMMARY_INVALIDATED_KEY_PREFIX = "agent:summary:invalidated:v2:";
+    private static final String SUMMARY_KEY_PREFIX = "agent:summary:v3:";
+    private static final String SUMMARY_LOCK_KEY_PREFIX = "agent:summary:lock:v3:";
+    private static final String SUMMARY_INVALIDATED_KEY_PREFIX = "agent:summary:invalidated:v3:";
     private static final long SUMMARY_TTL_HOURS = 24;
     private static final long SUMMARY_LOCK_TTL_MINUTES = 5;
     private static final int SUMMARY_QUEUE_CAPACITY = 100;
@@ -179,7 +179,7 @@ public class ConversationSummaryService {
         prompt.append("【按时间连续新增的对话】\n");
         for (AgentMessage message : messages) {
             prompt.append("user".equals(message.getRole()) ? "用户: " : "助手: ")
-                    .append(StringUtils.defaultString(message.getContent())).append("\n\n");
+                    .append(AgentMessageContentResolver.getEffectiveContent(message)).append("\n\n");
         }
         return prompt.toString();
     }

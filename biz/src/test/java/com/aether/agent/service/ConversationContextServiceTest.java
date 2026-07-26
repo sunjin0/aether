@@ -15,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -116,6 +117,36 @@ class ConversationContextServiceTest {
         assertEquals(4, context.size());
         assertEquals("message-1", context.get(0).getContent());
         assertEquals("message-4", context.get(3).getContent());
+    }
+
+    @Test
+    void userMessageUsesPersistedRewriteWhenBuildingModelContext() {
+        AgentMessage user = message(1);
+        user.setRole("user");
+        user.setContent("企业版呢？");
+        user.setRewrittenContent("企业版产品的退款期限是多少？");
+        when(messageService.list(any())).thenReturn(Collections.singletonList(user));
+
+        List<ModelChatMessage> context = service.buildFromHistory(agent, "conversation-1");
+
+        assertEquals("企业版产品的退款期限是多少？", context.get(0).getContent());
+    }
+
+    @Test
+    void rewriteHistoryPrefersPersistedRewriteAndFallsBackToOriginal() {
+        AgentMessage rewritten = message(1);
+        rewritten.setRole("user");
+        rewritten.setContent("企业版呢？");
+        rewritten.setRewrittenContent("企业版产品的退款期限是多少？");
+        AgentMessage legacy = message(2);
+        legacy.setRole("user");
+        legacy.setContent("旧问题");
+        when(messageService.list(any())).thenReturn(Arrays.asList(legacy, rewritten));
+
+        List<ModelChatMessage> history = service.buildRewriteHistory("conversation-1");
+
+        assertEquals("企业版产品的退款期限是多少？", history.get(0).getContent());
+        assertEquals("旧问题", history.get(1).getContent());
     }
 
     @Test

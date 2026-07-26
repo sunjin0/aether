@@ -86,7 +86,8 @@ class AdminPreferenceExtractionServiceImplTest {
 
     @Test
     void explicitPreferenceUsesCanonicalIdentityAndInvalidatesCache() {
-        AgentMessage user = message("00003", 3L, "user", "以后总是用中文回答");
+        AgentMessage user = message("00003", 3L, "user", "企业版呢？");
+        user.setRewrittenContent("以后总是用中文回答");
         AgentMessage assistant = message("00004", 4L, "assistant", "好的");
         when(eventService.getLastEvent(
                 "user-1", AdminPreferenceEvent.EVENT_EXTRACTION_MARKER, "conversation-1"))

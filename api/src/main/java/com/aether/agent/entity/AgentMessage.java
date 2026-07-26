@@ -48,6 +48,13 @@ public class AgentMessage extends BaseEntity {
     @ApiModelProperty(value = "Message content")
     private String content;
 
+    /**
+     * Context-complete user content used for model calls. The original user
+     * input remains in {@link #content} for display and audit purposes.
+     */
+    @ApiModelProperty(value = "Rewritten content used as model input")
+    private String rewrittenContent;
+
     @ApiModelProperty(value = "Reasoning content")
     private String reasoningContent;
 

@@ -23,6 +23,7 @@ import com.aether.agent.service.InteractionReplyService;
 import com.aether.agent.service.ConversationContextService;
 import com.aether.agent.service.ConversationCacheService;
 import com.aether.agent.service.ConversationSummaryService;
+import com.aether.agent.service.QueryRewriteService;
 import com.aether.agent.service.ChatRunService;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
@@ -129,7 +130,8 @@ class AgentChatServiceImplTest {
                 new ConversationContextService(agentMessageService,
                         new ConversationCacheService(redisTemplate),
                         new ConversationSummaryService(redisTemplate, modelClientFactory)),
-                adminPreferenceExtractionService);
+                adminPreferenceExtractionService,
+                new QueryRewriteService(modelClientFactory));
         HashMap<String, String> user = new HashMap<>();
         user.put("userId", "user-1");
         CurrentUser.set(user);
@@ -169,6 +171,9 @@ class AgentChatServiceImplTest {
         response.setTotalTokens(7);
         response.setReasoningTokens(2);
 
+        ModelChatResponse rewriteResponse = new ModelChatResponse();
+        rewriteResponse.setContent("{\"rewrittenContent\":\"完整的问候语\"}");
+
         when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
         when(modelProviderService.getById("provider-1")).thenReturn(provider);
         when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
@@ -187,7 +192,7 @@ class AgentChatServiceImplTest {
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
-        when(modelClient.chat(any())).thenReturn(response);
+        when(modelClient.chat(any())).thenReturn(rewriteResponse, response);
 
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");
@@ -219,6 +224,9 @@ class AgentChatServiceImplTest {
 
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
         verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
+        AgentMessage userMessage = messageCaptor.getAllValues().get(0);
+        assertEquals("你好", userMessage.getContent());
+        assertEquals("完整的问候语", userMessage.getRewrittenContent());
         AgentMessage assistantMessage = messageCaptor.getAllValues().get(1);
         org.junit.jupiter.api.Assertions.assertNull(assistantMessage.getReasoningContent());
         org.junit.jupiter.api.Assertions.assertNull(assistantMessage.getReasoningTokens());

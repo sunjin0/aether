@@ -6,6 +6,7 @@ import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.mapper.AgentMessageMapper;
 import com.aether.agent.model.*;
 import com.aether.agent.service.AdminPreferenceExtractionService;
+import com.aether.agent.service.AgentMessageContentResolver;
 import com.aether.sys.entity.AdminPreference;
 import com.aether.sys.entity.AdminPreferenceEvent;
 import com.aether.sys.mapper.AdminPreferenceMapper;
@@ -117,7 +118,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         StringBuilder raw = new StringBuilder();
         for (AgentMessage msg : messages) {
             String role = "user".equals(msg.getRole()) ? "User" : "Assistant";
-            String content = StringUtils.defaultString(msg.getContent(), "");
+            String content = AgentMessageContentResolver.getEffectiveContent(msg);
             if (content.length() > 300) {
                 content = content.substring(0, 300) + "...";
             }
@@ -137,7 +138,7 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         promptBuilder.append("\n=== End of History ===\n\n");
         if (lastUser != null) {
             promptBuilder.append("=== Latest User Message ===\n");
-            promptBuilder.append(StringUtils.defaultString(lastUser.getContent(), "")).append("\n");
+            promptBuilder.append(AgentMessageContentResolver.getEffectiveContent(lastUser)).append("\n");
         }
         if (lastAssistant != null) {
             promptBuilder.append("=== Latest Assistant Message ===\n");
@@ -185,7 +186,8 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
             return false;
         }
         for (AgentMessage msg : history) {
-            if ("user".equals(msg.getRole()) && containsPreferenceSignal(msg.getContent())) {
+            if ("user".equals(msg.getRole())
+                    && containsPreferenceSignal(AgentMessageContentResolver.getEffectiveContent(msg))) {
                 return true;
             }
         }

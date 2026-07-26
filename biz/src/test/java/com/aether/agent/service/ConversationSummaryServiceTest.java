@@ -5,6 +5,7 @@ import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatResponse;
+import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelClient;
 import com.aether.agent.model.ModelClientFactory;
 import com.aether.agent.service.ConversationSummaryService.SummarySnapshot;
@@ -74,7 +75,7 @@ class ConversationSummaryServiceTest {
         stored.setSummary("summary");
         stored.setCoveredUntilMessageId("00020");
         stored.setCoveredUntilCreatedAt(20L);
-        when(valueOperations.get("agent:summary:v2:conversation-1"))
+        when(valueOperations.get("agent:summary:v3:conversation-1"))
                 .thenReturn(JSON.toJSONString(stored));
 
         SummarySnapshot result = service.get("conversation-1");
@@ -86,7 +87,7 @@ class ConversationSummaryServiceTest {
 
     @Test
     void rejectsLegacySummaryWithoutCoverageCursor() {
-        when(valueOperations.get("agent:summary:v2:conversation-1"))
+        when(valueOperations.get("agent:summary:v3:conversation-1"))
                 .thenReturn("{\"summary\":\"legacy\"}");
 
         assertNull(service.get("conversation-1"));
@@ -100,7 +101,8 @@ class ConversationSummaryServiceTest {
         message.setId("00021");
         message.setCreatedAt(21L);
         message.setRole("user");
-        message.setContent("new fact");
+        message.setContent("企业版呢？");
+        message.setRewrittenContent("企业版产品的退款期限是多少？");
 
         ModelChatResponse response = new ModelChatResponse();
         response.setContent("updated summary");
@@ -112,13 +114,18 @@ class ConversationSummaryServiceTest {
 
         ArgumentCaptor<Object> valueCaptor = ArgumentCaptor.forClass(Object.class);
         verify(valueOperations, timeout(1000)).set(
-                eq("agent:summary:v2:conversation-1"), valueCaptor.capture(),
+                eq("agent:summary:v3:conversation-1"), valueCaptor.capture(),
                 eq(24L), eq(TimeUnit.HOURS));
         SummarySnapshot stored = JSON.parseObject(valueCaptor.getValue().toString(), SummarySnapshot.class);
         assertEquals("updated summary", stored.getSummary());
         assertEquals("00021", stored.getCoveredUntilMessageId());
         assertEquals(21L, stored.getCoveredUntilCreatedAt());
         verify(conversationService, timeout(1000)).update(any(Wrapper.class));
+        ArgumentCaptor<ModelChatRequest> requestCaptor = ArgumentCaptor.forClass(ModelChatRequest.class);
+        verify(modelClient, timeout(1000)).chat(requestCaptor.capture());
+        String prompt = requestCaptor.getValue().getMessages().get(0).getContent();
+        assertTrue(prompt.contains("企业版产品的退款期限是多少？"));
+        org.junit.jupiter.api.Assertions.assertFalse(prompt.contains("企业版呢？"));
     }
 
     @Test
@@ -136,7 +143,7 @@ class ConversationSummaryServiceTest {
         assertEquals("persistent summary", result.getSummary());
         assertEquals("00020", result.getCoveredUntilMessageId());
         verify(valueOperations).set(
-                eq("agent:summary:v2:conversation-1"), any(),
+                eq("agent:summary:v3:conversation-1"), any(),
                 eq(24L), eq(TimeUnit.HOURS));
     }
 
@@ -158,7 +165,7 @@ class ConversationSummaryServiceTest {
         newer.setSummary("newer");
         newer.setCoveredUntilMessageId("00022");
         newer.setCoveredUntilCreatedAt(22L);
-        when(valueOperations.get("agent:summary:v2:conversation-1"))
+        when(valueOperations.get("agent:summary:v3:conversation-1"))
                 .thenReturn(JSON.toJSONString(newer));
 
         service.refreshAsync("conversation-1", null,
@@ -191,7 +198,7 @@ class ConversationSummaryServiceTest {
         allowGenerationToFinish.countDown();
 
         verify(valueOperations, after(500).never()).set(
-                eq("agent:summary:v2:conversation-1"), any(),
+                eq("agent:summary:v3:conversation-1"), any(),
                 eq(24L), eq(TimeUnit.HOURS));
     }
 
