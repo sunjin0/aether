@@ -55,6 +55,12 @@ public class AgentMessage extends BaseEntity {
     @ApiModelProperty(value = "Rewritten content used as model input")
     private String rewrittenContent;
 
+    /** Extracted text of a file uploaded with this message. */
+    private String attachmentContent;
+
+    /** JSON metadata for uploaded chat files, kept separate from extracted text. */
+    private String attachments;
+
     @ApiModelProperty(value = "Reasoning content")
     private String reasoningContent;
 

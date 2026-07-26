@@ -179,7 +179,7 @@ public class ConversationSummaryService {
         prompt.append("【按时间连续新增的对话】\n");
         for (AgentMessage message : messages) {
             prompt.append("user".equals(message.getRole()) ? "用户: " : "助手: ")
-                    .append(AgentMessageContentResolver.getEffectiveContent(message)).append("\n\n");
+                    .append(AgentMessageContentResolver.getContextContent(message)).append("\n\n");
         }
         return prompt.toString();
     }

@@ -23,4 +23,15 @@ public final class AgentMessageContentResolver {
         }
         return StringUtils.defaultString(message.getContent());
     }
+
+    /** Returns the complete model context, including a persisted file extraction when present. */
+    public static String getContextContent(AgentMessage message) {
+        String content = getEffectiveContent(message);
+        if (!"user".equals(message.getRole()) || StringUtils.isBlank(message.getAttachmentContent())) {
+            return content;
+        }
+        return content + "\n\n【用户上传文件的识别内容】\n"
+                + message.getAttachmentContent()
+                + "\n【文件识别内容结束】";
+    }
 }

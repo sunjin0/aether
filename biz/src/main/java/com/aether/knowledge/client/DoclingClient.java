@@ -52,13 +52,20 @@ public class DoclingClient {
     }
 
     public String convert(String fileName, byte[] bytes) {
-        return convert(fileName, bytes, "markdown");
+        return convert(fileName, bytes, "markdown", false);
     }
 
     /**
      * @param outputFormat "markdown", "json", or "both"
      */
     public String convert(String fileName, byte[] bytes, String outputFormat) {
+        return convert(fileName, bytes, outputFormat, false);
+    }
+
+    /**
+     * @param enableOcr whether Docling should perform OCR for image-based input
+     */
+    public String convert(String fileName, byte[] bytes, String outputFormat, boolean enableOcr) {
         if (!isEnabled()) return null;
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -72,7 +79,7 @@ public class DoclingClient {
                 }
             });
             body.add("output_format", outputFormat != null ? outputFormat : "markdown");
-            body.add("ocr", "false");
+            body.add("ocr", String.valueOf(enableOcr));
             body.add("extract_tables", "true");
 
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);

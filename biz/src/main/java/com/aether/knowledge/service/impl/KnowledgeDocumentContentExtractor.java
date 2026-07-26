@@ -57,12 +57,53 @@ public class KnowledgeDocumentContentExtractor {
         throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file-type.unsupported"));
     }
 
+    /**
+     * Chat attachments are analyzed during upload. OCR is enabled for rich
+     * document formats so scanned pages and images embedded in documents are
+     * included in the model-facing text.
+     */
+    public String extractForChat(String fileName, byte[] bytes) {
+        String name = fileName == null ? "" : fileName.toLowerCase();
+        try {
+            if (name.endsWith(".txt") || name.endsWith(".md")) {
+                return new String(bytes, StandardCharsets.UTF_8);
+            }
+            if (name.endsWith(".pdf") || name.endsWith(".docx") || name.endsWith(".xlsx")) {
+                String content = doclingClient.convert(fileName, bytes, "markdown", true);
+                if (StringUtils.isNotBlank(content)) {
+                    log.info("聊天附件使用 Docling OCR 识别文档内容: {}", fileName);
+                    return content;
+                }
+                if (name.endsWith(".pdf")) return extractPdf(bytes);
+                if (name.endsWith(".docx")) return extractDocx(bytes);
+                return extractXlsx(bytes);
+            }
+            if (isImage(name)) {
+                String content = doclingClient.convert(fileName, bytes, "markdown", true);
+                if (StringUtils.isNotBlank(content)) {
+                    log.info("聊天附件使用 Docling OCR: {}", fileName);
+                    return content;
+                }
+                return "";
+            }
+            return extract(fileName, bytes);
+        } catch (ServerException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ServerException(422, I18nUtils.getMessage("knowledge.document.parse.failed"));
+        }
+    }
+
     private String tryDocling(String name, byte[] bytes) {
         if (!doclingClient.isEnabled()) return null;
         String result = doclingClient.convert(name, bytes);
         if (result != null) return result;
         log.warn("Docling returned no result for {}, falling back to native extractor", name);
         return null;
+    }
+
+    private boolean isImage(String name) {
+        return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".webp");
     }
 
     private String extractPdf(byte[] bytes) throws Exception {

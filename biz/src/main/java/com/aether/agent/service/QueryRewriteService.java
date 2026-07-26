@@ -44,6 +44,7 @@ public class QueryRewriteService {
         if (StringUtils.isBlank(originalContent) || provider == null) {
             return result;
         }
+        long startTime = System.currentTimeMillis();
         try {
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
@@ -60,9 +61,11 @@ public class QueryRewriteService {
             if (StringUtils.isNotBlank(rewritten)) {
                 result.setRewrittenContent(rewritten);
             }
+            log.info("查询重写完成: agentId={}, elapsed={}ms", agent == null ? null : agent.getId(),
+                    System.currentTimeMillis() - startTime);
         } catch (Exception e) {
-            log.warn("查询重写失败，后续将使用原始消息: agentId={}",
-                    agent == null ? null : agent.getId(), e);
+            log.warn("查询重写失败，后续将使用原始消息: agentId={}, elapsed={}ms",
+                    agent == null ? null : agent.getId(), System.currentTimeMillis() - startTime, e);
         }
         return result;
     }

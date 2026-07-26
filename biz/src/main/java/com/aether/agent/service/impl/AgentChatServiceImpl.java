@@ -122,7 +122,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
         String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
-        AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent);
+        AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent,
+                dto.getAttachmentContent(), dto.getAttachments());
         String runId = null;
 
         try {
@@ -257,7 +258,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
         String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
-        AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent);
+        AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent,
+                dto.getAttachmentContent(), dto.getAttachments());
         String runId = null;
 
         log.info("流式请求开始: agent={}, model={}, thinking={}", agent.getId(), agent.getModel(), agent.getDefaultThinking());
@@ -778,13 +780,16 @@ public class AgentChatServiceImpl implements AgentChatService {
         return title.length() > 50 ? title.substring(0, 50) : title;
     }
 
-    private AgentMessage saveUserMessage(String conversationId, String content, String rewrittenContent) {
+    private AgentMessage saveUserMessage(String conversationId, String content, String rewrittenContent,
+                                         String attachmentContent, String attachments) {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
         message.setRole("user");
         message.setMessageType(MESSAGE_TYPE_CHAT);
         message.setContent(content);
         message.setRewrittenContent(rewrittenContent);
+        message.setAttachmentContent(attachmentContent);
+        message.setAttachments(attachments);
         agentMessageService.save(message);
         
         // 更新缓存：添加用户消息

@@ -40,4 +40,10 @@ public class AgentChatDto {
 
     @ApiModelProperty(value = "Internal user ID")
     private String userId;
+
+    /** Text recognized during the attachment-upload operation. */
+    private String attachmentContent;
+
+    /** JSON metadata returned by the attachment-upload operation. */
+    private String attachments;
 }

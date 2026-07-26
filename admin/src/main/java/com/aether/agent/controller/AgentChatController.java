@@ -8,9 +8,12 @@ import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentStreamCallback;
+import com.aether.agent.service.ChatAttachmentService;
 import com.aether.agent.vo.AgentConversationVo;
+import com.aether.agent.vo.AgentChatAttachmentVo;
 import com.aether.agent.vo.AgentMessageVo;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
@@ -30,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import org.slf4j.Logger;
@@ -64,38 +68,63 @@ public class AgentChatController {
     private final AgentChatService agentChatService;
     private final AgentConversationService agentConversationService;
     private final AgentMessageService agentMessageService;
+    private final ChatAttachmentService chatAttachmentService;
     private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired
-    public AgentChatController(AgentChatService agentChatService, AgentConversationService agentConversationService, AgentMessageService agentMessageService) {
+    public AgentChatController(AgentChatService agentChatService, AgentConversationService agentConversationService,
+                               AgentMessageService agentMessageService, ChatAttachmentService chatAttachmentService) {
         this.agentChatService = agentChatService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
+        this.chatAttachmentService = chatAttachmentService;
     }
 
     @ApiOperation("非流式聊天")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
-    @PostMapping
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public WebResponse<AgentMessageVo> chat(@RequestBody AgentChatDto dto) {
         return WebResponse.OK(agentChatService.chat(dto));
+    }
+
+    @ApiOperation("上传并识别聊天附件")
+    @PostMapping(value = "/attachment", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public WebResponse<List<AgentChatAttachmentVo>> uploadAttachments(@RequestParam("files") List<MultipartFile> files) {
+        if (files == null || files.isEmpty() || files.size() > 3) {
+            throw new ServerException(422, "聊天一次最多上传 3 个附件");
+        }
+        List<AgentChatAttachmentVo> attachments = files.stream().map(file -> {
+            ChatAttachmentService.ChatAttachment attachment = chatAttachmentService.process(file);
+            AgentChatAttachmentVo vo = new AgentChatAttachmentVo();
+            vo.setFileName(attachment.getFileName());
+            vo.setContentType(attachment.getContentType());
+            vo.setSize(attachment.getSize());
+            vo.setObjectKey(attachment.getObjectKey());
+            vo.setExtractedContent(attachment.getExtractedContent());
+            return vo;
+        }).collect(Collectors.toList());
+        return WebResponse.OK(attachments);
     }
 
     @ApiOperation("流式聊天")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
-    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/stream", consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestBody AgentChatDto dto, HttpServletResponse response) {
+        return openStream(dto, response);
+    }
+
+    private SseEmitter openStream(AgentChatDto dto, HttpServletResponse response) {
         // 在主线程中提前获取userId，避免在线程池新线程中无法获取ThreadLocal中的用户信息
         String userId = CurrentUser.getUser() != null ? CurrentUser.getUser().get("userId") : null;
         if (StringUtils.isBlank(userId)) {
             throw new ServerException(401, I18nUtils.getMessage("agent.unauthorized"));
         }
-        dto.setUserId(userId);
-
         response.setHeader("Cache-Control", "no-cache, no-transform");
         response.setHeader("Connection", "keep-alive");
         response.setHeader("X-Accel-Buffering", "no");
@@ -129,6 +158,7 @@ public class AgentChatController {
 
         streamExecutor.execute(() -> {
             try {
+                dto.setUserId(userId);
                 agentChatService.stream(dto, new SseAgentStreamCallback(emitter, closed));
             } catch (Exception e) {
                 log.error("流式聊天异常", e);

@@ -44,6 +44,9 @@ public class AgentMessageVo extends BaseEntity {
     @ApiModelProperty(value = "Message content")
     private String content;
 
+    @ApiModelProperty(value = "Chat attachment metadata JSON")
+    private String attachments;
+
     @ApiModelProperty(value = "Reasoning content")
     private String reasoningContent;
 

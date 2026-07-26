@@ -234,7 +234,7 @@ public class ConversationContextService {
                 }
             }
             context.add(new ModelChatMessage(message.getRole(),
-                    AgentMessageContentResolver.getEffectiveContent(message)));
+                    AgentMessageContentResolver.getContextContent(message)));
         }
     }
 
