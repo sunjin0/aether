@@ -152,7 +152,7 @@ public class KnowledgeDocumentController {
         if (file == null || file.isEmpty() || file.getSize() > 50L * 1024 * 1024) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.invalid"));
         String name = StringUtils.defaultIfBlank(file.getOriginalFilename(), "document.txt");
         String lower = name.toLowerCase();
-        if (!(lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".pdf") || lower.endsWith(".docx"))) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.unsupported-type"));
+        if (!(lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".pdf") || lower.endsWith(".docx") || lower.endsWith(".xlsx"))) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.unsupported-type"));
         byte[] bytes = file.getBytes();
         KnowledgeDocument document = new KnowledgeDocument();
         document.setKnowledgeBaseId(knowledgeBaseId); document.setTitle(StringUtils.defaultIfBlank(title, name)); document.setSourceType(KnowledgeDocumentSourceType.FILE);

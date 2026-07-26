@@ -3,6 +3,7 @@ package com.aether.agent.service;
 import com.aether.agent.model.ModelChatMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -23,7 +24,7 @@ public class ConversationCacheService {
 
     private final RedisTemplate<String, Object> redisTemplate;
 
-    public ConversationCacheService(RedisTemplate<String, Object> redisTemplate) {
+    public ConversationCacheService(@Qualifier("objectRedisTemplate") RedisTemplate<String, Object> redisTemplate) {
         this.redisTemplate = redisTemplate;
     }
 

@@ -17,6 +17,7 @@ import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 连接池HTTP客户端（降低首字延迟）。
@@ -32,22 +33,26 @@ public class PooledHttpClient {
     @PostConstruct
     public void init() {
         PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
-        cm.setMaxTotal(64);             // 最大连接数
-        cm.setDefaultMaxPerRoute(32);   // 每个主机最大连接数
+        cm.setMaxTotal(64);
+        cm.setDefaultMaxPerRoute(32);
+        cm.setValidateAfterInactivity(5_000);
 
         RequestConfig requestConfig = RequestConfig.custom()
-                .setConnectTimeout(10_000)     // 连接超时10s
-                .setSocketTimeout(300_000)     // 读超时5分钟（推理模型需要）
-                .setConnectionRequestTimeout(5_000) // 从池获取连接超时5s
+                .setConnectTimeout(10_000)
+                .setSocketTimeout(300_000)
+                .setConnectionRequestTimeout(5_000)
                 .build();
 
         httpClient = HttpClients.custom()
                 .setConnectionManager(cm)
                 .setDefaultRequestConfig(requestConfig)
+                .setConnectionTimeToLive(60, TimeUnit.SECONDS)
+                .evictExpiredConnections()
+                .evictIdleConnections(30, TimeUnit.SECONDS)
                 .disableAutomaticRetries()
                 .build();
 
-        log.info("HTTP连接池初始化完成: maxTotal=64, maxPerRoute=32");
+        log.info("HTTP连接池初始化完成: maxTotal=64, maxPerRoute=32, validateAfterInactivity=5s, connTTL=60s");
     }
 
     @PreDestroy

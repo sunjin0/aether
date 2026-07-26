@@ -8,6 +8,7 @@ import com.aether.agent.tools.core.ToolRegistry;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -32,7 +33,8 @@ public class AgentToolCatalog {
     private final RedisTemplate<String, Object> redisTemplate;
 
     public AgentToolCatalog(AgentToolService agentToolService, AgentToolBindingService bindingService,
-                            ToolRegistry toolRegistry, RedisTemplate<String, Object> redisTemplate) {
+                            ToolRegistry toolRegistry,
+                            @Qualifier("objectRedisTemplate") RedisTemplate<String, Object> redisTemplate) {
         this.agentToolService = agentToolService;
         this.bindingService = bindingService;
         this.toolRegistry = toolRegistry;

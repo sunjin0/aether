@@ -22,6 +22,7 @@ import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.service.KnowledgeDocumentWorkflowService;
 import com.aether.knowledge.service.KnowledgeReviewTaskService;
+import com.aether.knowledge.util.MarkdownNormalizer;
 import com.aether.knowledge.workflow.KnowledgeDocumentWorkflowStateManager;
 import com.aether.knowledge.workflow.KnowledgeReviewAuditWriter;
 import com.aether.knowledge.workflow.KnowledgeReviewConfigResolver;
@@ -96,8 +97,11 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-or-review.active"));
         }
         KnowledgeDocumentVersion version = versionService.createNextVersion(document);
-        version.setOriginalContent(document.getContent());
-        version.setContentChecksum(checksum(document.getContent()));
+        String rawContent = version.getContent();
+        String normalized = MarkdownNormalizer.normalize(rawContent);
+        version.setOriginalContent(rawContent);
+        version.setContent(normalized);
+        version.setContentChecksum(checksum(normalized));
         version.setReviewStatus(KnowledgeReviewStatus.DRAFT);
         version.setSourceVersionId(sourceVersionId);
         version.setParserType(document.getParserType());
@@ -152,7 +156,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         if (!StringUtils.equals(expectedChecksum, version.getContentChecksum())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft.modified"));
         }
-        String newChecksum = checksum(content);
+        String normalized = MarkdownNormalizer.normalize(content);
+        String newChecksum = checksum(normalized);
         boolean updated = versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, versionId)
                 .eq(KnowledgeDocumentVersion::getContentChecksum, expectedChecksum)
@@ -160,7 +165,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                         KnowledgeReviewStatus.DRAFT, KnowledgeReviewStatus.AI_REVIEWED)
                 .eq(preservingAiReview, KnowledgeDocumentVersion::getReviewStatus,
                         KnowledgeReviewStatus.AI_REVIEWED)
-                .set(KnowledgeDocumentVersion::getContent, content)
+                .set(KnowledgeDocumentVersion::getContent, normalized)
                 .set(KnowledgeDocumentVersion::getStructuredContent, null)
                 .set(KnowledgeDocumentVersion::getContentChecksum, newChecksum)
                 .set(KnowledgeDocumentVersion::getReviewStatus, nextReviewStatus));
@@ -343,13 +348,14 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         if (!StringUtils.equals(expectedChecksum, version.getContentChecksum())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft.modified"));
         }
-        String newChecksum = checksum(content);
+        String normalized = MarkdownNormalizer.normalize(content);
+        String newChecksum = checksum(normalized);
         long now = System.currentTimeMillis();
         boolean versionUpdated = versionService.update(Wrappers.lambdaUpdate(KnowledgeDocumentVersion.class)
                 .eq(KnowledgeDocumentVersion::getId, version.getId())
                 .eq(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.SUBMITTED)
                 .eq(KnowledgeDocumentVersion::getContentChecksum, expectedChecksum)
-                .set(KnowledgeDocumentVersion::getContent, content)
+                .set(KnowledgeDocumentVersion::getContent, normalized)
                 .set(KnowledgeDocumentVersion::getStructuredContent, null)
                 .set(KnowledgeDocumentVersion::getContentChecksum, newChecksum));
         if (!versionUpdated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-state.changed"));
