@@ -217,6 +217,10 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            knowledgeContextService.recordCitations(agent.getId(), conversation.getId(), assistantMessage.getId(),
+                    modelResponse.getSources());
+            knowledgeContextService.recordRetrievalOutcome(agent.getId(), conversation.getId(), assistantMessage.getId(),
+                    effectiveContent(rewrittenContent, dto.getMessage()), sources, modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
@@ -404,6 +408,10 @@ public class AgentChatServiceImpl implements AgentChatService {
 
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            knowledgeContextService.recordCitations(agent.getId(), conversation.getId(), assistantMessage.getId(),
+                    modelResponse.getSources());
+            knowledgeContextService.recordRetrievalOutcome(agent.getId(), conversation.getId(), assistantMessage.getId(),
+                    effectiveContent(rewrittenContent, dto.getMessage()), sources, modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
@@ -588,6 +596,10 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
 
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            knowledgeContextService.recordCitations(agent.getId(), conversation.getId(), assistantMessage.getId(),
+                    modelResponse.getSources());
+            knowledgeContextService.recordRetrievalOutcome(agent.getId(), conversation.getId(), assistantMessage.getId(),
+                    answerContent, sources, modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), answerMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {

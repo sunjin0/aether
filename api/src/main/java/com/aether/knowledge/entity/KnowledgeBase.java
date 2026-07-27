@@ -29,7 +29,7 @@ public class KnowledgeBase extends BaseEntity {
     private String ownerAdminId;
     /** 可见性：platform-平台可见，private-仅所有者可见，shared-成员共享。 */
     private String visibility;
-    /** 检索配置 JSON；预留 topK、最低相似度、混合检索和重排参数。 */
+    /** 检索配置 JSON，例如 topK、minSimilarity、hybridEnabled、vectorWeight、minLexicalScore、重排参数。 */
     private String retrievalConfig;
     /** 文档审批策略 JSON，例如 requireDifferentApprover。 */
     private String reviewConfig;

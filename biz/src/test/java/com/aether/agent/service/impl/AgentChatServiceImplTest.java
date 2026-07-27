@@ -40,6 +40,8 @@ import com.aether.knowledge.service.KnowledgeRetrievalService;
 import com.aether.sys.service.AdminPreferenceService;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.local.CurrentUser;
+import com.aether.i18n.I18nService;
+import com.aether.i18n.I18nUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,6 +61,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
@@ -107,6 +110,12 @@ class AgentChatServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        I18nService i18nService = org.mockito.Mockito.mock(I18nService.class);
+        lenient().when(i18nService.getMessage(anyString())).thenAnswer(invocation -> {
+            String code = invocation.getArgument(0);
+            return "agent.model.response.empty".equals(code) ? "模型响应内容为空" : code;
+        });
+        new I18nUtils(i18nService);
         AgentToolWorkflow toolWorkflow = new AgentToolWorkflow(
                 new ToolCallParser(),
                 new AgentToolCatalog(agentToolService, agentToolBindingService, toolRegistry, redisTemplate),

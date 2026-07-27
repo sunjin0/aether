@@ -61,4 +61,16 @@ public class KnowledgeDocumentChunk extends BaseEntity {
     /** 检索查询返回的余弦相似度，非数据库字段。 */
     @TableField(exist = false)
     private Double similarity;
+    /** Full-text lexical relevance returned by hybrid retrieval, not persisted. */
+    @TableField(exist = false)
+    private Double lexicalScore;
+    /** Fused/reranked relevance used only for ordering retrieval candidates. */
+    @TableField(exist = false)
+    private Double retrievalScore;
+    /** Whether adjacent chunks were merged into this retrieval context group. */
+    @TableField(exist = false)
+    private Boolean contextExpanded;
+    /** Number of source chunks represented by this context group. */
+    @TableField(exist = false)
+    private Integer contextChunkCount;
 }

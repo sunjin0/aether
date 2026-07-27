@@ -17,17 +17,27 @@ public class KnowledgeChunkSplitter {
 
     private final int maxChars;
     private final int overlapChars;
+    private final int maxTokens;
 
     public KnowledgeChunkSplitter() {
-        this(1200, 200);
+        // A chunk must normally contain a complete explanation, not merely a
+        // sentence-sized retrieval hint.  Retrieval expands around a hit too,
+        // but using a reasonably sized primary chunk avoids losing the answer
+        // when the relevant material is concentrated in one section.
+        this(2400, 320, 1400);
     }
 
     KnowledgeChunkSplitter(int maxChars, int overlapChars) {
-        if (maxChars <= 0 || overlapChars < 0 || overlapChars >= maxChars) {
+        this(maxChars, overlapChars, maxChars);
+    }
+
+    KnowledgeChunkSplitter(int maxChars, int overlapChars, int maxTokens) {
+        if (maxChars <= 0 || overlapChars < 0 || overlapChars >= maxChars || maxTokens <= 0) {
             throw new IllegalArgumentException("invalid chunk size configuration");
         }
         this.maxChars = maxChars;
         this.overlapChars = overlapChars;
+        this.maxTokens = maxTokens;
     }
 
     public List<Segment> split(String content) {
@@ -133,10 +143,10 @@ public class KnowledgeChunkSplitter {
     private void pack(List<Segment> output, List<String> units, String sectionPath) {
         List<String> current = new ArrayList<>();
         for (String unit : units) {
-            while (!current.isEmpty() && joinedLength(current) + 2 + unit.length() > maxChars) {
+            while (!current.isEmpty() && exceedsChunkBudget(current, unit)) {
                 output.add(new Segment(StringUtils.join(current, "\n\n"), sectionPath));
                 current = overlapTail(current);
-                while (!current.isEmpty() && joinedLength(current) + 2 + unit.length() > maxChars) {
+                while (!current.isEmpty() && exceedsChunkBudget(current, unit)) {
                     current.remove(0);
                 }
             }
@@ -169,6 +179,11 @@ public class KnowledgeChunkSplitter {
             length += value.length();
         }
         return length;
+    }
+
+    private boolean exceedsChunkBudget(List<String> current, String next) {
+        return joinedLength(current) + 2 + next.length() > maxChars
+                || estimateTokens(StringUtils.join(current, "\n\n") + "\n\n" + next) > maxTokens;
     }
 
     private String joinHeadings(String[] headings) {

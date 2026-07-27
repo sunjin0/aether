@@ -31,6 +31,7 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
 
     private static final int TIMEOUT_MS = 30000;
     private static final int EMBEDDING_DIMENSIONS = 1536;
+    private static final int MAX_REQUEST_ATTEMPTS = 3;
     private final CloseableHttpClient httpClient;
     private final RestTemplate restTemplate;
 
@@ -76,11 +77,7 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
         body.put("input", inputs.size() == 1 ? inputs.get(0) : inputs);
         // OpenAI-compatible embedding APIs use the plural field name.
         body.put("dimensions", EMBEDDING_DIMENSIONS);
-        ResponseEntity<String> response = restTemplate.exchange(
-                buildEmbeddingUrl(provider.getApiBaseUrl()),
-                HttpMethod.POST,
-                new HttpEntity<>(body.toJSONString(), headers),
-                String.class);
+        ResponseEntity<String> response = executeWithRetry(provider.getApiBaseUrl(), new HttpEntity<>(body.toJSONString(), headers));
         JSONObject json = JSONObject.parseObject(response.getBody());
         JSONArray data = json.getJSONArray("data");
         if (data == null || data.isEmpty()) {
@@ -125,5 +122,24 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
             return normalized + "/embeddings";
         }
         return normalized + "/v1/embeddings";
+    }
+
+    private ResponseEntity<String> executeWithRetry(String baseUrl, HttpEntity<String> request) {
+        RuntimeException lastFailure = null;
+        for (int attempt = 0; attempt < MAX_REQUEST_ATTEMPTS; attempt++) {
+            try {
+                return restTemplate.exchange(buildEmbeddingUrl(baseUrl), HttpMethod.POST, request, String.class);
+            } catch (RuntimeException e) {
+                lastFailure = e;
+                if (attempt + 1 == MAX_REQUEST_ATTEMPTS) break;
+                try {
+                    Thread.sleep(100L << attempt);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+        throw lastFailure;
     }
 }

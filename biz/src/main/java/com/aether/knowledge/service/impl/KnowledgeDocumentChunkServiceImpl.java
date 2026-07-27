@@ -35,6 +35,29 @@ public class KnowledgeDocumentChunkServiceImpl
     }
 
     @Override
+    public List<KnowledgeDocumentChunk> searchLexicalChunks(List<String> knowledgeBaseIds, String query, int limit) {
+        if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || StringUtils.isBlank(query) || limit <= 0) {
+            return Collections.emptyList();
+        }
+        List<String> filteredIds = knowledgeBaseIds.stream()
+                .filter(StringUtils::isNotBlank)
+                .collect(Collectors.toList());
+        if (filteredIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return baseMapper.selectLexicalChunks(filteredIds, query.trim(), limit);
+    }
+
+    @Override
+    public List<KnowledgeDocumentChunk> findNeighborChunks(String documentVersionId, int chunkIndex, int radius) {
+        if (StringUtils.isBlank(documentVersionId) || chunkIndex < 0 || radius <= 0) {
+            return Collections.emptyList();
+        }
+        return baseMapper.selectNeighborChunks(documentVersionId,
+                Math.max(0, chunkIndex - radius), chunkIndex + radius);
+    }
+
+    @Override
     public boolean saveVectorChunk(KnowledgeDocumentChunk chunk) {
         if (chunk == null) {
             return false;

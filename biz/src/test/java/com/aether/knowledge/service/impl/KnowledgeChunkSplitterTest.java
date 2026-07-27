@@ -65,4 +65,16 @@ class KnowledgeChunkSplitterTest {
         assertEquals(2, splitter.estimateTokens("abcdefgh"));
         assertEquals(0, splitter.estimateTokens("  "));
     }
+
+    @Test
+    void respectsTokenBudgetBeforeCharacterLimit() {
+        KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(1000, 0, 4);
+
+        List<KnowledgeChunkSplitter.Segment> chunks = splitter.split("alpha beta\n\ngamma delta\n\nepsilon zeta");
+
+        assertEquals(3, chunks.size());
+        for (KnowledgeChunkSplitter.Segment chunk : chunks) {
+            assertTrue(splitter.estimateTokens(chunk.getContent()) <= 4);
+        }
+    }
 }

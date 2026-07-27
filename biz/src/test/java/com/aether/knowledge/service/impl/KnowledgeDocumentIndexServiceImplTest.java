@@ -7,6 +7,7 @@ import com.aether.i18n.I18nService;
 import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.entity.KnowledgeDocument;
+import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.entity.KnowledgeDocumentVersion;
 import com.aether.knowledge.entity.KnowledgeIndexJob;
 import com.aether.knowledge.service.KnowledgeBaseService;
@@ -26,6 +27,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -39,6 +42,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -127,6 +131,33 @@ class KnowledgeDocumentIndexServiceImplTest {
     }
 
     @Test
+    void reusesExistingEmbeddingForUnchangedChunk() throws Exception {
+        KnowledgeBase base = new KnowledgeBase();
+        base.setId("kb-1"); base.setEmbeddingProviderId("provider-1");
+        KnowledgeDocument document = new KnowledgeDocument();
+        document.setId("doc-1"); document.setKnowledgeBaseId("kb-1");
+        KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
+        version.setId("version-1"); version.setContent("reused");
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1"); provider.setDefaultModel("embedding-v1");
+        KnowledgeDocumentChunk existing = new KnowledgeDocumentChunk();
+        existing.setContentHash(sha256("章节：ROOT\n内容：\nreused"));
+        existing.setEmbedding("[0.1]");
+        existing.setMetadata("{\"embeddingProviderId\":\"provider-1\",\"embeddingModel\":\"embedding-v1\"}");
+
+        when(baseService.getById("kb-1")).thenReturn(base);
+        when(providerService.getById("provider-1")).thenReturn(provider);
+        when(chunkService.list(any())).thenReturn(Collections.singletonList(existing));
+        when(chunkService.remove(any())).thenReturn(true);
+        when(chunkService.saveVectorChunk(any())).thenReturn(true);
+
+        service(afterCommitExecutor).reindex(document, version);
+
+        verify(embeddingService, never()).embedAll(any(), anyList());
+        verify(chunkService).saveVectorChunk(any());
+    }
+
+    @Test
     void refusesToDispatchIndexWorkerWhenJobCannotBeSaved() {
         KnowledgeDocument document = new KnowledgeDocument();
         document.setId("document-1");
@@ -158,5 +189,14 @@ class KnowledgeDocumentIndexServiceImplTest {
             content.append("chunk").append(i);
         }
         return content.toString();
+    }
+
+    private String sha256(String content) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(content.getBytes(StandardCharsets.UTF_8));
+        StringBuilder result = new StringBuilder();
+        for (byte item : digest) {
+            result.append(String.format("%02x", item));
+        }
+        return result.toString();
     }
 }

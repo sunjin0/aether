@@ -12,5 +12,14 @@ public interface KnowledgeDocumentChunkService extends IService<KnowledgeDocumen
 
     List<KnowledgeDocumentChunk> searchSimilarChunks(List<String> knowledgeBaseIds, String embedding, int limit);
 
+    List<KnowledgeDocumentChunk> searchLexicalChunks(List<String> knowledgeBaseIds, String query, int limit);
+
+    /**
+     * Loads the chunks surrounding a matched chunk from the same indexed
+     * document version.  These chunks are used as answer context, not as
+     * independent similarity matches.
+     */
+    List<KnowledgeDocumentChunk> findNeighborChunks(String documentVersionId, int chunkIndex, int radius);
+
     boolean saveVectorChunk(KnowledgeDocumentChunk chunk);
 }
