@@ -34,13 +34,13 @@ class FlywayMigrationSmokeTest {
 
             flyway.migrate();
 
-            assertEquals("5", flyway.info().current().getVersion().getVersion());
+            assertEquals("7", flyway.info().current().getVersion().getVersion());
             try (Connection connection = DriverManager.getConnection(url, user, password);
                  Statement statement = connection.createStatement()) {
                 try (ResultSet history = statement.executeQuery(
                         "SELECT COUNT(*) FROM " + schema + ".flyway_schema_history WHERE success")) {
                     assertTrue(history.next());
-                    assertEquals(5, history.getInt(1));
+                    assertEquals(7, history.getInt(1));
                 }
                 try (ResultSet table = statement.executeQuery(
                         "SELECT to_regclass('" + schema + ".knowledge_review_task') IS NOT NULL")) {
@@ -74,7 +74,7 @@ class FlywayMigrationSmokeTest {
 
             flyway.migrate();
 
-            assertEquals("5", flyway.info().current().getVersion().getVersion());
+            assertEquals("7", flyway.info().current().getVersion().getVersion());
             try (Connection connection = DriverManager.getConnection(url, user, password);
                  Statement statement = connection.createStatement();
                  ResultSet history = statement.executeQuery(

@@ -1,0 +1,42 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 894 >>
+stream
+BT /F1 10 Tf 50 800 Td 14 TL
+(Xinglan Ticket Platform Product Handbook v3.2) Tj T*
+(Ticket Hub: ticket creation, assignment, merge, close. Standard enabled.) Tj T*
+(Flow Desk: SLA timer, auto escalation, reminders. Professional enabled.) Tj T*
+(Insight Lens: reports and knowledge hit rate. Enterprise enabled.) Tj T*
+(Guard Center: permission, audit, field masking. Enterprise enabled.) Tj T*
+(P0 first response target: 15 minutes. P1 first response target: 30 minutes.) Tj T*
+(Customer-visible notes are external; internal handling notes are visible to agents, supervisors, auditors.) Tj T*
+(Since v3.2, knowledge hit rate = accepted answers / tickets that triggered knowledge recommendation.) Tj T*
+(In v3.1 and earlier, the old hit-rate formula is deprecated.) Tj T*
+(Queue means business assignment group, not message queue. Escalation means SLA escalation, not software upgrade.) Tj T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+1256
+%%EOF
