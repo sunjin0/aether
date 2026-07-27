@@ -70,6 +70,7 @@ public class AgentToolController {
         this.dictService = dictService;
     }
 
+    /** 分页查询工具，并支持 MCP 服务、状态和关键词筛选。 */
     @ApiOperation("工具列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -97,6 +98,10 @@ public class AgentToolController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 查询可绑定的启用工具选项。
+     * mcpServerId 不为空时，仅返回指定 MCP 服务下的工具。
+     */
     @ApiOperation("Agent工具下拉选项")
     @Permission(required = false)
     @GetMapping("/options")
@@ -109,6 +114,7 @@ public class AgentToolController {
         return WebResponse.OK(options);
     }
 
+    /** 汇总工具中心的来源、类型和状态筛选项。 */
     @ApiOperation("工具中心筛选聚合")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -196,6 +202,7 @@ public class AgentToolController {
         return WebResponse.OK(statistics);
     }
 
+    /** 查询工具详情及其 MCP 配置。 */
     @ApiOperation("工具详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "工具ID", required = true),
@@ -213,6 +220,7 @@ public class AgentToolController {
         return WebResponse.OK(vo);
     }
 
+    /** 创建工具定义。 */
     @ApiOperation("新增工具")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -228,6 +236,7 @@ public class AgentToolController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), tool.getId());
     }
 
+    /** 更新工具定义。 */
     @ApiOperation("编辑工具")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -244,6 +253,7 @@ public class AgentToolController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }
 
+    /** 软删除工具定义。 */
     @ApiOperation("删除工具")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "工具ID", required = true),

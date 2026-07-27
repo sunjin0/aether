@@ -69,6 +69,10 @@ public class ModelProviderController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 查询启用的模型供应商选项。
+     * excludeEmbedding=true 用于过滤 Embedding 专用供应商，避免被聊天/审查模型误选。
+     */
     @ApiOperation("模型供应商下拉选项")
     @Permission(required = false)
     @GetMapping("/options")

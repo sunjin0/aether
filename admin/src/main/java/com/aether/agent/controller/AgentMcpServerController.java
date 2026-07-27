@@ -57,6 +57,7 @@ public class AgentMcpServerController {
         this.mcpClient = mcpClient;
     }
 
+    /** 分页查询 MCP 服务，认证令牌不会返回给前端。 */
     @ApiOperation("MCP服务列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -81,6 +82,7 @@ public class AgentMcpServerController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /** 查询启用的 MCP 服务选项，返回值不包含认证令牌等敏感字段。 */
     @ApiOperation("MCP服务下拉选项")
     @Permission(required = false)
     @GetMapping("/options")
@@ -92,6 +94,7 @@ public class AgentMcpServerController {
         return WebResponse.OK(options);
     }
 
+    /** 查询 MCP 服务详情，并隐藏认证令牌。 */
     @ApiOperation("MCP服务详情")
     @GetMapping("/{id}")
     public WebResponse<AgentMcpServerVo> detail(@PathVariable @NotBlank String id) {
@@ -102,6 +105,7 @@ public class AgentMcpServerController {
         return WebResponse.OK(vo);
     }
 
+    /** 创建 MCP 服务并加密保存认证令牌。 */
     @ApiOperation("新增MCP服务")
     @Permission(path = "/agent/mcp-server", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
@@ -115,6 +119,7 @@ public class AgentMcpServerController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), server.getId());
     }
 
+    /** 更新 MCP 服务配置，保留未修改的认证令牌。 */
     @ApiOperation("编辑MCP服务")
     @Permission(path = "/agent/mcp-server", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
@@ -130,6 +135,7 @@ public class AgentMcpServerController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }
 
+    /** 删除未绑定工具的 MCP 服务。 */
     @ApiOperation("删除MCP服务")
     @Permission(path = "/agent/mcp-server", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
@@ -144,6 +150,7 @@ public class AgentMcpServerController {
         return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
     }
 
+    /** 连接 MCP 服务并发现远端工具定义。 */
     @ApiOperation("发现MCP工具")
     @Permission(path = "/agent/mcp-server", type = Permission.Type.Write)
     @PostMapping("/{id}/tools")
@@ -154,6 +161,7 @@ public class AgentMcpServerController {
         return WebResponse.OK(mcpClient.listTools(server));
     }
 
+    /** 将选中的远端 MCP 工具导入本地工具中心。 */
     @ApiOperation("从MCP服务导入工具")
     @Permission(path = "/agent/mcp-server", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)

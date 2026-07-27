@@ -15,19 +15,24 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+/** 执行离线检索评测，不调用回答生成模型。 */
 public class KnowledgeRetrievalEvaluationServiceImpl implements KnowledgeRetrievalEvaluationService {
     private final KnowledgeRetrievalService retrievalService;
+    /** 评测复用线上检索服务，保证离线指标与真实业务链路一致。 */
     public KnowledgeRetrievalEvaluationServiceImpl(KnowledgeRetrievalService retrievalService) { this.retrievalService = retrievalService; }
     @Override
+    /** 批量检索评测问题并计算总体平均指标。 */
     public KnowledgeRetrievalEvaluationReport evaluate(String agentDefinitionId, List<KnowledgeRetrievalEvaluationCase> cases) {
         KnowledgeRetrievalEvaluationReport report = new KnowledgeRetrievalEvaluationReport();
         List<KnowledgeRetrievalEvaluationCase> valid = cases == null ? Collections.<KnowledgeRetrievalEvaluationCase>emptyList() : cases;
         double recall = 0D, mrr = 0D, ndcg = 0D;
         for (KnowledgeRetrievalEvaluationCase item : valid) {
             if (item == null || StringUtils.isBlank(item.getQuestion())) continue;
+            // 直接调用 Agent 当前检索配置，避免评测逻辑和线上检索逻辑出现偏差。
             KnowledgeRetrievalResult result = retrievalService.retrieve(agentDefinitionId, item.getQuestion());
             List<String> retrieved = result.getChunks() == null ? Collections.<String>emptyList() : result.getChunks().stream()
                     .map(chunk -> chunk.getId()).filter(StringUtils::isNotBlank).collect(Collectors.toList());
+            // 评测阶段只关注检索命中，不进行答案引用和 grounded 判定。
             KnowledgeRetrievalMetrics.Result metrics = KnowledgeRetrievalMetrics.evaluate(
                     new HashSet<String>(item.getExpectedChunkIds() == null ? Collections.<String>emptyList() : item.getExpectedChunkIds()),
                     retrieved, Collections.<String>emptySet(), false);

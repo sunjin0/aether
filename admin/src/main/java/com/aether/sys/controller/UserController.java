@@ -74,6 +74,7 @@ public class UserController {
         return WebResponse.Page(userVos, page.getTotal());
     }
 
+    /** 查询管理员下拉选项，仅返回用户名和用户 ID，不返回密码等账户字段。 */
     @ApiOperation("管理员下拉选项")
     @Permission(required = false)
     @GetMapping("/options")

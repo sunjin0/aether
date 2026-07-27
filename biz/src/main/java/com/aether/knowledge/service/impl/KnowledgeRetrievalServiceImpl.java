@@ -35,6 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/** Agent 知识库检索实现：混合召回、重排序、邻块扩展和上下文预算控制。 */
 @Service
 public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService {
 
@@ -46,9 +47,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     private static final int DEFAULT_MAX_CHUNKS_PER_DOCUMENT = 4;
     private static final int MAX_CHUNKS_PER_DOCUMENT = 10;
     private static final int CANDIDATE_MULTIPLIER = 4;
-    /** Number of adjacent chunks restored around each semantic hit. */
+    /** 每个语义命中点向前后恢复的邻接分块数量。 */
     private static final int DEFAULT_NEIGHBOR_RADIUS = 1;
-    /** Safety ceiling for retrieved context; conversation history and tool output need room too. */
+    /** 检索上下文的 token 上限，为历史消息和工具输出预留空间。 */
     private static final int MAX_CONTEXT_TOKENS = 12000;
     private static final long QUERY_EMBEDDING_CACHE_TTL_MS = 5 * 60 * 1000L;
     private static final int QUERY_EMBEDDING_CACHE_MAX_SIZE = 2000;
@@ -98,6 +99,10 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     }
 
     @Override
+    /**
+     * 根据 Agent 当前绑定的知识库和检索配置执行一次检索。
+     * 流程依次为：解析知识库、查询改写、向量/词法混合召回、重排序、邻块合并和 token 截断。
+     */
     public KnowledgeRetrievalResult retrieve(String agentDefinitionId, String query) {
         KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
         if (StringUtils.isBlank(agentDefinitionId) || StringUtils.isBlank(query)) {
@@ -429,6 +434,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                 authorityScore, authorityWeight, freshnessWeight);
     }
 
+    /** 对宽召回候选集调用 reranker，并限制最终上下文数量。 */
     private List<KnowledgeDocumentChunk> rerankCandidates(List<KnowledgeDocumentChunk> candidates,
                                                            RetrievalConfig config, String query) {
         if (!config.rerankEnabled || knowledgeRerankService == null || candidates == null || candidates.isEmpty()
@@ -474,6 +480,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
 
     private double clampUnit(double value) { return Math.max(0D, Math.min(1D, value)); }
 
+    /** 使用向量分数和词法分数融合去重，生成排序候选集。 */
     private List<KnowledgeDocumentChunk> fuseCandidates(List<KnowledgeDocumentChunk> vectorCandidates,
                                                           List<KnowledgeDocumentChunk> lexicalCandidates,
                                                           RetrievalConfig config) {
@@ -551,6 +558,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return new ArrayList<>(merged.values());
     }
 
+    /** 生成原问题和简化问题，用于扩大向量召回覆盖面。 */
     private List<String> buildVectorQueries(String query) {
         List<String> queries = new ArrayList<>();
         queries.add(query);
@@ -563,6 +571,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return queries;
     }
 
+    /** 提取关键词和业务术语，用于词法检索查询改写。 */
     private List<String> buildLexicalQueries(String query) {
         List<String> queries = new ArrayList<>();
         queries.add(query);
@@ -664,6 +673,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * that passage.  Restore those neighbours from the same immutable
      * document version after ranking, so they do not distort recall scores.
      */
+    /** 以命中分块为锚点合并前后邻块，形成可供模型阅读的上下文组。 */
     private List<KnowledgeDocumentChunk> buildContextGroups(List<KnowledgeDocumentChunk> anchors) {
         List<KnowledgeDocumentChunk> groups = new ArrayList<>();
         java.util.Set<String> includedChunkIds = new java.util.HashSet<>();
@@ -731,6 +741,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return group;
     }
 
+    /** 按上下文 token 预算截断候选，避免挤占对话历史和回答空间。 */
     private List<KnowledgeDocumentChunk> applyContextTokenBudget(List<KnowledgeDocumentChunk> candidates) {
         List<KnowledgeDocumentChunk> selected = new ArrayList<>();
         int usedTokens = 0;

@@ -4,11 +4,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Offline RAG quality metrics for a labelled query set. */
+/** 离线计算带标注问题集的 RAG 检索质量指标。 */
 public final class KnowledgeRetrievalMetrics {
     private KnowledgeRetrievalMetrics() {
     }
 
+    /**
+     * 根据期望分块和实际召回顺序计算 Recall@K、MRR、nDCG 及引用指标。
+     * expectedChunkIds 为空时按无明确目标处理，避免无目标问题影响正常统计。
+     */
     public static Result evaluate(Set<String> expectedChunkIds, List<String> retrievedChunkIds,
                                   Set<String> citedChunkIds, boolean answerGrounded) {
         Set<String> expected = expectedChunkIds == null ? new HashSet<String>() : expectedChunkIds;
@@ -40,8 +44,10 @@ public final class KnowledgeRetrievalMetrics {
         return result;
     }
 
+    /** 计算 nDCG 使用的以 2 为底的对数。 */
     private static double log2(double value) { return Math.log(value) / Math.log(2D); }
 
+    /** 单条问题的检索与引用指标结果。 */
     public static class Result {
         private double recallAtK;
         private double mrr;

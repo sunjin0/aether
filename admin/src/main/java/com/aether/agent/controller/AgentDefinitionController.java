@@ -55,6 +55,7 @@ public class AgentDefinitionController {
         this.modelProviderService = modelProviderService;
     }
 
+    /** 分页查询 Agent 定义，支持名称、编码、状态和模型供应商筛选。 */
     @ApiOperation("Agent定义列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -78,6 +79,10 @@ public class AgentDefinitionController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 查询启用的 Agent 下拉选项。
+     * 该接口仅返回名称和 ID，供其它业务页面选择 Agent 使用。
+     */
     @ApiOperation("Agent下拉选项")
     @Permission(required = false)
     @GetMapping("/options")
@@ -90,6 +95,7 @@ public class AgentDefinitionController {
         return WebResponse.OK(options);
     }
 
+    /** 查询 Agent 详情，并补充当前已绑定的工具 ID。 */
     @ApiOperation("Agent定义详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "Agent定义ID", required = true),
@@ -112,6 +118,7 @@ public class AgentDefinitionController {
         return WebResponse.OK(vo);
     }
 
+    /** 创建 Agent 定义，并保存其工具绑定关系。 */
     @ApiOperation("新增Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -136,6 +143,7 @@ public class AgentDefinitionController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), definition.getId());
     }
 
+    /** 更新 Agent 定义及工具绑定关系。 */
     @ApiOperation("编辑Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -163,6 +171,7 @@ public class AgentDefinitionController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }
 
+    /** 软删除 Agent 定义。 */
     @ApiOperation("删除Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "Agent定义ID", required = true),
@@ -175,6 +184,7 @@ public class AgentDefinitionController {
         return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
     }
 
+    /** 修改 Agent 启用状态。 */
     @ApiOperation("启用/禁用Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -189,6 +199,7 @@ public class AgentDefinitionController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
     }
 
+    /** 复制 Agent 基础配置和工具绑定，生成新的草稿 Agent。 */
     @ApiOperation("复制Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")

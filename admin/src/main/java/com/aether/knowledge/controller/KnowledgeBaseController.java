@@ -48,6 +48,7 @@ public class KnowledgeBaseController {
         this.modelProviderService = modelProviderService;
     }
 
+    /** 分页查询当前用户可见的知识库。 */
     @ApiOperation("知识库列表")
     @PostMapping("/list")
     public WebResponse<List<KnowledgeBaseVo>> list(@RequestBody KnowledgeBaseVo vo) {
@@ -74,6 +75,10 @@ public class KnowledgeBaseController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 查询当前用户可见的知识库选项。
+     * 只返回启用且未删除的数据，indexStatus 可用于筛选已经完成索引的知识库。
+     */
     @ApiOperation("知识库下拉选项")
     @Permission(required = false)
     @GetMapping("/options")
@@ -91,6 +96,7 @@ public class KnowledgeBaseController {
         return WebResponse.OK(options);
     }
 
+    /** 查询知识库详情，并校验当前用户可读权限。 */
     @ApiOperation("知识库详情")
     @GetMapping("/{id}")
     public WebResponse<KnowledgeBaseVo> detail(@PathVariable @NotBlank String id) {
@@ -100,6 +106,7 @@ public class KnowledgeBaseController {
         return WebResponse.OK(vo);
     }
 
+    /** 创建知识库并校验 AI 审核配置。 */
     @ApiOperation("新增知识库")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PostMapping
@@ -123,6 +130,7 @@ public class KnowledgeBaseController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("knowledge.base.create.success") : I18nUtils.getMessage("knowledge.base.create.fail"), kb.getId());
     }
 
+    /** 更新知识库配置，保留原有归属管理员。 */
     @ApiOperation("编辑知识库")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PutMapping("/{id}")
@@ -139,6 +147,7 @@ public class KnowledgeBaseController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("knowledge.base.update.success") : I18nUtils.getMessage("knowledge.base.update.fail"));
     }
 
+    /** 软删除知识库。 */
     @ApiOperation("删除知识库")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @DeleteMapping("/{id}")

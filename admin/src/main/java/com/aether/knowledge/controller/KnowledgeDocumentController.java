@@ -82,6 +82,7 @@ public class KnowledgeDocumentController {
         this.knowledgeBucket = knowledgeBucket;
     }
 
+    /** 按当前用户可见知识库分页查询文档。 */
     @ApiOperation("文档列表")
     @PostMapping("/list")
     public WebResponse<List<KnowledgeDocumentVo>> list(@RequestBody KnowledgeDocumentVo vo) {
@@ -107,6 +108,7 @@ public class KnowledgeDocumentController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /** 查询文档基础信息，并执行知识库可读性校验。 */
     @ApiOperation("文档详情")
     @GetMapping("/{id}")
     public WebResponse<KnowledgeDocumentVo> detail(@PathVariable @NotBlank String id) {
@@ -116,6 +118,7 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(vo);
     }
 
+    /** 创建文本/Markdown 文档草稿，并按知识库配置触发 AI 审核。 */
     @ApiOperation("新增文档并同步索引")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping
@@ -142,6 +145,7 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("knowledge.document.create.success") : I18nUtils.getMessage("knowledge.document.create.fail"), document.getId());
     }
 
+    /** 上传单个知识文档，完成对象存储、内容抽取和草稿创建。 */
     @ApiOperation("Upload knowledge document")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/upload")
@@ -183,6 +187,7 @@ public class KnowledgeDocumentController {
         }
     }
 
+    /** 批量上传文档；单个文件失败不会影响其它文件继续处理。 */
     @ApiOperation("Batch upload knowledge documents")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/upload/batch")
@@ -207,6 +212,7 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(results);
     }
 
+    /** 批量上传中单个文件的处理结果。 */
     public static class UploadResult {
         private String fileName;
         private boolean success;

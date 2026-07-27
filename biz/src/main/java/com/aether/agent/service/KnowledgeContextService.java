@@ -55,7 +55,7 @@ public class KnowledgeContextService {
         this.retrievalLogMapper = retrievalLogMapper;
     }
 
-    /** Keeps compatibility with focused unit tests that do not need citation persistence. */
+    /** 兼容不需要持久化引用记录的轻量调用方和单元测试。 */
     public KnowledgeContextService(AdminPreferenceService preferenceService,
                                    KnowledgeRetrievalService retrievalService,
                                    KnowledgeDocumentService documentService) {
@@ -69,7 +69,7 @@ public class KnowledgeContextService {
         this(preferenceService, retrievalService, documentService, referenceLogMapper, null);
     }
 
-    /** 将偏好、检索文本和可引用来源添加到模型上下文，并返回来源供 SSE 最终事件使用。 */
+    /** 将用户偏好、检索文本和可引用来源注入模型上下文，并返回来源供 SSE 最终事件使用。 */
     public List<Map<String, Object>> enhance(List<ModelChatMessage> context, String userId,
                                              String conversationId, String agentId, String query) {
         List<Map<String, Object>> sources = new ArrayList<>();

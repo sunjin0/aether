@@ -66,12 +66,15 @@ public class KnowledgeRetrievalEvaluationController {
         this.documentService = documentService;
         this.knowledgeAccessService = knowledgeAccessService;
     }
+    /** 查询未删除的评测集，并按创建时间倒序返回。 */
     @GetMapping("/sets") public WebResponse<List<KnowledgeRetrievalEvaluationSet>> sets() { return WebResponse.OK(setMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSet.class).eq(KnowledgeRetrievalEvaluationSet::getDeleted, false).orderByDesc(KnowledgeRetrievalEvaluationSet::getCreatedAt))); }
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PostMapping("/sets") public WebResponse<String> saveSet(@RequestBody KnowledgeRetrievalEvaluationSet set) { if (StringUtils.isBlank(set.getAgentDefinitionId()) || StringUtils.isBlank(set.getName())) throw new ServerException(400, "agentDefinitionId and name are required"); if (set.getStatus()==null) set.setStatus(1); setMapper.insert(set); return WebResponse.OK(set.getId()); }
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PutMapping("/sets/{id}") public WebResponse<Void> updateSet(@PathVariable String id, @RequestBody KnowledgeRetrievalEvaluationSet set) { set.setId(id); setMapper.updateById(set); return WebResponse.OK("OK"); }
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @DeleteMapping("/sets/{id}") public WebResponse<Void> deleteSet(@PathVariable String id) { KnowledgeRetrievalEvaluationSet set=new KnowledgeRetrievalEvaluationSet(); set.setId(id); set.setDeleted(true); setMapper.updateById(set); return WebResponse.OK("OK"); }
+    /** 查询指定评测集下未删除的评测问题。 */
     @GetMapping("/sets/{id}/cases") public WebResponse<List<KnowledgeRetrievalEvaluationCaseEntity>> cases(@PathVariable String id) { return WebResponse.OK(caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId,id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted,false))); }
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PostMapping("/sets/{id}/cases") public WebResponse<String> saveCase(@PathVariable String id,@RequestBody KnowledgeRetrievalEvaluationCaseEntity item) { if(StringUtils.isBlank(item.getQuestion())) throw new ServerException(400,"question is required"); item.setEvaluationSetId(id); if(item.getStatus()==null)item.setStatus(1); caseMapper.insert(item); return WebResponse.OK(item.getId()); }
+    /** 执行评测集：解析当前文档版本的目标 chunk，计算指标并保存运行快照。 */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PostMapping("/sets/{id}/run") public WebResponse<KnowledgeRetrievalEvaluationReport> runSet(@PathVariable String id) {
         KnowledgeRetrievalEvaluationSet set=setMapper.selectById(id); if(set==null||Boolean.TRUE.equals(set.getDeleted())) throw new ServerException(404,"evaluation set not found");
         List<KnowledgeRetrievalEvaluationCaseEntity> cases=caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId,id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted,false).eq(KnowledgeRetrievalEvaluationCaseEntity::getStatus,1));
@@ -81,8 +84,10 @@ public class KnowledgeRetrievalEvaluationController {
         for(int i=0;i<report.getItems().size();i++){ KnowledgeRetrievalEvaluationReport.Item item=report.getItems().get(i); KnowledgeRetrievalEvaluationResult result=new KnowledgeRetrievalEvaluationResult(); result.setRunId(run.getId()); result.setEvaluationCaseId(validCases.get(i).getId()); result.setStatus("EVALUATED"); result.setRetrievedChunkIds(JSON.toJSONString(item.getRetrievedChunkIds())); result.setRecallAtK(item.getRecallAtK()); result.setMrr(item.getMrr()); result.setNdcg(item.getNdcg()); resultMapper.insert(result); }
         return WebResponse.OK(report);
     }
+    /** 查询评测集历史运行记录，用于趋势图和运行对比。 */
     @GetMapping("/sets/{id}/runs") public WebResponse<List<KnowledgeRetrievalEvaluationRun>> runs(@PathVariable String id){ return WebResponse.OK(runMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationRun.class).eq(KnowledgeRetrievalEvaluationRun::getEvaluationSetId,id).eq(KnowledgeRetrievalEvaluationRun::getDeleted,false).orderByDesc(KnowledgeRetrievalEvaluationRun::getStartedAt))); }
 
+    /** 评测标注使用的公共文档选项接口，数据仍按当前用户知识库可见范围过滤。 */
     @ApiOperation("评测集可标注文档")
     @Permission(required = false)
     @GetMapping("/documents")
@@ -96,6 +101,7 @@ public class KnowledgeRetrievalEvaluationController {
                 .orderByDesc(KnowledgeDocument::getCreatedAt)));
     }
 
+    /** 查询指定文档当前已有分块中的去重章节路径。 */
     @ApiOperation("文档可标注章节")
     @Permission(required = false)
     @GetMapping("/documents/{id}/sections")
@@ -112,6 +118,7 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(sections);
     }
 
+    /** 将持久化结果补充问题、文档和召回分块信息，供前端展开查看。 */
     @ApiOperation("单次运行逐题结果")
     @GetMapping("/sets/{setId}/runs/{runId}/results")
     public WebResponse<List<KnowledgeRetrievalEvaluationResultVo>> results(@PathVariable String setId, @PathVariable String runId) {

@@ -3,12 +3,17 @@ package com.aether.knowledge.model;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Aggregate and per-query retrieval metrics. */
+/** 检索评测总体指标及逐题结果。 */
 public class KnowledgeRetrievalEvaluationReport {
+    /** 有效评测问题数量。 */
     private int total;
+    /** 总体 Recall@K。 */
     private double recallAtK;
+    /** 总体 MRR。 */
     private double mrr;
+    /** 总体 nDCG。 */
     private double ndcg;
+    /** 每条问题的详细指标和召回分块。 */
     private List<Item> items = new ArrayList<>();
     public int getTotal() { return total; }
     public void setTotal(int total) { this.total = total; }
@@ -21,7 +26,9 @@ public class KnowledgeRetrievalEvaluationReport {
     public List<Item> getItems() { return items; }
     public void setItems(List<Item> items) { this.items = items; }
     public static class Item {
+        /** 被评测的问题文本。 */
         private String question;
+        /** 实际召回的 chunk ID，顺序即召回名次。 */
         private List<String> retrievedChunkIds;
         private double recallAtK;
         private double mrr;
