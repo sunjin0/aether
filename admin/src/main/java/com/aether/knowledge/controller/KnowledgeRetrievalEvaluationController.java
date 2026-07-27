@@ -84,6 +84,7 @@ public class KnowledgeRetrievalEvaluationController {
     @GetMapping("/sets/{id}/runs") public WebResponse<List<KnowledgeRetrievalEvaluationRun>> runs(@PathVariable String id){ return WebResponse.OK(runMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationRun.class).eq(KnowledgeRetrievalEvaluationRun::getEvaluationSetId,id).eq(KnowledgeRetrievalEvaluationRun::getDeleted,false).orderByDesc(KnowledgeRetrievalEvaluationRun::getStartedAt))); }
 
     @ApiOperation("评测集可标注文档")
+    @Permission(required = false)
     @GetMapping("/documents")
     public WebResponse<List<KnowledgeDocument>> documents(@RequestParam(value = "keyword", required = false) String keyword) {
         List<String> readableBaseIds = knowledgeAccessService.readableKnowledgeBaseIds();
@@ -96,6 +97,7 @@ public class KnowledgeRetrievalEvaluationController {
     }
 
     @ApiOperation("文档可标注章节")
+    @Permission(required = false)
     @GetMapping("/documents/{id}/sections")
     public WebResponse<List<String>> sections(@PathVariable String id) {
         KnowledgeDocument document = documentService.getById(id);

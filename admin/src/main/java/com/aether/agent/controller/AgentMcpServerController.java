@@ -9,6 +9,7 @@ import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.vo.AgentMcpServerVo;
 import com.aether.entity.WebResponse;
+import com.aether.entity.Option;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
@@ -78,6 +79,17 @@ public class AgentMcpServerController {
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
+    }
+
+    @ApiOperation("MCP服务下拉选项")
+    @Permission(required = false)
+    @GetMapping("/options")
+    public WebResponse<List<Option>> options() {
+        List<Option> options = agentMcpServerService.list(Wrappers.lambdaQuery(AgentMcpServer.class)
+                        .eq(AgentMcpServer::getStatus, 1).eq(AgentMcpServer::getDeleted, false)
+                        .orderByAsc(AgentMcpServer::getName))
+                .stream().map(item -> new Option(item.getName(), item.getId())).collect(Collectors.toList());
+        return WebResponse.OK(options);
     }
 
     @ApiOperation("MCP服务详情")

@@ -4,8 +4,8 @@ import com.aether.agent.dto.ModelProviderDto;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.vo.ModelProviderVo;
-import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
+import com.aether.entity.Option;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
@@ -67,6 +67,20 @@ public class ModelProviderController {
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
+    }
+
+    @ApiOperation("模型供应商下拉选项")
+    @Permission(required = false)
+    @GetMapping("/options")
+    public WebResponse<List<Option>> options(@RequestParam(value = "type", required = false) String type,
+                                             @RequestParam(value = "excludeEmbedding", required = false, defaultValue = "false") boolean excludeEmbedding) {
+        List<Option> options = modelProviderService.list(Wrappers.lambdaQuery(ModelProvider.class)
+                        .eq(StringUtils.isNotBlank(type), ModelProvider::getType, type)
+                        .notLike(excludeEmbedding, ModelProvider::getType, "embedding")
+                        .eq(ModelProvider::getStatus, 1).eq(ModelProvider::getDeleted, false)
+                        .orderByAsc(ModelProvider::getName))
+                .stream().map(item -> new Option(item.getName(), item.getId())).collect(Collectors.toList());
+        return WebResponse.OK(options);
     }
 
     @ApiOperation("Embedding 供应商下拉选项")

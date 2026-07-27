@@ -7,6 +7,7 @@ import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.knowledge.vo.KnowledgeBaseVo;
 import com.aether.entity.WebResponse;
+import com.aether.entity.Option;
 import com.aether.i18n.I18nUtils;
 import com.aether.exception.ServerException;
 import com.aether.knowledge.model.KnowledgeBaseScope;
@@ -71,6 +72,23 @@ public class KnowledgeBaseController {
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
+    }
+
+    @ApiOperation("知识库下拉选项")
+    @Permission(required = false)
+    @GetMapping("/options")
+    public WebResponse<List<Option>> options(@RequestParam(value = "status", required = false, defaultValue = "1") Integer status,
+                                             @RequestParam(value = "indexStatus", required = false) Integer indexStatus) {
+        List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
+        if (readableIds.isEmpty()) return WebResponse.OK(Collections.emptyList());
+        List<Option> options = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
+                        .in(KnowledgeBase::getId, readableIds)
+                        .eq(status != null, KnowledgeBase::getStatus, status)
+                        .eq(indexStatus != null, KnowledgeBase::getIndexStatus, indexStatus)
+                        .eq(KnowledgeBase::getDeleted, false)
+                        .orderByAsc(KnowledgeBase::getName))
+                .stream().map(item -> new Option(item.getName(), item.getId())).collect(Collectors.toList());
+        return WebResponse.OK(options);
     }
 
     @ApiOperation("知识库详情")

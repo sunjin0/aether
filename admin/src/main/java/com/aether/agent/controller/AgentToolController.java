@@ -15,8 +15,8 @@ import com.aether.agent.vo.AgentToolCallStatisticsVo;
 import com.aether.agent.vo.AgentToolFacetsVo;
 import com.aether.agent.vo.AgentToolStatisticsVo;
 import com.aether.agent.vo.AgentToolVo;
-import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
+import com.aether.entity.Option;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
@@ -95,6 +95,18 @@ public class AgentToolController {
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
+    }
+
+    @ApiOperation("Agent工具下拉选项")
+    @Permission(required = false)
+    @GetMapping("/options")
+    public WebResponse<List<Option>> options(@RequestParam(value = "mcpServerId", required = false) String mcpServerId) {
+        List<Option> options = agentToolService.list(Wrappers.lambdaQuery(AgentTool.class)
+                        .eq(StringUtils.isNotBlank(mcpServerId), AgentTool::getMcpServerId, mcpServerId)
+                        .eq(AgentTool::getStatus, 1).eq(AgentTool::getDeleted, false)
+                        .orderByAsc(AgentTool::getName))
+                .stream().map(item -> new Option(StringUtils.defaultIfBlank(item.getName(), item.getCode()), item.getId())).collect(Collectors.toList());
+        return WebResponse.OK(options);
     }
 
     @ApiOperation("工具中心筛选聚合")

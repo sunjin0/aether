@@ -78,6 +78,18 @@ public class AgentDefinitionController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    @ApiOperation("Agent下拉选项")
+    @Permission(required = false)
+    @GetMapping("/options")
+    public WebResponse<List<Option>> options(@RequestParam(value = "status", required = false, defaultValue = "1") Integer status) {
+        List<Option> options = agentDefinitionService.list(Wrappers.lambdaQuery(AgentDefinition.class)
+                        .eq(status != null, AgentDefinition::getStatus, status)
+                        .eq(AgentDefinition::getDeleted, false)
+                        .orderByAsc(AgentDefinition::getName))
+                .stream().map(item -> new Option(item.getName(), item.getId())).collect(Collectors.toList());
+        return WebResponse.OK(options);
+    }
+
     @ApiOperation("Agent定义详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "Agent定义ID", required = true),

@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import  com.aether.permission.Permission;
 import  com.aether.sys.service.UserService;
 import  com.aether.entity.WebResponse;
+import  com.aether.entity.Option;
 import  com.aether.sys.entity.User;
 import  com.aether.exception.ServerException;
 import  com.aether.i18n.I18nUtils;
@@ -71,6 +72,16 @@ public class UserController {
             return userVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(userVos, page.getTotal());
+    }
+
+    @ApiOperation("管理员下拉选项")
+    @Permission(required = false)
+    @GetMapping("/options")
+    public WebResponse<List<Option>> options() {
+        List<Option> options = userService.list(Wrappers.lambdaQuery(User.class)
+                        .eq(User::getDeleted, false).orderByAsc(User::getUsername))
+                .stream().map(item -> new Option(item.getUsername(), item.getId())).collect(Collectors.toList());
+        return WebResponse.OK(options);
     }
 
 
