@@ -57,6 +57,8 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     private static final int PROVIDER_FAILURE_THRESHOLD = 3;
     private static final long PROVIDER_CIRCUIT_COOLDOWN_MS = 30 * 1000L;
     private static final double DEFAULT_MIN_SIMILARITY = 0.30D;
+    private static final double ADAPTIVE_SIMILARITY_RELAXATION = 0.08D;
+    private static final double ADAPTIVE_SIMILARITY_FLOOR = 0.18D;
     private static final double DEFAULT_MIN_LEXICAL_SCORE = 0.05D;
     private static final double DEFAULT_VECTOR_WEIGHT = 0.70D;
     private static final Pattern EXACT_TERM = Pattern.compile("(?i)[a-z][a-z0-9._/-]{2,}|\\d{4}[-/]?\\d{1,2}[-/]?\\d{1,2}|\\d{3,}");
@@ -156,7 +158,6 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                     continue;
                 }
                 try {
-                    String vector = knowledgeEmbeddingService.toVectorLiteral(getQueryEmbedding(provider, query));
                     // Query each base separately. A highly similar large base must not consume
                     // another base's configured recall quota before thresholding takes place.
                     for (String knowledgeBaseId : entry.getValue()) {
@@ -166,8 +167,8 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                         }
                         int retrievalLimit = Math.min(MAX_TOP_K * CANDIDATE_MULTIPLIER,
                                 config.topK * CANDIDATE_MULTIPLIER);
-                        List<KnowledgeDocumentChunk> vectorCandidates = knowledgeDocumentChunkService.searchSimilarChunks(
-                                Collections.singletonList(knowledgeBaseId), vector, retrievalLimit);
+                        List<KnowledgeDocumentChunk> vectorCandidates = searchVectorCandidates(
+                                provider, knowledgeBaseId, query, retrievalLimit);
                         List<KnowledgeDocumentChunk> lexicalCandidates = Collections.emptyList();
                         if (config.hybridEnabled) {
                             try {
@@ -524,6 +525,44 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return new ArrayList<>(merged.values());
     }
 
+    /**
+     * A user question often contains polite wording and interrogatives that
+     * dilute its embedding. Search the original question and one compact
+     * intent form, then retain the best score for each chunk. The embedding
+     * cache keeps repeated wording inexpensive.
+     */
+    private List<KnowledgeDocumentChunk> searchVectorCandidates(ModelProvider provider, String knowledgeBaseId,
+                                                                 String query, int limit) {
+        Map<String, KnowledgeDocumentChunk> merged = new LinkedHashMap<>();
+        for (String vectorQuery : buildVectorQueries(query)) {
+            String vector = knowledgeEmbeddingService.toVectorLiteral(getQueryEmbedding(provider, vectorQuery));
+            List<KnowledgeDocumentChunk> candidates = knowledgeDocumentChunkService.searchSimilarChunks(
+                    Collections.singletonList(knowledgeBaseId), vector, limit);
+            if (candidates == null) continue;
+            for (KnowledgeDocumentChunk candidate : candidates) {
+                String key = candidateKey(candidate);
+                KnowledgeDocumentChunk current = merged.get(key);
+                if (current == null || (candidate.getSimilarity() != null
+                        && (current.getSimilarity() == null || candidate.getSimilarity() > current.getSimilarity()))) {
+                    merged.put(key, candidate);
+                }
+            }
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private List<String> buildVectorQueries(String query) {
+        List<String> queries = new ArrayList<>();
+        queries.add(query);
+        String intent = query.replaceAll("[，,。！？?；;：:]", " ")
+                .replaceAll("请问|麻烦|帮我|能否|可以|如何|怎么|怎样|为什么|是什么|哪些|多少|是否|吗|呢|呀", " ")
+                .replaceAll("[的了和与及]", " ").trim().replaceAll("\\s+", " ");
+        if (StringUtils.length(intent) >= 2 && !StringUtils.equals(intent, query)) {
+            queries.add(intent);
+        }
+        return queries;
+    }
+
     private List<String> buildLexicalQueries(String query) {
         List<String> queries = new ArrayList<>();
         queries.add(query);
@@ -558,10 +597,11 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         List<KnowledgeDocumentChunk> selected = new ArrayList<>();
         Map<String, Integer> documentCounts = new HashMap<>();
         java.util.Set<String> contentHashes = new java.util.HashSet<>();
+        double effectiveMinSimilarity = effectiveMinSimilarity(candidates, config);
         candidates.sort(Comparator.comparing(KnowledgeDocumentChunk::getRetrievalScore,
                 Comparator.nullsLast(Comparator.reverseOrder())));
         for (KnowledgeDocumentChunk candidate : candidates) {
-            boolean vectorMatch = candidate.getSimilarity() != null && candidate.getSimilarity() >= config.minSimilarity;
+            boolean vectorMatch = candidate.getSimilarity() != null && candidate.getSimilarity() >= effectiveMinSimilarity;
             boolean lexicalMatch = config.hybridEnabled && candidate.getLexicalScore() != null
                     && candidate.getLexicalScore() >= config.minLexicalScore;
             if (!vectorMatch && !lexicalMatch) {
@@ -582,6 +622,22 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
             }
         }
         return selected;
+    }
+
+    private double effectiveMinSimilarity(List<KnowledgeDocumentChunk> candidates, RetrievalConfig config) {
+        if (config.strictGrounding) return config.minSimilarity;
+        boolean hasNormalVectorMatch = false;
+        for (KnowledgeDocumentChunk candidate : candidates) {
+            if (candidate.getSimilarity() != null && candidate.getSimilarity() >= config.minSimilarity) {
+                hasNormalVectorMatch = true;
+                break;
+            }
+        }
+        // Only relax when the normal threshold would return nothing from this
+        // knowledge base. This improves recall for terse/paraphrased queries
+        // without displacing a normally strong match.
+        return hasNormalVectorMatch ? config.minSimilarity
+                : Math.max(ADAPTIVE_SIMILARITY_FLOOR, config.minSimilarity - ADAPTIVE_SIMILARITY_RELAXATION);
     }
 
     private List<KnowledgeDocumentChunk> selectDiverseChunks(List<KnowledgeDocumentChunk> candidates) {

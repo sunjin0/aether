@@ -38,6 +38,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.validation.constraints.NotBlank;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.security.MessageDigest;
@@ -180,6 +181,45 @@ public class KnowledgeDocumentController {
             }
             throw e;
         }
+    }
+
+    @ApiOperation("Batch upload knowledge documents")
+    @Permission(path = "/knowledge/document", type = Permission.Type.Write)
+    @PostMapping("/upload/batch")
+    public WebResponse<List<UploadResult>> uploadBatch(@RequestParam("knowledgeBaseId") String knowledgeBaseId,
+                                                        @RequestParam("files") MultipartFile[] files) {
+        if (files == null || files.length == 0) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.invalid"));
+        List<UploadResult> results = new ArrayList<>();
+        for (MultipartFile file : files) {
+            UploadResult result = new UploadResult();
+            result.setFileName(file == null ? null : file.getOriginalFilename());
+            try {
+                WebResponse<String> response = upload(knowledgeBaseId, file, null);
+                result.setSuccess(true);
+                result.setVersionId(response.getData());
+            } catch (Exception e) {
+                log.warn("知识文档批量上传失败: file={}", result.getFileName(), e);
+                result.setSuccess(false);
+                result.setMessage(e.getMessage());
+            }
+            results.add(result);
+        }
+        return WebResponse.OK(results);
+    }
+
+    public static class UploadResult {
+        private String fileName;
+        private boolean success;
+        private String versionId;
+        private String message;
+        public String getFileName() { return fileName; }
+        public void setFileName(String fileName) { this.fileName = fileName; }
+        public boolean isSuccess() { return success; }
+        public void setSuccess(boolean success) { this.success = success; }
+        public String getVersionId() { return versionId; }
+        public void setVersionId(String versionId) { this.versionId = versionId; }
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
     }
 
     @ApiOperation("Preview knowledge document")
