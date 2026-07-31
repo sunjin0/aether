@@ -21,4 +21,6 @@ public interface AgentStreamCallback {
     void onError(int code, String message);
 
     boolean isClosed();
+
+    default void onRunStep(String runId, String stepJson) {}
 }

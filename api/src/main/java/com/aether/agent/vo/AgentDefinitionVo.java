@@ -58,6 +58,9 @@ public class AgentDefinitionVo extends BaseEntity {
     @ApiModelProperty(value = "备注")
     private String remark;
 
+    @ApiModelProperty(value = "执行模式：STANDARD 或 DEEP")
+    private String executionMode;
+
     @ApiModelProperty(value = "绑定的工具列表")
     private List<String> toolIds;
 

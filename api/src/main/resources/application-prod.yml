@@ -75,6 +75,14 @@ storage:
     bucket: ${MINIO_FILE_BUCKET:aether}
     max-size: ${FILE_MAX_SIZE:52428800}
 
+aether:
+  deep-agent:
+    base-url: ${AETHER_DEEP_AGENT_BASE_URL:}
+    shared-secret: ${AETHER_DEEP_AGENT_SHARED_SECRET:}
+    key-id: ${AETHER_DEEP_AGENT_KEY_ID:deep-agent-v1}
+    mcp-delegation-secret: ${AETHER_MCP_DELEGATION_SECRET:}
+    run-timeout-seconds: ${AETHER_DEEP_AGENT_RUN_TIMEOUT_SECONDS:600}
+
 #    mybatis
 mybatis-plus:
   configuration:

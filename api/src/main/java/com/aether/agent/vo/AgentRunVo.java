@@ -65,4 +65,13 @@ public class AgentRunVo extends BaseEntity {
 
     @ApiModelProperty(value = "创建时间结束时间戳")
     private Long endTime;
+
+    @ApiModelProperty(value = "执行模式：STANDARD 或 DEEP")
+    private String executionMode;
+
+    @ApiModelProperty(value = "外部 Deep Agent 运行 ID")
+    private String externalRunId;
+
+    @ApiModelProperty(value = "Deep Agent dispatch-time retrieval sources JSON")
+    private String retrievalSources;
 }

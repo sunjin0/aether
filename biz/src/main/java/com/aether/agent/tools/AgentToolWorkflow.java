@@ -169,7 +169,7 @@ public class AgentToolWorkflow {
 
             ToolExecutionResult result;
             try {
-                result = executeMcpTool(tool, call.getArguments(), runId, userId);
+                result = executeMcpTool(tool, call.getArguments(), runId, userId, agent.getId());
             } catch (Exception e) {
                 result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED);
                 result.setRequestMethod("MCP tools/call");
@@ -253,7 +253,7 @@ public class AgentToolWorkflow {
             result = ToolExecutionResult.failure("待确认的工具已不存在或被禁用", STATUS_FAILED);
         } else {
             try {
-                result = executeMcpTool(tool, arguments, runId, userId);
+                result = executeMcpTool(tool, arguments, runId, userId, agent.getId());
             } catch (Exception e) {
                 result = ToolExecutionResult.failure("MCP 工具执行失败: " + e.getMessage(), STATUS_FAILED);
             }
@@ -267,12 +267,13 @@ public class AgentToolWorkflow {
     }
 
     private ToolExecutionResult executeMcpTool(AgentTool tool, Map<String, Object> arguments,
-                                               String runId, String userId) {
+                                               String runId, String userId, String agentDefinitionId) {
         ToolExecutionContext context = new ToolExecutionContext();
         context.setTool(tool);
         context.setArguments(arguments);
         context.setRunId(runId);
         context.setUserId(userId);
+        context.setAgentDefinitionId(agentDefinitionId);
         return executorFactory.getExecutor("mcp").execute(context);
     }
 

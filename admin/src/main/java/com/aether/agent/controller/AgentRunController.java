@@ -2,7 +2,11 @@ package com.aether.agent.controller;
 
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.service.AgentRunService;
+import com.aether.agent.service.AgentRunStepService;
+import com.aether.agent.service.DeepAgentSigningClient;
+import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.vo.AgentRunStatisticsVo;
+import com.aether.agent.vo.AgentRunStepVo;
 import com.aether.agent.vo.AgentRunVo;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
@@ -16,13 +20,17 @@ import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -35,11 +43,22 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/agent/run")
 public class AgentRunController {
 
+    private static final Logger log = LoggerFactory.getLogger(AgentRunController.class);
+
     private final AgentRunService agentRunService;
+    private final AgentRunStepService agentRunStepService;
+    private final DeepAgentSigningClient signingClient;
+    private final DeepAgentConfig deepAgentConfig;
 
     @Autowired
-    public AgentRunController(AgentRunService agentRunService) {
+    public AgentRunController(AgentRunService agentRunService,
+                              AgentRunStepService agentRunStepService,
+                              DeepAgentSigningClient signingClient,
+                              DeepAgentConfig deepAgentConfig) {
         this.agentRunService = agentRunService;
+        this.agentRunStepService = agentRunStepService;
+        this.signingClient = signingClient;
+        this.deepAgentConfig = deepAgentConfig;
     }
 
     @ApiOperation("运行记录列表")
@@ -87,9 +106,52 @@ public class AgentRunController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @GetMapping("/statistics")
-    public WebResponse<AgentRunStatisticsVo> statistics(@RequestParam(required = false) String agentId,
-                                                        @RequestParam(required = false) Long startTime,
-                                                        @RequestParam(required = false) Long endTime) {
-        return WebResponse.OK(agentRunService.statistics(agentId, startTime, endTime));
+    public WebResponse<AgentRunStatisticsVo> statistics(@RequestParam(value = "agentDefinitionId", required = false) String agentDefinitionId,
+                                                         @RequestParam(required = false) Long startTime,
+                                                         @RequestParam(required = false) Long endTime) {
+        return WebResponse.OK(agentRunService.statistics(agentDefinitionId, startTime, endTime));
+    }
+
+    @ApiOperation("运行步骤列表")
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
+    })
+    @GetMapping("/{id}/steps")
+    public WebResponse<List<AgentRunStepVo>> steps(@PathVariable @NotBlank String id) {
+        AgentRun run = agentRunService.getById(id);
+        if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+        }
+        List<AgentRunStepVo> steps = agentRunStepService.listByRunId(id).stream().map(item -> {
+            AgentRunStepVo vo = new AgentRunStepVo();
+            BeanUtils.copyProperties(item, vo);
+            return vo;
+        }).collect(Collectors.toList());
+        return WebResponse.OK(steps);
+    }
+
+    @ApiOperation("取消 Deep Agent 运行")
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
+    })
+    @Permission(path = "/agent/run", type = Permission.Type.Write)
+    @PostMapping("/{id}/cancel")
+    public WebResponse<Void> cancel(@PathVariable @NotBlank String id) {
+        AgentRun run = agentRunService.getById(id);
+        if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+        }
+        if (!"DEEP".equals(run.getExecutionMode())) {
+            throw new ServerException(422, "仅 Deep Agent 运行支持取消");
+        }
+        try {
+            Map<String, String> cancelBody = new HashMap<>();
+            cancelBody.put("run_id", id);
+            signingClient.signedPost("/v1/runs/" + id + "/cancel", cancelBody);
+        } catch (Exception e) {
+            log.warn("取消 Deep Agent 运行请求失败: runId={}", id, e);
+            throw new ServerException(502, "Deep Agent 取消请求失败");
+        }
+        return WebResponse.OK((Void) null);
     }
 }

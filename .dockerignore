@@ -7,3 +7,10 @@ target/
 **/node_modules/
 **/*.log
 **/.gitkeep
+
+# Compose 运行时镜像只需要本机打包后的 Admin 产物。
+!admin/
+!admin/target/
+!admin/target/admin-*.jar
+!admin/target/lib/
+!admin/target/lib/*.jar

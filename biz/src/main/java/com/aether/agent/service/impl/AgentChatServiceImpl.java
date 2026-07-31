@@ -734,7 +734,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         return userId;
     }
 
-    private AgentDefinition getEnabledAgent(String agentId) {
+    @Override
+    public AgentDefinition getEnabledAgent(String agentId) {
         AgentDefinition agent = agentDefinitionService.getById(agentId);
         if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));

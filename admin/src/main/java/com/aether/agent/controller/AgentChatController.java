@@ -1,14 +1,20 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentChatDto;
+import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.entity.AgentConversation;
+import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
+import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentConversationService;
+import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.ChatAttachmentService;
+import com.aether.agent.service.DeepAgentRunService;
+import com.aether.agent.service.KnowledgeContextService;
 import com.aether.agent.vo.AgentConversationVo;
 import com.aether.agent.vo.AgentChatAttachmentVo;
 import com.aether.agent.vo.AgentMessageVo;
@@ -42,13 +48,16 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import javax.servlet.http.HttpServletResponse;
 import javax.validation.constraints.NotBlank;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -63,30 +72,52 @@ public class AgentChatController {
 
     private static final Logger log = LoggerFactory.getLogger(AgentChatController.class);
     private static final long STREAM_TIMEOUT_MS = 300000L; // 5分钟，推理模型需要更长响应时间
+    private static final long DEEP_STREAM_TIMEOUT_MARGIN_SECONDS = 30L;
+    private static final long DEFAULT_DEEP_RUN_TIMEOUT_SECONDS = 600L;
     private static final long HEARTBEAT_INTERVAL_MS = 15000L; // 15秒心跳
 
     private final AgentChatService agentChatService;
     private final AgentConversationService agentConversationService;
     private final AgentMessageService agentMessageService;
     private final ChatAttachmentService chatAttachmentService;
+    private final AgentDefinitionService agentDefinitionService;
+    private final DeepAgentRunService deepAgentRunService;
+    private final DeepAgentCallbackController deepAgentCallbackController;
+    private final KnowledgeContextService knowledgeContextService;
+    private final DeepAgentConfig deepAgentConfig;
     private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired
     public AgentChatController(AgentChatService agentChatService, AgentConversationService agentConversationService,
-                               AgentMessageService agentMessageService, ChatAttachmentService chatAttachmentService) {
+                               AgentMessageService agentMessageService, ChatAttachmentService chatAttachmentService,
+                               AgentDefinitionService agentDefinitionService, DeepAgentRunService deepAgentRunService,
+                               DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
+                               DeepAgentConfig deepAgentConfig) {
         this.agentChatService = agentChatService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
         this.chatAttachmentService = chatAttachmentService;
+        this.agentDefinitionService = agentDefinitionService;
+        this.deepAgentRunService = deepAgentRunService;
+        this.deepAgentCallbackController = deepAgentCallbackController;
+        this.knowledgeContextService = knowledgeContextService;
+        this.deepAgentConfig = deepAgentConfig;
     }
 
-    @ApiOperation("非流式聊天")
+    @ApiOperation("非流式聊天（兼容接口，已弃用；新调用请使用 /api/agent/chat/stream）")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public WebResponse<AgentMessageVo> chat(@RequestBody AgentChatDto dto) {
+        AgentDefinition agent = agentDefinitionService.getById(dto.getAgentId());
+        if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+        }
+        if ("DEEP".equals(agent.getExecutionMode())) {
+            throw new ServerException(422, "Deep Agent 仅支持流式聊天，请使用 /api/agent/chat/stream");
+        }
         return WebResponse.OK(agentChatService.chat(dto));
     }
 
@@ -116,7 +147,39 @@ public class AgentChatController {
     @PostMapping(value = "/stream", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestBody AgentChatDto dto, HttpServletResponse response) {
+        AgentDefinition agent = agentChatService.getEnabledAgent(dto.getAgentId());
+        if ("DEEP".equals(agent.getExecutionMode())) {
+            if (StringUtils.isNotBlank(dto.getParentMessageId())) {
+                return resumeDeep(dto, response, agent);
+            }
+            return streamDeep(dto, response, agent);
+        }
         return openStream(dto, response);
+    }
+
+    /** 与普通 Agent 共用 stream + parentMessageId 交互回复协议，恢复同一 Deep 运行。 */
+    private SseEmitter resumeDeep(AgentChatDto dto, HttpServletResponse response, AgentDefinition agent) {
+        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        if (StringUtils.isBlank(userId)) throw new ServerException(401, I18nUtils.getMessage("agent.unauthorized"));
+        AgentConversation conversation = getDeepConversation(dto.getConversationId(), userId, agent);
+        if (conversation == null) throw new ServerException(422, "Deep 工具确认必须关联现有会话");
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("Connection", "keep-alive");
+        SseEmitter emitter = new SseEmitter(deepStreamTimeoutMs());
+        try {
+            emitter.send(SseEmitter.event().comment("connected"));
+            String runId = deepAgentRunService.resumeToolApproval(conversation.getId(), dto.getParentMessageId(), userId, dto.getAnswer());
+            DeepRunEventHub.add(runId, emitter);
+            JSONObject accepted = new JSONObject();
+            accepted.put("runId", runId);
+            accepted.put("conversationId", conversation.getId());
+            emitter.send(SseEmitter.event().name("accepted").data(accepted.toJSONString()));
+        } catch (IllegalArgumentException e) {
+            throw new ServerException(422, e.getMessage());
+        } catch (Exception e) {
+            throw new ServerException(502, "Deep Agent 恢复失败: " + e.getMessage());
+        }
+        return emitter;
     }
 
     private SseEmitter openStream(AgentChatDto dto, HttpServletResponse response) {
@@ -329,6 +392,194 @@ public class AgentChatController {
                 closed.set(true);
             }
         }
+    }
+
+    private SseEmitter streamDeep(AgentChatDto dto, HttpServletResponse response, AgentDefinition agent) {
+        String userId = CurrentUser.getUser() != null ? CurrentUser.getUser().get("userId") : null;
+        if (StringUtils.isBlank(userId)) {
+            throw new ServerException(401, I18nUtils.getMessage("agent.unauthorized"));
+        }
+        AgentConversation existingConversation = getDeepConversation(dto.getConversationId(), userId, agent);
+
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("Connection", "keep-alive");
+        response.setHeader("X-Accel-Buffering", "no");
+
+        SseEmitter emitter = new SseEmitter(deepStreamTimeoutMs());
+        AtomicBoolean closed = new AtomicBoolean(false);
+        AtomicReference<ScheduledFuture<?>> heartbeatRef = new AtomicReference<>();
+        AtomicReference<String> runIdRef = new AtomicReference<>();
+        Runnable cleanup = () -> {
+            closed.set(true);
+            ScheduledFuture<?> heartbeat = heartbeatRef.get();
+            if (heartbeat != null) heartbeat.cancel(false);
+            String runId = runIdRef.get();
+            if (runId != null) deepAgentCallbackController.removeCallback(runId);
+        };
+        emitter.onCompletion(cleanup);
+        emitter.onTimeout(() -> { cleanup.run(); emitter.complete(); });
+        emitter.onError(error -> cleanup.run());
+
+        try { emitter.send(SseEmitter.event().comment("connected")); }
+        catch (IOException e) { closed.set(true); }
+
+        heartbeatRef.set(heartbeatScheduler.scheduleAtFixedRate(() -> {
+            if (closed.get()) return;
+            try { emitter.send(SseEmitter.event().comment("heartbeat")); }
+            catch (Exception e) { cleanup.run(); }
+        }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS));
+        if (closed.get()) cleanup.run();
+
+        streamExecutor.execute(() -> {
+            try {
+                AgentConversation conversation;
+                if (existingConversation != null) {
+                    conversation = existingConversation;
+                } else {
+                    conversation = new AgentConversation();
+                    conversation.setUserId(userId);
+                    conversation.setAgentDefinitionId(agent.getId());
+                    conversation.setStatus(0);
+                    agentConversationService.save(conversation);
+                }
+                final String conversationId = conversation.getId();
+
+                List<ModelChatMessage> ctx = new ArrayList<>();
+                if (agent.getSystemPrompt() != null) {
+                    ctx.add(new ModelChatMessage("system", agent.getSystemPrompt()));
+                }
+                String taskContext = buildDeepTaskContext(dto);
+                List<Map<String, Object>> sources = knowledgeContextService.enhance(
+                        ctx, userId, conversationId, agent.getId(), taskContext);
+
+                AgentStreamCallback callback = new AgentStreamCallback() {
+                    @Override public void onMessage(String cid, String chunk) {}
+                    @Override public void onReasoning(String cid, String chunk) {}
+                    @Override public void onToolCall(String cid, String toolCallJson) {}
+
+                    @Override
+                    public void onRunStep(String runId, String stepJson) {
+                        if (closed.get()) return;
+                        try { emitter.send(SseEmitter.event().name("run_step").data(stepJson)); }
+                        catch (IOException e) { closed.set(true); }
+                    }
+
+                    @Override public void onQuestion(String cid, String rid, AgentMessageVo q) {
+                        if (closed.get()) return;
+                        try {
+                            JSONObject question = new JSONObject();
+                            question.put("conversationId", cid);
+                            question.put("runId", rid);
+                            question.put("messageId", q.getId());
+                            question.put("content", q.getContent());
+                            question.put("messageType", q.getMessageType());
+                            question.put("interactionType", q.getInteractionType());
+                            question.put("interactionStatus", q.getInteractionStatus());
+                            question.put("questionConfig", JSON.parseObject(q.getQuestionConfig()));
+                            emitter.send(SseEmitter.event().name("question").data(question.toJSONString()));
+                        } catch (Exception e) { closed.set(true); }
+                    }
+                    @Override public void onDone(String callbackConversationId, String mid, ModelStreamResponse response) {
+                        if (closed.get()) return;
+                        try {
+                            JSONObject done = new JSONObject();
+                            done.put("conversationId", callbackConversationId);
+                            done.put("messageId", mid);
+                            done.put("runId", runIdRef.get());
+                            if (response != null) {
+                                done.put("content", response.getContent());
+                                done.put("model", response.getModel());
+                                done.put("promptTokens", response.getPromptTokens());
+                                done.put("completionTokens", response.getCompletionTokens());
+                                done.put("totalTokens", response.getTotalTokens());
+                                done.put("sources", response.getSources());
+                            }
+                            emitter.send(SseEmitter.event().name("done").data(done.toJSONString()));
+                            closed.set(true);
+                            emitter.complete();
+                        } catch (Exception ignored) { closed.set(true); }
+                    }
+                    @Override public void onError(int code, String message) {
+                        if (closed.get()) return;
+                        try {
+                            JSONObject err = new JSONObject();
+                            err.put("code", code);
+                            err.put("message", message);
+                            emitter.send(SseEmitter.event().name("error").data(err.toJSONString()));
+                            closed.set(true);
+                            emitter.complete();
+                        } catch (Exception ignored) { closed.set(true); }
+                    }
+                    @Override public boolean isClosed() { return closed.get(); }
+                };
+                String runId = deepAgentRunService.startRun(agent, userId, conversationId, dto.getMessage(),
+                        dto.getAttachmentContent(), dto.getAttachments(), sources, registeredRunId -> {
+                    runIdRef.set(registeredRunId);
+                    deepAgentCallbackController.registerCallback(registeredRunId, callback);
+                });
+                runIdRef.set(runId);
+                JSONObject accepted = new JSONObject();
+                accepted.put("runId", runId);
+                accepted.put("conversationId", conversationId);
+                emitter.send(SseEmitter.event().name("accepted").data(accepted.toJSONString()));
+                deepAgentCallbackController.reconcileTerminalCallback(runId);
+            } catch (Exception e) {
+                log.error("Deep Agent 流式启动失败", e);
+                if (!closed.get()) {
+                    try {
+                        JSONObject err = new JSONObject();
+                        err.put("code", 500);
+                        err.put("message", "Deep Agent 启动失败: " + e.getMessage());
+                        emitter.send(SseEmitter.event().name("error").data(err.toJSONString()));
+                        closed.set(true);
+                        emitter.complete();
+                    } catch (IOException ignored) {}
+                }
+            }
+        });
+        return emitter;
+    }
+
+    /** 附件正文只作为执行上下文使用，聊天记录仍保留用户原始提问及附件元数据。 */
+    private String buildDeepTaskContext(AgentChatDto dto) {
+        if (StringUtils.isBlank(dto.getAttachmentContent())) {
+            return dto.getMessage();
+        }
+        return StringUtils.defaultString(dto.getMessage()) + "\n\n附件内容：\n" + dto.getAttachmentContent();
+    }
+
+    private AgentConversation getDeepConversation(String conversationId, String userId, AgentDefinition agent) {
+        if (StringUtils.isBlank(conversationId)) {
+            return null;
+        }
+        AgentConversation conversation = agentConversationService.getById(conversationId);
+        if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
+        }
+        if (!userId.equals(conversation.getUserId())) {
+            throw new ServerException(403, I18nUtils.getMessage("agent.conversation.access.denied"));
+        }
+        if (!agent.getId().equals(conversation.getAgentDefinitionId())) {
+            throw new ServerException(422, I18nUtils.getMessage("agent.conversation.agent.mismatch"));
+        }
+        if (!Integer.valueOf(0).equals(conversation.getStatus())) {
+            throw new ServerException(422, I18nUtils.getMessage("agent.conversation.closed"));
+        }
+        return conversation;
+    }
+
+    private long deepStreamTimeoutMs() {
+        long runTimeoutSeconds = deepAgentConfig.getRunTimeoutSeconds();
+        if (runTimeoutSeconds <= 0) {
+            runTimeoutSeconds = DEFAULT_DEEP_RUN_TIMEOUT_SECONDS;
+        }
+        long totalSeconds;
+        if (runTimeoutSeconds > Long.MAX_VALUE - DEEP_STREAM_TIMEOUT_MARGIN_SECONDS) {
+            totalSeconds = Long.MAX_VALUE;
+        } else {
+            totalSeconds = runTimeoutSeconds + DEEP_STREAM_TIMEOUT_MARGIN_SECONDS;
+        }
+        return totalSeconds > Long.MAX_VALUE / 1000L ? Long.MAX_VALUE : totalSeconds * 1000L;
     }
 
 }

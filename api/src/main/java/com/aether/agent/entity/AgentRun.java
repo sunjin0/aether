@@ -59,4 +59,13 @@ public class AgentRun extends BaseEntity {
 
     @ApiModelProperty(value = "错误信息")
     private String errorMsg;
+
+    @ApiModelProperty(value = "External Deep Agent run ID")
+    private String externalRunId;
+
+    @ApiModelProperty(value = "Deep Agent dispatch-time retrieval sources JSON")
+    private String retrievalSources;
+
+    @ApiModelProperty(value = "Execution mode: STANDARD or DEEP")
+    private String executionMode;
 }

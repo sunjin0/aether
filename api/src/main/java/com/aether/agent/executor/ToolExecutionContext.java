@@ -30,4 +30,7 @@ public class ToolExecutionContext {
      * 调用者ID
      */
     private String userId;
+
+    /** Agent 定义 ID，用于签发 MCP 工具的最小权限委派令牌。 */
+    private String agentDefinitionId;
 }

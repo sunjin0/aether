@@ -64,4 +64,7 @@ public class AgentDefinition extends BaseEntity {
 
     @ApiModelProperty(value = "备注")
     private String remark;
+
+    @ApiModelProperty(value = "Execution mode: STANDARD or DEEP")
+    private String executionMode;
 }

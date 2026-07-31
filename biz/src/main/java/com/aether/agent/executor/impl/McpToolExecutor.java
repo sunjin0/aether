@@ -7,6 +7,7 @@ import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.mcp.McpClient;
 import com.aether.agent.service.AgentMcpServerService;
+import com.aether.agent.service.DelegationTokenService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson2.JSON;
@@ -14,6 +15,8 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
+
+import java.util.Collections;
 
 /**
  * MCP tool executor. AgentTool stores the concrete MCP tool name and references an MCP server configuration.
@@ -25,10 +28,13 @@ public class McpToolExecutor implements ToolExecutor {
 
     private final McpClient mcpClient;
     private final AgentMcpServerService agentMcpServerService;
+    private final DelegationTokenService delegationTokenService;
 
-    public McpToolExecutor(McpClient mcpClient, AgentMcpServerService agentMcpServerService) {
+    public McpToolExecutor(McpClient mcpClient, AgentMcpServerService agentMcpServerService,
+                           DelegationTokenService delegationTokenService) {
         this.mcpClient = mcpClient;
         this.agentMcpServerService = agentMcpServerService;
+        this.delegationTokenService = delegationTokenService;
     }
 
     @Override
@@ -44,6 +50,7 @@ public class McpToolExecutor implements ToolExecutor {
         String requestUrl = null;
         try {
             AgentMcpServer server = buildServer(tool);
+            applyDelegationToken(server, context, tool);
             requestUrl = server.getBaseUrl();
             String mcpToolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
             requestBody = JSON.toJSONString(context.getArguments());
@@ -67,7 +74,7 @@ public class McpToolExecutor implements ToolExecutor {
             }
             result.setRequestUrl(server.getBaseUrl());
             result.setRequestMethod("MCP tools/call");
-            result.setRequestHeaders(server.getRequestHeaders());
+            result.setRequestHeaders(maskAuthorization(server.getRequestHeaders()));
             result.setRequestBody(requestBody);
             return result;
         } catch (ServerException e) {
@@ -93,6 +100,38 @@ public class McpToolExecutor implements ToolExecutor {
         }
         validateServer(server);
         return server;
+    }
+
+    /** 普通 Agent 与 Deep Agent 使用相同的 Java 委派 JWT，MCP 仅接受当前运行允许的工具。 */
+    private void applyDelegationToken(AgentMcpServer server, ToolExecutionContext context, AgentTool tool) {
+        if (StringUtils.isAnyBlank(context.getRunId(), context.getUserId(), context.getAgentDefinitionId())) {
+            throw new ServerException(422, "MCP 工具调用缺少运行委派上下文");
+        }
+        String toolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
+        String token = delegationTokenService.create(context.getRunId(), context.getUserId(),
+                context.getAgentDefinitionId(), Collections.singletonList(toolName));
+        JSONObject headers = StringUtils.isBlank(server.getRequestHeaders())
+                ? new JSONObject() : JSON.parseObject(server.getRequestHeaders());
+        headers.put("Authorization", "Bearer " + token);
+        // 仅修改当前内存对象，绝不写回数据库或复用为长期静态令牌。
+        server.setRequestHeaders(headers.toJSONString());
+    }
+
+    private String maskAuthorization(String headersJson) {
+        if (StringUtils.isBlank(headersJson)) {
+            return headersJson;
+        }
+        try {
+            JSONObject headers = JSON.parseObject(headersJson);
+            for (String key : headers.keySet()) {
+                if ("authorization".equalsIgnoreCase(key)) {
+                    headers.put(key, "Bearer ***");
+                }
+            }
+            return headers.toJSONString();
+        } catch (Exception ignored) {
+            return "{\"Authorization\":\"***\"}";
+        }
     }
 
     private void validateServer(AgentMcpServer server) {

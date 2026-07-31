@@ -6,6 +6,7 @@ import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.mcp.McpClient;
 import com.aether.agent.service.AgentMcpServerService;
+import com.aether.agent.service.DelegationTokenService;
 import com.aether.exception.ServerException;
 import org.junit.jupiter.api.Test;
 
@@ -26,13 +27,15 @@ class McpToolExecutorTest {
     void executeReturnsUnavailableMessageWhenPingFails() {
         McpClient mcpClient = mock(McpClient.class);
         AgentMcpServerService serverService = mock(AgentMcpServerService.class);
+        DelegationTokenService delegationTokenService = mock(DelegationTokenService.class);
         AgentMcpServer server = server();
         when(serverService.getById("server-1")).thenReturn(server);
         when(mcpClient.supportsTransport("http")).thenReturn(true);
+        when(delegationTokenService.create(any(), any(), any(), any())).thenReturn("delegation-token");
         doThrow(new ServerException(502, "MCP服务不可用，请检查服务状态或连接配置"))
                 .when(mcpClient).ping(server);
 
-        McpToolExecutor executor = new McpToolExecutor(mcpClient, serverService);
+        McpToolExecutor executor = new McpToolExecutor(mcpClient, serverService, delegationTokenService);
         ToolExecutionResult result = executor.execute(context());
 
         assertFalse(result.isSuccess());
@@ -57,6 +60,9 @@ class McpToolExecutorTest {
         ToolExecutionContext context = new ToolExecutionContext();
         context.setTool(tool);
         context.setArguments(Collections.emptyMap());
+        context.setRunId("run-1");
+        context.setUserId("user-1");
+        context.setAgentDefinitionId("agent-1");
         return context;
     }
 }
