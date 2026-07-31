@@ -83,6 +83,12 @@ aether:
     mcp-delegation-secret: ${AETHER_MCP_DELEGATION_SECRET:}
     run-timeout-seconds: ${AETHER_DEEP_AGENT_RUN_TIMEOUT_SECONDS:600}
 
+# 查询重写会额外触发一次同步模型调用；生产环境默认关闭以缩短首字响应时间。
+agent:
+  chat:
+    query-rewrite:
+      enabled: ${AGENT_CHAT_QUERY_REWRITE_ENABLED:false}
+
 #    mybatis
 mybatis-plus:
   configuration:

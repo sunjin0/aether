@@ -29,5 +29,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 EXPOSE 8080
 ENV JAVA_OPTS="-Xmx1g -Xms512m -server"
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:8080/actuator/health || exit 1
+  CMD curl -f http://localhost:8080/v2/api-docs || exit 1
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar admin.jar"]

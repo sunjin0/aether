@@ -180,9 +180,6 @@ class AgentChatServiceImplTest {
         response.setTotalTokens(7);
         response.setReasoningTokens(2);
 
-        ModelChatResponse rewriteResponse = new ModelChatResponse();
-        rewriteResponse.setContent("{\"rewrittenContent\":\"完整的问候语\"}");
-
         when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
         when(modelProviderService.getById("provider-1")).thenReturn(provider);
         when(agentConversationService.save(any(AgentConversation.class))).thenAnswer(invocation -> {
@@ -201,7 +198,7 @@ class AgentChatServiceImplTest {
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
-        when(modelClient.chat(any())).thenReturn(rewriteResponse, response);
+        when(modelClient.chat(any())).thenReturn(response);
 
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");
@@ -235,7 +232,7 @@ class AgentChatServiceImplTest {
         verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
         AgentMessage userMessage = messageCaptor.getAllValues().get(0);
         assertEquals("你好", userMessage.getContent());
-        assertEquals("完整的问候语", userMessage.getRewrittenContent());
+        org.junit.jupiter.api.Assertions.assertNull(userMessage.getRewrittenContent());
         AgentMessage assistantMessage = messageCaptor.getAllValues().get(1);
         org.junit.jupiter.api.Assertions.assertNull(assistantMessage.getReasoningContent());
         org.junit.jupiter.api.Assertions.assertNull(assistantMessage.getReasoningTokens());

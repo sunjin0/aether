@@ -42,6 +42,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -84,6 +85,10 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final ConversationContextService conversationContextService;
     private final AdminPreferenceExtractionService adminPreferenceExtractionService;
     private final QueryRewriteService queryRewriteService;
+
+    /** 默认关闭，避免每轮聊天在主模型调用前额外等待一次同步模型重写。 */
+    @Value("${agent.chat.query-rewrite.enabled:false}")
+    private boolean queryRewriteEnabled;
 
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
                                 ModelProviderService modelProviderService,
@@ -826,6 +831,9 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     private String rewriteUserMessage(String conversationId, String originalContent,
                                       AgentDefinition agent, ModelProvider provider) {
+        if (!queryRewriteEnabled) {
+            return null;
+        }
         try {
             List<ModelChatMessage> history = conversationContextService.buildRewriteHistory(conversationId);
             return queryRewriteService.rewrite(history, originalContent, agent, provider).getRewrittenContent();
