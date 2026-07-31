@@ -106,7 +106,9 @@ public class KnowledgeContextService {
             source.put("knowledgeBaseId", chunk.getKnowledgeBaseId());
             source.put("documentId", chunk.getDocumentId());
             source.put("documentVersionId", chunk.getDocumentVersionId());
-            source.put("documentName", documentNames.get(chunk.getDocumentId()));
+            String documentName = documentNames.get(chunk.getDocumentId());
+            source.put("documentName", StringUtils.defaultIfBlank(documentName,
+                    "知识库文档 " + (sources.size() + 1)));
             source.put("citationIndex", sources.size() + 1);
             source.put("chunkId", chunk.getId());
             source.put("chunkIndex", chunk.getChunkIndex());
@@ -228,7 +230,8 @@ public class KnowledgeContextService {
         Map<String, String> names = new HashMap<>();
         if (!documentIds.isEmpty()) {
             for (KnowledgeDocument document : documentService.listByIds(documentIds)) {
-                names.put(document.getId(), document.getTitle());
+                names.put(document.getId(), StringUtils.defaultIfBlank(document.getTitle(),
+                        document.getOriginalFileName()));
             }
         }
         return names;

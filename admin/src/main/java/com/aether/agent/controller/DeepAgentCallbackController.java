@@ -108,6 +108,16 @@ public class DeepAgentCallbackController {
             JSONObject eventData = event.getJSONObject("data");
             String dataJson = eventData != null ? eventData.toJSONString() : "{}";
 
+            // 文本增量只用于当前聊天 SSE；不属于可审计的执行步骤，也不应写入执行记录。
+            if ("message.delta".equals(eventType)) {
+                AgentStreamCallback messageCallback = activeCallbacks.get(runId);
+                if (messageCallback != null && !messageCallback.isClosed()) {
+                    messageCallback.onMessage(deepAgentRunService.getDeepRunForReconciliation(runId).getConversationId(),
+                            JSON.parseObject(dataJson).getString("chunk"));
+                }
+                return ResponseEntity.accepted().build();
+            }
+
             boolean isNew;
             try {
                 isNew = deepAgentRunService.handleCallback(runId, eventId, eventType, occurredAt, dataJson);
@@ -161,6 +171,26 @@ public class DeepAgentCallbackController {
                         question.put("interactionStatus", approval.getInteractionStatus());
                         question.put("questionConfig", JSON.parseObject(approval.getQuestionConfig()));
                         DeepRunEventHub.publish(runId, "question", question.toJSONString(), false);
+                        break;
+                    case "ask_user.required":
+                        AgentMessage askUser = deepAgentRunService.createAskUserQuestion(runId, dataJson);
+                        AgentMessageVo askUserVo = new AgentMessageVo();
+                        org.springframework.beans.BeanUtils.copyProperties(askUser, askUserVo);
+                        AgentStreamCallback askUserCallback = activeCallbacks.get(runId);
+                        if (askUserCallback != null && !askUserCallback.isClosed()) {
+                            askUserCallback.onQuestion(askUser.getConversationId(), runId, askUserVo);
+                            break;
+                        }
+                        JSONObject askQuestion = new JSONObject();
+                        askQuestion.put("conversationId", askUser.getConversationId());
+                        askQuestion.put("runId", runId);
+                        askQuestion.put("messageId", askUser.getId());
+                        askQuestion.put("content", askUser.getContent());
+                        askQuestion.put("messageType", askUser.getMessageType());
+                        askQuestion.put("interactionType", askUser.getInteractionType());
+                        askQuestion.put("interactionStatus", askUser.getInteractionStatus());
+                        askQuestion.put("questionConfig", JSON.parseObject(askUser.getQuestionConfig()));
+                        DeepRunEventHub.publish(runId, "question", askQuestion.toJSONString(), false);
                         break;
                     case "run.completed":
                         handleCompleted(runId, dataJson, activeCallbacks.get(runId));

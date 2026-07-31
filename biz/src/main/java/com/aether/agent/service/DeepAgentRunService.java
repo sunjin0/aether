@@ -221,6 +221,24 @@ public class DeepAgentRunService {
         return message;
     }
 
+    public AgentMessage createAskUserQuestion(String runId, String dataJson) {
+        AgentRun run = getDeepRun(runId);
+        JSONObject data = JSON.parseObject(dataJson);
+        JSONArray questions = data.getJSONArray("questions");
+        if (questions == null || questions.isEmpty()) throw new IllegalArgumentException("Deep ask_user has no questions");
+        JSONObject config = new JSONObject();
+        config.put("type", "group"); config.put("layout", "tabs");
+        config.put("question", StringUtils.defaultIfBlank(data.getString("question"), "请回答以下问题后继续"));
+        config.put("approvalType", "deep_ask_user"); config.put("runId", runId); config.put("questions", questions);
+        AgentMessage message = new AgentMessage();
+        message.setConversationId(run.getConversationId()); message.setRole("assistant");
+        message.setMessageType("interaction"); message.setInteractionType("group");
+        message.setInteractionStatus("pending"); message.setContent(config.getString("question"));
+        message.setQuestionConfig(config.toJSONString());
+        if (!agentMessageService.save(message)) throw new IllegalStateException("保存 Deep 提问消息失败");
+        return message;
+    }
+
     /** 验证会话归属，保存确认结果并让 Deep 服务恢复同一运行。 */
     public String resumeToolApproval(String conversationId, String messageId, String userId, Map<String, Object> answer) {
         AgentMessage message = agentMessageService.getById(messageId);
@@ -229,7 +247,8 @@ public class DeepAgentRunService {
             throw new IllegalArgumentException("Deep tool approval is unavailable");
         }
         JSONObject config = JSON.parseObject(message.getQuestionConfig());
-        if (!"deep_mcp_tool_approval".equals(config.getString("approvalType"))) {
+        String approvalType = config.getString("approvalType");
+        if (!"deep_mcp_tool_approval".equals(approvalType) && !"deep_ask_user".equals(approvalType)) {
             throw new IllegalArgumentException("Not a Deep tool approval message");
         }
         String runId = config.getString("runId");
@@ -237,12 +256,20 @@ public class DeepAgentRunService {
         if (!userId.equals(run.getUserId())) {
             throw new IllegalArgumentException("Deep tool approval does not belong to the current user");
         }
-        JSONArray actions = config.getJSONArray("actions");
+        if ("deep_ask_user".equals(approvalType)) {
+            AgentMessage update = new AgentMessage(); update.setId(messageId); update.setInteractionStatus("answered"); update.setAnsweredAt(System.currentTimeMillis());
+            agentMessageService.updateById(update);
+            Map<String, Object> payload = new LinkedHashMap<>(); payload.put("run_id", runId); payload.put("answers", answer == null ? Collections.emptyMap() : answer.get("answers"));
+            ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/resume", payload);
+            if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 提问恢复失败");
+            return runId;
+        }
         Object rawAnswers = answer == null ? null : answer.get("answers");
         if (!(rawAnswers instanceof Map)) throw new IllegalArgumentException("Tool approval answer is required");
         Map<?, ?> answers = (Map<?, ?>) rawAnswers;
         List<Map<String, String>> decisions = new ArrayList<>();
-        for (int i = 0; i < actions.size(); i++) {
+        int decisionCount = config.getJSONArray("actions").size();
+        for (int i = 0; i < decisionCount; i++) {
             Object rawDecision = answers.get("decision-" + i);
             String selected = rawDecision instanceof Map ? String.valueOf(((Map<?, ?>) rawDecision).get("selected")) : "reject";
             Map<String, String> decision = new LinkedHashMap<>();
@@ -424,10 +451,18 @@ public class DeepAgentRunService {
         for (Map<String, Object> src : sources) {
             Map<String, Object> ks = new LinkedHashMap<>();
             String title = stringValue(src.get("documentName"));
+            if (StringUtils.isBlank(title)) title = stringValue(src.get("documentTitle"));
+            if (StringUtils.isBlank(title)) title = "知识库文档 " + (result.size() + 1);
             String content = stringValue(src.get("content"));
             Integer citationIndex = src.get("citationIndex") instanceof Integer ? (Integer) src.get("citationIndex") : null;
             ks.put("title", title != null ? title : "");
+            // 保留与 Dashboard 知识库引用模型一致的字段名，Deep 服务完成事件会原样回传。
+            ks.put("documentName", title);
+            ks.put("documentId", stringValue(src.get("documentId")));
+            ks.put("chunkId", stringValue(src.get("chunkId")));
+            ks.put("sectionPath", stringValue(src.get("sectionPath")));
             ks.put("content", content != null ? content : "");
+            ks.put("citationIndex", citationIndex);
             ks.put("citation", citationIndex != null ? "【" + citationIndex + "】" : "");
             result.add(ks);
         }

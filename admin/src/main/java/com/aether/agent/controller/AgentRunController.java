@@ -122,7 +122,9 @@ public class AgentRunController {
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
         }
-        List<AgentRunStepVo> steps = agentRunStepService.listByRunId(id).stream().map(item -> {
+        List<AgentRunStepVo> steps = agentRunStepService.listByRunId(id).stream()
+                // 兼容历史记录：聊天文本分片不是执行步骤，不在执行记录中展示。
+                .filter(item -> !"message.delta".equals(item.getEventType())).map(item -> {
             AgentRunStepVo vo = new AgentRunStepVo();
             BeanUtils.copyProperties(item, vo);
             return vo;

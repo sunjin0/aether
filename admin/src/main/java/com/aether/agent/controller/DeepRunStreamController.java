@@ -39,6 +39,9 @@ public class DeepRunStreamController {
         emitter.send(SseEmitter.event().comment("connected"));
         DeepRunEventHub.add(runId, emitter);
         for (AgentRunStep step : agentRunStepService.listByRunId(runId)) {
+            if ("message.delta".equals(step.getEventType())) {
+                continue;
+            }
             emitter.send(SseEmitter.event().name("run_step").data(stepJson(step)));
         }
         return emitter;

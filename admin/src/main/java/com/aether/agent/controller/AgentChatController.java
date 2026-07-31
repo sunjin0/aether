@@ -453,7 +453,15 @@ public class AgentChatController {
                         ctx, userId, conversationId, agent.getId(), taskContext);
 
                 AgentStreamCallback callback = new AgentStreamCallback() {
-                    @Override public void onMessage(String cid, String chunk) {}
+                    @Override public void onMessage(String cid, String chunk) {
+                        if (closed.get()) return;
+                        try {
+                            JSONObject data = new JSONObject();
+                            data.put("conversationId", cid);
+                            data.put("chunk", chunk);
+                            emitter.send(SseEmitter.event().name("message").data(data.toJSONString()));
+                        } catch (IOException e) { closed.set(true); }
+                    }
                     @Override public void onReasoning(String cid, String chunk) {}
                     @Override public void onToolCall(String cid, String toolCallJson) {}
 
