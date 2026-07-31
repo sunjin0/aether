@@ -1,0 +1,176 @@
+# 一键部署：PostgreSQL、Redis、MinIO、Admin、Dashboard、Deep Agent 与 MCP。
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aether-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-15432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aether}
+      POSTGRES_USER: ${POSTGRES_USER:-aether}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aether_dev}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [aether-services]
+
+  redis:
+    image: redis:7-alpine
+    container_name: aether-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-16379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [aether-services]
+
+  minio:
+    image: minio/minio:latest
+    container_name: aether-minio
+    restart: unless-stopped
+    ports:
+      - "${MINIO_API_PORT:-19000}:9000"
+      - "${MINIO_CONSOLE_PORT:-19001}:9001"
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [aether-services]
+
+  admin:
+    build:
+      # 直接由 BuildKit 从 Git 仓库拉取源码，部署机无需预先检出项目。
+      context: "${AETHER_ADMIN_GIT_URL:-https://github.com/sunjin0/aether.git}#${AETHER_ADMIN_GIT_REF:-master}"
+      dockerfile: admin/Dockerfile
+    container_name: aether-admin
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_PORT:-8080}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_REDIS_HOST: ${REDIS_HOST:-redis}
+      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/aether}
+      DB_USERNAME: ${DB_USERNAME:-aether}
+      DB_PASSWORD: ${DB_PASSWORD:-aether_dev}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_KNOWLEDGE_BUCKET: ${MINIO_KNOWLEDGE_BUCKET:-aether-knowledge}
+      MINIO_FILE_BUCKET: ${MINIO_FILE_BUCKET:-aether}
+      AETHER_DEEP_AGENT_BASE_URL: ${AETHER_DEEP_AGENT_BASE_URL:-http://aether-deep-agent:8010}
+      AETHER_DEEP_AGENT_SHARED_SECRET: ${AETHER_DEEP_AGENT_SHARED_SECRET:-aether-deep-agent-dev-secret-change-me}
+      AETHER_DEEP_AGENT_MCP_DELEGATION_SECRET: ${AETHER_MCP_DELEGATION_SECRET:-aether-mcp-delegation-dev-secret-change-me}
+    networks:
+      aether-services:
+        aliases: [aether-admin]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  deep-agent:
+    build:
+      context: "${AETHER_DEEP_AGENT_GIT_URL:-https://github.com/sunjin0/aether-deep-agent-service.git}#${AETHER_DEEP_AGENT_GIT_REF:-master}"
+    container_name: aether-deep-agent
+    restart: unless-stopped
+    ports:
+      - "${AETHER_DEEP_AGENT_PORT:-8010}:8010"
+    environment:
+      AETHER_DEEP_AGENT_SHARED_SECRET: ${AETHER_DEEP_AGENT_SHARED_SECRET:-aether-deep-agent-dev-secret-change-me}
+      AETHER_DEEP_AGENT_CALLBACK_BASE_URL: ${AETHER_DEEP_AGENT_CALLBACK_BASE_URL:-http://aether-admin:8080}
+      AETHER_DEEP_AGENT_MCP_URL: ${AETHER_DEEP_AGENT_MCP_URL:-http://aether-mcp:8000/mcp}
+      AETHER_DEEP_AGENT_MODEL: ${AETHER_DEEP_AGENT_MODEL:-openai:gpt-4.1-mini}
+      AETHER_DEEP_AGENT_DATABASE_URL: ${AETHER_DEEP_AGENT_DATABASE_URL:-sqlite+aiosqlite:////data/aether_deep_agent.db}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    volumes:
+      - deep-agent-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      aether-services:
+        aliases: [aether-deep-agent]
+    depends_on:
+      admin:
+        condition: service_started
+      mcp:
+        condition: service_started
+
+  mcp:
+    build:
+      context: "${AETHER_MCP_GIT_URL:-https://github.com/sunjin0/aether-mcp-server.git}#${AETHER_MCP_GIT_REF:-master}"
+    container_name: aether-mcp
+    restart: unless-stopped
+    command: ["http", "--auth", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${MCP_PORT:-8000}:8000"
+    environment:
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+      AETHER_MCP_DELEGATION_SECRET: ${AETHER_MCP_DELEGATION_SECRET:-aether-mcp-delegation-dev-secret-change-me}
+    volumes:
+      - mcp-huggingface-cache:/root/.cache/huggingface
+      - mcp-docling-cache:/root/.cache/docling
+    networks:
+      aether-services:
+        aliases: [aether-mcp]
+
+  dashboard:
+    build:
+      context: "${AETHER_DASHBOARD_GIT_URL:-https://github.com/sunjin0/aether-dashboard.git}#${AETHER_DASHBOARD_GIT_REF:-master}"
+      dockerfile: Dockerfile
+    container_name: aether-dashboard
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-8001}:80"
+    environment:
+      AETHER_ADMIN_UPSTREAM: ${AETHER_ADMIN_UPSTREAM:-http://aether-admin:8080}
+    depends_on:
+      - admin
+    networks:
+      aether-services:
+        aliases: [aether-dashboard]
+
+networks:
+  # 本 Compose 自动创建的内部共享网络。
+  aether-services:
+    name: ${AETHER_SHARED_NETWORK:-aether-services}
+
+volumes:
+  # PostgreSQL 数据持久化卷。
+  postgres-data:
+  # Redis AOF 持久化卷。
+  redis-data:
+  # MinIO 对象存储数据持久化卷。
+  minio-data:
+  # Deep Agent 本地运行状态（默认 SQLite）的持久化数据卷。
+  deep-agent-data:
+  # MCP 下载的 Hugging Face 模型缓存，避免镜像重建后重复下载。
+  mcp-huggingface-cache:
+  # MCP 文档解析器缓存，避免镜像重建后重复下载。
+  mcp-docling-cache:
