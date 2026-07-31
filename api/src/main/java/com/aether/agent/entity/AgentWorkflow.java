@@ -9,7 +9,7 @@ import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
 /**
- * 工作流（V0.7预留）
+ * AI 工作流定义。nodes/edges 始终保存当前草稿，发布内容保存在版本快照中。
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -27,12 +27,18 @@ public class AgentWorkflow extends BaseEntity {
     @ApiModelProperty(value = "描述")
     private String description;
 
-    @ApiModelProperty(value = "节点定义（JSON格式，预留）")
+    @ApiModelProperty(value = "节点定义（JSON格式）")
     private String nodes;
 
     @ApiModelProperty(value = "边定义（JSON格式，预留）")
     private String edges;
 
-    @ApiModelProperty(value = "状态：0-草稿，1-启用，2-禁用")
+    @ApiModelProperty(value = "状态：0-草稿，1-已发布，2-下线")
     private Integer status;
+
+    @ApiModelProperty(value = "开始节点表单字段（JSON格式）")
+    private String inputSchema;
+
+    @ApiModelProperty(value = "当前发布版本号")
+    private Integer publishedVersion;
 }

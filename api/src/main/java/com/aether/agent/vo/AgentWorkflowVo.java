@@ -30,6 +30,12 @@ public class AgentWorkflowVo extends BaseEntity {
     @ApiModelProperty(value = "状态：0-草稿，1-启用，2-禁用")
     private Integer status;
 
+    @ApiModelProperty(value = "开始节点表单字段（JSON格式）")
+    private String inputSchema;
+
+    @ApiModelProperty(value = "当前发布版本号")
+    private Integer publishedVersion;
+
     private Long current;
     private Long pageSize;
 }

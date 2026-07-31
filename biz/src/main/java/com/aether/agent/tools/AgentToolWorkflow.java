@@ -266,6 +266,29 @@ public class AgentToolWorkflow {
         return new ApprovalExecution(runId, buildToolCallResponse(toolCallId, toolName, arguments), result);
     }
 
+    /**
+     * 工作流人工确认节点的受控入口。调用方必须先将实例置为 WAITING_USER，
+     * 本方法只负责复用同一执行器、十分钟授权与工具审计，不接受未确认的调用。
+     */
+    public ToolExecutionResult executeWorkflowApprovedMcpTool(String toolId, String toolName,
+                                                               Map<String, Object> arguments, String runId,
+                                                               String userId, String agentId, boolean allowTenMinutes) {
+        AgentTool tool = agentToolService.getById(toolId);
+        ToolCall call = new ToolCall("workflow-" + runId, toolName,
+                arguments == null ? new HashMap<String, Object>() : arguments);
+        ToolExecutionResult result;
+        if (!isAvailable(tool)) {
+            result = ToolExecutionResult.failure("待确认的工具已不存在或被禁用", STATUS_FAILED);
+        } else {
+            try { result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId); }
+            catch (Exception e) { result = ToolExecutionResult.failure("MCP 工具执行失败: " + e.getMessage(), STATUS_FAILED); }
+        }
+        result.setToolCallId(call.getId());
+        saveAudit(runId, call, tool, agentId, result);
+        if (allowTenMinutes && tool != null) saveGrant(userId, agentId, tool.getId());
+        return result;
+    }
+
     private ToolExecutionResult executeMcpTool(AgentTool tool, Map<String, Object> arguments,
                                                String runId, String userId, String agentDefinitionId) {
         ToolExecutionContext context = new ToolExecutionContext();
@@ -404,7 +427,8 @@ public class AgentToolWorkflow {
         log.setToolName(call.getName());
         log.setArguments(truncate(JSON.toJSONString(call.getArguments()), 65536));
         log.setToolId(tool == null ? null : tool.getId());
-        log.setAgentDefinitionId(agentId);
+        // agent_definition_id 为 NOT NULL；来源缺失时兜底使用运行标识，避免约束错误掩盖真实调用错误。
+        log.setAgentDefinitionId(StringUtils.defaultIfBlank(agentId, StringUtils.defaultIfBlank(runId, "unknown")));
         log.setRequestUrl(truncate(result.getRequestUrl(), 2048));
         log.setRequestMethod(result.getRequestMethod());
         log.setRequestHeaders(result.getRequestHeaders());

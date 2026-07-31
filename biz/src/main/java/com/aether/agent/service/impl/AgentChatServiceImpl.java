@@ -144,7 +144,11 @@ public class AgentChatServiceImpl implements AgentChatService {
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelChatResponse modelResponse = modelClient.chat(request);
-            modelResponse = retryAskUserWhenPlainQuestion(modelResponse, modelClient, request);
+            // ask_user 的强制重试仅服务于聊天交互模式；工作流已由人工节点统一处理，
+            // 不能让普通 Agent 节点因模型回答中包含问句而额外发起一次模型调用。
+            if (Boolean.TRUE.equals(dto.getInteractive())) {
+                modelResponse = retryAskUserWhenPlainQuestion(modelResponse, modelClient, request);
+            }
             
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
             if (!Boolean.TRUE.equals(agent.getDefaultThinking())) {
