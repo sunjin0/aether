@@ -12,4 +12,6 @@ public interface AgentWorkflowExecutionService {
     void answer(String instanceId, AgentWorkflowInteractionDto dto, String userId);
     void retry(String instanceId, String userId);
     void terminate(String instanceId, String userId);
+    /** 运行中更新流程共享状态中的开始变量字段。 */
+    void updateVariables(String instanceId, Map<String, Object> variables, String userId);
 }

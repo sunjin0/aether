@@ -36,6 +36,9 @@ public class AgentWorkflowVo extends BaseEntity {
     @ApiModelProperty(value = "当前发布版本号")
     private Integer publishedVersion;
 
+    @ApiModelProperty(value = "当前发布版本的开始表单字段（JSON格式）")
+    private String publishedInputSchema;
+
     private Long current;
     private Long pageSize;
 }

@@ -80,7 +80,8 @@ storage:
 #    mybatis
 mybatis-plus:
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 统一接入 Spring 日志体系，避免 SQL 直接输出到控制台。
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
     cache-enabled: true
     map-underscore-to-camel-case: true
   global-config:
@@ -91,7 +92,10 @@ mybatis-plus:
       logic-not-delete-value: false
 logging:
   level:
-    com.sun: trace
+    root: INFO
+    com.sun: WARN
+    org.apache.ibatis: WARN
+    com.baomidou.mybatisplus: WARN
 knife4j:
   enable: true
   production: false

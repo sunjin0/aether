@@ -24,8 +24,13 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 FROM eclipse-temurin:11-jre-jammy
 WORKDIR /app
+# curl 仅供运行时健康检查使用。放在复制业务 Jar 之前，并缓存 apt 索引与软件包：
+# 业务代码变更导致镜像层失效时，无需重新下载 apt 依赖。
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends curl
 COPY --from=builder /build/admin/target/admin-*.jar admin.jar
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 EXPOSE 8080
 ENV JAVA_OPTS="-Xmx1g -Xms512m -server"
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \

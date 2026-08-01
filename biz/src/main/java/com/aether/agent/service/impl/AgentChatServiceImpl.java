@@ -460,7 +460,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         ApprovalExecution approvalExecution = null;
 
         try {
-            conversation = getOpenReplyConversation(dto.getConversationId(), userId);
+            conversation = getOpenReplyConversation(dto.getConversationId(), userId, Boolean.TRUE.equals(dto.getTemporary()));
             AgentMessage question = getPendingInteraction(conversation.getId(), dto.getParentMessageId());
 
             answerContent = interactionReplyService.renderAnswerContent(question, dto.getAnswer());
@@ -638,7 +638,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
-    private AgentConversation getOpenReplyConversation(String conversationId, String userId) {
+    private AgentConversation getOpenReplyConversation(String conversationId, String userId, boolean allowTemporary) {
         AgentConversation conversation = agentConversationService.getById(conversationId);
         if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
@@ -646,7 +646,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (!userId.equals(conversation.getUserId())) {
             throw new ServerException(403, I18nUtils.getMessage("agent.conversation.access.denied"));
         }
-        if (!Integer.valueOf(CONVERSATION_STATUS_OPEN).equals(conversation.getStatus())) {
+        if (!Integer.valueOf(CONVERSATION_STATUS_OPEN).equals(conversation.getStatus())
+                && !(allowTemporary && Integer.valueOf(2).equals(conversation.getStatus()))) {
             throw new ServerException(422, I18nUtils.getMessage("agent.conversation.closed"));
         }
         return conversation;

@@ -94,7 +94,8 @@ storage:
 #    mybatis
 mybatis-plus:
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 统一接入 Spring 日志体系，避免 SQL 直接输出到控制台。
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
     cache-enabled: true
     map-underscore-to-camel-case: true
   global-config:
@@ -105,7 +106,14 @@ mybatis-plus:
       logic-not-delete-value: false
 logging:
   level:
-    com.sun: trace
+    root: INFO
+    com.sun: WARN
+    org.apache.ibatis: WARN
+    com.baomidou.mybatisplus: WARN
 knife4j:
   enable: true
   production: false
+# MCP 服务会校验 Java 签发的短期委派 JWT；本地默认值必须与 mcp 容器保持一致。
+aether:
+  deep-agent:
+    mcp-delegation-secret: ${AETHER_MCP_DELEGATION_SECRET:aether-mcp-delegation-dev-secret-change-me}
