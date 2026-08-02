@@ -2,10 +2,13 @@ package com.aether.sys.service.impl;
 
 import com.aether.sys.dto.ServiceAccountCreateDto;
 import com.aether.sys.dto.ServiceAccountTokenDto;
+import com.aether.sys.dto.ServiceAccountUpdateDto;
 import com.aether.sys.entity.Role;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.entity.User;
 import com.aether.sys.mapper.ServiceAccountMapper;
+import com.aether.sys.mapper.UserMapper;
+import com.aether.sys.mapper.UserRoleMapper;
 import com.aether.sys.service.RoleService;
 import com.aether.sys.service.ServiceAccountService;
 import com.aether.sys.service.UserRoleService;
@@ -26,7 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.util.*;
 
-/** 服务账号采用 client credentials，底层用户仅用于复用角色资源权限。 */
+/**
+ * 服务账号采用 client credentials，底层用户仅用于复用角色资源权限。
+ */
 @Service
 public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper, ServiceAccount>
         implements ServiceAccountService {
@@ -36,17 +41,26 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     private final RoleService roleService;
     private final PasswordEncoder passwordEncoder;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final UserMapper userMapper;
+    private final UserRoleMapper userRoleMapper;
     private final int accessTokenSeconds;
 
     public ServiceAccountServiceImpl(UserService userService, UserRoleService userRoleService, RoleService roleService,
                                      PasswordEncoder passwordEncoder, RedisTemplate<String, Object> redisTemplate,
+                                     UserMapper userMapper, UserRoleMapper userRoleMapper,
                                      @org.springframework.beans.factory.annotation.Value("${aether.service-account.access-token-seconds:900}") int accessTokenSeconds) {
-        this.userService = userService; this.userRoleService = userRoleService; this.roleService = roleService;
-        this.passwordEncoder = passwordEncoder; this.redisTemplate = redisTemplate;
+        this.userService = userService;
+        this.userRoleService = userRoleService;
+        this.roleService = roleService;
+        this.passwordEncoder = passwordEncoder;
+        this.redisTemplate = redisTemplate;
+        this.userMapper = userMapper;
+        this.userRoleMapper = userRoleMapper;
         this.accessTokenSeconds = Math.max(60, Math.min(accessTokenSeconds, 3600));
     }
 
-    @Override @Transactional(rollbackFor = Exception.class)
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public ServiceAccountSecretVo create(ServiceAccountCreateDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getName())) throw new ServerException(422, "服务账号名称不能为空");
         if (dto.getName().length() > 128) throw new ServerException(422, "服务账号名称长度不能超过 128");
@@ -60,23 +74,69 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
             throw new ServerException(409, "clientId 已存在");
         String secret = "sa_" + randomToken(32);
         User user = new User();
-        user.setUsername("svc-" + clientId); user.setType("SERVICE");
+        user.setUsername("svc-" + clientId);
+        user.setType("System_Role_Service");
+        user.setSex("Gender_Type_Woman");
+        user.setEmail("svc-" + clientId + "@service.local");
+        user.setPhone("svc-"+UUID.randomUUID().toString().replace("-", ""));
+        user.setAvatar("https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png");
         user.setPassword(passwordEncoder.encode(randomToken(32)));
         userService.save(user);
         userRoleService.saveUserRoleIds(user.getId(), new ArrayList<String>(new HashSet<String>(roleIds)));
         ServiceAccount account = new ServiceAccount();
-        account.setUserId(user.getId()); account.setName(dto.getName()); account.setDescription(StringUtils.abbreviate(dto.getDescription(), 1024));
-        account.setClientId(clientId); account.setSecretHash(passwordEncoder.encode(secret)); account.setTokenVersion(1); account.setEnabled(true);
+        account.setUserId(user.getId());
+        account.setName(dto.getName());
+        account.setDescription(StringUtils.abbreviate(dto.getDescription(), 1024));
+        account.setClientId(clientId);
+        account.setSecretHash(passwordEncoder.encode(secret));
+        account.setTokenVersion(1);
+        account.setEnabled(true);
         List<String> allowed = dto.getAllowedWorkflowIds() == null ? Collections.<String>emptyList() : dto.getAllowedWorkflowIds();
         account.setAllowedWorkflowIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowed))));
         int maxStarts = dto.getMaxStartsPerHour() == null ? 0 : dto.getMaxStartsPerHour();
-        if (maxStarts < 0 || maxStarts > 100000) throw new ServerException(422, "每小时启动额度必须在 0 到 100000 之间");
+        if (maxStarts < 0 || maxStarts > 100000)
+            throw new ServerException(422, "每小时启动额度必须在 0 到 100000 之间");
         account.setMaxStartsPerHour(maxStarts);
         save(account);
         return secretVo(account, secret);
     }
 
-    @Override @Transactional(rollbackFor = Exception.class)
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean update(String id, ServiceAccountUpdateDto dto) {
+        ServiceAccount account = required(id);
+        if (dto == null || StringUtils.isBlank(dto.getName())) throw new ServerException(422, "服务账号名称不能为空");
+        if (dto.getName().length() > 128) throw new ServerException(422, "服务账号名称长度不能超过 128");
+        List<String> roleIds = dto.getRoleIds() == null ? Collections.<String>emptyList() : dto.getRoleIds();
+        if (roleIds.isEmpty()) throw new ServerException(422, "服务账号至少需要一个角色");
+        if (roleService.count(Wrappers.lambdaQuery(Role.class).in(Role::getId, roleIds).eq(Role::getDeleted, false)) != new HashSet<String>(roleIds).size())
+            throw new ServerException(422, "包含不存在或已删除的角色");
+        int maxStarts = dto.getMaxStartsPerHour() == null ? 0 : dto.getMaxStartsPerHour();
+        if (maxStarts < 0 || maxStarts > 100000)
+            throw new ServerException(422, "每小时启动额度必须在 0 到 100000 之间");
+        List<String> allowed = dto.getAllowedWorkflowIds() == null ? Collections.<String>emptyList() : dto.getAllowedWorkflowIds();
+        account.setName(dto.getName());
+        account.setDescription(StringUtils.abbreviate(dto.getDescription(), 1024));
+        account.setAllowedWorkflowIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowed))));
+        account.setMaxStartsPerHour(maxStarts);
+        userRoleService.saveUserRoleIds(account.getUserId(), new ArrayList<String>(new LinkedHashSet<String>(roleIds)));
+        boolean updated = updateById(account);
+        if (updated) redisTemplate.opsForHash().delete(TokenUtils.TOKEN_KEY, account.getUserId());
+        return updated;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean delete(String id) {
+        ServiceAccount account = required(id);
+        redisTemplate.opsForHash().delete(TokenUtils.TOKEN_KEY, account.getUserId());
+        userRoleMapper.physicalDeleteByUserId(account.getUserId());
+        userMapper.physicalDeleteById(account.getUserId());
+        return baseMapper.physicalDeleteById(id) > 0;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public ServiceAccountSecretVo rotateSecret(String id) {
         ServiceAccount account = required(id);
         String secret = "sa_" + randomToken(32);
@@ -95,16 +155,21 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         if (account == null || !Boolean.TRUE.equals(account.getEnabled()) || !passwordEncoder.matches(dto.getClientSecret(), account.getSecretHash()))
             throw new ServerException(401, "clientId 或 clientSecret 无效");
         Map<String, String> claims = new HashMap<String, String>();
-        claims.put("userId", account.getUserId()); claims.put("serviceAccountId", account.getId());
+        claims.put("userId", account.getUserId());
+        claims.put("serviceAccountId", account.getId());
         claims.put("serviceTokenVersion", String.valueOf(account.getTokenVersion()));
         String accessToken = TokenUtils.createAccessToken(claims, accessTokenSeconds);
         redisTemplate.opsForHash().put(TokenUtils.TOKEN_KEY, account.getUserId(), userService.getPermissionMapByUserId(account.getUserId(), accessToken));
-        account.setLastUsedAt(System.currentTimeMillis()); updateById(account);
-        ServiceAccountTokenVo result = new ServiceAccountTokenVo(); result.setAccessToken(accessToken); result.setExpiresIn(accessTokenSeconds);
+        account.setLastUsedAt(System.currentTimeMillis());
+        updateById(account);
+        ServiceAccountTokenVo result = new ServiceAccountTokenVo();
+        result.setAccessToken(accessToken);
+        result.setExpiresIn(accessTokenSeconds);
         return result;
     }
 
-    @Override @Transactional(rollbackFor = Exception.class)
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public boolean setEnabled(String id, boolean enabled) {
         ServiceAccount account = required(id);
         account.setEnabled(enabled);
@@ -143,18 +208,23 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
 
     private ServiceAccount required(String id) {
         ServiceAccount account = getById(id);
-        if (account == null || Boolean.TRUE.equals(account.getDeleted())) throw new ServerException(404, "服务账号不存在");
+        if (account == null || Boolean.TRUE.equals(account.getDeleted()))
+            throw new ServerException(404, "服务账号不存在");
         return account;
     }
 
     private ServiceAccountSecretVo secretVo(ServiceAccount account, String secret) {
         ServiceAccountSecretVo result = new ServiceAccountSecretVo();
-        result.setId(account.getId()); result.setName(account.getName()); result.setClientId(account.getClientId()); result.setClientSecret(secret);
+        result.setId(account.getId());
+        result.setName(account.getName());
+        result.setClientId(account.getClientId());
+        result.setClientSecret(secret);
         return result;
     }
 
     private String randomToken(int bytes) {
-        byte[] value = new byte[bytes]; RANDOM.nextBytes(value);
+        byte[] value = new byte[bytes];
+        RANDOM.nextBytes(value);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(value);
     }
 }

@@ -74,6 +74,8 @@ Content-Type: application/json
 创建时可配置 `allowedWorkflowIds`（允许启动的工作流 ID 白名单；空数组表示不限制）和 `maxStartsPerHour`（每小时启动额度；`0` 表示不限制）。业务启动前会强制校验二者，超过额度返回 `429`。
 
 - `POST /api/sys/service-account`：创建，参数为 `name`、可选 `clientId`、`description`、`roleIds`。
+- `PUT /api/sys/service-account/{id}`：编辑 `name`、`description`、`roleIds`、`allowedWorkflowIds`、`maxStartsPerHour`；客户端 ID 与密钥不可修改。编辑会清空旧令牌已加载的权限缓存，旧令牌对受权限控制的接口立即失效，需重新签发令牌以应用最新角色权限。
+- `DELETE /api/sys/service-account/{id}`：删除服务账号（物理删除账号及关联的底层用户与角色绑定），已签发令牌立即失效。
 - `POST /api/sys/service-account/{id}/rotate-secret`：轮换密钥，旧令牌立即失效。
 - `POST /api/sys/service-account/{id}/enabled?enabled=false`：禁用或启用；每次状态变化都会使旧令牌失效。
 - `POST /api/auth/service-account/token`：使用 client credentials 签发访问令牌，无需用户登录。

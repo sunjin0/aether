@@ -4,6 +4,7 @@ import com.aether.entity.WebResponse;
 import com.aether.permission.Permission;
 import com.aether.sys.dto.ServiceAccountCreateDto;
 import com.aether.sys.dto.ServiceAccountTokenDto;
+import com.aether.sys.dto.ServiceAccountUpdateDto;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
 import com.aether.sys.service.UserService;
@@ -43,7 +44,7 @@ public class ServiceAccountController {
     }
 
     @ApiOperation("服务账号列表")
-    @Permission(path = "/sys/admin")
+    @Permission(path = "/sys/service-account")
     @PostMapping("/api/sys/service-account/list")
     public WebResponse<List<ServiceAccountVo>> list(@RequestBody(required = false) ServiceAccountVo query) {
         long current = query == null || query.getCurrent() == null ? 1L : query.getCurrent();
@@ -55,15 +56,23 @@ public class ServiceAccountController {
     }
 
     @ApiOperation("创建服务账号；明文密钥只在本次响应中返回")
-    @Permission(path = "/sys/admin", type = Permission.Type.Write)
+    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
     @PostMapping("/api/sys/service-account")
     public WebResponse<ServiceAccountSecretVo> create(@RequestBody ServiceAccountCreateDto dto, HttpServletResponse response) {
         noStore(response);
         return WebResponse.OK(serviceAccountService.create(dto));
     }
 
+    @ApiOperation("编辑服务账号；客户端 ID 与密钥不可直接修改")
+    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
+    @PutMapping("/api/sys/service-account/{id}")
+    public WebResponse<Void> update(@PathVariable String id, @RequestBody ServiceAccountUpdateDto dto) {
+        serviceAccountService.update(id, dto);
+        return WebResponse.OK((Void) null);
+    }
+
     @ApiOperation("轮换服务账号密钥；旧令牌立即失效")
-    @Permission(path = "/sys/admin", type = Permission.Type.Write)
+    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
     @PostMapping("/api/sys/service-account/{id}/rotate-secret")
     public WebResponse<ServiceAccountSecretVo> rotateSecret(@PathVariable String id, HttpServletResponse response) {
         noStore(response);
@@ -71,10 +80,18 @@ public class ServiceAccountController {
     }
 
     @ApiOperation("启用或禁用服务账号；状态变更后旧令牌立即失效")
-    @Permission(path = "/sys/admin", type = Permission.Type.Write)
+    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
     @PostMapping("/api/sys/service-account/{id}/enabled")
     public WebResponse<Void> enabled(@PathVariable String id, @RequestParam boolean enabled) {
         serviceAccountService.setEnabled(id, enabled);
+        return WebResponse.OK((Void) null);
+    }
+
+    @ApiOperation("删除服务账号；已签发令牌立即失效")
+    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
+    @DeleteMapping("/api/sys/service-account/{id}")
+    public WebResponse<Void> delete(@PathVariable String id) {
+        serviceAccountService.delete(id);
         return WebResponse.OK((Void) null);
     }
 
