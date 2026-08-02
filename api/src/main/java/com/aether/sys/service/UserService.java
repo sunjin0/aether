@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 
 import java.util.List;
+import java.util.HashMap;
 
 /**
  * 系统用户服务
@@ -22,6 +23,8 @@ import java.util.List;
  * @since 2024/09/11
  */
 public interface UserService extends IService<User> {
+    /** 为非交互身份生成与当前用户一致的资源权限映射。 */
+    HashMap<String, Object> getPermissionMapByUserId(String userId, String token);
 
     /**
        * 注册

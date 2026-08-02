@@ -39,6 +39,12 @@ public class AgentWorkflow extends BaseEntity {
     @ApiModelProperty(value = "开始节点表单字段（JSON格式）")
     private String inputSchema;
 
+    @ApiModelProperty(value = "业务流程最终输出字段（JSON格式）")
+    private String outputSchema;
+
     @ApiModelProperty(value = "当前发布版本号")
     private Integer publishedVersion;
+
+    /** 同时处于运行或等待人工状态的最大实例数；0 表示不限制。 */
+    private Integer maxConcurrentInstances;
 }

@@ -2,6 +2,7 @@ package com.aether.interceptor;
 
 import com.alibaba.fastjson2.JSON;
 import com.aether.entity.WebResponse;
+import com.aether.auth.ServiceTokenVerifier;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
@@ -10,6 +11,7 @@ import com.aether.utils.TokenUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -39,6 +41,11 @@ import java.util.HashMap;
 public class GlobalFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalFilter.class);
+    private final ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider;
+
+    public GlobalFilter(ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider) {
+        this.serviceTokenVerifierProvider = serviceTokenVerifierProvider;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
@@ -54,6 +61,15 @@ public class GlobalFilter extends OncePerRequestFilter {
                     String token = AesUtil.decrypt(authorization.replace("Bearer ", ""));
                     // 校验token（签名+过期时间）
                     String userId = TokenUtils.getUserId(token);
+                    String serviceAccountId = TokenUtils.getClaim(token, "serviceAccountId");
+                    if (serviceAccountId != null && !serviceAccountId.isEmpty()) {
+                        ServiceTokenVerifier verifier = serviceTokenVerifierProvider.getIfAvailable();
+                        String tokenVersion = TokenUtils.getClaim(token, "serviceTokenVersion");
+                        if (verifier == null || !verifier.isActive(serviceAccountId, tokenVersion)) {
+                            throw new ServerException(401, "服务账号令牌已失效");
+                        }
+                        payload.put("serviceAccountId", serviceAccountId);
+                    }
                     payload.put("userId", userId);
                     payload.put("token", token);
                 } catch (ServerException e) {

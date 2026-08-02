@@ -33,11 +33,20 @@ public class AgentWorkflowVo extends BaseEntity {
     @ApiModelProperty(value = "开始节点表单字段（JSON格式）")
     private String inputSchema;
 
+    @ApiModelProperty(value = "业务流程最终输出字段（JSON格式）")
+    private String outputSchema;
+
     @ApiModelProperty(value = "当前发布版本号")
     private Integer publishedVersion;
 
+    @ApiModelProperty(value = "最大并发实例数，0 表示不限制")
+    private Integer maxConcurrentInstances;
+
     @ApiModelProperty(value = "当前发布版本的开始表单字段（JSON格式）")
     private String publishedInputSchema;
+
+    @ApiModelProperty(value = "当前发布版本的最终输出字段（JSON格式）")
+    private String publishedOutputSchema;
 
     private Long current;
     private Long pageSize;

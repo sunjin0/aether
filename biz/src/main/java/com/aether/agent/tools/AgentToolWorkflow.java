@@ -272,7 +272,8 @@ public class AgentToolWorkflow {
      */
     public ToolExecutionResult executeWorkflowApprovedMcpTool(String toolId, String toolName,
                                                                Map<String, Object> arguments, String runId,
-                                                               String userId, String agentId, boolean allowTenMinutes) {
+                                                               String userId, String agentId, boolean allowTenMinutes,
+                                                               String idempotencyKey) {
         AgentTool tool = agentToolService.getById(toolId);
         ToolCall call = new ToolCall("workflow-" + runId, toolName,
                 arguments == null ? new HashMap<String, Object>() : arguments);
@@ -280,7 +281,7 @@ public class AgentToolWorkflow {
         if (!isAvailable(tool)) {
             result = ToolExecutionResult.failure("待确认的工具已不存在或被禁用", STATUS_FAILED);
         } else {
-            try { result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId); }
+            try { result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId, idempotencyKey); }
             catch (Exception e) { result = ToolExecutionResult.failure("MCP 工具执行失败: " + e.getMessage(), STATUS_FAILED); }
         }
         result.setToolCallId(call.getId());
@@ -291,12 +292,18 @@ public class AgentToolWorkflow {
 
     private ToolExecutionResult executeMcpTool(AgentTool tool, Map<String, Object> arguments,
                                                String runId, String userId, String agentDefinitionId) {
+        return executeMcpTool(tool, arguments, runId, userId, agentDefinitionId, null);
+    }
+
+    private ToolExecutionResult executeMcpTool(AgentTool tool, Map<String, Object> arguments,
+                                               String runId, String userId, String agentDefinitionId, String idempotencyKey) {
         ToolExecutionContext context = new ToolExecutionContext();
         context.setTool(tool);
         context.setArguments(arguments);
         context.setRunId(runId);
         context.setUserId(userId);
         context.setAgentDefinitionId(agentDefinitionId);
+        context.setIdempotencyKey(idempotencyKey);
         return executorFactory.getExecutor("mcp").execute(context);
     }
 

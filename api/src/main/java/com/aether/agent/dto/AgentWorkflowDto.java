@@ -10,4 +10,6 @@ public class AgentWorkflowDto {
     private String nodes;
     private String edges;
     private String inputSchema;
+    private String outputSchema;
+    private Integer maxConcurrentInstances;
 }

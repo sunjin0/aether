@@ -17,3 +17,47 @@ spring:
     validate-on-migrate: true
     out-of-order: false
     clean-disabled: true
+
+# 业务系统终态通知。默认关闭；启用后回调地址必须命中 allowed-hosts 白名单。
+aether:
+  service-account:
+    # 服务账号 client credentials 访问令牌有效期（秒）；最长限制为 3600 秒。
+    access-token-seconds: ${AETHER_SERVICE_ACCOUNT_ACCESS_TOKEN_SECONDS:900}
+  workflow:
+    # 扫描等待人工操作且超过 SLA 的流程实例。
+    timeout:
+      # 扫描间隔（毫秒）。
+      scan-interval-ms: ${AETHER_WORKFLOW_TIMEOUT_SCAN_INTERVAL_MS:30000}
+    execution:
+      # 扫描待执行工作流任务的间隔（毫秒）；启动、回答与重试不会同步等待模型调用。
+      scan-interval-ms: ${AETHER_WORKFLOW_EXECUTION_SCAN_INTERVAL_MS:1000}
+      # 后台任务因基础设施错误可自动重试的最大次数；超出后流程标记为失败，避免无限占用资源。
+      max-attempts: ${AETHER_WORKFLOW_EXECUTION_MAX_ATTEMPTS:8}
+    webhook:
+      # Webhook 签名时间戳最大允许偏差（毫秒），用于抵御请求重放。
+      signature-max-age-ms: ${AETHER_WORKFLOW_WEBHOOK_SIGNATURE_MAX_AGE_MS:300000}
+    schedule:
+      # 扫描持久化定时触发器的间隔（毫秒）；Worker 通过数据库租约领取，支持多实例部署和重启恢复。
+      scan-interval-ms: ${AETHER_WORKFLOW_SCHEDULE_SCAN_INTERVAL_MS:5000}
+    security:
+      # 审计节点与业务回调中要脱敏的 JSON 字段名，忽略大小写。
+      mask-fields: ${AETHER_WORKFLOW_SECURITY_MASK_FIELDS:password,secret,token,authorization,access_token,refresh_token}
+      # 终态流程审计数据保留天数；设为 0 禁用自动清理。
+      retention-days: ${AETHER_WORKFLOW_SECURITY_RETENTION_DAYS:90}
+      # 终态流程数据清理任务的 Cron 表达式，默认每天 03:30。
+      retention-cron: ${AETHER_WORKFLOW_SECURITY_RETENTION_CRON:0 30 3 * * ?}
+    callback:
+      # 是否允许向业务系统发送完成、失败或终止通知。
+      enabled: ${AETHER_WORKFLOW_CALLBACK_ENABLED:false}
+      # 允许接收回调的主机名，逗号分隔；留空时拒绝所有外部回调。
+      allowed-hosts: ${AETHER_WORKFLOW_CALLBACK_ALLOWED_HOSTS:}
+      # 回调 HMAC-SHA256 签名密钥；生产环境必须设置，不能使用默认值。
+      signing-secret: ${AETHER_WORKFLOW_CALLBACK_SIGNING_SECRET:}
+      # 建立回调连接的超时时间（毫秒）。
+      connect-timeout-ms: ${AETHER_WORKFLOW_CALLBACK_CONNECT_TIMEOUT_MS:3000}
+      # 等待业务系统回调响应的超时时间（毫秒）。
+      read-timeout-ms: ${AETHER_WORKFLOW_CALLBACK_READ_TIMEOUT_MS:10000}
+      # 单个回调事件最多投递次数，超出后保留失败审计记录。
+      max-attempts: ${AETHER_WORKFLOW_CALLBACK_MAX_ATTEMPTS:8}
+      # 扫描待重试回调记录的间隔（毫秒）。
+      retry-interval-ms: ${AETHER_WORKFLOW_CALLBACK_RETRY_INTERVAL_MS:60000}

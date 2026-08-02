@@ -17,6 +17,7 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
 import com.aether.utils.TokenUtils;
+import com.aether.utils.AesUtil;
 import com.aether.sys.vo.ResourceVo;
 import com.aether.sys.vo.UserVo;
 import com.aether.msg.service.EmailMessageService;
@@ -190,7 +191,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         HashMap<String, String> map = CurrentUser.getUser();
         map.put("userId", one.getId());
         map.put("token", token.getToken());
-        redisTemplate.opsForHash().put(TokenUtils.TOKEN_KEY, one.getId(), this.getPermissionMap(token.getToken()));
+        redisTemplate.opsForHash().put(TokenUtils.TOKEN_KEY, one.getId(), this.getPermissionMapByUserId(one.getId(), token.getToken()));
 
         return user;
 
@@ -214,9 +215,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public List<ResourceVo> getRouters() {
-        List<ResourceVo> routes = new ArrayList<>();
         HashMap<String, String> user = CurrentUser.getUser();
-        String userId = user.get("userId");
+        return getRoutersByUserId(user == null ? null : user.get("userId"));
+    }
+
+    private List<ResourceVo> getRoutersByUserId(String userId) {
+        List<ResourceVo> routes = new ArrayList<>();
         if (userId != null) {
             // 1.获取用户角色
             List<UserRole> roles = userRoleService.list(Wrappers.<UserRole>lambdaQuery()
@@ -302,21 +306,24 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         User user = this.getById(currentUser.get("userId"));
         user.setPassword(null);
         BeanUtils.copyProperties(user, userVo);
-        HashMap<String, Object> map = getPermissionMap(currentUser.get("token"));
+        HashMap<String, Object> map = getPermissionMapByUserId(currentUser.get("userId"), currentUser.get("token"));
         userVo.setPermissionMap(map);
         return userVo;
     }
 
     @NotNull
-    private HashMap<String, Object> getPermissionMap(String token) {
-        List<ResourceVo> routers = this.getRouters();
+    @Override
+    public HashMap<String, Object> getPermissionMapByUserId(String userId, String token) {
+        List<ResourceVo> routers = getRoutersByUserId(userId);
         HashMap<String, Object> map = new HashMap<>();
         if (!routers.isEmpty()) {
             for (ResourceVo router : routers) {
                 if (router.getChildren() != null) {
                     router.getChildren().forEach(child -> {
-                        if (child.getAccess() != null) {
-                            map.put(child.getPath(), child.getAccess().contains("Write"));
+                        if (child.getPath() != null) {
+                            // 路由资源本身已由角色资源关系过滤；没有读写叶子的页面默认可读，
+                            // 否则这类页面会出现在菜单中，却被前端权限守卫错误拦截。
+                            map.put(child.getPath(), child.getAccess() != null && child.getAccess().contains("Write"));
                         }
                     });
                 }else if (router.getAccess() != null) {
@@ -325,7 +332,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             }
         }
         try {
-            TokenUtils.isExpired(token);
+            TokenUtils.isExpired(AesUtil.decrypt(token));
             map.put("/sys", false);
         } catch (Exception e) {
             log.error(e.getMessage());

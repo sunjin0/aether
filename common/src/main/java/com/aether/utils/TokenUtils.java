@@ -87,6 +87,23 @@ public class TokenUtils {
         return decode.getClaim("userId").asString();
     }
 
+    /** 读取已验签令牌中的可选字符串声明。 */
+    public static String getClaim(String token, String name) {
+        return decode(token).getClaim(name).asString();
+    }
+
+    /** 创建不含刷新令牌的短期访问令牌，供服务账号 client credentials 使用。 */
+    public static String createAccessToken(Map<String, String> payload, int expiresInSeconds) {
+        if (payload == null || payload.get("userId") == null || payload.get("userId").isEmpty()) {
+            throw new ServerException(400, I18nUtils.getMessage("user.id.not.empty"));
+        }
+        Calendar calendar = Calendar.getInstance();
+        calendar.add(Calendar.SECOND, Math.max(60, expiresInSeconds));
+        JWTCreator.Builder builder = JWT.create();
+        payload.forEach(builder::withClaim);
+        return AesUtil.encrypt(builder.withExpiresAt(calendar.getTime()).sign(Algorithm.HMAC256(SECRET_KEY)));
+    }
+
     /**
      * 是否过期
      *

@@ -46,4 +46,13 @@ class WorkflowDefinitionValidatorTest {
         assertThrows(ServerException.class,
                 () -> WorkflowDefinitionValidator.validateStartVariables(schema, unknown));
     }
+
+    @Test
+    void acceptsOutputDeclaredOnEveryPathAndRejectsInternalOrBranchOnlyValues() {
+        String output = "[{\"name\":\"result\"}]";
+        assertDoesNotThrow(() -> WorkflowDefinitionValidator.validateOutputSchema(NODES, EDGES,
+                "[{\"name\":\"request\"}]", output));
+        assertThrows(ServerException.class, () -> WorkflowDefinitionValidator.validateOutputSchema(NODES, EDGES,
+                "[{\"name\":\"request\"}]", "[{\"name\":\"unknown\"}]"));
+    }
 }

@@ -15,5 +15,6 @@ public class AgentWorkflowVersion extends BaseEntity {
     private String nodes;
     private String edges;
     private String inputSchema;
+    private String outputSchema;
     private Long publishedAt;
 }

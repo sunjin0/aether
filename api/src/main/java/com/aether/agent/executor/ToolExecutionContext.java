@@ -33,4 +33,7 @@ public class ToolExecutionContext {
 
     /** Agent 定义 ID，用于签发 MCP 工具的最小权限委派令牌。 */
     private String agentDefinitionId;
+
+    /** 工作流写操作的稳定幂等键，会以 X-Aether-Idempotency-Key 透传到 MCP 服务。 */
+    private String idempotencyKey;
 }

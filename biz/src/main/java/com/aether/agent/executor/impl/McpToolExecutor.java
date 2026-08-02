@@ -113,6 +113,9 @@ public class McpToolExecutor implements ToolExecutor {
         JSONObject headers = StringUtils.isBlank(server.getRequestHeaders())
                 ? new JSONObject() : JSON.parseObject(server.getRequestHeaders());
         headers.put("Authorization", "Bearer " + token);
+        if (StringUtils.isNotBlank(context.getIdempotencyKey())) {
+            headers.put("X-Aether-Idempotency-Key", context.getIdempotencyKey());
+        }
         // 仅修改当前内存对象，绝不写回数据库或复用为长期静态令牌。
         server.setRequestHeaders(headers.toJSONString());
     }

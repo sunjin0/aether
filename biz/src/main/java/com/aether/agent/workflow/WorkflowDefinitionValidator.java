@@ -140,6 +140,55 @@ public final class WorkflowDefinitionValidator {
                 throw new ServerException(422, "开始表单变量名无效: " + name);
             if (!declared.add(name)) throw new ServerException(422, "开始表单变量名重复: " + name);
         }
+        Map<String, Set<String>> availableBefore = availableVariablesBefore(nodes, edges, declared);
+        // 使用所有入边均能提供的变量做校验，避免引用后续或另一分支才产生的输出。
+        for (Object value : nodes) {
+            JSONObject node = (JSONObject) value;
+            Set<String> available = availableBefore.get(node.getString("id"));
+            validateReferences(node.getString("prompt"), available, node.getString("id"));
+            validateReferences(node.getString("argumentsTemplate"), available, node.getString("id"));
+            validateReferences(node.getString("question"), available, node.getString("id"));
+        }
+    }
+
+    /**
+     * 校验业务回调输出契约。输出字段必须在到达结束节点的每条路径上都已经存在，
+     * 防止分支流程只在部分路径返回该字段而让业务系统收到不稳定的数据结构。
+     */
+    public static void validateOutputSchema(String nodesText, String edgesText, String inputSchemaText, String outputSchemaText) {
+        JSONArray nodes = parseJsonArray(nodesText, "工作流画布不是有效 JSON");
+        JSONArray edges = parseJsonArray(edgesText, "工作流边数据不是有效 JSON");
+        JSONArray inputSchema = parseJsonArray(inputSchemaText, "开始表单字段不是有效 JSON");
+        JSONArray outputSchema = parseJsonArray(outputSchemaText, "最终输出字段不是有效 JSON");
+        Set<String> declared = schemaNames(inputSchema, "开始表单");
+        Set<String> outputs = schemaNames(outputSchema, "最终输出");
+        Map<String, Set<String>> availableBefore = availableVariablesBefore(nodes, edges, declared);
+        String endId = null;
+        for (Object value : nodes) {
+            JSONObject node = (JSONObject) value;
+            if ("end".equals(node.getString("type"))) { endId = node.getString("id"); break; }
+        }
+        Set<String> terminalVariables = endId == null ? Collections.<String>emptySet() : availableBefore.get(endId);
+        for (String output : outputs) {
+            if (terminalVariables == null || !terminalVariables.contains(output))
+                throw new ServerException(422, "最终输出变量在所有结束路径上不可用: " + output);
+        }
+    }
+
+    private static Set<String> schemaNames(JSONArray schema, String schemaName) {
+        Set<String> names = new LinkedHashSet<String>();
+        for (Object value : schema) {
+            if (!(value instanceof JSONObject)) throw new ServerException(422, schemaName + "字段必须是对象数组");
+            String name = ((JSONObject) value).getString("name");
+            if (StringUtils.isBlank(name) || !VARIABLE_NAME.matcher(name).matches())
+                throw new ServerException(422, schemaName + "变量名无效: " + name);
+            if (!names.add(name)) throw new ServerException(422, schemaName + "变量名重复: " + name);
+        }
+        return names;
+    }
+
+    /** 计算每个节点执行前、所有入边共同保证存在的变量集合。 */
+    private static Map<String, Set<String>> availableVariablesBefore(JSONArray nodes, JSONArray edges, Set<String> declared) {
         Map<String, Set<String>> produced = new LinkedHashMap<String, Set<String>>();
         Map<String, List<String>> predecessors = new LinkedHashMap<String, List<String>>();
         for (Object value : nodes) {
@@ -198,14 +247,7 @@ public final class WorkflowDefinitionValidator {
                 }
             }
         }
-        // 使用所有入边均能提供的变量做校验，避免引用后续或另一分支才产生的输出。
-        for (Object value : nodes) {
-            JSONObject node = (JSONObject) value;
-            Set<String> available = availableBefore.get(node.getString("id"));
-            validateReferences(node.getString("prompt"), available, node.getString("id"));
-            validateReferences(node.getString("argumentsTemplate"), available, node.getString("id"));
-            validateReferences(node.getString("question"), available, node.getString("id"));
-        }
+        return availableBefore;
     }
 
     /** 校验手动启动传入的变量：必填字段必须有非空值，禁止传入未声明字段。 */
