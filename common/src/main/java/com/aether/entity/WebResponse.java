@@ -42,7 +42,7 @@ public class WebResponse<T> implements Serializable {
      * @return {@link WebResponse }<{@link T }>
      */
     public static <T> WebResponse<T> Page(T result, Long total) {
-        return new WebResponse<>(200, I18nUtils.getMessage("request.success"), result, total);
+        return new WebResponse<>(200, null, result, total);
     }
 
     public static <T> WebResponse<T> Page(String message, T result, Long total) {
@@ -57,7 +57,7 @@ public class WebResponse<T> implements Serializable {
      * @return {@link WebResponse }
      */
     public static <T> WebResponse<T> OK(T result) {
-        return new WebResponse<>(200, I18nUtils.getMessage("request.success"), result, 0L);
+        return new WebResponse<>(200, null, result, 0L);
     }
 
     /**
