@@ -142,7 +142,7 @@ public class AgentWorkflowController {
         entity.setInputSchema("[]");
         entity.setOutputSchema("[]");
         workflowService.save(entity);
-        return WebResponse.OK(I18nUtils.getMessage("add.success"), entity.getId());
+        return WebResponse.OK(I18nUtils.getMessage("workflow.draft.create.success"), entity.getId());
     }
 
     @ApiOperation("保存工作流画布草稿")
@@ -153,7 +153,7 @@ public class AgentWorkflowController {
         AgentWorkflow entity = required(id);
         BeanUtils.copyProperties(dto, entity, "status", "publishedVersion", "agentDefinitionId");
         workflowService.updateById(entity);
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.draft.save.success"));
     }
 
     @ApiOperation("发布工作流版本")
@@ -179,7 +179,7 @@ public class AgentWorkflowController {
         workflow.setPublishedVersion(number);
         workflow.setStatus(1);
         workflowService.updateById(workflow);
-        return WebResponse.OK(number);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.publish.success"), number);
     }
 
     @ApiOperation("下线工作流")
@@ -189,7 +189,7 @@ public class AgentWorkflowController {
         AgentWorkflow workflow = required(id);
         workflow.setStatus(2);
         workflowService.updateById(workflow);
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.offline.success"));
     }
 
     @ApiOperation("工作流已发布版本列表")
@@ -243,7 +243,7 @@ public class AgentWorkflowController {
     @PostMapping("/import")
     public WebResponse<String> importWorkflow(@RequestBody AgentWorkflowDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getName()) || StringUtils.isBlank(dto.getNodes()) || StringUtils.isBlank(dto.getEdges()))
-            throw new ServerException(422, "导入文件缺少名称、节点或连线");
+            throw new ServerException(422, I18nUtils.getMessage("workflow.import.name-nodes-edges.required"));
         WorkflowDefinitionValidator.validate(dto.getNodes(), dto.getEdges());
         WorkflowDefinitionValidator.validateVariables(dto.getNodes(), dto.getEdges(), dto.getInputSchema());
         WorkflowDefinitionValidator.validateOutputSchema(dto.getNodes(), dto.getEdges(), dto.getInputSchema(), dto.getOutputSchema());
@@ -252,7 +252,7 @@ public class AgentWorkflowController {
         BeanUtils.copyProperties(dto, workflow);
         workflow.setStatus(0); workflow.setPublishedVersion(null);
         workflowService.save(workflow);
-        return WebResponse.OK(I18nUtils.getMessage("add.success"), workflow.getId());
+        return WebResponse.OK(I18nUtils.getMessage("workflow.import.success"), workflow.getId());
     }
 
     @ApiOperation("从工作流创建模板")
@@ -277,7 +277,7 @@ public class AgentWorkflowController {
     @PostMapping("/templates/{id}/instantiate")
     public WebResponse<String> instantiateTemplate(@PathVariable String id, @RequestBody AgentWorkflowTemplateDto dto) {
         AgentWorkflow workflow = templateService.instantiate(id, dto == null ? null : dto.getName(), dto == null ? null : dto.getDescription());
-        return WebResponse.OK(I18nUtils.getMessage("request.success"), workflow.getId());
+        return WebResponse.OK(I18nUtils.getMessage("workflow.template.instantiate.success"), workflow.getId());
     }
 
     @ApiOperation("校验草稿工作流")
@@ -289,7 +289,7 @@ public class AgentWorkflowController {
         WorkflowDefinitionValidator.validateVariables(workflow.getNodes(), workflow.getEdges(), workflow.getInputSchema());
         WorkflowDefinitionValidator.validateOutputSchema(workflow.getNodes(), workflow.getEdges(), workflow.getInputSchema(), workflow.getOutputSchema());
         validateResources(workflow.getNodes());
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.draft.validate.success"));
     }
 
     @ApiOperation("删除工作流")
@@ -298,7 +298,7 @@ public class AgentWorkflowController {
     public WebResponse<Void> delete(@PathVariable String id) {
         required(id);
         workflowService.removeById(id);
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.delete.success"));
     }
 
     @ApiOperation("启动已发布工作流")
@@ -306,7 +306,7 @@ public class AgentWorkflowController {
     @PostMapping("/{id}/instances")
     public WebResponse<String> start(@PathVariable String id, @RequestBody(required = false) AgentWorkflowStartDto dto) {
         AgentWorkflowInstance instance = executionService.start(id, dto == null ? null : dto.getVariables(), userId());
-        return WebResponse.OK(I18nUtils.getMessage("request.success"), instance.getId());
+        return WebResponse.OK(I18nUtils.getMessage("workflow.instance.start.success"), instance.getId());
     }
 
     @ApiOperation("由业务系统启动已发布工作流（支持幂等和终态回调）")
@@ -315,10 +315,10 @@ public class AgentWorkflowController {
     public WebResponse<String> startBusiness(@PathVariable String id, @RequestBody AgentWorkflowBusinessStartDto dto) {
         Map<String, String> current = CurrentUser.getUser();
         if (current == null || StringUtils.isBlank(current.get("serviceAccountId")))
-            throw new ServerException(403, "业务工作流启动仅允许服务账号调用");
+            throw new ServerException(403, I18nUtils.getMessage("workflow.business-start.service-account.required"));
         serviceAccountService.assertWorkflowStartAllowed(current.get("serviceAccountId"), id);
         AgentWorkflowInstance instance = executionService.startBusiness(id, dto, userId());
-        return WebResponse.OK(I18nUtils.getMessage("request.success"), instance.getId());
+        return WebResponse.OK(I18nUtils.getMessage("workflow.business-instance.start.success"), instance.getId());
     }
 
     @ApiOperation("创建工作流 Webhook；签名密钥仅本次返回")
@@ -327,7 +327,7 @@ public class AgentWorkflowController {
     public WebResponse<AgentWorkflowWebhookTriggerSecretVo> createWebhook(@RequestBody AgentWorkflowWebhookTriggerDto dto,
                                                                              HttpServletResponse response) {
         noStore(response);
-        return WebResponse.OK(webhookTriggerService.create(dto));
+        return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.create.success"), webhookTriggerService.create(dto));
     }
 
     @ApiOperation("Webhook 列表")
@@ -351,7 +351,7 @@ public class AgentWorkflowController {
     @PostMapping("/webhooks/{id}/rotate-secret")
     public WebResponse<AgentWorkflowWebhookTriggerSecretVo> rotateWebhookSecret(@PathVariable String id, HttpServletResponse response) {
         noStore(response);
-        return WebResponse.OK(webhookTriggerService.rotateSecret(id));
+        return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.secret.rotate.success"), webhookTriggerService.rotateSecret(id));
     }
 
     @ApiOperation("启用或停用 Webhook")
@@ -359,14 +359,14 @@ public class AgentWorkflowController {
     @PostMapping("/webhooks/{id}/enabled")
     public WebResponse<Void> setWebhookEnabled(@PathVariable String id, @RequestParam boolean enabled) {
         webhookTriggerService.setEnabled(id, enabled);
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.status.update.success"));
     }
 
     @ApiOperation("创建工作流定时触发器")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/schedules")
     public WebResponse<com.aether.workflow.entity.AgentWorkflowScheduleTrigger> createSchedule(@RequestBody AgentWorkflowScheduleTriggerDto dto) {
-        return WebResponse.OK(scheduleTriggerService.create(dto));
+        return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.create.success"), scheduleTriggerService.create(dto));
     }
 
     @ApiOperation("工作流定时触发器列表")
@@ -383,7 +383,7 @@ public class AgentWorkflowController {
     @PostMapping("/schedules/{id}/enabled")
     public WebResponse<Void> setScheduleEnabled(@PathVariable String id, @RequestParam boolean enabled) {
         scheduleTriggerService.setEnabled(id, enabled);
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.status.update.success"));
     }
 
     @ApiOperation("工作流运营指标")
@@ -410,7 +410,7 @@ public class AgentWorkflowController {
         Enumeration<String> names = request.getHeaderNames();
         while (names != null && names.hasMoreElements()) { String name = names.nextElement(); headers.put(name, request.getHeader(name)); }
         AgentWorkflowInstance instance = webhookTriggerService.trigger(id, timestamp, signature, rawBody, headers);
-        return WebResponse.OK(I18nUtils.getMessage("request.success"), instance.getId());
+        return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.event.accepted"), instance.getId());
     }
 
     @ApiOperation("流程实例列表")
@@ -449,9 +449,9 @@ public class AgentWorkflowController {
     public WebResponse<Void> retryCallback(@PathVariable String id, @PathVariable String deliveryId) {
         executionService.detail(id, userId());
         AgentWorkflowCallbackDelivery delivery = callbackDeliveryService.getById(deliveryId);
-        if (delivery == null || !StringUtils.equals(id, delivery.getInstanceId())) throw new ServerException(404, "回调投递记录不存在");
-        if (!workflowCallbackService.retryFailed(deliveryId)) throw new ServerException(409, "仅失败的回调投递记录可以重试");
-        return WebResponse.OK((Void) null);
+        if (delivery == null || !StringUtils.equals(id, delivery.getInstanceId())) throw new ServerException(404, I18nUtils.getMessage("workflow.callback-delivery.not-found"));
+        if (!workflowCallbackService.retryFailed(deliveryId)) throw new ServerException(409, I18nUtils.getMessage("workflow.callback-delivery.retry.failed-only"));
+        return WebResponse.OK(I18nUtils.getMessage("workflow.callback-delivery.retry.success"));
     }
 
     @ApiOperation("流程实例实时事件")
@@ -469,7 +469,7 @@ public class AgentWorkflowController {
     @PostMapping("/instances/{id}/answer")
     public WebResponse<Void> answer(@PathVariable String id, @RequestBody AgentWorkflowInteractionDto dto) {
         executionService.answer(id, dto, userId());
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.instance.answer.success"));
     }
 
     @ApiOperation("重试失败节点")
@@ -477,7 +477,7 @@ public class AgentWorkflowController {
     @PostMapping("/instances/{id}/retry")
     public WebResponse<Void> retry(@PathVariable String id) {
         executionService.retry(id, userId());
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.instance.retry.success"));
     }
 
     @ApiOperation("回放手动启动的流程实例")
@@ -485,7 +485,7 @@ public class AgentWorkflowController {
     @PostMapping("/instances/{id}/replay")
     public WebResponse<String> replay(@PathVariable String id) {
         AgentWorkflowInstance instance = executionService.replay(id, userId());
-        return WebResponse.OK(I18nUtils.getMessage("request.success"), instance.getId());
+        return WebResponse.OK(I18nUtils.getMessage("workflow.instance.replay.success"), instance.getId());
     }
 
     @ApiOperation("终止流程实例")
@@ -493,7 +493,7 @@ public class AgentWorkflowController {
     @PostMapping("/instances/{id}/terminate")
     public WebResponse<Void> terminate(@PathVariable String id) {
         executionService.terminate(id, userId());
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.instance.terminate.success"));
     }
 
     @ApiOperation("运行中修改开始变量")
@@ -501,20 +501,20 @@ public class AgentWorkflowController {
     @PutMapping("/instances/{id}/variables")
     public WebResponse<Void> updateVariables(@PathVariable String id, @RequestBody(required = false) AgentWorkflowStartDto dto) {
         executionService.updateVariables(id, dto == null ? null : dto.getVariables(), userId());
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("workflow.instance.variables.update.success"));
     }
 
     private AgentWorkflowVersion requiredVersion(String workflowId, int versionNo) {
         AgentWorkflowVersion version = versionService.getOne(Wrappers.lambdaQuery(AgentWorkflowVersion.class)
                 .eq(AgentWorkflowVersion::getWorkflowId, workflowId).eq(AgentWorkflowVersion::getVersionNo, versionNo)
                 .eq(AgentWorkflowVersion::getDeleted, false));
-        if (version == null) throw new ServerException(404, "工作流版本不存在");
+        if (version == null) throw new ServerException(404, I18nUtils.getMessage("workflow.version.not-found"));
         return version;
     }
 
     private void validateConcurrencyLimit(AgentWorkflowDto dto) {
         if (dto != null && dto.getMaxConcurrentInstances() != null && dto.getMaxConcurrentInstances() < 0)
-            throw new ServerException(422, "最大并发实例数不能小于 0");
+            throw new ServerException(422, I18nUtils.getMessage("workflow.max-concurrent-instances.invalid"));
     }
 
     private Map<String, String> jsonItems(String source, boolean edge) {
@@ -548,7 +548,7 @@ public class AgentWorkflowController {
 
     private AgentWorkflow required(String id) {
         AgentWorkflow value = workflowService.getById(id);
-        if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, "工作流不存在");
+        if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("workflow.not-found"));
         return value;
     }
 
@@ -559,19 +559,19 @@ public class AgentWorkflowController {
             if ("agent".equals(type)) {
                 AgentDefinition agent = agentDefinitionService.getById(resourceId);
                 if (agent == null || Boolean.TRUE.equals(agent.getDeleted()) || !Integer.valueOf(1).equals(agent.getStatus()))
-                    throw new ServerException(422, "节点选择的普通 Agent 不存在或未启用");
+                    throw new ServerException(422, I18nUtils.getMessage("workflow.node.agent.unavailable"));
             }
             if ("mcp".equals(type)) {
                 AgentTool tool = agentToolService.getById(resourceId);
                 if (tool == null || Boolean.TRUE.equals(tool.getDeleted()) || !Integer.valueOf(1).equals(tool.getStatus()))
-                    throw new ServerException(422, "节点选择的 MCP 工具不存在或未启用");
+                    throw new ServerException(422, I18nUtils.getMessage("workflow.node.mcp-tool.unavailable"));
             }
         }
     }
 
     private String userId() {
         Map<String, String> user = CurrentUser.getUser();
-        if (user == null || StringUtils.isBlank(user.get("userId"))) throw new ServerException(401, "登录状态已失效");
+        if (user == null || StringUtils.isBlank(user.get("userId"))) throw new ServerException(401, I18nUtils.getMessage("auth.session.expired"));
         return user.get("userId");
     }
 

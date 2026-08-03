@@ -5,6 +5,7 @@ import com.aether.agent.entity.AgentRunStep;
 import com.aether.agent.service.AgentRunStepService;
 import com.aether.agent.service.DeepAgentRunService;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
@@ -33,7 +34,7 @@ public class DeepRunStreamController {
         AgentRun run = deepAgentRunService.getDeepRunForReconciliation(runId);
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         if (StringUtils.isBlank(userId) || !userId.equals(run.getUserId())) {
-            throw new ServerException(403, "无权访问该 Deep Agent 运行");
+            throw new ServerException(403, I18nUtils.getMessage("agent.deep.run.access.denied"));
         }
         SseEmitter emitter = new SseEmitter(TIMEOUT_MS);
         emitter.send(SseEmitter.event().comment("connected"));

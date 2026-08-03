@@ -45,7 +45,7 @@ public class MemberController {
     @PostMapping("/add")
     public WebResponse<Boolean> add(@RequestBody Member entity) {
          Boolean save = memberService.save(entity);
-          return WebResponse.OK(I18nUtils.getMessage(save ? "add.success" : "add.fail"),save);
+           return WebResponse.OK(I18nUtils.getMessage(save ? "member.create.success" : "member.create.fail"),save);
     }
     /**
     * 修改
@@ -55,7 +55,7 @@ public class MemberController {
     @PostMapping("/update")
     public WebResponse<Boolean> update(@RequestBody Member entity) {
         Boolean update = memberService.updateById(entity);
-        return WebResponse.OK(I18nUtils.getMessage(update ? "update.success" : "update.fail"),update);
+        return WebResponse.OK(I18nUtils.getMessage(update ? "member.update.success" : "member.update.fail"),update);
         }
     /**
      * 删除
@@ -64,7 +64,8 @@ public class MemberController {
     @Permission(path = "/user/member", type = Permission.Type.Write)
     @GetMapping("/delete")
     public WebResponse<Boolean> delete(@RequestParam String id) {
-        return WebResponse.OK(memberService.removeById(id));
+        boolean removed = memberService.removeById(id);
+        return WebResponse.OK(I18nUtils.getMessage(removed ? "member.delete.success" : "member.delete.fail"), removed);
     }
             /**
              * 查询

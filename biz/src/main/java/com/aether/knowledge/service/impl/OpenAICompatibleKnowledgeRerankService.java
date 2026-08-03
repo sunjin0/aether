@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.service.KnowledgeRerankService;
 import com.aether.utils.AesUtil;
@@ -59,7 +60,7 @@ public class OpenAICompatibleKnowledgeRerankService implements KnowledgeRerankSe
         JSONObject json = JSONObject.parseObject(response);
         JSONArray data = json == null ? null : json.getJSONArray("data");
         if (data == null || data.isEmpty()) {
-            throw new ServerException(502, "Rerank response contains no scores");
+            throw new ServerException(502, I18nUtils.getMessage("knowledge.rerank.response.scores.empty"));
         }
         Map<Integer, Double> scores = new HashMap<>();
         for (int i = 0; i < data.size(); i++) {
@@ -71,7 +72,7 @@ public class OpenAICompatibleKnowledgeRerankService implements KnowledgeRerankSe
             }
         }
         if (scores.isEmpty()) {
-            throw new ServerException(502, "Rerank response contains no usable scores");
+            throw new ServerException(502, I18nUtils.getMessage("knowledge.rerank.response.scores.unusable"));
         }
         List<KnowledgeDocumentChunk> ranked = new ArrayList<>();
         for (Map.Entry<Integer, Double> entry : scores.entrySet()) {

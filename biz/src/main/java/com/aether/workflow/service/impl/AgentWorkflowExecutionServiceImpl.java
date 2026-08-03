@@ -27,6 +27,7 @@ import com.aether.sys.entity.UserRole;
 import com.aether.sys.service.RoleService;
 import com.aether.sys.service.UserRoleService;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -80,11 +81,11 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     @Override @Transactional(rollbackFor = Exception.class)
     public AgentWorkflowInstance startBusiness(String workflowId, AgentWorkflowBusinessStartDto dto, String userId) {
         if (dto == null || StringUtils.isBlank(dto.getBusinessType()) || StringUtils.isBlank(dto.getBusinessId()) || StringUtils.isBlank(dto.getIdempotencyKey()))
-            throw new ServerException(422, "业务启动必须提供 businessType、businessId 和 idempotencyKey");
+            throw new ServerException(422, I18nUtils.getMessage("workflow.business-start.fields.required"));
         if (dto.getBusinessType().length() > 64 || dto.getBusinessId().length() > 128 || dto.getIdempotencyKey().length() > 128)
-            throw new ServerException(422, "业务标识或幂等键长度超限");
+            throw new ServerException(422, I18nUtils.getMessage("workflow.business-start.identifier.length.exceeded"));
         if (dto.getDeadlineAt() != null && dto.getDeadlineAt() <= System.currentTimeMillis())
-            throw new ServerException(422, "业务流程截止时间必须晚于当前时间");
+            throw new ServerException(422, I18nUtils.getMessage("workflow.business-start.deadline.invalid"));
         try {
             callbackService.validateCallbackUrl(dto.getCallbackUrl());
         } catch (IllegalArgumentException ex) {
@@ -94,7 +95,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         // 避免并发的同幂等请求同时越过查询并触发重复节点执行。
         AgentWorkflow lockedWorkflow = workflowService.getOne(Wrappers.lambdaQuery(AgentWorkflow.class)
                 .eq(AgentWorkflow::getId, workflowId).eq(AgentWorkflow::getDeleted, false).last("FOR UPDATE"));
-        if (lockedWorkflow == null) throw new ServerException(404, "工作流不存在");
+        if (lockedWorkflow == null) throw new ServerException(404, I18nUtils.getMessage("workflow.not-found"));
         AgentWorkflowInstance existing = instanceService.getOne(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
                 .eq(AgentWorkflowInstance::getWorkflowId, workflowId).eq(AgentWorkflowInstance::getUserId, userId)
                 .eq(AgentWorkflowInstance::getIdempotencyKey, dto.getIdempotencyKey())
@@ -108,9 +109,9 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         // 以定义行锁串行化容量检查与实例插入；不同应用实例不能同时越过并发上限。
         AgentWorkflow workflow = workflowService.getOne(Wrappers.lambdaQuery(AgentWorkflow.class)
                 .eq(AgentWorkflow::getId, workflowId).eq(AgentWorkflow::getDeleted, false).last("FOR UPDATE"));
-        if (workflow == null) throw new ServerException(404, "工作流不存在");
+        if (workflow == null) throw new ServerException(404, I18nUtils.getMessage("workflow.not-found"));
         if (!Integer.valueOf(1).equals(workflow.getStatus()) || workflow.getPublishedVersion() == null)
-            throw new ServerException(422, "工作流尚未发布，不能启动");
+            throw new ServerException(422, I18nUtils.getMessage("workflow.start.unpublished"));
         int maxConcurrent = workflow.getMaxConcurrentInstances() == null ? 0 : workflow.getMaxConcurrentInstances();
         if (maxConcurrent > 0) {
             long activeCount = instanceService.count(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
@@ -118,11 +119,11 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                     .in(AgentWorkflowInstance::getStatus, "RUNNING", "WAITING_USER")
                     .eq(AgentWorkflowInstance::getDeleted, false));
             if (activeCount >= maxConcurrent)
-                throw new ServerException(429, "工作流当前运行实例已达到并发上限，请稍后重试");
+                throw new ServerException(429, I18nUtils.getMessage("workflow.concurrent-instance-limit.exceeded"));
         }
         AgentWorkflowVersion version = versionService.getOne(Wrappers.lambdaQuery(AgentWorkflowVersion.class)
                 .eq(AgentWorkflowVersion::getWorkflowId, workflowId).eq(AgentWorkflowVersion::getVersionNo, workflow.getPublishedVersion()));
-        if (version == null) throw new ServerException(409, "工作流发布版本不存在");
+        if (version == null) throw new ServerException(409, I18nUtils.getMessage("workflow.published-version.not-found"));
         WorkflowDefinitionValidator.validateStartVariables(version.getInputSchema(), variables);
         AgentWorkflowInstance instance = new AgentWorkflowInstance();
         instance.setWorkflowId(workflowId); instance.setWorkflowVersionId(version.getId()); instance.setUserId(userId);
@@ -153,7 +154,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     @Override @Transactional(rollbackFor = Exception.class)
     public void answer(String instanceId, AgentWorkflowInteractionDto dto, String userId) {
         AgentWorkflowInstance instance = ownedForUpdate(instanceId, userId);
-        if (!"WAITING_USER".equals(instance.getStatus())) throw new ServerException(409, "当前流程不在等待用户操作");
+        if (!"WAITING_USER".equals(instance.getStatus())) throw new ServerException(409, I18nUtils.getMessage("workflow.instance.not-waiting-for-user"));
         AgentWorkflowNodeInstance node = currentNode(instance);
         Map<String,Object> answer = dto == null || dto.getAnswer() == null ? new LinkedHashMap<String,Object>() : dto.getAnswer();
         JSONObject config = StringUtils.isBlank(node.getInteractionConfig()) ? new JSONObject() : JSONObject.parseObject(node.getInteractionConfig());
@@ -205,7 +206,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     @Override @Transactional(rollbackFor = Exception.class)
     public void retry(String instanceId, String userId) {
         AgentWorkflowInstance instance = ownedForUpdate(instanceId, userId);
-        if (!"FAILED".equals(instance.getStatus())) throw new ServerException(409, "只有失败待重试的流程可以重试");
+        if (!"FAILED".equals(instance.getStatus())) throw new ServerException(409, I18nUtils.getMessage("workflow.instance.retry.failed-only"));
         AgentWorkflowNodeInstance node = currentNode(instance); node.setStatus("PENDING"); node.setErrorMessage(null);
         node.setRetryCount((node.getRetryCount() == null ? 0 : node.getRetryCount()) + 1); nodeService.updateById(node);
         instance.setStatus("RUNNING"); instance.setErrorMessage(null); instanceService.updateById(instance);
@@ -217,10 +218,10 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     public AgentWorkflowInstance replay(String instanceId, String userId) {
         AgentWorkflowInstance source = owned(instanceId, userId);
         if (StringUtils.isNotBlank(source.getBusinessType()) || StringUtils.isNotBlank(source.getBusinessId()) || StringUtils.isNotBlank(source.getIdempotencyKey()))
-            throw new ServerException(409, "业务关联实例不能回放；请由业务系统使用新的幂等键重新发起");
+            throw new ServerException(409, I18nUtils.getMessage("workflow.instance.replay.business-instance.disallowed"));
         Map<String, Object> variables;
         try { variables = StringUtils.isBlank(source.getVariables()) ? new LinkedHashMap<String, Object>() : JSON.parseObject(source.getVariables(), Map.class); }
-        catch (Exception ex) { throw new ServerException(422, "原始实例变量格式无效，不能回放"); }
+        catch (Exception ex) { throw new ServerException(422, I18nUtils.getMessage("workflow.instance.replay.variables.invalid")); }
         return startInternal(source.getWorkflowId(), variables, userId, null);
     }
 
@@ -246,7 +247,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
 
     @Override @Transactional(rollbackFor = Exception.class) public void terminate(String instanceId, String userId) {
         AgentWorkflowInstance instance = ownedForUpdate(instanceId, userId);
-        if ("COMPLETED".equals(instance.getStatus()) || "TERMINATED".equals(instance.getStatus()) || "TIMED_OUT".equals(instance.getStatus())) throw new ServerException(409, "流程已结束");
+        if ("COMPLETED".equals(instance.getStatus()) || "TERMINATED".equals(instance.getStatus()) || "TIMED_OUT".equals(instance.getStatus())) throw new ServerException(409, I18nUtils.getMessage("workflow.instance.completed"));
         instance.setStatus("TERMINATED"); instance.setCompletedAt(System.currentTimeMillis()); instanceService.updateById(instance);
         callbackService.recordTerminal(instance);
     }
@@ -255,7 +256,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     public void updateVariables(String instanceId, Map<String, Object> variables, String userId) {
         AgentWorkflowInstance instance = owned(instanceId, userId);
         if (!"RUNNING".equals(instance.getStatus()) && !"WAITING_USER".equals(instance.getStatus()) && !"FAILED".equals(instance.getStatus()))
-            throw new ServerException(409, "当前流程状态不允许修改变量");
+            throw new ServerException(409, I18nUtils.getMessage("workflow.instance.variables.update.disallowed"));
         if (variables == null || variables.isEmpty()) return;
         Map<String,Object> current = variables(instance);
         for (Map.Entry<String,Object> entry : variables.entrySet()) {
@@ -367,7 +368,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 applyStateMapping(definition, output, variables);
                 instance.setVariables(JSON.toJSONString(variables)); instanceService.updateById(instance); completeNode(node, output); return;
             }
-            throw new ServerException(422, "未知工作流节点类型: " + type);
+            throw new ServerException(422, I18nUtils.getMessage("workflow.node.type.unknown", new Object[]{type}));
         } catch (Exception e) { fail(instance, node, e.getMessage()); }
     }
 
@@ -655,7 +656,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         String conversationId = config.getString("agentConversationId");
         String parentMessageId = config.getString("agentApprovalMessageId");
         if (StringUtils.isBlank(conversationId) || StringUtils.isBlank(parentMessageId))
-            throw new ServerException(409, "Agent 交互上下文已失效，请重试节点");
+            throw new ServerException(409, I18nUtils.getMessage("workflow.agent-interaction.context.expired"));
         AgentChatDto request = new AgentChatDto();
         request.setConversationId(conversationId);
         request.setParentMessageId(parentMessageId);
@@ -706,14 +707,14 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     }
     private void completeNode(AgentWorkflowNodeInstance node, String output) { node.setStatus("COMPLETED"); node.setOutputData(sensitiveDataSanitizer.sanitizeJson(output)); node.setCompletedAt(System.currentTimeMillis()); node.setInteractionConfig(null); nodeService.updateById(node); sseHub.publish(node.getInstanceId(), "node.completed", node); }
     private void fail(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node, String error) { node.setStatus("FAILED"); node.setErrorMessage(StringUtils.defaultIfBlank(error, "节点执行失败")); node.setCompletedAt(System.currentTimeMillis()); nodeService.updateById(node); instance.setStatus("FAILED"); instance.setErrorMessage(node.getErrorMessage()); instanceService.updateById(instance); sseHub.publish(instance.getId(), "run.failed", node); callbackService.recordTerminal(instance); }
-    private AgentWorkflow requiredWorkflow(String id) { AgentWorkflow value = workflowService.getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, "工作流不存在"); return value; }
-    private AgentWorkflowInstance owned(String id, String userId) { AgentWorkflowInstance value = instanceService.getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, "流程实例不存在"); if (!StringUtils.equals(value.getUserId(), userId) && !isAdministrator(userId)) throw new ServerException(403, "无权操作其他用户的流程实例"); return value; }
+    private AgentWorkflow requiredWorkflow(String id) { AgentWorkflow value = workflowService.getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("workflow.not-found")); return value; }
+    private AgentWorkflowInstance owned(String id, String userId) { AgentWorkflowInstance value = instanceService.getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("workflow.instance.not-found")); if (!StringUtils.equals(value.getUserId(), userId) && !isAdministrator(userId)) throw new ServerException(403, I18nUtils.getMessage("workflow.instance.operation.denied")); return value; }
     /** 人工回答、终止等状态变化持有实例行锁，避免与 SLA 超时任务相互覆盖状态。 */
     private AgentWorkflowInstance ownedForUpdate(String id, String userId) {
         AgentWorkflowInstance value = instanceService.getOne(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
                 .eq(AgentWorkflowInstance::getId, id).eq(AgentWorkflowInstance::getDeleted, false).last("FOR UPDATE"));
-        if (value == null) throw new ServerException(404, "流程实例不存在");
-        if (!StringUtils.equals(value.getUserId(), userId) && !isAdministrator(userId)) throw new ServerException(403, "无权操作其他用户的流程实例");
+        if (value == null) throw new ServerException(404, I18nUtils.getMessage("workflow.instance.not-found"));
+        if (!StringUtils.equals(value.getUserId(), userId) && !isAdministrator(userId)) throw new ServerException(403, I18nUtils.getMessage("workflow.instance.operation.denied"));
         return value;
     }
     /** root 角色可处理业务服务账号创建的异常实例，普通用户仍严格隔离。 */
@@ -728,7 +729,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         return roleService.count(Wrappers.lambdaQuery(Role.class).in(Role::getId, roleIds)
                 .eq(Role::getName, "root").eq(Role::getDeleted, false)) > 0;
     }
-    private AgentWorkflowNodeInstance currentNode(AgentWorkflowInstance instance) { AgentWorkflowNodeInstance value = nodeService.getOne(Wrappers.lambdaQuery(AgentWorkflowNodeInstance.class).eq(AgentWorkflowNodeInstance::getInstanceId, instance.getId()).eq(AgentWorkflowNodeInstance::getNodeId, instance.getCurrentNodeId())); if (value == null) throw new ServerException(409, "当前节点不存在"); return value; }
+    private AgentWorkflowNodeInstance currentNode(AgentWorkflowInstance instance) { AgentWorkflowNodeInstance value = nodeService.getOne(Wrappers.lambdaQuery(AgentWorkflowNodeInstance.class).eq(AgentWorkflowNodeInstance::getInstanceId, instance.getId()).eq(AgentWorkflowNodeInstance::getNodeId, instance.getCurrentNodeId())); if (value == null) throw new ServerException(409, I18nUtils.getMessage("workflow.instance.current-node.not-found")); return value; }
     private Map<String,Object> variables(AgentWorkflowInstance instance) { Map<String,Object> value = StringUtils.isBlank(instance.getVariables()) ? null : JSONObject.parseObject(instance.getVariables(), Map.class); return value == null ? new LinkedHashMap<String,Object>() : new LinkedHashMap<String,Object>(value); }
 
     // ── 共享状态写回 ─────────────────────────────────────────

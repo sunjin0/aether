@@ -57,7 +57,7 @@ public class ConfigController {
     @GetMapping("/delete")
     public WebResponse<Boolean> delete(@RequestParam @NotNull String id) {
         boolean delete = configService.delete(id);
-        return WebResponse.OK(delete ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"), delete);
+        return WebResponse.OK(delete ? I18nUtils.getMessage("system.config.delete.success") : I18nUtils.getMessage("system.config.delete.fail"), delete);
     }
 
     @ApiOperation("添加配置")
@@ -70,7 +70,7 @@ public class ConfigController {
                                      @ValidEntity(fieldNames = {"code", "name"})
                                          Config config) {
         boolean save = configService.save(config);
-            return WebResponse.OK(I18nUtils.getMessage(save ? "add.success" : "add.fail"), save);
+            return WebResponse.OK(I18nUtils.getMessage(save ? "system.config.create.success" : "system.config.create.fail"), save);
     }
     @ApiOperation("修改字典")
     @ApiImplicitParams({
@@ -82,6 +82,6 @@ public class ConfigController {
                                       @ValidEntity(fieldNames = {"code", "name"})
                                            Config config) {
         boolean update = configService.updateById(config);
-        return WebResponse.OK(I18nUtils.getMessage(update ? "update.success" : "update.fail"), update);
+        return WebResponse.OK(I18nUtils.getMessage(update ? "system.config.update.success" : "system.config.update.fail"), update);
     }
 }

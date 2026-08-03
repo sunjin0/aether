@@ -1,6 +1,9 @@
 package com.aether.workflow.runtime;
 
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nService;
+import com.aether.i18n.I18nUtils;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -9,6 +12,9 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class WorkflowDefinitionValidatorTest {
 
@@ -18,6 +24,13 @@ class WorkflowDefinitionValidatorTest {
             + "{\"id\":\"next\",\"type\":\"agent\",\"resourceId\":\"agent-2\",\"prompt\":\"汇总 ${result}\"},"
             + "{\"id\":\"end\",\"type\":\"end\"}]";
     private static final String EDGES = "[{\"source\":\"start\",\"target\":\"agent\"},{\"source\":\"agent\",\"target\":\"next\"},{\"source\":\"next\",\"target\":\"end\"}]";
+
+    @BeforeAll
+    static void setUpI18n() {
+        I18nService i18nService = mock(I18nService.class);
+        when(i18nService.getMessage(any(String.class), any(Object[].class))).thenAnswer(invocation -> invocation.getArgument(0));
+        new I18nUtils(i18nService);
+    }
 
     @Test
     void acceptsDeclaredInputAndNodeOutputReferences() {

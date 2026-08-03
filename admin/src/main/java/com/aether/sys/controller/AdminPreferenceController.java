@@ -100,7 +100,7 @@ public class AdminPreferenceController {
         if (saved) {
             adminPreferenceService.updateEffectiveScore(preference.getId());
         }
-        return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), preference.getId());
+        return WebResponse.OK(saved ? I18nUtils.getMessage("system.preference.create.success") : I18nUtils.getMessage("system.preference.create.fail"), preference.getId());
     }
 
     @ApiOperation("编辑用户偏好")
@@ -113,7 +113,7 @@ public class AdminPreferenceController {
         preference.setId(id);
         preference.setAdminId(currentAdminId());
         boolean updated = adminPreferenceService.updateById(preference);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("system.preference.update.success") : I18nUtils.getMessage("system.preference.update.fail"));
     }
 
     @ApiOperation("删除用户偏好")
@@ -122,7 +122,7 @@ public class AdminPreferenceController {
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         getExisting(id);
         boolean removed = adminPreferenceService.removeById(id);
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        return WebResponse.OK(removed ? I18nUtils.getMessage("system.preference.delete.success") : I18nUtils.getMessage("system.preference.delete.fail"));
     }
 
     @ApiOperation("启用/禁用用户偏好")
@@ -134,7 +134,7 @@ public class AdminPreferenceController {
         preference.setId(id);
         preference.setStatus(vo.getStatus());
         boolean updated = adminPreferenceService.updateById(preference);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("system.preference.status.update.success") : I18nUtils.getMessage("system.preference.status.update.fail"));
     }
 
     @ApiOperation("确认偏好")
@@ -150,7 +150,7 @@ public class AdminPreferenceController {
         adminPreferenceService.adjustConfidence(id, new BigDecimal("0.10"));
         adminPreferenceService.updateEffectiveScore(id);
         logFeedbackEvent(preference, AdminPreferenceEvent.EVENT_CONFIRM);
-        return WebResponse.OK(I18nUtils.getMessage("update.success"));
+        return WebResponse.OK(I18nUtils.getMessage("system.preference.confirm.success"));
     }
 
     @ApiOperation("拒绝偏好")
@@ -161,7 +161,7 @@ public class AdminPreferenceController {
         adminPreferenceService.adjustConfidence(id, new BigDecimal("-0.30"));
         adminPreferenceService.updateEffectiveScore(id);
         logFeedbackEvent(preference, AdminPreferenceEvent.EVENT_REJECT);
-        return WebResponse.OK(I18nUtils.getMessage("update.success"));
+        return WebResponse.OK(I18nUtils.getMessage("system.preference.reject.success"));
     }
 
     @ApiOperation("覆盖偏好值")
@@ -189,7 +189,7 @@ public class AdminPreferenceController {
         event.setConfidence(new BigDecimal("1.00"));
         event.setContextSnapshot(detail.toString());
         adminPreferenceEventService.logEvent(event);
-        return WebResponse.OK(I18nUtils.getMessage("update.success"));
+        return WebResponse.OK(I18nUtils.getMessage("system.preference.override.success"));
     }
 
     @ApiOperation("偏好统计")
@@ -231,7 +231,7 @@ public class AdminPreferenceController {
                         .eq(AdminPreference::getAdminId, currentAdminId())
                         .eq(AdminPreference::getDeleted, false));
         if (preference == null) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("system.preference.not-found"));
         }
         return preference;
     }

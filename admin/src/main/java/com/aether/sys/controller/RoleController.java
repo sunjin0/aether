@@ -77,7 +77,7 @@ public class RoleController {
         updateWrapper
                 .eq(Role::getId, id);
         boolean update = roleService.remove(updateWrapper);
-        return WebResponse.OK(update ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"), true);
+        return WebResponse.OK(update ? I18nUtils.getMessage("system.role.delete.success") : I18nUtils.getMessage("system.role.delete.fail"), update);
     }
 
     @ApiOperation(value = "新增角色")
@@ -90,7 +90,7 @@ public class RoleController {
                                      @ValidEntity(fieldNames = {"name"})
                                      Role role) throws ServerException {
         boolean save = roleService.save(role);
-        return WebResponse.OK(save ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), true);
+        return WebResponse.OK(save ? I18nUtils.getMessage("system.role.create.success") : I18nUtils.getMessage("system.role.create.fail"), save);
     }
 
     @ApiOperation(value = "修改角色")
@@ -103,7 +103,7 @@ public class RoleController {
                                        @ValidEntity(fieldNames = {"name"})
                                        Role role) throws ServerException {
         boolean update = roleService.updateById(role);
-        return WebResponse.OK(update ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"), true);
+        return WebResponse.OK(update ? I18nUtils.getMessage("system.role.update.success") : I18nUtils.getMessage("system.role.update.fail"), update);
     }
 
     @ApiOperation(value = "角色详情")

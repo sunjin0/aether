@@ -10,6 +10,7 @@ import com.aether.workflow.service.AgentWorkflowExecutionService;
 import com.aether.workflow.service.AgentWorkflowScheduleTriggerService;
 import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -75,7 +76,7 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
         AgentWorkflowScheduleTrigger trigger = required(id);
         try {
             ServiceAccount account = serviceAccountService.getById(trigger.getServiceAccountId());
-            if (account == null || Boolean.TRUE.equals(account.getDeleted())) throw new ServerException(422, "定时触发器绑定的服务账号不存在");
+            if (account == null || Boolean.TRUE.equals(account.getDeleted())) throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.service-account-binding.not-found"));
             serviceAccountService.assertWorkflowStartAllowed(account.getId(), trigger.getWorkflowId());
             Map<String, Object> variables = StringUtils.isBlank(trigger.getVariables()) ? new LinkedHashMap<String, Object>()
                     : JSON.parseObject(trigger.getVariables(), Map.class);
@@ -98,20 +99,20 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
     private void validate(AgentWorkflowScheduleTriggerDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getWorkflowId()) || StringUtils.isBlank(dto.getServiceAccountId()) || StringUtils.isBlank(dto.getName())
                 || StringUtils.isBlank(dto.getCronExpression()) || StringUtils.isBlank(dto.getBusinessType()) || StringUtils.isBlank(dto.getBusinessIdTemplate()))
-            throw new ServerException(422, "定时触发器必填配置不完整");
-        try { CronExpression.parse(dto.getCronExpression()); } catch (Exception ex) { throw new ServerException(422, "Cron 表达式无效"); }
+            throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.configuration.required"));
+        try { CronExpression.parse(dto.getCronExpression()); } catch (Exception ex) { throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.cron.invalid")); }
         AgentWorkflow workflow = workflowService.getById(dto.getWorkflowId());
-        if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted())) throw new ServerException(422, "定时触发器目标工作流不存在");
-        if (serviceAccountService.getById(dto.getServiceAccountId()) == null) throw new ServerException(422, "定时触发器服务账号不存在");
+        if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted())) throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.workflow.not-found"));
+        if (serviceAccountService.getById(dto.getServiceAccountId()) == null) throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.service-account.not-found"));
     }
     private AgentWorkflowScheduleTrigger required(String id) {
         AgentWorkflowScheduleTrigger trigger = getById(id);
-        if (trigger == null || Boolean.TRUE.equals(trigger.getDeleted())) throw new ServerException(404, "定时触发器不存在");
+        if (trigger == null || Boolean.TRUE.equals(trigger.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("workflow.schedule-trigger.not-found"));
         return trigger;
     }
     private long nextFireAt(String cron, long after) {
         ZonedDateTime next = CronExpression.parse(cron).next(ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(after), ZoneId.systemDefault()));
-        if (next == null) throw new ServerException(422, "Cron 表达式无法计算下一次执行时间");
+        if (next == null) throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.cron.next-execution.unavailable"));
         return next.toInstant().toEpochMilli();
     }
     private String render(String source, AgentWorkflowScheduleTrigger trigger, long scheduledAt) {

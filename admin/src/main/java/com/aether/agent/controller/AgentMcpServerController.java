@@ -116,7 +116,7 @@ public class AgentMcpServerController {
         fillDefaults(server);
         encryptAuthToken(server);
         boolean saved = agentMcpServerService.save(server);
-        return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), server.getId());
+        return WebResponse.OK(saved ? I18nUtils.getMessage("agent.mcp-server.create.success") : I18nUtils.getMessage("agent.mcp-server.create.fail"), server.getId());
     }
 
     /** 更新 MCP 服务配置，保留未修改的认证令牌。 */
@@ -132,7 +132,7 @@ public class AgentMcpServerController {
         fillDefaults(server);
         applyAuthTokenForUpdate(server, existing, dto);
         boolean updated = agentMcpServerService.updateById(server);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("agent.mcp-server.update.success") : I18nUtils.getMessage("agent.mcp-server.update.fail"));
     }
 
     /** 删除未绑定工具的 MCP 服务。 */
@@ -147,7 +147,7 @@ public class AgentMcpServerController {
             throw new ServerException(422, I18nUtils.getMessage("mcp.server.delete.tools.bound"));
         }
         boolean removed = agentMcpServerService.removeById(id);
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        return WebResponse.OK(removed ? I18nUtils.getMessage("agent.mcp-server.delete.success") : I18nUtils.getMessage("agent.mcp-server.delete.fail"));
     }
 
     /** 连接 MCP 服务并发现远端工具定义。 */
@@ -206,7 +206,7 @@ public class AgentMcpServerController {
     private AgentMcpServer getExistingServer(String id) {
         AgentMcpServer server = agentMcpServerService.getById(id);
         if (server == null || Boolean.TRUE.equals(server.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("mcp.server.not.found"));
         }
         return server;
     }

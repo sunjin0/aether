@@ -225,7 +225,7 @@ public class AgentConversationController {
         conversation.setId(id);
         conversation.setStatus(1); // 关闭
         boolean updated = agentConversationService.updateById(conversation);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("agent.conversation.close.success") : I18nUtils.getMessage("agent.conversation.close.fail"));
     }
 
     @ApiOperation("删除会话")
@@ -264,10 +264,10 @@ public class AgentConversationController {
         adminPreferenceService.reconcileAfterEvidenceRemoval(affectedPreferenceIds);
         boolean removed = agentConversationService.removeById(id);
         if (!removed) {
-            throw new ServerException(500, I18nUtils.getMessage("delete.fail"));
+            throw new ServerException(500, I18nUtils.getMessage("agent.conversation.delete.fail"));
         }
         evictConversationMemoryAfterCommit(id, conversation.getUserId());
-        return WebResponse.OK(I18nUtils.getMessage("delete.success"));
+        return WebResponse.OK(I18nUtils.getMessage("agent.conversation.delete.success"));
     }
 
     @ApiOperation("会话生命周期查询")
@@ -280,7 +280,7 @@ public class AgentConversationController {
         getOwnedConversation(id);
         AgentConversationLifecycleVo lifecycle = agentConversationService.getLifecycle(id);
         if (lifecycle == null) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.conversation.lifecycle.not-found"));
         }
         return WebResponse.OK(lifecycle);
     }
@@ -295,7 +295,7 @@ public class AgentConversationController {
         getOwnedConversation(id);
         AgentMessageStatisticsVo statistics = agentConversationService.getStatistics(id);
         if (statistics == null) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.conversation.statistics.not-found"));
         }
         return WebResponse.OK(statistics);
     }
@@ -306,7 +306,7 @@ public class AgentConversationController {
                 .eq(AgentConversation::getDeleted, false)
                 .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId")));
         if (conversation == null) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
         return conversation;
     }

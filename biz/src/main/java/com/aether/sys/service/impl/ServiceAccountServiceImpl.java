@@ -16,6 +16,7 @@ import com.aether.sys.service.UserService;
 import com.aether.sys.vo.ServiceAccountSecretVo;
 import com.aether.sys.vo.ServiceAccountTokenVo;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.utils.TokenUtils;
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -62,16 +63,16 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ServiceAccountSecretVo create(ServiceAccountCreateDto dto) {
-        if (dto == null || StringUtils.isBlank(dto.getName())) throw new ServerException(422, "服务账号名称不能为空");
-        if (dto.getName().length() > 128) throw new ServerException(422, "服务账号名称长度不能超过 128");
+        if (dto == null || StringUtils.isBlank(dto.getName())) throw new ServerException(422, I18nUtils.getMessage("service-account.name.required"));
+        if (dto.getName().length() > 128) throw new ServerException(422, I18nUtils.getMessage("service-account.name.length.exceeded"));
         List<String> roleIds = dto.getRoleIds() == null ? Collections.<String>emptyList() : dto.getRoleIds();
-        if (roleIds.isEmpty()) throw new ServerException(422, "服务账号至少需要一个角色");
+        if (roleIds.isEmpty()) throw new ServerException(422, I18nUtils.getMessage("service-account.roles.required"));
         if (roleService.count(Wrappers.lambdaQuery(Role.class).in(Role::getId, roleIds).eq(Role::getDeleted, false)) != new HashSet<String>(roleIds).size())
-            throw new ServerException(422, "包含不存在或已删除的角色");
+            throw new ServerException(422, I18nUtils.getMessage("service-account.roles.invalid"));
         String clientId = StringUtils.defaultIfBlank(dto.getClientId(), "sa_" + randomToken(12));
-        if (!clientId.matches("[A-Za-z][A-Za-z0-9_-]{2,63}")) throw new ServerException(422, "clientId 格式不合法");
+        if (!clientId.matches("[A-Za-z][A-Za-z0-9_-]{2,63}")) throw new ServerException(422, I18nUtils.getMessage("service-account.client-id.invalid"));
         if (count(Wrappers.lambdaQuery(ServiceAccount.class).eq(ServiceAccount::getClientId, clientId).eq(ServiceAccount::getDeleted, false)) > 0)
-            throw new ServerException(409, "clientId 已存在");
+            throw new ServerException(409, I18nUtils.getMessage("service-account.client-id.exists"));
         String secret = "sa_" + randomToken(32);
         User user = new User();
         user.setUsername("svc-" + clientId);
@@ -95,7 +96,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         account.setAllowedWorkflowIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowed))));
         int maxStarts = dto.getMaxStartsPerHour() == null ? 0 : dto.getMaxStartsPerHour();
         if (maxStarts < 0 || maxStarts > 100000)
-            throw new ServerException(422, "每小时启动额度必须在 0 到 100000 之间");
+            throw new ServerException(422, I18nUtils.getMessage("service-account.hourly-start-limit.invalid"));
         account.setMaxStartsPerHour(maxStarts);
         save(account);
         return secretVo(account, secret);
@@ -105,15 +106,15 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     @Transactional(rollbackFor = Exception.class)
     public boolean update(String id, ServiceAccountUpdateDto dto) {
         ServiceAccount account = required(id);
-        if (dto == null || StringUtils.isBlank(dto.getName())) throw new ServerException(422, "服务账号名称不能为空");
-        if (dto.getName().length() > 128) throw new ServerException(422, "服务账号名称长度不能超过 128");
+        if (dto == null || StringUtils.isBlank(dto.getName())) throw new ServerException(422, I18nUtils.getMessage("service-account.name.required"));
+        if (dto.getName().length() > 128) throw new ServerException(422, I18nUtils.getMessage("service-account.name.length.exceeded"));
         List<String> roleIds = dto.getRoleIds() == null ? Collections.<String>emptyList() : dto.getRoleIds();
-        if (roleIds.isEmpty()) throw new ServerException(422, "服务账号至少需要一个角色");
+        if (roleIds.isEmpty()) throw new ServerException(422, I18nUtils.getMessage("service-account.roles.required"));
         if (roleService.count(Wrappers.lambdaQuery(Role.class).in(Role::getId, roleIds).eq(Role::getDeleted, false)) != new HashSet<String>(roleIds).size())
-            throw new ServerException(422, "包含不存在或已删除的角色");
+            throw new ServerException(422, I18nUtils.getMessage("service-account.roles.invalid"));
         int maxStarts = dto.getMaxStartsPerHour() == null ? 0 : dto.getMaxStartsPerHour();
         if (maxStarts < 0 || maxStarts > 100000)
-            throw new ServerException(422, "每小时启动额度必须在 0 到 100000 之间");
+            throw new ServerException(422, I18nUtils.getMessage("service-account.hourly-start-limit.invalid"));
         List<String> allowed = dto.getAllowedWorkflowIds() == null ? Collections.<String>emptyList() : dto.getAllowedWorkflowIds();
         account.setName(dto.getName());
         account.setDescription(StringUtils.abbreviate(dto.getDescription(), 1024));
@@ -149,11 +150,11 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     @Override
     public ServiceAccountTokenVo issueToken(ServiceAccountTokenDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getClientId()) || StringUtils.isBlank(dto.getClientSecret()))
-            throw new ServerException(401, "clientId 或 clientSecret 无效");
+            throw new ServerException(401, I18nUtils.getMessage("service-account.credentials.invalid"));
         ServiceAccount account = getOne(Wrappers.lambdaQuery(ServiceAccount.class).eq(ServiceAccount::getClientId, dto.getClientId())
                 .eq(ServiceAccount::getDeleted, false));
         if (account == null || !Boolean.TRUE.equals(account.getEnabled()) || !passwordEncoder.matches(dto.getClientSecret(), account.getSecretHash()))
-            throw new ServerException(401, "clientId 或 clientSecret 无效");
+            throw new ServerException(401, I18nUtils.getMessage("service-account.credentials.invalid"));
         Map<String, String> claims = new HashMap<String, String>();
         claims.put("userId", account.getUserId());
         claims.put("serviceAccountId", account.getId());
@@ -191,11 +192,11 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     @Override
     public void assertWorkflowStartAllowed(String id, String workflowId) {
         ServiceAccount account = required(id);
-        if (!Boolean.TRUE.equals(account.getEnabled())) throw new ServerException(403, "服务账号已停用");
+        if (!Boolean.TRUE.equals(account.getEnabled())) throw new ServerException(403, I18nUtils.getMessage("service-account.disabled"));
         List<String> allowed = StringUtils.isBlank(account.getAllowedWorkflowIds()) ? Collections.<String>emptyList()
                 : JSON.parseArray(account.getAllowedWorkflowIds(), String.class);
         if (allowed != null && !allowed.isEmpty() && !allowed.contains(workflowId))
-            throw new ServerException(403, "服务账号无权启动该工作流");
+            throw new ServerException(403, I18nUtils.getMessage("service-account.workflow-start.denied"));
         int limit = account.getMaxStartsPerHour() == null ? 0 : account.getMaxStartsPerHour();
         if (limit <= 0) return;
         Calendar calendar = Calendar.getInstance();
@@ -203,13 +204,13 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         String key = "ServiceAccountWorkflowStarts:" + account.getId() + ":" + bucket;
         Long count = redisTemplate.opsForValue().increment(key);
         if (count != null && count == 1L) redisTemplate.expire(key, 2, java.util.concurrent.TimeUnit.HOURS);
-        if (count != null && count > limit) throw new ServerException(429, "服务账号工作流启动额度已用尽");
+        if (count != null && count > limit) throw new ServerException(429, I18nUtils.getMessage("service-account.workflow-start-quota.exhausted"));
     }
 
     private ServiceAccount required(String id) {
         ServiceAccount account = getById(id);
         if (account == null || Boolean.TRUE.equals(account.getDeleted()))
-            throw new ServerException(404, "服务账号不存在");
+            throw new ServerException(404, I18nUtils.getMessage("service-account.not-found"));
         return account;
     }
 

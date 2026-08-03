@@ -119,7 +119,7 @@ public class UserController {
             userService.bindRole(User.getId(), User.getRoleIds());
         }
         boolean saved = userService.save(User);
-            return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), true);
+            return WebResponse.OK(saved ? I18nUtils.getMessage("system.admin.create.success") : I18nUtils.getMessage("system.admin.create.fail"), saved);
     }
     @ApiOperation("管理员修改")
     @ApiImplicitParams({
@@ -139,7 +139,7 @@ public class UserController {
             userService.bindRole(User.getId(), User.getRoleIds());
         }
         boolean update = userService.updateById(User);
-        return WebResponse.OK(update ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"), true);
+        return WebResponse.OK(update ? I18nUtils.getMessage("system.admin.update.success") : I18nUtils.getMessage("system.admin.update.fail"), update);
     }
 
     @ApiOperation("管理员删除")
@@ -152,7 +152,7 @@ public class UserController {
     public WebResponse<Boolean> delete(@RequestParam @NotBlank String id) throws ServerException {
         boolean update = userService.remove(Wrappers.lambdaUpdate(User.class)
                 .eq(User::getId, id));
-        return WebResponse.OK(update ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"), update);
+        return WebResponse.OK(update ? I18nUtils.getMessage("system.admin.delete.success") : I18nUtils.getMessage("system.admin.delete.fail"), update);
     }
 
 }

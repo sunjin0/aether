@@ -113,10 +113,10 @@ public class AgentChatController {
     public WebResponse<AgentMessageVo> chat(@RequestBody AgentChatDto dto) {
         AgentDefinition agent = agentDefinitionService.getById(dto.getAgentId());
         if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
         if ("DEEP".equals(agent.getExecutionMode())) {
-            throw new ServerException(422, "Deep Agent 仅支持流式聊天，请使用 /api/agent/chat/stream");
+            throw new ServerException(422, I18nUtils.getMessage("agent.deep.chat.stream.required"));
         }
         return WebResponse.OK(agentChatService.chat(dto));
     }
@@ -125,7 +125,7 @@ public class AgentChatController {
     @PostMapping(value = "/attachment", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public WebResponse<List<AgentChatAttachmentVo>> uploadAttachments(@RequestParam("files") List<MultipartFile> files) {
         if (files == null || files.isEmpty() || files.size() > 3) {
-            throw new ServerException(422, "聊天一次最多上传 3 个附件");
+            throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachments.max.exceeded"));
         }
         List<AgentChatAttachmentVo> attachments = files.stream().map(file -> {
             ChatAttachmentService.ChatAttachment attachment = chatAttachmentService.process(file);
@@ -137,7 +137,7 @@ public class AgentChatController {
             vo.setExtractedContent(attachment.getExtractedContent());
             return vo;
         }).collect(Collectors.toList());
-        return WebResponse.OK(attachments);
+        return WebResponse.OK(I18nUtils.getMessage("agent.chat.attachments.upload.success"), attachments);
     }
 
     @ApiOperation("流式聊天")
@@ -162,7 +162,7 @@ public class AgentChatController {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         if (StringUtils.isBlank(userId)) throw new ServerException(401, I18nUtils.getMessage("agent.unauthorized"));
         AgentConversation conversation = getDeepConversation(dto.getConversationId(), userId, agent);
-        if (conversation == null) throw new ServerException(422, "Deep 工具确认必须关联现有会话");
+        if (conversation == null) throw new ServerException(422, I18nUtils.getMessage("agent.deep.tool.confirmation.conversation.required"));
         response.setHeader("Cache-Control", "no-cache, no-transform");
         response.setHeader("Connection", "keep-alive");
         SseEmitter emitter = new SseEmitter(deepStreamTimeoutMs());
@@ -175,9 +175,9 @@ public class AgentChatController {
             accepted.put("conversationId", conversation.getId());
             emitter.send(SseEmitter.event().name("accepted").data(accepted.toJSONString()));
         } catch (IllegalArgumentException e) {
-            throw new ServerException(422, e.getMessage());
+            throw new ServerException(422, I18nUtils.getMessage("agent.deep.resume.request.invalid"));
         } catch (Exception e) {
-            throw new ServerException(502, "Deep Agent 恢复失败: " + e.getMessage());
+            throw new ServerException(502, I18nUtils.getMessage("agent.deep.resume.failed", new Object[]{e.getMessage()}));
         }
         return emitter;
     }
@@ -280,7 +280,7 @@ public class AgentChatController {
                 .eq(AgentConversation::getDeleted, false)
                 .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId")));
         if (conversation == null) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
         Page<AgentMessage> page = new Page<>(current, pageSize);
         Wrapper<AgentMessage> wrapper = Wrappers.lambdaQuery(AgentMessage.class)

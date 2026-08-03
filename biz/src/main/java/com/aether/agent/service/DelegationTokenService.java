@@ -4,6 +4,7 @@ import com.aether.agent.dto.DeepAgentConfig;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
@@ -22,7 +23,7 @@ public class DelegationTokenService {
 
     public String create(String runId, String userId, String agentId, List<String> allowedTools) {
         if (StringUtils.isBlank(config.getMcpDelegationSecret())) {
-            throw new ServerException(500, "MCP 委派密钥未配置，请设置 AETHER_MCP_DELEGATION_SECRET");
+            throw new ServerException(500, I18nUtils.getMessage("agent.mcp.delegation-secret.missing"));
         }
         long now = System.currentTimeMillis();
         return JWT.create()

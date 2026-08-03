@@ -105,7 +105,7 @@ public class AgentDefinitionController {
     public WebResponse<AgentDefinitionVo> detail(@PathVariable @NotBlank String id) {
         AgentDefinition definition = agentDefinitionService.getById(id);
         if (definition == null || Boolean.TRUE.equals(definition.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
         AgentDefinitionVo vo = new AgentDefinitionVo();
         List<String> toolIds = agentToolBindingService.lambdaQuery()
@@ -140,7 +140,7 @@ public class AgentDefinitionController {
                 agentToolBindingService.save(binding);
             }
         }
-        return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), definition.getId());
+        return WebResponse.OK(saved ? I18nUtils.getMessage("agent.definition.create.success") : I18nUtils.getMessage("agent.definition.create.fail"), definition.getId());
     }
 
     /** 更新 Agent 定义及工具绑定关系。 */
@@ -168,7 +168,7 @@ public class AgentDefinitionController {
                 agentToolBindingService.save(binding);
             }
         }
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("agent.definition.update.success") : I18nUtils.getMessage("agent.definition.update.fail"));
     }
 
     /** 软删除 Agent 定义。 */
@@ -181,7 +181,7 @@ public class AgentDefinitionController {
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         boolean removed = agentDefinitionService.removeById(id);
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        return WebResponse.OK(removed ? I18nUtils.getMessage("agent.definition.delete.success") : I18nUtils.getMessage("agent.definition.delete.fail"));
     }
 
     /** 修改 Agent 启用状态。 */
@@ -196,7 +196,7 @@ public class AgentDefinitionController {
         definition.setId(id);
         definition.setStatus(vo.getStatus());
         boolean updated = agentDefinitionService.updateById(definition);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("agent.definition.status.update.success") : I18nUtils.getMessage("agent.definition.status.update.fail"));
     }
 
     /** 复制 Agent 基础配置和工具绑定，生成新的草稿 Agent。 */
@@ -210,7 +210,7 @@ public class AgentDefinitionController {
     public WebResponse<String> copy(@PathVariable @NotBlank String id) {
         AgentDefinition source = agentDefinitionService.getById(id);
         if (source == null || Boolean.TRUE.equals(source.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
         AgentDefinition copy = new AgentDefinition();
         BeanUtils.copyProperties(source, copy);
@@ -231,7 +231,7 @@ public class AgentDefinitionController {
             newBinding.setAgentDefinitionId(copy.getId());
             agentToolBindingService.save(newBinding);
         }
-        return WebResponse.OK(I18nUtils.getMessage("copy.success"), copy.getId());
+        return WebResponse.OK(I18nUtils.getMessage("agent.definition.copy.success"), copy.getId());
     }
     /**
      * 模型供应商列表

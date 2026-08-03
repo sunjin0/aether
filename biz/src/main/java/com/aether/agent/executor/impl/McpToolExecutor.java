@@ -105,7 +105,7 @@ public class McpToolExecutor implements ToolExecutor {
     /** 普通 Agent 与 Deep Agent 使用相同的 Java 委派 JWT，MCP 仅接受当前运行允许的工具。 */
     private void applyDelegationToken(AgentMcpServer server, ToolExecutionContext context, AgentTool tool) {
         if (StringUtils.isAnyBlank(context.getRunId(), context.getUserId(), context.getAgentDefinitionId())) {
-            throw new ServerException(422, "MCP 工具调用缺少运行委派上下文");
+            throw new ServerException(422, I18nUtils.getMessage("agent.mcp.delegation-context.required"));
         }
         String toolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
         String token = delegationTokenService.create(context.getRunId(), context.getUserId(),

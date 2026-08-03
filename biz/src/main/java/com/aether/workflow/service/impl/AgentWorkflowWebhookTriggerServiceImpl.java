@@ -12,6 +12,7 @@ import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.workflow.service.AgentWorkflowWebhookTriggerService;
 import com.aether.workflow.vo.AgentWorkflowWebhookTriggerSecretVo;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
 import com.aether.utils.AesUtil;
@@ -82,11 +83,11 @@ public class AgentWorkflowWebhookTriggerServiceImpl
     @SuppressWarnings("unchecked")
     public AgentWorkflowInstance trigger(String id, String timestamp, String signature, String rawBody, Map<String, String> headers) {
         AgentWorkflowWebhookTrigger trigger = required(id);
-        if (!Boolean.TRUE.equals(trigger.getEnabled())) throw new ServerException(404, "Webhook 不存在或已停用");
+        if (!Boolean.TRUE.equals(trigger.getEnabled())) throw new ServerException(404, I18nUtils.getMessage("workflow.webhook.not-found-or-disabled"));
         verifySignature(trigger, timestamp, signature, rawBody);
-        if (rawBody == null || rawBody.length() > 1024 * 1024) throw new ServerException(413, "Webhook 请求体过大");
+        if (rawBody == null || rawBody.length() > 1024 * 1024) throw new ServerException(413, I18nUtils.getMessage("workflow.webhook.request-body.too-large"));
         Object parsed;
-        try { parsed = JSON.parse(rawBody); } catch (Exception ex) { throw new ServerException(422, "Webhook 请求体必须是合法 JSON"); }
+        try { parsed = JSON.parse(rawBody); } catch (Exception ex) { throw new ServerException(422, I18nUtils.getMessage("workflow.webhook.request-body.json.invalid")); }
         Map<String, Object> body = parsed instanceof Map ? new LinkedHashMap<String, Object>((Map<String, Object>) parsed)
                 : Collections.<String, Object>singletonMap("value", parsed);
         try {
@@ -97,9 +98,9 @@ public class AgentWorkflowWebhookTriggerServiceImpl
             String businessId = String.valueOf(resolve(trigger.getBusinessIdExpression(), body, headers));
             String idempotencyKey = String.valueOf(resolve(trigger.getIdempotencyKeyExpression(), body, headers));
             if (StringUtils.isBlank(businessId) || "null".equals(businessId) || StringUtils.isBlank(idempotencyKey) || "null".equals(idempotencyKey))
-                throw new ServerException(422, "Webhook 业务 ID 或幂等键映射结果为空");
+                throw new ServerException(422, I18nUtils.getMessage("workflow.webhook.business-idempotency-mapping.empty"));
             ServiceAccount account = serviceAccountService.getById(trigger.getServiceAccountId());
-            if (account == null || Boolean.TRUE.equals(account.getDeleted())) throw new ServerException(422, "Webhook 绑定的服务账号不存在");
+            if (account == null || Boolean.TRUE.equals(account.getDeleted())) throw new ServerException(422, I18nUtils.getMessage("workflow.webhook.service-account-binding.not-found"));
             serviceAccountService.assertWorkflowStartAllowed(account.getId(), trigger.getWorkflowId());
             AgentWorkflowBusinessStartDto start = new AgentWorkflowBusinessStartDto();
             start.setBusinessType(trigger.getBusinessType()); start.setBusinessId(businessId); start.setIdempotencyKey(idempotencyKey); start.setVariables(variables);
@@ -116,34 +117,34 @@ public class AgentWorkflowWebhookTriggerServiceImpl
         if (dto == null || StringUtils.isBlank(dto.getWorkflowId()) || StringUtils.isBlank(dto.getServiceAccountId())
                 || StringUtils.isBlank(dto.getName()) || StringUtils.isBlank(dto.getBusinessType())
                 || StringUtils.isBlank(dto.getBusinessIdExpression()) || StringUtils.isBlank(dto.getIdempotencyKeyExpression()))
-            throw new ServerException(422, "Webhook 必填配置不完整");
+            throw new ServerException(422, I18nUtils.getMessage("workflow.webhook.configuration.required"));
         AgentWorkflow workflow = workflowService.getById(dto.getWorkflowId());
-        if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted())) throw new ServerException(422, "Webhook 目标工作流不存在");
+        if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted())) throw new ServerException(422, I18nUtils.getMessage("workflow.webhook.workflow.not-found"));
         ServiceAccount account = serviceAccountService.getById(dto.getServiceAccountId());
-        if (account == null || Boolean.TRUE.equals(account.getDeleted())) throw new ServerException(422, "Webhook 服务账号不存在");
+        if (account == null || Boolean.TRUE.equals(account.getDeleted())) throw new ServerException(422, I18nUtils.getMessage("workflow.webhook.service-account.not-found"));
     }
 
     private AgentWorkflowWebhookTrigger required(String id) {
         AgentWorkflowWebhookTrigger trigger = getById(id);
-        if (trigger == null || Boolean.TRUE.equals(trigger.getDeleted())) throw new ServerException(404, "Webhook 不存在");
+        if (trigger == null || Boolean.TRUE.equals(trigger.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("workflow.webhook.not-found"));
         return trigger;
     }
 
     private void verifySignature(AgentWorkflowWebhookTrigger trigger, String timestamp, String signature, String rawBody) {
         long value;
-        try { value = Long.parseLong(timestamp); } catch (Exception ex) { throw new ServerException(401, "Webhook 时间戳无效"); }
-        if (Math.abs(System.currentTimeMillis() - value) > signatureMaxAgeMillis) throw new ServerException(401, "Webhook 时间戳已过期");
+        try { value = Long.parseLong(timestamp); } catch (Exception ex) { throw new ServerException(401, I18nUtils.getMessage("workflow.webhook.timestamp.invalid")); }
+        if (Math.abs(System.currentTimeMillis() - value) > signatureMaxAgeMillis) throw new ServerException(401, I18nUtils.getMessage("workflow.webhook.timestamp.expired"));
         String secret = AesUtil.decrypt(trigger.getSigningSecret());
         String expected = "sha256=" + hmac(secret, timestamp + "." + StringUtils.defaultString(rawBody));
         if (StringUtils.isBlank(signature) || !MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), signature.getBytes(StandardCharsets.UTF_8)))
-            throw new ServerException(401, "Webhook 签名无效");
+            throw new ServerException(401, I18nUtils.getMessage("workflow.webhook.signature.invalid"));
     }
 
     private String hmac(String secret, String value) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256"); mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             return Base64.getEncoder().encodeToString(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception ex) { throw new ServerException(500, "Webhook 签名计算失败"); }
+        } catch (Exception ex) { throw new ServerException(500, I18nUtils.getMessage("workflow.webhook.signature.calculation.failed")); }
     }
 
     private Object resolve(String expression, Map<String, Object> body, Map<String, String> headers) {

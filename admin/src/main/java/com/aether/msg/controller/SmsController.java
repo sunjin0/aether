@@ -65,9 +65,9 @@ public class SmsController {
         boolean save = smsService.save(message);
         if (StringUtils.isNotEmpty(id)) {
             save = smsService.updateById(message);
-            return WebResponse.OK(I18nUtils.getMessage(save ? "update.success" : "update.fail"), save);
+            return WebResponse.OK(I18nUtils.getMessage(save ? "sms.update.success" : "sms.update.fail"), save);
         }
-        return WebResponse.OK(I18nUtils.getMessage(save ? "add.success" : "add.fail"), save);
+        return WebResponse.OK(I18nUtils.getMessage(save ? "sms.create.success" : "sms.create.fail"), save);
     }
 
     @ApiOperation("删除")
@@ -81,6 +81,6 @@ public class SmsController {
     @PostMapping("/delete")
     public WebResponse<Boolean> delete(@RequestParam("id") String id) throws ServiceException {
         Boolean delete = smsService.delete(id);
-        return WebResponse.OK(I18nUtils.getMessage(delete ? "delete.success" : "delete.fail"), delete);
+        return WebResponse.OK(I18nUtils.getMessage(delete ? "sms.delete.success" : "sms.delete.fail"), delete);
     }
 }

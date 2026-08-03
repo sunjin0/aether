@@ -90,7 +90,7 @@ public class AgentToolBindingController {
         binding.setPriority(dto.getPriority());
         binding.setStatus(dto.getStatus() != null ? dto.getStatus() : 1);
         boolean saved = agentToolBindingService.save(binding);
-        return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"));
+        return WebResponse.OK(saved ? I18nUtils.getMessage("agent.tool-binding.create.success") : I18nUtils.getMessage("agent.tool-binding.create.fail"));
     }
 
     @ApiOperation("解绑工具")
@@ -105,7 +105,7 @@ public class AgentToolBindingController {
                 Wrappers.lambdaUpdate(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
                         .eq(AgentToolBinding::getToolId, toolId));
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        return WebResponse.OK(removed ? I18nUtils.getMessage("agent.tool-binding.delete.success") : I18nUtils.getMessage("agent.tool-binding.delete.fail"));
     }
 
     @ApiOperation("调整优先级")
@@ -123,6 +123,6 @@ public class AgentToolBindingController {
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
                         .eq(AgentToolBinding::getToolId, toolId)
                         .set(AgentToolBinding::getPriority, dto.getPriority()));
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("agent.tool-binding.priority.update.success") : I18nUtils.getMessage("agent.tool-binding.priority.update.fail"));
     }
 }

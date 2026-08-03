@@ -62,7 +62,7 @@ public class DictController {
     @GetMapping("/delete")
     public WebResponse<Boolean> delete(@RequestParam @NotNull String id) {
         boolean delete = dictService.delete(id);
-        return WebResponse.OK(delete ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"), delete);
+        return WebResponse.OK(delete ? I18nUtils.getMessage("system.dict.delete.success") : I18nUtils.getMessage("system.dict.delete.fail"), delete);
     }
 
     @ApiOperation("添加字典")
@@ -75,7 +75,7 @@ public class DictController {
                                      @ValidEntity(fieldNames = {"code", "name", "nameCn"})
                                      Dict dict) {
         boolean save = dictService.save(dict);
-            return WebResponse.OK(I18nUtils.getMessage(save ? "add.success" : "add.fail"), save);
+            return WebResponse.OK(I18nUtils.getMessage(save ? "system.dict.create.success" : "system.dict.create.fail"), save);
     }
     @ApiOperation("修改字典")
     @ApiImplicitParams({
@@ -87,7 +87,7 @@ public class DictController {
                                       @ValidEntity(fieldNames = {"code", "name", "nameCn"})
                                       Dict dict) {
         boolean update = dictService.updateById(dict);
-        return WebResponse.OK(I18nUtils.getMessage(update ? "update.success" : "update.fail"), update);
+        return WebResponse.OK(I18nUtils.getMessage(update ? "system.dict.update.success" : "system.dict.update.fail"), update);
     }
 
     @ApiOperation("获取字典选项")

@@ -1,10 +1,11 @@
 package com.aether.config;
 
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.servlet.LocaleResolver;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -14,23 +15,23 @@ import java.util.Locale;
  * @since 2024/09/02
  */
 public class MyLocaleResolver implements LocaleResolver {
-    //解析请求
+    private static final Locale DEFAULT_LOCALE = Locale.SIMPLIFIED_CHINESE;
+    private static final List<Locale> SUPPORTED_LOCALES = Arrays.asList(
+            Locale.SIMPLIFIED_CHINESE, Locale.US);
+
     @Override
     public Locale resolveLocale(HttpServletRequest httpServletRequest) {
-        //获取请求中的语言参数
         String language = httpServletRequest.getHeader("Accept-Language");
-        //默认的；如果没有就使用默认的
-        Locale locale = Locale.getDefault();
-        //如果请求的了携带了国际化的参数
-        if (!StringUtils.isEmpty(language)) {
-            String[] strings = language.split(",");
-            String string = strings[0].replace("-", "_");
-            //zh_CN
-            String[] split = string.split("_");
-            //国家、地区
-            locale = new Locale(split[0], split[1]);
+        if (language == null || language.trim().isEmpty()) {
+            return DEFAULT_LOCALE;
         }
-        return locale;
+
+        try {
+            Locale locale = Locale.lookup(Locale.LanguageRange.parse(language), SUPPORTED_LOCALES);
+            return locale == null ? DEFAULT_LOCALE : locale;
+        } catch (IllegalArgumentException ignored) {
+            return DEFAULT_LOCALE;
+        }
     }
 
     @Override

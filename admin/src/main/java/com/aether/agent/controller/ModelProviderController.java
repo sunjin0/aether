@@ -105,7 +105,7 @@ public class ModelProviderController {
     public WebResponse<ModelProviderVo> detail(@PathVariable @NotBlank String id) {
         ModelProvider provider = modelProviderService.getById(id);
         if (provider == null || Boolean.TRUE.equals(provider.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
         }
         ModelProviderVo vo = new ModelProviderVo();
         BeanUtils.copyProperties(provider, vo);
@@ -132,7 +132,7 @@ public class ModelProviderController {
             throw new ServerException(400, I18nUtils.getMessage("model.provider.name.duplicate"));
         }
         boolean saved = modelProviderService.save(provider);
-        return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), provider.getId());
+        return WebResponse.OK(saved ? I18nUtils.getMessage("agent.model-provider.create.success") : I18nUtils.getMessage("agent.model-provider.create.fail"), provider.getId());
     }
 
     @ApiOperation("编辑模型供应商")
@@ -157,7 +157,7 @@ public class ModelProviderController {
             throw new ServerException(400, I18nUtils.getMessage("model.provider.name.duplicate"));
         }
         boolean updated = modelProviderService.updateById(provider);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("agent.model-provider.update.success") : I18nUtils.getMessage("agent.model-provider.update.fail"));
     }
 
     @ApiOperation("删除模型供应商")
@@ -169,7 +169,7 @@ public class ModelProviderController {
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         boolean removed = modelProviderService.removeById(id);
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        return WebResponse.OK(removed ? I18nUtils.getMessage("agent.model-provider.delete.success") : I18nUtils.getMessage("agent.model-provider.delete.fail"));
     }
 
     @ApiOperation("启用/禁用模型供应商")
@@ -183,7 +183,7 @@ public class ModelProviderController {
         provider.setId(id);
         provider.setStatus(vo.getStatus());
         boolean updated = modelProviderService.updateById(provider);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("agent.model-provider.status.update.success") : I18nUtils.getMessage("agent.model-provider.status.update.fail"));
     }
 
     @ApiOperation("测试连接")
@@ -193,6 +193,6 @@ public class ModelProviderController {
     @PostMapping("/{id}/test")
     public WebResponse<Boolean> testConnection(@PathVariable @NotBlank String id) {
         // TODO: V0.3 实现模型调用客户端后完善
-        return WebResponse.OK(true);
+        return WebResponse.OK(I18nUtils.getMessage("agent.model-provider.connection.test.success"), true);
     }
 }

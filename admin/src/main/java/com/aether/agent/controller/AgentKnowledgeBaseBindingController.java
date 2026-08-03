@@ -100,7 +100,7 @@ public class AgentKnowledgeBaseBindingController {
             binding.setStatus(1);
         }
         boolean saved = bindingService.save(binding);
-        return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), binding.getId());
+        return WebResponse.OK(saved ? I18nUtils.getMessage("agent.knowledge-binding.create.success") : I18nUtils.getMessage("agent.knowledge-binding.create.fail"), binding.getId());
     }
 
     @ApiOperation("Update Agent knowledge base binding status")
@@ -111,7 +111,7 @@ public class AgentKnowledgeBaseBindingController {
         binding.setId(id);
         binding.setStatus(vo.getStatus());
         boolean updated = bindingService.updateById(binding);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("agent.knowledge-binding.status.update.success") : I18nUtils.getMessage("agent.knowledge-binding.status.update.fail"));
     }
 
     @ApiOperation("Delete Agent knowledge base binding")
@@ -119,7 +119,7 @@ public class AgentKnowledgeBaseBindingController {
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         boolean removed = bindingService.removeById(id);
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        return WebResponse.OK(removed ? I18nUtils.getMessage("agent.knowledge-binding.delete.success") : I18nUtils.getMessage("agent.knowledge-binding.delete.fail"));
     }
 
     private void validateKnowledgeBase(String knowledgeBaseId) {

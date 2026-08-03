@@ -205,7 +205,7 @@ public class KnowledgeAiReviewController {
         result.setReviewStatus(version.getReviewStatus());
         result.setIssueStatus(KnowledgeAiReviewIssueStatus.ACCEPTED);
         result.setRequiresAiReview(false);
-        return WebResponse.OK(result);
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.accept.success"), result);
     }
 
     @PostMapping("/{reviewId}/issues/{issueId}/unaccept")
@@ -236,7 +236,7 @@ public class KnowledgeAiReviewController {
                 .set(KnowledgeAiReviewIssue::getHandleComment, vo == null ? null : vo.getComment())
                 .set(KnowledgeAiReviewIssue::getAppliedContent, null));
         if (!updated) throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.unaccept.success"));
     }
 
     @PostMapping("/{reviewId}/issues/{issueId}/reject")
@@ -259,7 +259,7 @@ public class KnowledgeAiReviewController {
                 .set(KnowledgeAiReviewIssue::getHandledAt, System.currentTimeMillis())
                 .set(KnowledgeAiReviewIssue::getHandleComment, vo == null ? null : vo.getComment()));
         if (!updated) throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.reject.success"));
     }
 
     @PostMapping("/{reviewId}/issues/accept-batch")
@@ -326,7 +326,7 @@ public class KnowledgeAiReviewController {
         result.setReviewStatus(version.getReviewStatus());
         result.setIssueStatus(KnowledgeAiReviewIssueStatus.ACCEPTED);
         result.setRequiresAiReview(false);
-        return WebResponse.OK(result);
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.batch-accept.success"), result);
     }
 
     @PostMapping("/{reviewId}/issues/apply")
@@ -378,7 +378,7 @@ public class KnowledgeAiReviewController {
         result.setReviewStatus(updatedVersion.getReviewStatus());
         result.setIssueStatus(KnowledgeAiReviewIssueStatus.ACCEPTED);
         result.setRequiresAiReview(false);
-        return WebResponse.OK(result);
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.apply.success"), result);
     }
 
     @PutMapping("/issue/{issueId}/handle")
@@ -412,7 +412,7 @@ public class KnowledgeAiReviewController {
                 .set(KnowledgeAiReviewIssue::getHandledAt, System.currentTimeMillis())
                 .set(KnowledgeAiReviewIssue::getHandleComment, vo.getComment()));
         if (!updated) throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.handle.success"));
     }
 
     private KnowledgeAiReviewIssue requireIssue(String issueId, String reviewId) {

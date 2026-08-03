@@ -5,6 +5,6 @@ spring:
   messages:
     basename: i18n.api
     encoding: UTF-8
-    # 默认区域，可以写多个，用逗号分隔
-    fallback-to-system-locale: true
+    fallback-to-system-locale: false
+    default-locale: zh_CN
     always-use-message-format: false

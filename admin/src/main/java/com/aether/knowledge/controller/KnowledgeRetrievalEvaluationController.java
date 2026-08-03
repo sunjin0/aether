@@ -2,6 +2,7 @@ package com.aether.knowledge.controller;
 
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.model.KnowledgeRetrievalEvaluationCase;
 import com.aether.knowledge.model.KnowledgeRetrievalEvaluationReport;
 import com.aether.knowledge.service.KnowledgeRetrievalEvaluationService;
@@ -68,15 +69,15 @@ public class KnowledgeRetrievalEvaluationController {
     }
     /** 查询未删除的评测集，并按创建时间倒序返回。 */
     @GetMapping("/sets") public WebResponse<List<KnowledgeRetrievalEvaluationSet>> sets() { return WebResponse.OK(setMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSet.class).eq(KnowledgeRetrievalEvaluationSet::getDeleted, false).orderByDesc(KnowledgeRetrievalEvaluationSet::getCreatedAt))); }
-    @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PostMapping("/sets") public WebResponse<String> saveSet(@RequestBody KnowledgeRetrievalEvaluationSet set) { if (StringUtils.isBlank(set.getAgentDefinitionId()) || StringUtils.isBlank(set.getName())) throw new ServerException(400, "agentDefinitionId and name are required"); if (set.getStatus()==null) set.setStatus(1); setMapper.insert(set); return WebResponse.OK(set.getId()); }
-    @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PutMapping("/sets/{id}") public WebResponse<Void> updateSet(@PathVariable String id, @RequestBody KnowledgeRetrievalEvaluationSet set) { set.setId(id); setMapper.updateById(set); return WebResponse.OK("OK"); }
-    @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @DeleteMapping("/sets/{id}") public WebResponse<Void> deleteSet(@PathVariable String id) { KnowledgeRetrievalEvaluationSet set=new KnowledgeRetrievalEvaluationSet(); set.setId(id); set.setDeleted(true); setMapper.updateById(set); return WebResponse.OK("OK"); }
+    @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PostMapping("/sets") public WebResponse<String> saveSet(@RequestBody KnowledgeRetrievalEvaluationSet set) { if (StringUtils.isBlank(set.getAgentDefinitionId()) || StringUtils.isBlank(set.getName())) throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.set.agent-definition-and-name.required")); if (set.getStatus()==null) set.setStatus(1); setMapper.insert(set); return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.set.create.success"), set.getId()); }
+    @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PutMapping("/sets/{id}") public WebResponse<Void> updateSet(@PathVariable String id, @RequestBody KnowledgeRetrievalEvaluationSet set) { set.setId(id); setMapper.updateById(set); return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.set.update.success")); }
+    @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @DeleteMapping("/sets/{id}") public WebResponse<Void> deleteSet(@PathVariable String id) { KnowledgeRetrievalEvaluationSet set=new KnowledgeRetrievalEvaluationSet(); set.setId(id); set.setDeleted(true); setMapper.updateById(set); return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.set.delete.success")); }
     /** 查询指定评测集下未删除的评测问题。 */
     @GetMapping("/sets/{id}/cases") public WebResponse<List<KnowledgeRetrievalEvaluationCaseEntity>> cases(@PathVariable String id) { return WebResponse.OK(caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId,id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted,false))); }
-    @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PostMapping("/sets/{id}/cases") public WebResponse<String> saveCase(@PathVariable String id,@RequestBody KnowledgeRetrievalEvaluationCaseEntity item) { if(StringUtils.isBlank(item.getQuestion())) throw new ServerException(400,"question is required"); item.setEvaluationSetId(id); if(item.getStatus()==null)item.setStatus(1); caseMapper.insert(item); return WebResponse.OK(item.getId()); }
+    @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PostMapping("/sets/{id}/cases") public WebResponse<String> saveCase(@PathVariable String id,@RequestBody KnowledgeRetrievalEvaluationCaseEntity item) { if(StringUtils.isBlank(item.getQuestion())) throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.case.question.required")); item.setEvaluationSetId(id); if(item.getStatus()==null)item.setStatus(1); caseMapper.insert(item); return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.case.create.success"), item.getId()); }
     /** 执行评测集：解析当前文档版本的目标 chunk，计算指标并保存运行快照。 */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write) @PostMapping("/sets/{id}/run") public WebResponse<KnowledgeRetrievalEvaluationReport> runSet(@PathVariable String id) {
-        KnowledgeRetrievalEvaluationSet set=setMapper.selectById(id); if(set==null||Boolean.TRUE.equals(set.getDeleted())) throw new ServerException(404,"evaluation set not found");
+        KnowledgeRetrievalEvaluationSet set=setMapper.selectById(id); if(set==null||Boolean.TRUE.equals(set.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.set.not-found"));
         List<KnowledgeRetrievalEvaluationCaseEntity> cases=caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId,id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted,false).eq(KnowledgeRetrievalEvaluationCaseEntity::getStatus,1));
         List<KnowledgeRetrievalEvaluationCase> inputs=new java.util.ArrayList<>(); List<KnowledgeRetrievalEvaluationCaseEntity> validCases=new java.util.ArrayList<>(); int invalid=0;
         for(KnowledgeRetrievalEvaluationCaseEntity item:cases){ if(StringUtils.isBlank(item.getDocumentId())) { invalid++; continue; } List<KnowledgeDocumentChunk> chunks=chunkService.list(Wrappers.lambdaQuery(KnowledgeDocumentChunk.class).eq(KnowledgeDocumentChunk::getDocumentId,item.getDocumentId()).eq(KnowledgeDocumentChunk::getDeleted,false).eq(StringUtils.isNotBlank(item.getSectionPath()),KnowledgeDocumentChunk::getSectionPath,item.getSectionPath())); if(chunks.isEmpty()) { invalid++; continue; } KnowledgeRetrievalEvaluationCase input=new KnowledgeRetrievalEvaluationCase(); input.setQuestion(item.getQuestion()); input.setExpectedChunkIds(chunks.stream().map(KnowledgeDocumentChunk::getId).collect(java.util.stream.Collectors.toList())); inputs.add(input); validCases.add(item); }
@@ -107,7 +108,7 @@ public class KnowledgeRetrievalEvaluationController {
     @GetMapping("/documents/{id}/sections")
     public WebResponse<List<String>> sections(@PathVariable String id) {
         KnowledgeDocument document = documentService.getById(id);
-        if (document == null || Boolean.TRUE.equals(document.getDeleted())) throw new ServerException(404, "document not found");
+        if (document == null || Boolean.TRUE.equals(document.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.not-found"));
         knowledgeAccessService.requireReadable(document.getKnowledgeBaseId());
         List<String> sections = chunkService.list(Wrappers.lambdaQuery(KnowledgeDocumentChunk.class)
                         .eq(KnowledgeDocumentChunk::getDocumentId, id)
@@ -123,7 +124,7 @@ public class KnowledgeRetrievalEvaluationController {
     @GetMapping("/sets/{setId}/runs/{runId}/results")
     public WebResponse<List<KnowledgeRetrievalEvaluationResultVo>> results(@PathVariable String setId, @PathVariable String runId) {
         KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
-        if (run == null || Boolean.TRUE.equals(run.getDeleted()) || !setId.equals(run.getEvaluationSetId())) throw new ServerException(404, "evaluation run not found");
+        if (run == null || Boolean.TRUE.equals(run.getDeleted()) || !setId.equals(run.getEvaluationSetId())) throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.run.not-found"));
         List<KnowledgeRetrievalEvaluationResult> results = resultMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationResult.class)
                 .eq(KnowledgeRetrievalEvaluationResult::getRunId, runId).eq(KnowledgeRetrievalEvaluationResult::getDeleted, false));
         if (results.isEmpty()) return WebResponse.OK(Collections.emptyList());
@@ -165,7 +166,7 @@ public class KnowledgeRetrievalEvaluationController {
     @PostMapping("/run")
     public WebResponse<KnowledgeRetrievalEvaluationReport> run(@RequestBody Request request) {
         if (request == null || StringUtils.isBlank(request.getAgentDefinitionId())) {
-            throw new ServerException(400, "agentDefinitionId is required");
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.agent-definition.required"));
         }
         return WebResponse.OK(evaluationService.evaluate(request.getAgentDefinitionId(), request.getCases()));
     }

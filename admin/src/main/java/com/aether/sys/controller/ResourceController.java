@@ -76,7 +76,7 @@ public class ResourceController {
                                      @ValidEntity(fieldNames = {"name", "nameCn", "type"})
                                      Resource resource) throws ServerException {
         boolean save = resourceService.save(resource,resource.getLeaf());
-        return WebResponse.OK(I18nUtils.getMessage(save ? "add.success" : "add.fail"), save);
+        return WebResponse.OK(I18nUtils.getMessage(save ? "system.resource.create.success" : "system.resource.create.fail"), save);
     }
     @ApiOperation(value = "更新资源")
     @ApiImplicitParams({
@@ -88,7 +88,7 @@ public class ResourceController {
                                       @ValidEntity(fieldNames = {"name", "nameCn", "type"})
                                            Resource resource){
         boolean update = resourceService.updateById(resource);
-        return WebResponse.OK(I18nUtils.getMessage(update ? "update.success" : "update.fail"), update);
+        return WebResponse.OK(I18nUtils.getMessage(update ? "system.resource.update.success" : "system.resource.update.fail"), update);
     }
 
     @ApiOperation(value = "删除资源")
@@ -117,7 +117,7 @@ public class ResourceController {
         }
         boolean b = resourceService.remove(Wrappers.lambdaUpdate(Resource.class)
                 .in(Resource::getId, ids));
-        return WebResponse.OK(I18nUtils.getMessage(b ? "delete.success" : "delete.fail"), true);
+        return WebResponse.OK(I18nUtils.getMessage(b ? "system.resource.delete.success" : "system.resource.delete.fail"), b);
     }
 
     @ApiOperation(value = "下拉数据")

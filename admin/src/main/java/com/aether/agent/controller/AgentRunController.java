@@ -94,7 +94,7 @@ public class AgentRunController {
     public WebResponse<AgentRunVo> detail(@PathVariable @NotBlank String id) {
         AgentRun run = agentRunService.getById(id);
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
         }
         AgentRunVo vo = new AgentRunVo();
         BeanUtils.copyProperties(run, vo);
@@ -120,7 +120,7 @@ public class AgentRunController {
     public WebResponse<List<AgentRunStepVo>> steps(@PathVariable @NotBlank String id) {
         AgentRun run = agentRunService.getById(id);
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
         }
         List<AgentRunStepVo> steps = agentRunStepService.listByRunId(id).stream()
                 // 兼容历史记录：聊天文本分片不是执行步骤，不在执行记录中展示。
@@ -141,10 +141,10 @@ public class AgentRunController {
     public WebResponse<Void> cancel(@PathVariable @NotBlank String id) {
         AgentRun run = agentRunService.getById(id);
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
         }
         if (!"DEEP".equals(run.getExecutionMode())) {
-            throw new ServerException(422, "仅 Deep Agent 运行支持取消");
+            throw new ServerException(422, I18nUtils.getMessage("agent.deep.run.cancel.unsupported"));
         }
         try {
             Map<String, String> cancelBody = new HashMap<>();
@@ -152,8 +152,8 @@ public class AgentRunController {
             signingClient.signedPost("/v1/runs/" + id + "/cancel", cancelBody);
         } catch (Exception e) {
             log.warn("取消 Deep Agent 运行请求失败: runId={}", id, e);
-            throw new ServerException(502, "Deep Agent 取消请求失败");
+            throw new ServerException(502, I18nUtils.getMessage("agent.deep.run.cancel.failed"));
         }
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("agent.deep.run.cancel.success"));
     }
 }

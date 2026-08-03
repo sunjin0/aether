@@ -1,6 +1,7 @@
 package com.aether.sys.controller;
 
 import com.aether.entity.WebResponse;
+import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
 import com.aether.sys.dto.ServiceAccountCreateDto;
 import com.aether.sys.dto.ServiceAccountTokenDto;
@@ -40,7 +41,7 @@ public class ServiceAccountController {
     @PostMapping("/api/auth/service-account/token")
     public WebResponse<ServiceAccountTokenVo> token(@RequestBody ServiceAccountTokenDto dto, HttpServletResponse response) {
         noStore(response);
-        return WebResponse.OK(serviceAccountService.issueToken(dto));
+        return WebResponse.OK(I18nUtils.getMessage("service-account.token.issue.success"), serviceAccountService.issueToken(dto));
     }
 
     @ApiOperation("服务账号列表")
@@ -60,7 +61,7 @@ public class ServiceAccountController {
     @PostMapping("/api/sys/service-account")
     public WebResponse<ServiceAccountSecretVo> create(@RequestBody ServiceAccountCreateDto dto, HttpServletResponse response) {
         noStore(response);
-        return WebResponse.OK(serviceAccountService.create(dto));
+        return WebResponse.OK(I18nUtils.getMessage("service-account.create.success"), serviceAccountService.create(dto));
     }
 
     @ApiOperation("编辑服务账号；客户端 ID 与密钥不可直接修改")
@@ -68,7 +69,7 @@ public class ServiceAccountController {
     @PutMapping("/api/sys/service-account/{id}")
     public WebResponse<Void> update(@PathVariable String id, @RequestBody ServiceAccountUpdateDto dto) {
         serviceAccountService.update(id, dto);
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("service-account.update.success"));
     }
 
     @ApiOperation("轮换服务账号密钥；旧令牌立即失效")
@@ -76,7 +77,7 @@ public class ServiceAccountController {
     @PostMapping("/api/sys/service-account/{id}/rotate-secret")
     public WebResponse<ServiceAccountSecretVo> rotateSecret(@PathVariable String id, HttpServletResponse response) {
         noStore(response);
-        return WebResponse.OK(serviceAccountService.rotateSecret(id));
+        return WebResponse.OK(I18nUtils.getMessage("service-account.secret.rotate.success"), serviceAccountService.rotateSecret(id));
     }
 
     @ApiOperation("启用或禁用服务账号；状态变更后旧令牌立即失效")
@@ -84,7 +85,7 @@ public class ServiceAccountController {
     @PostMapping("/api/sys/service-account/{id}/enabled")
     public WebResponse<Void> enabled(@PathVariable String id, @RequestParam boolean enabled) {
         serviceAccountService.setEnabled(id, enabled);
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("service-account.status.update.success"));
     }
 
     @ApiOperation("删除服务账号；已签发令牌立即失效")
@@ -92,7 +93,7 @@ public class ServiceAccountController {
     @DeleteMapping("/api/sys/service-account/{id}")
     public WebResponse<Void> delete(@PathVariable String id) {
         serviceAccountService.delete(id);
-        return WebResponse.OK((Void) null);
+        return WebResponse.OK(I18nUtils.getMessage("service-account.delete.success"));
     }
 
     private ServiceAccountVo vo(ServiceAccount account) {

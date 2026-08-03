@@ -66,7 +66,7 @@ public class GlobalFilter extends OncePerRequestFilter {
                         ServiceTokenVerifier verifier = serviceTokenVerifierProvider.getIfAvailable();
                         String tokenVersion = TokenUtils.getClaim(token, "serviceTokenVersion");
                         if (verifier == null || !verifier.isActive(serviceAccountId, tokenVersion)) {
-                            throw new ServerException(401, "服务账号令牌已失效");
+                            throw new ServerException(401, I18nUtils.getMessage("service-account.token.expired"));
                         }
                         payload.put("serviceAccountId", serviceAccountId);
                     }

@@ -66,10 +66,10 @@ public class EmailController {
         boolean save;
         if (StringUtils.isNotBlank(id)) {
             save = emailService.update(message);
-            return WebResponse.OK(I18nUtils.getMessage(save ? "update.success" : "update.fail"), save);
+            return WebResponse.OK(I18nUtils.getMessage(save ? "email.update.success" : "email.update.fail"), save);
         } else {
             save = emailService.save(message);
-            return WebResponse.OK(I18nUtils.getMessage(save ? "add.success" : "add.fail"), save);
+            return WebResponse.OK(I18nUtils.getMessage(save ? "email.create.success" : "email.create.fail"), save);
         }
     }
 
@@ -83,6 +83,6 @@ public class EmailController {
     @GetMapping("/delete")
     public WebResponse<Boolean> delete(@RequestParam("id") String id) throws ServiceException {
         boolean delete = emailService.removeById(id);
-        return WebResponse.OK(I18nUtils.getMessage(delete ? "delete.success" : "delete.fail"), delete);
+        return WebResponse.OK(I18nUtils.getMessage(delete ? "email.delete.success" : "email.delete.fail"), delete);
     }
 }

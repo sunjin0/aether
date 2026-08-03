@@ -1,6 +1,7 @@
 package com.aether.agent.service;
 
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.service.impl.KnowledgeDocumentContentExtractor;
 import com.aether.storage.service.ObjectStorageService;
 import org.apache.commons.lang3.StringUtils;
@@ -44,14 +45,14 @@ public class ChatAttachmentService {
 
     public ChatAttachment process(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new ServerException(422, "聊天附件不能为空");
+            throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachment.required"));
         }
         if (file.getSize() > maxFileSize) {
-            throw new ServerException(413, "聊天附件大小不能超过 10MB");
+            throw new ServerException(413, I18nUtils.getMessage("agent.chat.attachment.size.exceeded"));
         }
         String fileName = normalizeFileName(file.getOriginalFilename());
         if (!SUPPORTED_EXTENSIONS.contains(extension(fileName))) {
-            throw new ServerException(422, "不支持的聊天附件类型");
+            throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachment.type.unsupported"));
         }
         try {
             long totalStart = System.currentTimeMillis();
@@ -60,7 +61,7 @@ public class ChatAttachmentService {
             String content = StringUtils.trimToEmpty(contentExtractor.extractForChat(fileName, bytes));
             long extractMs = System.currentTimeMillis() - extractStart;
             if (StringUtils.isBlank(content)) {
-                throw new ServerException(422, "未能从聊天附件中识别出文本内容");
+                throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachment.text.unrecognized"));
             }
             if (content.length() > maxExtractedChars) {
                 content = content.substring(0, maxExtractedChars) + "\n\n[文件内容因长度限制已截断]";
@@ -77,7 +78,7 @@ public class ChatAttachmentService {
         } catch (ServerException e) {
             throw e;
         } catch (Exception e) {
-            throw new ServerException(422, "聊天附件识别失败");
+            throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachment.parse.failed"));
         }
     }
 

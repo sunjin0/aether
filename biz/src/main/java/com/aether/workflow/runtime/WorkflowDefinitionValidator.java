@@ -3,6 +3,7 @@ package com.aether.workflow.runtime;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import org.apache.commons.lang3.StringUtils;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -26,9 +27,9 @@ public final class WorkflowDefinitionValidator {
     // ── 公共入口 ──────────────────────────────────────────────
 
     public static void validate(String nodesText, String edgesText) {
-        JSONArray nodes = parseJsonArray(nodesText, "工作流画布不是有效 JSON");
-        JSONArray edges = parseJsonArray(edgesText, "工作流边数据不是有效 JSON");
-        if (nodes == null || nodes.isEmpty()) throw new ServerException(422, "工作流至少需要一个节点");
+        JSONArray nodes = parseJsonArray(nodesText, "workflow.definition.canvas.json.invalid");
+        JSONArray edges = parseJsonArray(edgesText, "workflow.definition.edges.json.invalid");
+        if (nodes == null || nodes.isEmpty()) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.nodes.required"));
 
         Map<String, JSONObject> nodeMap = buildNodeMap(nodes);
         int starts = 0, ends = 0;
@@ -37,9 +38,9 @@ public final class WorkflowDefinitionValidator {
             if ("start".equals(type)) starts++;
             if ("end".equals(type)) ends++;
             if (("agent".equals(type) || "mcp".equals(type)) && StringUtils.isBlank(node.getString("resourceId")))
-                throw new ServerException(422, type + " 节点必须选择可用资源");
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.resource.required", new Object[]{type}));
         }
-        if (starts != 1 || ends != 1) throw new ServerException(422, "工作流必须且只能包含一个开始节点和一个结束节点");
+        if (starts != 1 || ends != 1) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-end.count.invalid"));
 
         // source → 出边列表，target → 入边节点列表
         Map<String, List<JSONObject>> outEdges = new LinkedHashMap<String, List<JSONObject>>();
@@ -50,10 +51,10 @@ public final class WorkflowDefinitionValidator {
             JSONObject edge = (JSONObject) value;
             String source = edge.getString("source"), target = edge.getString("target");
             if (StringUtils.isBlank(source) || StringUtils.isBlank(target))
-                throw new ServerException(422, "边必须包含 source 和 target");
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.edge.source-target.required"));
             if (!nodeMap.containsKey(source) || !nodeMap.containsKey(target))
-                throw new ServerException(422, "边引用了不存在的节点");
-            if (source.equals(target)) throw new ServerException(422, "不允许自环边");
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.edge.node.not-found"));
+            if (source.equals(target)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.edge.self-loop.disallowed"));
             edgeList.add(edge);
             outEdges.computeIfAbsent(source, k -> new ArrayList<JSONObject>()).add(edge);
             inNodes.computeIfAbsent(target, k -> new ArrayList<String>()).add(source);
@@ -66,7 +67,7 @@ public final class WorkflowDefinitionValidator {
             String type = entry.getValue().getString("type");
             List<JSONObject> outs = outEdges.getOrDefault(nodeId, Collections.<JSONObject>emptyList());
             if ("end".equals(type) && !outs.isEmpty())
-                throw new ServerException(422, "结束节点不能包含出边");
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.end-node.outgoing-edge.disallowed"));
         }
 
         // 检测回跳边并校验 maxIterations（按节点出现顺序编号）
@@ -81,7 +82,7 @@ public final class WorkflowDefinitionValidator {
                 // 回跳边
                 int maxIter = edge.getIntValue("maxIterations");
                 if (maxIter <= 0) maxIter = 10;
-                if (maxIter > 100) throw new ServerException(422, "循环边最大迭代次数不能超过 100");
+                if (maxIter > 100) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.loop.max-iterations.exceeded"));
             }
         }
 
@@ -101,12 +102,12 @@ public final class WorkflowDefinitionValidator {
         if (reachable.size() != nodeMap.size()) {
             for (String nid : nodeMap.keySet()) {
                 if (!reachable.contains(nid))
-                    throw new ServerException(422, "节点 [" + nid + "] 从开始节点不可达");
+                    throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.unreachable-from-start", new Object[]{nid}));
             }
         }
 
         // 每个可达节点都必须存在一条到结束节点的路径，避免分支走到死路后被误标记为完成。
-        if (!reachable.contains(endId)) throw new ServerException(422, "结束节点从开始节点不可达");
+        if (!reachable.contains(endId)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.end-node.unreachable-from-start"));
         Set<String> canReachEnd = new HashSet<String>();
         Queue<String> reverseQueue = new LinkedList<String>();
         reverseQueue.add(endId);
@@ -119,7 +120,7 @@ public final class WorkflowDefinitionValidator {
         }
         for (String nodeId : reachable) {
             if (!canReachEnd.contains(nodeId))
-                throw new ServerException(422, "节点 [" + nodeId + "] 无法到达结束节点");
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.cannot-reach-end", new Object[]{nodeId}));
         }
     }
 
@@ -129,16 +130,16 @@ public final class WorkflowDefinitionValidator {
      * 从而避免运行到一半才发现提示词或工具参数中的拼写错误。
      */
     public static void validateVariables(String nodesText, String edgesText, String inputSchemaText) {
-        JSONArray nodes = parseJsonArray(nodesText, "工作流画布不是有效 JSON");
-        JSONArray edges = parseJsonArray(edgesText, "工作流边数据不是有效 JSON");
-        JSONArray schema = parseJsonArray(inputSchemaText, "开始表单字段不是有效 JSON");
+        JSONArray nodes = parseJsonArray(nodesText, "workflow.definition.canvas.json.invalid");
+        JSONArray edges = parseJsonArray(edgesText, "workflow.definition.edges.json.invalid");
+        JSONArray schema = parseJsonArray(inputSchemaText, "workflow.definition.start-form.json.invalid");
         Set<String> declared = new LinkedHashSet<String>();
         for (Object value : schema) {
-            if (!(value instanceof JSONObject)) throw new ServerException(422, "开始表单字段必须是对象数组");
+            if (!(value instanceof JSONObject)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.fields.invalid"));
             String name = ((JSONObject) value).getString("name");
             if (StringUtils.isBlank(name) || !VARIABLE_NAME.matcher(name).matches())
-                throw new ServerException(422, "开始表单变量名无效: " + name);
-            if (!declared.add(name)) throw new ServerException(422, "开始表单变量名重复: " + name);
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.variable-name.invalid", new Object[]{name}));
+            if (!declared.add(name)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.variable-name.duplicate", new Object[]{name}));
         }
         Map<String, Set<String>> availableBefore = availableVariablesBefore(nodes, edges, declared);
         // 使用所有入边均能提供的变量做校验，避免引用后续或另一分支才产生的输出。
@@ -156,10 +157,10 @@ public final class WorkflowDefinitionValidator {
      * 防止分支流程只在部分路径返回该字段而让业务系统收到不稳定的数据结构。
      */
     public static void validateOutputSchema(String nodesText, String edgesText, String inputSchemaText, String outputSchemaText) {
-        JSONArray nodes = parseJsonArray(nodesText, "工作流画布不是有效 JSON");
-        JSONArray edges = parseJsonArray(edgesText, "工作流边数据不是有效 JSON");
-        JSONArray inputSchema = parseJsonArray(inputSchemaText, "开始表单字段不是有效 JSON");
-        JSONArray outputSchema = parseJsonArray(outputSchemaText, "最终输出字段不是有效 JSON");
+        JSONArray nodes = parseJsonArray(nodesText, "workflow.definition.canvas.json.invalid");
+        JSONArray edges = parseJsonArray(edgesText, "workflow.definition.edges.json.invalid");
+        JSONArray inputSchema = parseJsonArray(inputSchemaText, "workflow.definition.start-form.json.invalid");
+        JSONArray outputSchema = parseJsonArray(outputSchemaText, "workflow.definition.output-schema.json.invalid");
         Set<String> declared = schemaNames(inputSchema, "开始表单");
         Set<String> outputs = schemaNames(outputSchema, "最终输出");
         Map<String, Set<String>> availableBefore = availableVariablesBefore(nodes, edges, declared);
@@ -171,18 +172,18 @@ public final class WorkflowDefinitionValidator {
         Set<String> terminalVariables = endId == null ? Collections.<String>emptySet() : availableBefore.get(endId);
         for (String output : outputs) {
             if (terminalVariables == null || !terminalVariables.contains(output))
-                throw new ServerException(422, "最终输出变量在所有结束路径上不可用: " + output);
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.output.variable.unavailable", new Object[]{output}));
         }
     }
 
     private static Set<String> schemaNames(JSONArray schema, String schemaName) {
         Set<String> names = new LinkedHashSet<String>();
         for (Object value : schema) {
-            if (!(value instanceof JSONObject)) throw new ServerException(422, schemaName + "字段必须是对象数组");
+            if (!(value instanceof JSONObject)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.schema.fields.invalid", new Object[]{schemaName}));
             String name = ((JSONObject) value).getString("name");
             if (StringUtils.isBlank(name) || !VARIABLE_NAME.matcher(name).matches())
-                throw new ServerException(422, schemaName + "变量名无效: " + name);
-            if (!names.add(name)) throw new ServerException(422, schemaName + "变量名重复: " + name);
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.schema.variable-name.invalid", new Object[]{schemaName, name}));
+            if (!names.add(name)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.schema.variable-name.duplicate", new Object[]{schemaName, name}));
         }
         return names;
     }
@@ -194,15 +195,15 @@ public final class WorkflowDefinitionValidator {
         for (Object value : nodes) {
             JSONObject node = (JSONObject) value;
             Set<String> nodeProduced = new LinkedHashSet<String>();
-            addVariable(nodeProduced, node.getString("outputKey"), "节点输出变量名无效");
-            addVariable(nodeProduced, node.getString("internalKey"), "节点内部变量名无效");
+            addVariable(nodeProduced, node.getString("outputKey"), "workflow.definition.node.output-variable-name.invalid");
+            addVariable(nodeProduced, node.getString("internalKey"), "workflow.definition.node.internal-variable-name.invalid");
             String mapping = node.getString("stateMapping");
             if (StringUtils.isNotBlank(mapping)) {
                 try {
                     JSONObject map = JSONObject.parseObject(mapping);
-                    for (String key : map.keySet()) addVariable(nodeProduced, key, "状态映射变量名无效");
+                    for (String key : map.keySet()) addVariable(nodeProduced, key, "workflow.definition.node.state-mapping-variable-name.invalid");
                 } catch (Exception e) {
-                    throw new ServerException(422, "节点状态映射必须是 JSON 对象");
+                    throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node-status-mapping.invalid"));
                 }
             }
             produced.put(node.getString("id"), nodeProduced);
@@ -252,28 +253,28 @@ public final class WorkflowDefinitionValidator {
 
     /** 校验手动启动传入的变量：必填字段必须有非空值，禁止传入未声明字段。 */
     public static void validateStartVariables(String inputSchemaText, Map<String, Object> variables) {
-        JSONArray schema = parseJsonArray(inputSchemaText, "开始表单字段不是有效 JSON");
+        JSONArray schema = parseJsonArray(inputSchemaText, "workflow.definition.start-form.json.invalid");
         Map<String, Object> input = variables == null ? Collections.<String, Object>emptyMap() : variables;
         Set<String> names = new LinkedHashSet<String>();
         for (Object value : schema) {
-            if (!(value instanceof JSONObject)) throw new ServerException(422, "开始表单字段必须是对象数组");
+            if (!(value instanceof JSONObject)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.fields.invalid"));
             JSONObject field = (JSONObject) value;
             String name = field.getString("name");
             if (StringUtils.isBlank(name) || !VARIABLE_NAME.matcher(name).matches())
-                throw new ServerException(422, "开始表单变量名无效: " + name);
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.variable-name.invalid", new Object[]{name}));
             names.add(name);
             Object inputValue = input.get(name);
             if (field.getBooleanValue("required") && (inputValue == null || StringUtils.isBlank(String.valueOf(inputValue))))
-                throw new ServerException(422, "开始表单必填字段未填写: " + name);
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.required-field.missing", new Object[]{name}));
         }
         for (String name : input.keySet()) {
-            if (!names.contains(name)) throw new ServerException(422, "开始表单不包含变量: " + name);
+            if (!names.contains(name)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.variable.not-declared", new Object[]{name}));
         }
     }
 
     private static void addVariable(Set<String> variables, String name, String errorPrefix) {
         if (StringUtils.isBlank(name)) return;
-        if (!VARIABLE_NAME.matcher(name).matches()) throw new ServerException(422, errorPrefix + ": " + name);
+        if (!VARIABLE_NAME.matcher(name).matches()) throw new ServerException(422, I18nUtils.getMessage(errorPrefix, new Object[]{name}));
         variables.add(name);
     }
 
@@ -283,14 +284,14 @@ public final class WorkflowDefinitionValidator {
         while (matcher.find()) {
             String name = matcher.group(1);
             if (!available.contains(name))
-                throw new ServerException(422, "节点 [" + nodeId + "] 引用了未声明变量: " + name);
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.variable.undeclared", new Object[]{nodeId, name}));
         }
     }
 
     /** 返回按执行拓扑排序的节点列表（供执行引擎顺序遍历使用）。 */
     public static List<JSONObject> orderedNodes(String nodesText, String edgesText) {
-        JSONArray nodes = parseJsonArray(nodesText, "工作流画布不是有效 JSON");
-        JSONArray edges = parseJsonArray(edgesText, "工作流边数据不是有效 JSON");
+        JSONArray nodes = parseJsonArray(nodesText, "workflow.definition.canvas.json.invalid");
+        JSONArray edges = parseJsonArray(edgesText, "workflow.definition.edges.json.invalid");
         Map<String, JSONObject> nodeMap = buildNodeMap(nodes);
 
         Map<String, List<JSONObject>> outEdges = new LinkedHashMap<String, List<JSONObject>>();
@@ -312,7 +313,7 @@ public final class WorkflowDefinitionValidator {
 
     /** 构建邻接表（source → 边列表），供执行引擎使用。 */
     public static Map<String, List<JSONObject>> buildAdjacency(String edgesText) {
-        JSONArray edges = parseJsonArray(edgesText, "工作流边数据不是有效 JSON");
+        JSONArray edges = parseJsonArray(edgesText, "workflow.definition.edges.json.invalid");
         Map<String, List<JSONObject>> adj = new LinkedHashMap<String, List<JSONObject>>();
         for (Object value : edges) {
             JSONObject edge = (JSONObject) value;
@@ -323,9 +324,9 @@ public final class WorkflowDefinitionValidator {
 
     // ── 内部方法 ─────────────────────────────────────────────
 
-    private static JSONArray parseJsonArray(String text, String errorMsg) {
+    private static JSONArray parseJsonArray(String text, String errorCode) {
         if (StringUtils.isBlank(text)) return new JSONArray();
-        try { return JSONArray.parseArray(text); } catch (Exception e) { throw new ServerException(422, errorMsg); }
+        try { return JSONArray.parseArray(text); } catch (Exception e) { throw new ServerException(422, I18nUtils.getMessage(errorCode)); }
     }
 
     private static Map<String, JSONObject> buildNodeMap(JSONArray nodes) {
@@ -334,19 +335,19 @@ public final class WorkflowDefinitionValidator {
             JSONObject node = (JSONObject) value;
             String id = node.getString("id"), type = node.getString("type");
             if (StringUtils.isBlank(id) || !TYPES.contains(type) || map.put(id, node) != null)
-                throw new ServerException(422, "节点 ID 或节点类型无效");
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.id-or-type.invalid"));
         }
         return map;
     }
 
     private static String findStartId(Map<String, JSONObject> nodeMap) {
         for (Map.Entry<String, JSONObject> e : nodeMap.entrySet()) if ("start".equals(e.getValue().getString("type"))) return e.getKey();
-        throw new ServerException(422, "缺少开始节点");
+        throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-node.missing"));
     }
 
     private static String findEndId(Map<String, JSONObject> nodeMap) {
         for (Map.Entry<String, JSONObject> e : nodeMap.entrySet()) if ("end".equals(e.getValue().getString("type"))) return e.getKey();
-        throw new ServerException(422, "缺少结束节点");
+        throw new ServerException(422, I18nUtils.getMessage("workflow.definition.end-node.missing"));
     }
 
     /** DFS 拓扑排序，跳过回跳边（已访问节点），保证 DAG 部分正确排序。 */

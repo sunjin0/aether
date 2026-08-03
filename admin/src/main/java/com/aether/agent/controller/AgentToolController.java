@@ -212,7 +212,7 @@ public class AgentToolController {
     public WebResponse<AgentToolVo> detail(@PathVariable @NotBlank String id) {
         AgentTool tool = agentToolService.getById(id);
         if (tool == null || Boolean.TRUE.equals(tool.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.tool.not-found"));
         }
         AgentToolVo vo = new AgentToolVo();
         BeanUtils.copyProperties(tool, vo);
@@ -233,7 +233,7 @@ public class AgentToolController {
         BeanUtils.copyProperties(dto, tool);
         fillToolDefaults(tool);
         boolean saved = agentToolService.save(tool);
-        return WebResponse.OK(saved ? I18nUtils.getMessage("add.success") : I18nUtils.getMessage("add.fail"), tool.getId());
+        return WebResponse.OK(saved ? I18nUtils.getMessage("agent.tool.create.success") : I18nUtils.getMessage("agent.tool.create.fail"), tool.getId());
     }
 
     /** 更新工具定义。 */
@@ -250,7 +250,7 @@ public class AgentToolController {
         tool.setId(id);
         fillToolDefaults(tool);
         boolean updated = agentToolService.updateById(tool);
-        return WebResponse.OK(updated ? I18nUtils.getMessage("update.success") : I18nUtils.getMessage("update.fail"));
+        return WebResponse.OK(updated ? I18nUtils.getMessage("agent.tool.update.success") : I18nUtils.getMessage("agent.tool.update.fail"));
     }
 
     /** 软删除工具定义。 */
@@ -263,7 +263,7 @@ public class AgentToolController {
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         boolean removed = agentToolService.removeById(id);
-        return WebResponse.OK(removed ? I18nUtils.getMessage("delete.success") : I18nUtils.getMessage("delete.fail"));
+        return WebResponse.OK(removed ? I18nUtils.getMessage("agent.tool.delete.success") : I18nUtils.getMessage("agent.tool.delete.fail"));
     }
 
     @ApiOperation("测试工具")
@@ -277,7 +277,7 @@ public class AgentToolController {
         // 1. 获取工具配置
         AgentTool tool = agentToolService.getById(id);
         if (tool == null || Boolean.TRUE.equals(tool.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.tool.not-found"));
         }
 
         if (!Integer.valueOf(1).equals(tool.getStatus())) {

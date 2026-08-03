@@ -73,7 +73,7 @@ public class AgentToolCallLogController {
     public WebResponse<AgentToolCallLogVo> detail(@PathVariable @NotBlank String id) {
         AgentToolCallLog log = agentToolCallLogService.getById(id);
         if (log == null || Boolean.TRUE.equals(log.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("resource.not.found"));
+            throw new ServerException(404, I18nUtils.getMessage("agent.tool-call-log.not-found"));
         }
         AgentToolCallLogVo vo = new AgentToolCallLogVo();
         BeanUtils.copyProperties(log, vo);

@@ -298,7 +298,7 @@ public class KnowledgeDocumentController {
         snapshot.setFileChecksum(version.getFileChecksum());
         KnowledgeDocumentVersion draft = workflowService.createDraft(snapshot, version.getId());
         startAiReviewIfConfigured(knowledgeAccessService.requireWritable(document.getKnowledgeBaseId()), draft);
-        return WebResponse.OK(draft.getId());
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.version.rollback.success"), draft.getId());
     }
 
     @ApiOperation("Update knowledge document")
@@ -376,13 +376,14 @@ public class KnowledgeDocumentController {
     @PutMapping("/version/{versionId}/draft")
     public WebResponse<KnowledgeDocumentVersion> updateDraft(@PathVariable @NotBlank String versionId,
                                                               @RequestBody com.aether.knowledge.vo.KnowledgeDraftUpdateVo vo) {
-        return WebResponse.OK(workflowService.updateDraft(versionId, vo.getContent(), vo.getExpectedChecksum()));
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.draft.save.success"),
+                workflowService.updateDraft(versionId, vo.getContent(), vo.getExpectedChecksum()));
     }
 
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/version/{versionId}/ai-review")
     public WebResponse<String> startAiReview(@PathVariable @NotBlank String versionId) {
-        return WebResponse.OK(workflowService.startAiReview(versionId));
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.start.success"), workflowService.startAiReview(versionId));
     }
 
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
@@ -390,7 +391,7 @@ public class KnowledgeDocumentController {
     public WebResponse<String> submit(@PathVariable @NotBlank String versionId,
                                       @RequestBody(required = false) com.aether.knowledge.vo.KnowledgeReviewDecisionVo vo) {
         KnowledgeReviewTask task = workflowService.submit(versionId, vo == null ? null : vo.getComment());
-        return WebResponse.OK(task.getId());
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.submit.success"), task.getId());
     }
 
     private KnowledgeDocument getExisting(String id) {
