@@ -25,12 +25,14 @@ import java.io.InputStream;
  * 配置键：storage.minio.endpoint、access-key、secret-key；未配置时仅在实际存储操作时抛出异常，避免阻塞应用启动。
  */
 public class MinioObjectStorageService implements ObjectStorageService {
-    private final String endpoint, accessKey, secretKey;
+    private final String endpoint, publicEndpoint, accessKey, secretKey;
 
     public MinioObjectStorageService(@Value("${storage.minio.endpoint:${MINIO_ENDPOINT:}}") String endpoint,
-                                     @Value("${storage.minio.access-key:${MINIO_ACCESS_KEY:}}") String accessKey,
-                                     @Value("${storage.minio.secret-key:${MINIO_SECRET_KEY:}}") String secretKey) {
+                                      @Value("${storage.minio.public-endpoint:${MINIO_PUBLIC_ENDPOINT:}}") String publicEndpoint,
+                                      @Value("${storage.minio.access-key:${MINIO_ACCESS_KEY:}}") String accessKey,
+                                      @Value("${storage.minio.secret-key:${MINIO_SECRET_KEY:}}") String secretKey) {
         this.endpoint = endpoint;
+        this.publicEndpoint = publicEndpoint;
         this.accessKey = accessKey;
         this.secretKey = secretKey;
     }
@@ -56,7 +58,8 @@ public class MinioObjectStorageService implements ObjectStorageService {
      */
     public String presignedGetUrl(String bucket, String objectKey, int expirySeconds) {
         try {
-            return client().getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder().method(Method.GET).bucket(bucket).object(objectKey).expiry(expirySeconds).build());
+            return client(blank(publicEndpoint) ? endpoint : publicEndpoint)
+                    .getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder().method(Method.GET).bucket(bucket).object(objectKey).expiry(expirySeconds).build());
         } catch (Exception e) {
             throw new ObjectStorageUnavailableException("generating download URL", e);
         }
@@ -84,6 +87,10 @@ public class MinioObjectStorageService implements ObjectStorageService {
     }
 
     private MinioClient client() {
+        return client(endpoint);
+    }
+
+    private MinioClient client(String endpoint) {
         if (blank(endpoint) || blank(accessKey) || blank(secretKey))
             throw new IllegalStateException("MinIO is not configured");
         return MinioClient.builder().endpoint(endpoint).credentials(accessKey, secretKey).build();
