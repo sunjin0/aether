@@ -1,5 +1,6 @@
 package com.aether.knowledge.client;
 
+import com.aether.agent.service.DelegationTokenService;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -28,10 +29,13 @@ public class DoclingClient {
 
     private final RestTemplate restTemplate;
     private final String serviceUrl;
+    private final DelegationTokenService delegationTokenService;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    public DoclingClient(@Value("${docling.service.url:}") String serviceUrl) {
+    public DoclingClient(@Value("${docling.service.url:}") String serviceUrl,
+                         DelegationTokenService delegationTokenService) {
         this.serviceUrl = serviceUrl;
+        this.delegationTokenService = delegationTokenService;
         if (StringUtils.isNotBlank(serviceUrl)) {
             RequestConfig config = RequestConfig.custom()
                     .setConnectTimeout(30000)
@@ -70,6 +74,7 @@ public class DoclingClient {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+            headers.setBearerAuth(delegationTokenService.createDocumentProcessingToken());
 
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
             body.add("file", new ByteArrayResource(bytes) {
@@ -100,7 +105,7 @@ public class DoclingClient {
             }
             return null;
         } catch (Exception e) {
-            log.warn("Docling service call failed for {}: {}", fileName, e.getMessage());
+            log.error("Docling service call failed for {}: {}", fileName, e.getMessage());
             return null;
         }
     }

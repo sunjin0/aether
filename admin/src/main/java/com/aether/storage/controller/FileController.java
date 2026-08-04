@@ -4,6 +4,8 @@ import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.storage.exception.ObjectNotFoundException;
+import com.aether.storage.exception.ObjectStorageUnavailableException;
 import com.aether.storage.model.FileUploadResult;
 import com.aether.storage.service.ObjectStorageService;
 import io.swagger.annotations.Api;
@@ -37,13 +39,16 @@ public class FileController {
 
     private final ObjectStorageService objectStorageService;
     private final String bucket;
+    private final String chatAttachmentBucket;
     private final long maxFileSize;
 
     public FileController(ObjectStorageService objectStorageService,
-                          @Value("${storage.file.bucket:${MINIO_FILE_BUCKET:aether}}") String bucket,
-                          @Value("${storage.file.max-size:52428800}") long maxFileSize) {
+                           @Value("${storage.file.bucket:${MINIO_FILE_BUCKET:aether}}") String bucket,
+                           @Value("${agent.chat.attachment.bucket:${MINIO_CHAT_ATTACHMENT_BUCKET:aether-chat}}") String chatAttachmentBucket,
+                           @Value("${storage.file.max-size:52428800}") long maxFileSize) {
         this.objectStorageService = objectStorageService;
         this.bucket = bucket;
+        this.chatAttachmentBucket = chatAttachmentBucket;
         this.maxFileSize = maxFileSize;
     }
 
@@ -85,10 +90,39 @@ public class FileController {
         return fileResponse(objectKey, fileName, contentType, false);
     }
 
+    @ApiOperation("预览聊天附件")
+    @GetMapping("/chat/preview")
+    public ResponseEntity<byte[]> previewChatAttachment(@RequestParam String objectKey,
+                                                         @RequestParam(required = false) String fileName,
+                                                         @RequestParam(required = false) String contentType) {
+        validateChatObjectKey(objectKey);
+        return fileResponse(chatAttachmentBucket, objectKey, fileName, contentType, true);
+    }
+
+    @ApiOperation("下载聊天附件")
+    @GetMapping("/chat/download")
+    public ResponseEntity<byte[]> downloadChatAttachment(@RequestParam String objectKey,
+                                                          @RequestParam(required = false) String fileName,
+                                                          @RequestParam(required = false) String contentType) {
+        validateChatObjectKey(objectKey);
+        return fileResponse(chatAttachmentBucket, objectKey, fileName, contentType, false);
+    }
+
     private ResponseEntity<byte[]> fileResponse(String objectKey, String fileName, String contentType, boolean inline) {
         validateObjectKey(objectKey);
+        return fileResponse(bucket, objectKey, fileName, contentType, inline);
+    }
+
+    private ResponseEntity<byte[]> fileResponse(String bucket, String objectKey, String fileName, String contentType, boolean inline) {
         String outputName = normalizeFileName(StringUtils.defaultIfBlank(fileName, objectKey.substring(objectKey.lastIndexOf('/') + 1)));
-        byte[] content = objectStorageService.getObject(bucket, objectKey);
+        byte[] content;
+        try {
+            content = objectStorageService.getObject(bucket, objectKey);
+        } catch (ObjectNotFoundException e) {
+            throw new ServerException(404, I18nUtils.getMessage("file.not.found"));
+        } catch (ObjectStorageUnavailableException e) {
+            throw new ServerException(503, I18nUtils.getMessage("file.storage.unavailable"));
+        }
         ContentDisposition disposition = (inline ? ContentDisposition.inline() : ContentDisposition.attachment())
                 .filename(outputName, StandardCharsets.UTF_8).build();
         return ResponseEntity.ok()
@@ -106,6 +140,13 @@ public class FileController {
 
     private void validateObjectKey(String objectKey) {
         if (StringUtils.isBlank(objectKey) || objectKey.startsWith("/") || objectKey.contains("..") || objectKey.contains("\\")) {
+            throw new ServerException(400, I18nUtils.getMessage("file.identifier.invalid"));
+        }
+    }
+
+    private void validateChatObjectKey(String objectKey) {
+        validateObjectKey(objectKey);
+        if (!objectKey.startsWith("chat/")) {
             throw new ServerException(400, I18nUtils.getMessage("file.identifier.invalid"));
         }
     }

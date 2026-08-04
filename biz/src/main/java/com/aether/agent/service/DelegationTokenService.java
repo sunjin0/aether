@@ -9,6 +9,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.Date;
+import java.util.Collections;
 import java.util.List;
 
 @Component
@@ -34,5 +35,11 @@ public class DelegationTokenService {
                 .withIssuedAt(new Date(now))
                 .withExpiresAt(new Date(now + TOKEN_TTL_MINUTES * 60 * 1000))
                 .sign(Algorithm.HMAC256(config.getMcpDelegationSecret()));
+    }
+
+    /** Creates a least-privilege token for the internal document conversion endpoint. */
+    public String createDocumentProcessingToken() {
+        return create("document-processing", "system", "chat-attachment",
+                Collections.singletonList("process_document"));
     }
 }

@@ -1,0 +1,8 @@
+package com.aether.storage.exception;
+
+/** Raised when the object store cannot serve a request. */
+public class ObjectStorageUnavailableException extends RuntimeException {
+    public ObjectStorageUnavailableException(String operation, Throwable cause) {
+        super("Object storage unavailable while " + operation, cause);
+    }
+}

@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
 import javax.validation.ValidationException;
 
@@ -25,7 +27,7 @@ public class GlobalException {
      * @param e e
      */
     @ExceptionHandler(value = ServerException.class)
-    public WebResponse<String> handleServerException(ServerException e) {
+    public ResponseEntity<WebResponse<String>> handleServerException(ServerException e) {
         String message = e.getMessage();
         log.error("服务器异常：", e);
         // 处理自定义异常
@@ -35,14 +37,14 @@ public class GlobalException {
                 // 转换成数字,可能发生数字转换异常
                 int code = Integer.parseInt(strings[0]);
                 String messages = strings[1];
-                return WebResponse.Error(code, messages, null);
+                return ResponseEntity.status(HttpStatus.valueOf(code)).body(WebResponse.Error(code, messages, null));
             } catch (Exception ex) {
                 log.error("转换异常：{}", ex.getMessage());
-                return WebResponse.Error(message);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(WebResponse.Error(message));
             }
         }
 
-        return WebResponse.Error(message);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(WebResponse.Error(message));
     }
 
     /**
@@ -52,17 +54,17 @@ public class GlobalException {
      * @return {@link WebResponse }<{@link String }>
      */
     @ExceptionHandler(value = Exception.class)
-    public WebResponse<String> handleOtherException(Exception e) {
+    public ResponseEntity<WebResponse<String>> handleOtherException(Exception e) {
         if (e instanceof ValidationException) {
             log.error("参数异常", e);
-            return WebResponse.Error(400, e.getMessage(), null);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(WebResponse.Error(400, e.getMessage(), null));
         }
         if (e instanceof TokenExpiredException) {
             log.error("token过期", e);
-            return WebResponse.Error(401, e.getMessage(), null);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(WebResponse.Error(401, e.getMessage(), null));
         }
 
         log.error("其他异常", e);
-        return WebResponse.Error(e.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(WebResponse.Error(e.getMessage()));
     }
 }

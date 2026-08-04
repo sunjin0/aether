@@ -1,6 +1,9 @@
 package com.aether.storage.service.impl;
 
 import com.aether.storage.service.ObjectStorageService;
+import com.aether.storage.exception.ObjectNotFoundException;
+import com.aether.storage.exception.ObjectStorageUnavailableException;
+import io.minio.errors.ErrorResponseException;
 import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.BucketExistsArgs;
@@ -44,7 +47,7 @@ public class MinioObjectStorageService implements ObjectStorageService {
             client.putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(in, file.getSize(), -1).contentType(blank(file.getContentType()) ? "application/octet-stream" : file.getContentType()).build());
             return objectKey;
         } catch (Exception e) {
-            throw new IllegalStateException("object storage unavailable", e);
+            throw new ObjectStorageUnavailableException("uploading object", e);
         }
     }
 
@@ -55,7 +58,7 @@ public class MinioObjectStorageService implements ObjectStorageService {
         try {
             return client().getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder().method(Method.GET).bucket(bucket).object(objectKey).expiry(expirySeconds).build());
         } catch (Exception e) {
-            throw new IllegalStateException("object storage unavailable", e);
+            throw new ObjectStorageUnavailableException("generating download URL", e);
         }
     }
 
@@ -68,7 +71,7 @@ public class MinioObjectStorageService implements ObjectStorageService {
             for (int n; (n = in.read(b)) != -1; ) out.write(b, 0, n);
             return out.toByteArray();
         } catch (Exception e) {
-            throw new IllegalStateException("object storage unavailable", e);
+            throw new ObjectStorageUnavailableException("reading object", e);
         }
     }
 
@@ -76,7 +79,7 @@ public class MinioObjectStorageService implements ObjectStorageService {
         try {
             client().removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
         } catch (Exception e) {
-            throw new IllegalStateException("failed to remove stored object", e);
+            throw new ObjectStorageUnavailableException("removing object", e);
         }
     }
 
