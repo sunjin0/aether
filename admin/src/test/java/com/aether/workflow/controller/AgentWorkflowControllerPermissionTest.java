@@ -4,8 +4,6 @@ import com.aether.workflow.dto.AgentWorkflowInteractionDto;
 import com.aether.workflow.dto.AgentWorkflowStartDto;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
 import com.aether.workflow.dto.AgentWorkflowDto;
-import com.aether.workflow.dto.AgentWorkflowScheduleTriggerDto;
-import com.aether.workflow.entity.AgentWorkflowScheduleTrigger;
 import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.aether.permission.Permission;
 import org.junit.jupiter.api.Test;
@@ -38,9 +36,6 @@ class AgentWorkflowControllerPermissionTest {
         assertWorkflowRead("versionDiff", String.class, int.class, int.class);
         assertWorkflowRead("exportWorkflow", String.class);
         assertWorkflowWrite("importWorkflow", AgentWorkflowDto.class);
-        assertWorkflowWrite("createSchedule", AgentWorkflowScheduleTriggerDto.class);
-        assertWorkflowWrite("setScheduleEnabled", String.class, boolean.class);
-        assertWorkflowRead("schedules", AgentWorkflowScheduleTrigger.class);
         assertOperationsRead("operationsMetrics");
         assertOperationsRead("deadLetters", int.class);
     }

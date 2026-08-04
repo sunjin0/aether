@@ -275,7 +275,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     /**
      * 从当前节点开始，沿图遍历执行工作流。
      * <p>执行语义：每次调用推进一个节点。节点完成后递归调用自身继续推进。
-     * 遇到人工操作或 MCP 审批时暂停，等待 answer() 回调后继续。</p>
+     * 遇到人工操作或 MCP 审批时暂停，等待 answer() 回调后继续；定时任务中的 MCP 审批自动通过。</p>
      */
     private void advance(AgentWorkflowInstance instance) {
         if (!"RUNNING".equals(instance.getStatus())) return;
@@ -343,6 +343,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 JSONObject interaction = StringUtils.isBlank(node.getInteractionConfig()) ? null : JSONObject.parseObject(node.getInteractionConfig());
                 if (interaction != null && interaction.containsKey("pendingAnswer")) {
                     resumeMcpApproval(instance, node, interaction, readPendingAnswer(interaction), instance.getUserId());
+                } else if (isScheduledInstance(instance)) {
+                    resumeMcpApproval(instance, node, mcpInteractionConfig(instance, definition, variables), approvedMcpNodeAnswer(), instance.getUserId());
                 } else waitForHuman(instance, node, definition, variables, true);
                 return;
             }
@@ -596,6 +598,10 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         config.put("source", "agent");
         config.put("agentConversationId", response.getConversationId());
         config.put("agentApprovalMessageId", response.getId());
+        if (isScheduledInstance(instance) && isMcpToolApprovalConfig(config)) {
+            resumeAgentInteraction(instance, node, config, approvedAgentMcpAnswer(), instance.getUserId());
+            return;
+        }
         node.setStatus("WAITING_USER");
         node.setErrorMessage(null);
         node.setCompletedAt(null);
@@ -695,6 +701,36 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
 
     private boolean isMcpToolApprovalConfig(JSONObject config) {
         return config != null && "mcp_tool_approval".equals(config.getString("approvalType"));
+    }
+
+    /** 定时触发器创建的实例使用受控的 schedule: 前缀幂等键，MCP 调用无需人工在线确认。 */
+    private boolean isScheduledInstance(AgentWorkflowInstance instance) {
+        return instance != null && StringUtils.startsWith(instance.getIdempotencyKey(), "schedule:");
+    }
+
+    private JSONObject mcpInteractionConfig(AgentWorkflowInstance instance, JSONObject definition, Map<String, Object> variables) {
+        JSONObject config = new JSONObject();
+        config.put("toolId", definition.getString("resourceId"));
+        config.put("toolName", definition.getString("toolName"));
+        config.put("agentId", resolveMcpAgentId(instance));
+        config.put("arguments", WorkflowVariableRenderer.render(definition.getString("argumentsTemplate"), variables));
+        return config;
+    }
+
+    private Map<String, Object> approvedMcpNodeAnswer() {
+        Map<String, Object> answer = new LinkedHashMap<String, Object>();
+        answer.put("decision", "once");
+        return answer;
+    }
+
+    private Map<String, Object> approvedAgentMcpAnswer() {
+        Map<String, Object> decision = new LinkedHashMap<String, Object>();
+        decision.put("selected", "once");
+        Map<String, Object> answers = new LinkedHashMap<String, Object>();
+        answers.put("decision", decision);
+        Map<String, Object> answer = new LinkedHashMap<String, Object>();
+        answer.put("answers", answers);
+        return answer;
     }
 
     @SuppressWarnings("unchecked")

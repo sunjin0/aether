@@ -55,12 +55,39 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean update(String id, AgentWorkflowScheduleTriggerDto dto) {
+        validate(dto);
+        AgentWorkflowScheduleTrigger trigger = required(id);
+        trigger.setWorkflowId(dto.getWorkflowId());
+        trigger.setServiceAccountId(dto.getServiceAccountId());
+        trigger.setName(dto.getName());
+        trigger.setCronExpression(dto.getCronExpression());
+        trigger.setBusinessType(dto.getBusinessType());
+        trigger.setBusinessIdTemplate(dto.getBusinessIdTemplate());
+        trigger.setVariables(JSON.toJSONString(dto.getVariables() == null ? new LinkedHashMap<String, Object>() : dto.getVariables()));
+        trigger.setLockedUntil(null);
+        trigger.setLastErrorMessage(null);
+        trigger.setNextFireAt(nextFireAt(dto.getCronExpression(), System.currentTimeMillis()));
+        return updateById(trigger);
+    }
+
+    @Override
     public boolean setEnabled(String id, boolean enabled) {
         AgentWorkflowScheduleTrigger trigger = required(id);
         trigger.setEnabled(enabled);
+        trigger.setLockedUntil(null);
         if (enabled && (trigger.getNextFireAt() == null || trigger.getNextFireAt() < System.currentTimeMillis()))
             trigger.setNextFireAt(nextFireAt(trigger.getCronExpression(), System.currentTimeMillis()));
         return updateById(trigger);
+    }
+
+    @Override
+    public boolean delete(String id) {
+        AgentWorkflowScheduleTrigger trigger = required(id);
+        trigger.setEnabled(false);
+        trigger.setLockedUntil(null);
+        return removeById(trigger);
     }
 
     @Override

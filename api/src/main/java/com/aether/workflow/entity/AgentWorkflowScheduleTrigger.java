@@ -2,6 +2,7 @@ package com.aether.workflow.entity;
 
 import com.aether.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -23,4 +24,8 @@ public class AgentWorkflowScheduleTrigger extends BaseEntity {
     private Long lockedUntil;
     private Long lastTriggeredAt;
     private String lastErrorMessage;
+    @TableField(exist = false)
+    private Long current;
+    @TableField(exist = false)
+    private Long pageSize;
 }

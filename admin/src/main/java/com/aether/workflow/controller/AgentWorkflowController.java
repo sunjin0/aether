@@ -6,7 +6,6 @@ import com.aether.workflow.dto.AgentWorkflowStartDto;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
 import com.aether.workflow.dto.AgentWorkflowWebhookTriggerDto;
 import com.aether.workflow.dto.AgentWorkflowTemplateDto;
-import com.aether.workflow.dto.AgentWorkflowScheduleTriggerDto;
 import com.aether.workflow.entity.AgentWorkflow;
 import com.aether.workflow.entity.AgentWorkflowInstance;
 import com.aether.workflow.entity.AgentWorkflowVersion;
@@ -72,15 +71,14 @@ public class AgentWorkflowController {
     private final AgentWorkflowWebhookTriggerService webhookTriggerService;
     private final AgentWorkflowOperationsService operationsService;
     private final AgentWorkflowTemplateService templateService;
-    private final AgentWorkflowScheduleTriggerService scheduleTriggerService;
 
     public AgentWorkflowController(AgentWorkflowService workflowService, AgentWorkflowVersionService versionService,
                                    AgentWorkflowInstanceService instanceService, AgentWorkflowExecutionService executionService, WorkflowSseHub sseHub,
                                    AgentDefinitionService agentDefinitionService, AgentToolService agentToolService,
-                                   AgentWorkflowCallbackDeliveryService callbackDeliveryService,
-                                   WorkflowCallbackService workflowCallbackService, ServiceAccountService serviceAccountService,
-                                   AgentWorkflowWebhookTriggerService webhookTriggerService, AgentWorkflowOperationsService operationsService,
-                                   AgentWorkflowTemplateService templateService, AgentWorkflowScheduleTriggerService scheduleTriggerService) {
+                                    AgentWorkflowCallbackDeliveryService callbackDeliveryService,
+                                    WorkflowCallbackService workflowCallbackService, ServiceAccountService serviceAccountService,
+                                    AgentWorkflowWebhookTriggerService webhookTriggerService, AgentWorkflowOperationsService operationsService,
+                                    AgentWorkflowTemplateService templateService) {
         this.workflowService = workflowService;
         this.versionService = versionService;
         this.instanceService = instanceService;
@@ -94,7 +92,6 @@ public class AgentWorkflowController {
         this.webhookTriggerService = webhookTriggerService;
         this.operationsService = operationsService;
         this.templateService = templateService;
-        this.scheduleTriggerService = scheduleTriggerService;
     }
 
     @ApiOperation("工作流列表")
@@ -360,30 +357,6 @@ public class AgentWorkflowController {
     public WebResponse<Void> setWebhookEnabled(@PathVariable String id, @RequestParam boolean enabled) {
         webhookTriggerService.setEnabled(id, enabled);
         return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.status.update.success"));
-    }
-
-    @ApiOperation("创建工作流定时触发器")
-    @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
-    @PostMapping("/schedules")
-    public WebResponse<com.aether.workflow.entity.AgentWorkflowScheduleTrigger> createSchedule(@RequestBody AgentWorkflowScheduleTriggerDto dto) {
-        return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.create.success"), scheduleTriggerService.create(dto));
-    }
-
-    @ApiOperation("工作流定时触发器列表")
-    @Permission(path = "/workflow/workflow")
-    @PostMapping("/schedules/list")
-    public WebResponse<List<com.aether.workflow.entity.AgentWorkflowScheduleTrigger>> schedules(@RequestBody(required = false) com.aether.workflow.entity.AgentWorkflowScheduleTrigger query) {
-        return WebResponse.OK(scheduleTriggerService.list(Wrappers.lambdaQuery(com.aether.workflow.entity.AgentWorkflowScheduleTrigger.class)
-                .eq(query != null && StringUtils.isNotBlank(query.getWorkflowId()), com.aether.workflow.entity.AgentWorkflowScheduleTrigger::getWorkflowId, query == null ? null : query.getWorkflowId())
-                .eq(com.aether.workflow.entity.AgentWorkflowScheduleTrigger::getDeleted, false).orderByDesc(com.aether.workflow.entity.AgentWorkflowScheduleTrigger::getCreatedAt)));
-    }
-
-    @ApiOperation("启用或停用工作流定时触发器")
-    @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
-    @PostMapping("/schedules/{id}/enabled")
-    public WebResponse<Void> setScheduleEnabled(@PathVariable String id, @RequestParam boolean enabled) {
-        scheduleTriggerService.setEnabled(id, enabled);
-        return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.status.update.success"));
     }
 
     @ApiOperation("工作流运营指标")
