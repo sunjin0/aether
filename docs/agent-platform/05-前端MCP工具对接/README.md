@@ -34,7 +34,7 @@ agent_mcp_server (1) ──→ (N) agent_tool
 |----------|------------|
 | MCP 服务传输类型 | `Agent_Mcp_Transport` |
 | MCP 服务认证类型 | `Agent_Mcp_Auth_Type` |
-| 工具业务类型 | `Agent_Tool_Type` |
+| 工具业务类型 | `Agent_Tool_Business_Type` |
 | 状态 | `Agent_Status` |
 
 ---
@@ -107,7 +107,7 @@ agent_mcp_server (1) ──→ (N) agent_tool
   "disabledCount": 10,
   "callCount": 1200,
   "successCount": 1150,
-  "successRate": 0.9583
+  "successRate": 95.8333
 }
 ```
 
@@ -138,11 +138,13 @@ agent_mcp_server (1) ──→ (N) agent_tool
 
 ### 设计结论
 
-以 `agent_tool_call_log` 作为前端展示的事实来源，不新增持久化的 `tool` 角色消息。
+以 `agent_tool_call_log` 作为前端展示的事实来源，不新增持久化的 `tool` 角色消息。`successRate` 为百分数（范围 `0-100`），前端可直接追加 `%` 展示。
 
 ### 接口
 
-`GET /api/agent/conversation/{id}/messages?includeToolCalls=true`
+`GET /api/agent/conversation/{id}/messages?current=1&pageSize=20`
+
+当前实现始终为 assistant 消息聚合工具调用日志，`includeToolCalls` 参数不会改变返回结果。
 
 assistant 消息的 VO 新增：
 
@@ -169,7 +171,9 @@ assistant 消息的 VO 新增：
 enum ToolCallStatus {
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
-  TIMEOUT = 'TIMEOUT'
+  TIMEOUT = 'TIMEOUT',
+  SECURITY_BLOCKED = 'SECURITY_BLOCKED',   // 状态 3，安全拦截
+  PENDING = 'PENDING'                       // 状态 4，等待用户确认
 }
 
 interface AgentToolCallLog {

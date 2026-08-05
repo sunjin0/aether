@@ -28,7 +28,7 @@ TTL: 30 分钟（会话活跃期间）
 - **写入时机**：
   - 首次构建 context 后写入缓存
   - 每次新消息保存后更新缓存（追加新消息）
-  
+
 - **读取时机**：
   - 调用 `buildContext` 时优先从缓存读取
   - 缓存未命中时查询数据库并回填缓存
@@ -42,13 +42,13 @@ private List<ModelChatMessage> buildContext(AgentDefinition agent, String conver
     if (StringUtils.isNotBlank(cachedContext)) {
         return JSON.parseArray(cachedContext, ModelChatMessage.class);
     }
-    
+
     // 2. 缓存未命中，从数据库构建
     List<ModelChatMessage> context = buildContextFromDb(agent, conversationId);
-    
+
     // 3. 写入缓存（30分钟过期）
     redisTemplate.opsForValue().set(cacheKey, JSON.toJSONString(context), 30, TimeUnit.MINUTES);
-    
+
     return context;
 }
 
@@ -59,12 +59,12 @@ private void updateContextCache(String conversationId, ModelChatMessage newMessa
     if (StringUtils.isNotBlank(cachedContext)) {
         List<ModelChatMessage> context = JSON.parseArray(cachedContext, ModelChatMessage.class);
         context.add(newMessage);
-        
+
         // 保持最多20条历史消息
         if (context.size() > 21) { // 1 system + 20 messages
             context = context.subList(context.size() - 21, context.size());
         }
-        
+
         redisTemplate.opsForValue().set(cacheKey, JSON.toJSONString(context), 30, TimeUnit.MINUTES);
     }
 }
@@ -111,15 +111,15 @@ String summarizePrompt = "请将以下对话历史总结为关键要点，保留
 ```java
 private List<ModelChatMessage> buildContextWithSummary(AgentDefinition agent, String conversationId) {
     List<ModelChatMessage> context = new ArrayList<>();
-    
+
     // 1. 添加 system prompt
     if (StringUtils.isNotBlank(agent.getSystemPrompt())) {
         context.add(new ModelChatMessage("system", agent.getSystemPrompt()));
     }
-    
+
     // 2. 查询所有历史消息
     List<AgentMessage> allMessages = queryAllMessages(conversationId);
-    
+
     if (allMessages.size() <= 10) {
         // 消息较少，直接返回
         for (AgentMessage msg : allMessages) {
@@ -129,17 +129,17 @@ private List<ModelChatMessage> buildContextWithSummary(AgentDefinition agent, St
         // 3. 消息较多，使用摘要
         List<AgentMessage> oldMessages = allMessages.subList(0, allMessages.size() - 5);
         List<AgentMessage> recentMessages = allMessages.subList(allMessages.size() - 5, allMessages.size());
-        
+
         // 4. 获取或生成摘要
         String summary = getOrCreateSummary(conversationId, oldMessages);
         context.add(new ModelChatMessage("system", "对话历史摘要：" + summary));
-        
+
         // 5. 添加最近消息
         for (AgentMessage msg : recentMessages) {
             context.add(new ModelChatMessage(msg.getRole(), msg.getContent()));
         }
     }
-    
+
     return context;
 }
 
@@ -150,13 +150,13 @@ private String getOrCreateSummary(String conversationId, List<AgentMessage> oldM
     if (StringUtils.isNotBlank(cached)) {
         return cached;
     }
-    
+
     // 调用模型生成摘要
     String summary = callModelToSummarize(oldMessages);
-    
+
     // 缓存摘要（长期有效）
     redisTemplate.opsForValue().set(cacheKey, summary, 24, TimeUnit.HOURS);
-    
+
     return summary;
 }
 ```
@@ -199,12 +199,12 @@ private String getOrCreateSummary(String conversationId, List<AgentMessage> oldM
 #### 3. 伪代码实现
 ```java
 private List<ModelChatMessage> buildContextWithSlidingWindow(
-    AgentDefinition agent, 
+    AgentDefinition agent,
     String conversationId,
     int maxTokens  // 模型最大上下文限制，如 4000
 ) {
     List<ModelChatMessage> context = new ArrayList<>();
-    
+
     // 1. 始终保留 system prompt
     if (StringUtils.isNotBlank(agent.getSystemPrompt())) {
         context.add(new ModelChatMessage("system", agent.getSystemPrompt()));
@@ -219,10 +219,10 @@ private List<ModelChatMessage> buildContextWithSlidingWindow(
     // 3. 强制保留最近 5 条消息
     int keepRecent = Math.min(5, allMessages.size());
     List<AgentMessage> recentMessages = allMessages.subList(
-        allMessages.size() - keepRecent, 
+        allMessages.size() - keepRecent,
         allMessages.size()
     );
-    
+
     // 4. 计算已用 token
     int usedTokens = estimateTokens(context) + estimateTokens(recentMessages);
     int remainingTokens = maxTokens - usedTokens;
@@ -230,15 +230,15 @@ private List<ModelChatMessage> buildContextWithSlidingWindow(
     // 5. 如果还有剩余空间，按优先级选择中间消息
     if (remainingTokens > 0 && allMessages.size() > keepRecent) {
         List<AgentMessage> middleMessages = allMessages.subList(
-            0, 
+            0,
             allMessages.size() - keepRecent
         );
-        
+
         // 按优先级排序
         List<AgentMessage> prioritized = middleMessages.stream()
             .sorted(Comparator.comparingInt(this::calculatePriority).reversed())
             .collect(Collectors.toList());
-        
+
         // 选择高优先级消息直到 token 用完
         for (AgentMessage msg : prioritized) {
             int msgTokens = estimateTokens(msg.getContent());
@@ -248,28 +248,28 @@ private List<ModelChatMessage> buildContextWithSlidingWindow(
             }
         }
     }
-    
+
     // 6. 按时间顺序重组 context
     Collections.sort(context, Comparator.comparingInt(this::getMessageTimeOrder));
     context.addAll(recentMessages);
-    
+
     return context;
 }
 
 private int calculatePriority(AgentMessage msg) {
     int score = 0;
     String content = msg.getContent();
-    
+
     // 包含指令关键词
     if (content.contains("请") || content.contains("帮我") || content.contains("执行")) {
         score += 10;
     }
-    
+
     // 工具调用结果
     if (content.contains("tool_result") || content.contains("function_output")) {
         score += 8;
     }
-    
+
     // 长回复（可能包含重要信息）
     if (content.length() > 200) {
         score += 5;

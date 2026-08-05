@@ -76,9 +76,10 @@ DRAFT → AI_REVIEWING → AI_REVIEWED → SUBMITTED → APPROVED → INDEX_PEND
 
 ### 并发控制
 
-所有写操作需传 `expectedChecksum`：
-- 服务端校验 checksum 匹配才执行
-- 409 Conflict 时提示用户刷新页面
+需要变更文档内容的操作需传 `expectedChecksum`：草稿更新、单条/批量采纳和统一应用。
+
+- 单条采纳还可传 `replacement`、`comment`；批量采纳须传 `issueIds`、`expectedChecksum`，可传 `comment`。
+- 服务端校验 checksum 匹配才执行；收到业务码 `409` 时提示用户刷新 Diff。
 
 ---
 
@@ -101,8 +102,8 @@ DRAFT → AI_REVIEWING → AI_REVIEWED → SUBMITTED → APPROVED → INDEX_PEND
 |------|------|------|
 | 知识库 CRUD | 标准 REST | `/api/knowledge/base/**` |
 | 文档 CRUD | 标准 REST | `/api/knowledge/document/**` |
-| 草稿更新 | POST | `/api/knowledge/document/draft` |
-| 提交审批 | POST | `/api/knowledge/document/{id}/submit` |
+| 草稿更新 | PUT | `/api/knowledge/document/version/{versionId}/draft` |
+| 提交审批 | POST | `/api/knowledge/document/version/{versionId}/submit` |
 
 ### 索引任务
 

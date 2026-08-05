@@ -15,9 +15,11 @@
 ### 功能模块
 1. 知识库管理（平台级 / Agent 专属）
 2. 文档管理（上传、预览、版本管理、索引）
-3. 异步索引任务
-4. Agent 知识库绑定
-5. 后台用户偏好管理（长期记忆）
+3. 文档审核（AI 审查 + 人工审批）
+4. 异步索引任务
+5. 检索评测（评测集 + Recall@K / MRR / NDCG）
+6. Agent 知识库绑定
+7. 后台用户偏好管理（长期记忆）
 
 ### 前端菜单与页面
 
@@ -62,16 +64,19 @@
 | 更新文档 | PUT | `/api/knowledge/document/{id}` |
 | 删除文档 | DELETE | `/api/knowledge/document/{id}` |
 | 文件上传 | POST | `/api/knowledge/document/upload` |
+| 批量上传 | POST | `/api/knowledge/document/upload/batch` |
 | 预览 URL | GET | `/api/knowledge/document/{id}/preview-url` |
 | 版本列表 | GET | `/api/knowledge/document/{id}/versions` |
-| 分块列表 | GET | `/api/knowledge/document/{id}/chunk/list` |
-| 回滚版本 | POST | `/api/knowledge/document/{id}/rollback` |
+| 版本详情 | GET | `/api/knowledge/document/version/{versionId}` |
+| 分块列表 | GET | `/api/knowledge/document/version/{versionId}/chunk/list` |
+| 更新草稿 | PUT | `/api/knowledge/document/version/{versionId}/draft` |
+| 回滚版本 | POST | `/api/knowledge/document/version/{versionId}/rollback` |
 | 重新索引 | POST | `/api/knowledge/document/{id}/reindex` |
 
 ### 文件上传
 
 - **Content-Type**: `multipart/form-data`
-- **支持格式**: txt、md、pdf、docx
+- **支持格式**: txt、md、pdf、docx、xlsx
 - **最大大小**: 50 MB
 
 ### 预览接口
@@ -99,6 +104,36 @@
 
 ---
 
+## 四·A、文档审核（AI 审查 + 人工审批）
+
+| 功能 | 方法 | 路径 |
+|------|------|------|
+| 发起 AI 审查 | POST | `/api/knowledge/document/version/{versionId}/ai-review` |
+| 提交审批 | POST | `/api/knowledge/document/version/{versionId}/submit` |
+| 审查任务列表 | POST | `/api/knowledge/review-task/list` |
+| 任务详情 | GET | `/api/knowledge/review-task/{id}` |
+| 领取任务 | POST | `/api/knowledge/review-task/{id}/claim` |
+| 通过/驳回 | POST | `/api/knowledge/review-task/{id}/approve` / `reject` |
+| AI 审查详情/问题 | GET | `/api/knowledge/ai-review/{id}`、`/{id}/issues`、`/{id}/diff` |
+| 采纳/撤销/忽略建议 | POST | `/api/knowledge/ai-review/{reviewId}/issues/{issueId}/accept` / `unaccept` / `reject` |
+| 批量采纳 / 统一应用 | POST | `/api/knowledge/ai-review/{reviewId}/issues/accept-batch` / `apply` |
+
+状态流转与 Diff 工作台详见《08-知识库AI审查》。
+
+---
+
+## 四·B、检索评测
+
+| 功能 | 方法 | 路径 |
+|------|------|------|
+| 评测集管理 | GET/POST/PUT/DELETE | `/api/knowledge/evaluation/sets...` |
+| 评测用例管理 | GET/POST | `/api/knowledge/evaluation/sets/{id}/cases` |
+| 运行评测 | POST | `/api/knowledge/evaluation/sets/{id}/run` |
+| 运行记录 / 逐题结果 | GET | `/api/knowledge/evaluation/sets/{id}/runs`、`.../runs/{runId}/results` |
+| 可标注文档/章节 | GET | `/api/knowledge/evaluation/documents`、`/documents/{id}/sections` |
+
+---
+
 ## 五、Agent 知识库绑定
 
 ### 接口
@@ -122,12 +157,16 @@
 
 | 功能 | 方法 | 路径 |
 |------|------|------|
-| 列表 | POST | `/api/sys/admin/preference/list` |
-| 详情 | GET | `/api/sys/admin/preference/{id}` |
-| 创建 | POST | `/api/sys/admin/preference` |
-| 编辑 | PUT | `/api/sys/admin/preference/{id}` |
-| 删除 | DELETE | `/api/sys/admin/preference/{id}` |
-| 启用/禁用 | PUT | `/api/sys/admin/preference/{id}/status` |
+| 列表 | POST | `/api/sys/preference/list` |
+| 详情 | GET | `/api/sys/preference/{id}` |
+| 创建 | POST | `/api/sys/preference` |
+| 编辑 | PUT | `/api/sys/preference/{id}` |
+| 删除 | DELETE | `/api/sys/preference/{id}` |
+| 启用/禁用 | PUT | `/api/sys/preference/{id}/status` |
+| 确认偏好 | POST | `/api/sys/preference/{id}/feedback` |
+| 拒绝偏好 | DELETE | `/api/sys/preference/{id}/feedback` |
+| 覆盖偏好值 | PUT | `/api/sys/preference/{id}/override` |
+| 偏好统计 | GET | `/api/sys/preference/statistics` |
 
 ### 字段
 

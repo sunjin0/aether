@@ -1,7 +1,7 @@
 # Agent 平台 — 架构设计
 
 > 合并来源：API.md、DATABASE.md
-> 更新日期：2026-07-20
+> 更新日期：2026-08-05
 
 ---
 
@@ -33,21 +33,20 @@
 {
   "code": 200,
   "message": "success",
-  "data": {
-    "records": [ ... ],
-    "total": 100,
-    "pageSize": 20,
-    "current": 1,
-    "pages": 5
-  }
+  "data": [ ... ],
+  "total": 100
 }
 ```
+
+`WebResponse.Page` 将记录数组放在 `data`，总数放在根级 `total`；前端不应读取 `data.records`、`data.pages` 等不存在字段。
 
 ### 1.3 模型供应商管理
 
 | 功能 | 方法 | 路径 |
 |------|------|------|
-| 列表查询 | GET | `/api/agent/model-provider/list` |
+| 列表查询 | POST | `/api/agent/model-provider/list` |
+| 下拉选项 | GET | `/api/agent/model-provider/options` |
+| Embedding 供应商 | GET | `/api/agent/model-provider/embedding-options` |
 | 详情 | GET | `/api/agent/model-provider/{id}` |
 | 新增 | POST | `/api/agent/model-provider` |
 | 编辑 | PUT | `/api/agent/model-provider/{id}` |
@@ -59,7 +58,8 @@
 
 | 功能 | 方法 | 路径 |
 |------|------|------|
-| 列表查询 | GET | `/api/agent/definition/list` |
+| 列表查询 | POST | `/api/agent/definition/list` |
+| 下拉选项 | GET | `/api/agent/definition/options` |
 | 详情 | GET | `/api/agent/definition/{id}` |
 | 新增 | POST | `/api/agent/definition` |
 | 编辑 | PUT | `/api/agent/definition/{id}` |
@@ -71,7 +71,9 @@
 
 | 功能 | 方法 | 路径 |
 |------|------|------|
-| 列表查询 | GET | `/api/agent/tool/list` |
+| 列表查询 | POST | `/api/agent/tool/list` |
+| 筛选聚合 | GET | `/api/agent/tool/facets` |
+| 统计 | GET | `/api/agent/tool/statistics` |
 | 详情 | GET | `/api/agent/tool/{id}` |
 | 新增 | POST | `/api/agent/tool` |
 | 编辑 | PUT | `/api/agent/tool/{id}` |
@@ -91,7 +93,7 @@
 
 | 功能 | 方法 | 路径 |
 |------|------|------|
-| 会话列表 | GET | `/api/agent/conversation/list` |
+| 会话列表 | POST | `/api/agent/conversation/list` |
 | 会话详情 | GET | `/api/agent/conversation/{id}` |
 | 会话消息 | GET | `/api/agent/conversation/{id}/messages` |
 | 会话生命周期 | GET | `/api/agent/conversation/{id}/lifecycle` |
@@ -103,8 +105,9 @@
 
 | 功能 | 方法 | 路径 |
 |------|------|------|
-| 非流式聊天 | POST | `/api/agent/chat` |
-| 流式聊天 (SSE) | GET | `/api/agent/chat/stream` |
+| 非流式聊天（已弃用） | POST | `/api/agent/chat` |
+| 流式聊天 (SSE) | POST | `/api/agent/chat/stream` |
+| 聊天附件识别 | POST | `/api/agent/chat/attachment` |
 
 **SSE 事件格式：**
 
@@ -117,38 +120,39 @@
 | `error` | code, message |
 | `done` | conversationId, messageId, totalTokens, reasoningTokens |
 
+Deep Agent 流式额外事件：`accepted`、`run_step`；Deep 运行重放：`GET /api/agent/deep-runs/{runId}/stream`。
 **SSE 心跳**：每 15 秒发送 `:heartbeat` comment
 
 ### 1.9 运行审计
 
 | 功能 | 方法 | 路径 |
 |------|------|------|
-| 运行记录列表 | GET | `/api/agent/run/list` |
+| 运行记录列表 | POST | `/api/agent/run/list` |
 | 运行详情 | GET | `/api/agent/run/{id}` |
 | 运行统计 | GET | `/api/agent/run/statistics` |
+| 运行步骤 | GET | `/api/agent/run/{id}/steps` |
+| 取消 Deep 运行 | POST | `/api/agent/run/{id}/cancel` |
 
 ### 1.10 工具调用日志
 
 | 功能 | 方法 | 路径 |
 |------|------|------|
-| 工具调用日志列表 | GET | `/api/agent/tool-call-log/list` |
+| 工具调用日志列表 | POST | `/api/agent/tool-call-log/list` |
 | 工具调用详情 | GET | `/api/agent/tool-call-log/{id}` |
 
 ### 1.11 权限路径
 
+当前权限采用**路径型** `@Permission(path, type)`，与 `sys_resource` 资源树一致：
+
 | 权限路径 | 说明 |
 |----------|------|
-| `agent:model-provider:view` | 查看模型供应商 |
-| `agent:model-provider:manage` | 管理模型供应商 |
-| `agent:definition:view` | 查看 Agent |
-| `agent:definition:manage` | 管理 Agent |
-| `agent:tool:view` | 查看工具 |
-| `agent:tool:manage` | 管理工具 |
-| `agent:conversation:view` | 查看会话 |
-| `agent:conversation:manage` | 管理会话 |
-| `agent:run:view` | 查看运行审计 |
-| `agent:tool-call-log:view` | 查看工具调用日志 |
-| `agent:chat` | 聊天权限 |
+| `/sys/admin` `/sys/service-account` `/sys/role` `/sys/resource` `/sys/dict` `/sys/config` `/sys/preference` | 系统管理 |
+| `/agent/definition` `/agent/tool` `/agent/run` `/agent/chat` `/agent/conversation` `/agent/tool-call-log` `/agent/mcp-server` `/agent/model-provider` | Agent 平台 |
+| `/knowledge/base` `/knowledge/document` `/knowledge/evaluation` | 知识库 |
+| `/dashboard` | 工作台 |
+| `/workflow/workflow` `/workflow/run` `/workflow/operations` `/workflow/schedule` | 工作流 |
+
+Read 要求权限映射中存在该 path；Write 要求映射值为 `true`。完整端点见 `docs/agent-platform/00-项目文档/05-API参考/README.md`。
 
 ### 1.12 错误码
 
@@ -208,3 +212,5 @@
 - **向量字段**：`embedding vector(1536)`
 - **索引**：HNSW 索引
 - **嵌入模型**：`text-embedding-3-small`
+
+> 注：上表为 V0.x 基线结构。当前完整表结构（含服务账号、Deep Agent 运行步骤、工作流运行时、检索评测、AI 审查、偏好等）以 Flyway 迁移 `V1~V32` 为准，详见 `docs/agent-platform/00-项目文档/04-数据库设计/README.md`。

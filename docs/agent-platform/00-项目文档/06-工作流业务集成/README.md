@@ -4,7 +4,7 @@
 
 业务系统通过服务账号调用已发布的工作流。平台会记录业务关联、保证同一幂等键只创建一个实例，并在实例进入终态后向业务系统发送可验证、可重试的回调。
 
-人工提问与 MCP 工具确认仍会暂停实例；回调只在 `COMPLETED`、`FAILED` 或 `TERMINATED` 时发送。
+人工提问与 MCP 工具确认仍会暂停手动或业务启动的实例；定时触发实例会自动批准其已配置的 MCP 节点。回调只在 `COMPLETED`、`FAILED`、`TERMINATED` 或 `TIMED_OUT` 时发送。
 
 流程启动、人工回答和失败重试只会完成数据校验与任务入队，不会同步等待模型或远端 MCP。后台持久化工作者会领取任务推进实例；服务重启时超过租约的处理中任务会自动重新领取。
 
@@ -64,6 +64,7 @@ Content-Type: application/json
 - `POST /api/agent/workflow/instances/{instanceId}/callbacks/{deliveryId}/retry`：人工重投失败的回调（修复业务端配置后使用）。
 - `POST /api/agent/workflow/instances/{instanceId}/answer`：提交人工提问答案或 MCP 确认。
 - `POST /api/agent/workflow/instances/{instanceId}/retry`：重试当前失败节点。
+- `POST /api/agent/workflow/instances/{instanceId}/replay`：从起始节点回放实例；业务系统启动的实例不支持该操作。
 - `POST /api/agent/workflow/instances/{instanceId}/terminate`：终止实例。
 - `POST /api/agent/workflow/instances/list`：请求体可传 `businessType`、`businessId` 查询当前服务账号创建的实例。
 

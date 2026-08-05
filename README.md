@@ -55,3 +55,18 @@ docker compose --env-file .env.all -f docker-compose.all.yml -p aether up -d --b
 - `aether-dashboard`：用户与管理控制台。
 - `aether-deep-agent-service`：复杂任务规划、执行与流式回调。
 - `aether-mcp-server`：受 Java 委派 JWT 约束的 MCP 工具服务。
+
+## 文档
+
+完整分类入口见 [docs/README.md](docs/README.md)。
+
+| 文档 | 内容 |
+| --- | --- |
+| [业务说明](docs/agent-platform/00-项目文档/02-业务说明/README.md) | 产品定位、业务对象、流程、治理与典型场景 |
+| [项目总体说明](docs/agent-platform/00-项目文档/01-项目总体说明/README.md) | 平台整体架构、部署与排障 |
+| [数据库设计](docs/agent-platform/00-项目文档/04-数据库设计/README.md) | 全部表结构、索引与状态字典（V1-V32） |
+| [API 参考](docs/agent-platform/00-项目文档/05-API参考/README.md) | 全部 REST 端点、权限路径与 SSE 事件 |
+| [架构设计](docs/agent-platform/00-项目文档/03-架构设计/README.md) | 模块分层、认证、HMAC、RAG、Deep Agent 与工作流运行时 |
+| [工作流业务集成](docs/agent-platform/00-项目文档/06-工作流业务集成/README.md) | 服务账号、Webhook、幂等启动和业务回调验签 |
+| [Agent 平台文档](docs/agent-platform/) | 前端对接与平台演进（01-09） |
+| [历史对话性能优化方案](docs/agent-platform/00-项目文档/07-历史对话性能优化/README.md) | 对话上下文缓存、摘要和性能优化 |

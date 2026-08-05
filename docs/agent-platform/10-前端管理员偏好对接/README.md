@@ -1,6 +1,6 @@
 # 后台用户偏好系统重构 - 前端对接方案
 
-> 日期：2026-07-18
+> 更新日期：2026-08-05
 > 范围：后台用户偏好从 `category+content` 模型重构为支持动态推理、隐式学习、衰减机制的结构化偏好系统
 > 目标读者：前端开发
 
@@ -14,7 +14,7 @@
 2. 更新列表页字段展示（`content` → `value` + `keyName` + `description`）
 3. 新增/编辑表单增加新字段（`priority`、`scope`、`decayRate` 等）
 4. 操作列增加「确认」「拒绝」「覆盖」按钮
-5. 新增筛选条件（`keyName`、`scope`）
+5. 新增筛选条件（`keyName`；`scope` 当前仅用于展示，后端尚未实现该筛选）
 
 聊天接口不变，后端自动注入偏好到模型上下文。
 
@@ -74,10 +74,10 @@
 ### 3.1 列表接口
 
 ```http
-POST /api/sys/admin/preference/list
+POST /api/sys/preference/list
 ```
 
-**请求**（新增 `keyName`、`scope` 筛选）：
+**请求**（支持 `keyName` 筛选）：
 
 ```json
 {
@@ -94,11 +94,13 @@ POST /api/sys/admin/preference/list
 |------|------|------|------|
 | `current` | Long | 是 | 当前页码 |
 | `pageSize` | Long | 是 | 每页条数 |
-| `adminId` | String | 否 | 不传时默认当前登录用户 |
+| `adminId` | String | 否 | 当前接口忽略该字段，始终查询当前登录用户 |
 | `category` | String | 否 | 分类筛选 |
 | `keyName` | String | 否 | 键名模糊搜索 |
 | `value` | String | 否 | 偏好值模糊搜索 |
 | `status` | Integer | 否 | 状态筛选 |
+
+当前列表仅实际支持 `category`、`keyName`、`value`、`status` 筛选；`scope` 仅作为返回字段展示。
 
 **响应**：
 
@@ -136,7 +138,7 @@ POST /api/sys/admin/preference/list
 ### 3.2 详情接口
 
 ```http
-GET /api/sys/admin/preference/{id}
+GET /api/sys/preference/{id}
 ```
 
 响应字段同列表项。
@@ -144,7 +146,7 @@ GET /api/sys/admin/preference/{id}
 ### 3.3 新增接口
 
 ```http
-POST /api/sys/admin/preference
+POST /api/sys/preference
 ```
 
 **请求**：
@@ -169,10 +171,10 @@ POST /api/sys/admin/preference
 | `category` | String | 是 | — | 分类，使用硬编码常量 value |
 | `keyName` | String | 是 | — | 偏好键名，如 `output_length` |
 | `value` | String | 是 | — | 偏好值，如 `简洁` |
-| `description` | String | 否 | 同 `value` | 人类可读描述 |
+| `description` | String | 否 | — | 人类可读描述；不填写时前端应提交与 `value` 相同的值，后端不会自动补齐 |
 | `priority` | Integer | 否 | 50 | 优先级 0-100 |
 | `scope` | String | 否 | `global` | 作用域 |
-| `scopeDetail` | String | 否 | null | 仅 `scope=task_type` 时填写 |
+| `scopeDetail` | String | 条件 | null | `scope=task_type` 时填写任务类型；`scope=session` 时必须填写当前会话 ID；`global` 时为 null |
 | `expiresAt` | Long | 否 | null | 过期时间戳，null=永不过期 |
 | `decayRate` | BigDecimal | 否 | 0.00 | 每日衰减率 |
 | `status` | Integer | 否 | 1 | 0=禁用，1=启用 |
@@ -182,7 +184,7 @@ POST /api/sys/admin/preference
 ### 3.4 编辑接口
 
 ```http
-PUT /api/sys/admin/preference/{id}
+PUT /api/sys/preference/{id}
 ```
 
 请求字段同新增。
@@ -190,13 +192,13 @@ PUT /api/sys/admin/preference/{id}
 ### 3.5 删除接口
 
 ```http
-DELETE /api/sys/admin/preference/{id}
+DELETE /api/sys/preference/{id}
 ```
 
 ### 3.6 启用/禁用接口
 
 ```http
-PUT /api/sys/admin/preference/{id}/status
+PUT /api/sys/preference/{id}/status
 ```
 
 **请求**：
@@ -210,7 +212,7 @@ PUT /api/sys/admin/preference/{id}/status
 ### 3.7 确认偏好（新增）
 
 ```http
-POST /api/sys/admin/preference/{id}/feedback
+POST /api/sys/preference/{id}/feedback
 ```
 
 **说明**：用户确认自动学习的偏好是正确的。后端将置信度 +0.10，并重新计算有效分数。
@@ -227,10 +229,10 @@ POST /api/sys/admin/preference/{id}/feedback
 ### 3.8 拒绝偏好（新增）
 
 ```http
-DELETE /api/sys/admin/preference/{id}/feedback
+DELETE /api/sys/preference/{id}/feedback
 ```
 
-**说明**：用户拒绝自动学习的偏好。后端将置信度 -0.15，若置信度低于 0.3 则自动禁用。
+**说明**：用户拒绝自动学习的偏好。后端将置信度降低 `0.30`，并重新计算有效分数。
 
 无请求体。响应：
 
@@ -244,10 +246,10 @@ DELETE /api/sys/admin/preference/{id}/feedback
 ### 3.9 覆盖偏好值（新增）
 
 ```http
-PUT /api/sys/admin/preference/{id}/override
+PUT /api/sys/preference/{id}/override
 ```
 
-**说明**：用户手动修改偏好值。后端将来源改为 `manual_override`，置信度设为 1.0，使用次数归零。
+**说明**：用户手动修改偏好值。后端将来源设为 `explicit`，置信度设为 1.0，使用次数归零。
 
 **请求**：
 
@@ -260,6 +262,26 @@ PUT /api/sys/admin/preference/{id}/override
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `value` | String | 是 | 新的偏好值 |
+
+### 3.10 偏好统计
+
+```http
+GET /api/sys/preference/statistics
+```
+
+**响应**：
+
+```json
+{
+  "code": 200,
+  "data": {
+    "total": 12,
+    "enabled": 10,
+    "implicit": 4,
+    "explicit": 8
+  }
+}
+```
 
 ---
 
@@ -317,7 +339,7 @@ PUT /api/sys/admin/preference/{id}/override
 | 基本信息 | 偏好值 | 输入框 | 是 | — | 如 `简洁` |
 | 基本信息 | 描述 | 输入框 | 否 | 同偏好值 | 人类可读说明 |
 | 作用域 | 作用域 | 下拉选择 | 否 | `global` | `global`/`session`/`task_type` |
-| 作用域 | 任务类型 | 输入框 | 条件 | — | 仅 `scope=task_type` 时显示 |
+| 作用域 | 作用域详情 | 输入框/隐藏字段 | 条件 | — | `task_type` 填任务类型；`session` 必须填当前会话 ID |
 | 评分控制 | 优先级 | 数字滑块 | 否 | 50 | 0-100 |
 | 评分控制 | 过期时间 | 日期时间选择 | 否 | 永不过期 | NULL=永不过期 |
 | 评分控制 | 衰减率 | 数字输入 | 否 | 0.00 | 0=不衰减，建议 0.00-0.05 |
@@ -325,9 +347,10 @@ PUT /api/sys/admin/preference/{id}/override
 
 **表单交互**：
 
-- 选择 `scope=task_type` 时，动态显示「任务类型」输入框
-- 选择 `scope=global` 或 `scope=session` 时，隐藏「任务类型」输入框
-- 「描述」字段不填时，后端默认使用「偏好值」
+- 选择 `scope=task_type` 时，显示「作用域详情」输入框并填写任务类型。
+- 选择 `scope=session` 时，必须将当前会话 ID 写入 `scopeDetail`；没有会话上下文的管理页不应提供该作用域，避免创建永不生效的偏好。
+- 选择 `scope=global` 时，清空 `scopeDetail`。
+- 「描述」字段不填时，前端在提交前以「偏好值」填充 `description`；后端不会自动填充。
 
 ### 4.3 覆盖偏好弹窗
 
@@ -341,7 +364,7 @@ PUT /api/sys/admin/preference/{id}/override
 按钮：取消 / 确认覆盖
 ```
 
-调用 `PUT /api/sys/admin/preference/{id}/override`，请求体 `{ "value": "新值" }`。
+调用 `PUT /api/sys/preference/{id}/override`，请求体 `{ "value": "新值" }`。
 
 ### 4.4 确认/拒绝交互
 
@@ -372,7 +395,6 @@ PUT /api/sys/admin/preference/{id}/override
 |----|------|------|
 | `explicit` | 手动 | 蓝色 |
 | `implicit` | 自动学习 | 橙色 |
-| `manual_override` | 手动覆盖 | 紫色 |
 
 ### 5.3 置信度展示
 
@@ -384,7 +406,7 @@ PUT /api/sys/admin/preference/{id}/override
 
 ### 5.4 有效分数展示
 
-有效分数由后端自动计算：`有效分数 = 优先级 × 衰减因子 × 置信度`
+有效分数由后端自动计算：`有效分数 = 优先级 × 衰减因子 × 置信度 + log(1 + 使用次数)`。
 
 前端直接展示 `effectiveScore` 字段值，可排序，无需前端计算。
 
@@ -416,7 +438,7 @@ PUT /api/sys/admin/preference/{id}/override
 |------|-------------|
 | 确认/拒绝失败 | 提示操作失败，刷新列表 |
 | 覆盖值为空 | 表单校验拦截 |
-| 偏好被自动禁用（置信度<0.3） | 列表中状态显示「禁用」，置信度红色警示 |
+| 偏好置信度较低 | 列表中置信度红色警示，允许用户确认、拒绝或覆盖 |
 | 偏好过期 | 不在聊天中注入，列表仍可查看 |
 | 权限不足 | 按现有 403 逻辑隐藏按钮或提示无权限 |
 
@@ -427,7 +449,7 @@ PUT /api/sys/admin/preference/{id}/override
 - [ ] 移除 `Admin_Preference_Category` 字典下拉调用，改用前端硬编码常量
 - [ ] 列表页字段从 `content` 改为 `value` + `keyName` + `description`
 - [ ] 列表新增显示列：`priority`、`scope`、`source`、`confidence`、`usageCount`、`effectiveScore`、`lastUsedAt`
-- [ ] 列表新增筛选条件：`keyName`（输入框）、`scope`（下拉）
+- [ ] 列表新增筛选条件：`keyName`（输入框）；`scope` 目前只展示，不作为服务端筛选条件
 - [ ] 新增/编辑表单增加字段：`keyName`、`description`、`priority`、`scope`、`scopeDetail`、`expiresAt`、`decayRate`
 - [ ] `scope=task_type` 时动态显示/隐藏 `scopeDetail` 输入框
 - [ ] 操作列增加「确认」按钮，仅对 `source=implicit` 且 `status=1` 的记录显示

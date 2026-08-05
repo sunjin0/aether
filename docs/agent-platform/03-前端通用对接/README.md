@@ -10,9 +10,9 @@
 
 | 功能 | 方法 | 地址 | 权限 |
 |------|------|------|------|
-| 上传文件 | POST | `/api/file/upload` | `/file` 写权限 |
-| 预览文件 | GET | `/api/file/preview` | `/file` 读权限 |
-| 下载文件 | GET | `/api/file/download` | `/file` 读权限 |
+| 上传文件 | POST | `/api/file/upload` | 公开，无资源权限 |
+| 预览文件 | GET | `/api/file/preview` | 公开，无资源权限 |
+| 下载文件 | GET | `/api/file/download` | 公开，无资源权限 |
 
 ### 文件上传
 
@@ -38,13 +38,13 @@
 ### 文件预览
 
 - GET 请求，返回文件二进制流
-- 需要 `Authorization` 请求头
-- **不能直接使用** `<img src>` 或 `window.open()` — 需先获取 Blob 再生成 URL
+- 当前 `FileController` 不强制 `Authorization` 或 `/file` 资源权限；如部署层另有限制，以部署配置为准。
+- 可直接使用 URL，或按前端统一错误处理策略先获取 Blob 再生成 URL。
 
 ```javascript
 // 前端预览示例
 const response = await fetch(`/api/file/preview?objectKey=${key}`, {
-  headers: { Authorization: `Bearer ${token}` }
+  headers: { Authorization: `Bearer ${token}` } // 可选：同源登录态或网关要求时携带
 });
 const blob = await response.blob();
 const url = URL.createObjectURL(blob);
@@ -53,7 +53,7 @@ const url = URL.createObjectURL(blob);
 ### 文件下载
 
 - GET 请求，返回 `Content-Disposition: attachment`
-- 同样需要 `Authorization` 请求头
+- 当前实现不强制 `Authorization` 请求头
 
 ### 错误处理
 

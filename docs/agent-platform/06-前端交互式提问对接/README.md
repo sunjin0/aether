@@ -137,4 +137,17 @@ Boolean(message.content || message.reasoningContent)
 2. `parentMessageId` 指向触发提问的 interaction 消息 ID
 3. `answer.answers` 按 `questionId` 匹配问题
 4. 前端根据 `done` 事件的 `waitingUser=true` 判断是否等待用户输入
-5. 历史消息通过 `GET /api/agent/chat/conversation/{id}/messages` 获取
+5. 历史消息推荐通过 `GET /api/agent/conversation/{id}/messages?current=1&pageSize=20` 获取，该接口会聚合工具调用日志
+
+---
+
+## 六、Deep Agent 交互卡片（V1.1）
+
+Deep Agent 的 `ask_user` 与 MCP 确认同样复用交互卡片体系，通过 `approvalType` 区分：
+
+| approvalType | 触发场景 | 交互形式 | 选项 |
+|------|------|------|------|
+| `deep_ask_user` | Deep Agent 追问补充信息 | `group` + `tabs` | 按问题类型（choice/confirm/text 等） |
+| `deep_mcp_tool_approval` | Deep Agent 需要调用 MCP 工具 | `group` + `confirm` | `once`（仅本次）、`allow_10m`（10 分钟免确认）、`reject` |
+
+SSE 事件仍为 `question`，`interactionType` 为 `group`；用户提交答案时同样携带 `parentMessageId` 与 `answer.answers`，由后端根据 `approvalType` 决定恢复 Deep 运行或执行已批准工具。
