@@ -156,6 +156,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
 
             List<KnowledgeDocumentChunk> chunks = new ArrayList<>();
             result.setRetrievalAttempted(!knowledgeBaseIdsByProvider.isEmpty());
+            boolean providerSucceeded = false;
             for (Map.Entry<String, List<String>> entry : knowledgeBaseIdsByProvider.entrySet()) {
                 ModelProvider provider = providers.get(entry.getKey());
                 if (isProviderCircuitOpen(provider.getId())) {
@@ -186,6 +187,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                         chunks.addAll(selectKnowledgeBaseChunks(rerankCandidates(fusedCandidates, config, query), config));
                     }
                     providerCircuits.remove(provider.getId());
+                    providerSucceeded = true;
                 } catch (Exception e) {
                     // One unavailable embedding provider must not prevent other
                     // knowledge bases from participating in retrieval.
@@ -193,6 +195,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                     recordProviderFailure(provider.getId());
                 }
             }
+            result.setRetrievalFailed(result.isRetrievalAttempted() && !providerSucceeded);
             if (chunks.isEmpty()) {
                 return cacheResult(retrievalCacheKey, result);
             }

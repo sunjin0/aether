@@ -128,9 +128,36 @@
 |------|------|------|
 | 评测集管理 | GET/POST/PUT/DELETE | `/api/knowledge/evaluation/sets...` |
 | 评测用例管理 | GET/POST | `/api/knowledge/evaluation/sets/{id}/cases` |
-| 运行评测 | POST | `/api/knowledge/evaluation/sets/{id}/run` |
+| 多正例标签 | GET/POST/DELETE | `/api/knowledge/evaluation/sets/{setId}/cases/{caseId}/labels...` |
+| 发布/查询评测集版本 | POST/GET | `/api/knowledge/evaluation/sets/{id}/versions` |
+| 数据集健康检查 | GET | `/api/knowledge/evaluation/sets/{id}/health` |
+| 更新/删除用例 | PUT/DELETE | `/api/knowledge/evaluation/sets/{setId}/cases/{caseId}` |
+| 批量启停用例 | POST | `/api/knowledge/evaluation/sets/{id}/cases/batch-status` |
+| 导出草稿用例 | GET | `/api/knowledge/evaluation/sets/{id}/cases/export` |
+| 导入预校验 | POST | `/api/knowledge/evaluation/sets/{id}/cases/import/preview` |
+| 确认导入草稿 | POST | `/api/knowledge/evaluation/sets/{id}/cases/import` |
+| 兼容同步运行 | POST | `/api/knowledge/evaluation/sets/{id}/run` |
+| 创建异步运行 | POST | `/api/knowledge/evaluation/sets/{id}/runs` |
+| 运行进度 | GET | `/api/knowledge/evaluation/sets/{id}/runs/{runId}/progress` |
+| 取消 / 重试失败任务 | POST | `/api/knowledge/evaluation/sets/{id}/runs/{runId}/cancel`、`.../retry-failed` |
 | 运行记录 / 逐题结果 | GET | `/api/knowledge/evaluation/sets/{id}/runs`、`.../runs/{runId}/results` |
+| 设置基线 | POST | `/api/knowledge/evaluation/sets/{id}/runs/{runId}/baseline` |
+| 趋势 / 两次运行对比 | GET | `/api/knowledge/evaluation/sets/{id}/trend`、`.../runs/compare?baselineRunId=&candidateRunId=` |
 | 可标注文档/章节 | GET | `/api/knowledge/evaluation/documents`、`/documents/{id}/sections` |
+
+异步运行接口立即返回 `runId`，可选请求参数 `evaluationSetVersionId` 指定已发布数据集版本。前端在状态为 `RUNNING` 时每 3 秒轮询进度接口，页面失焦或离开后停止轮询。进度返回 `queued`、`running`、`succeeded`、`failed`、`invalid`、`cancelled` 和 `finished`；检索异常与无效标注不混入正常命中率。
+
+一个用例可添加多个正例标签，但同一用例的标签必须具有相同 `targetType`（`DOCUMENT`、`SECTION` 或 `CHUNK`）。发布版本会冻结当前启用用例和标签，供审计及后续按版本运行使用。
+
+每个评测集只能设置一个已完成运行作为基线。对比响应提供总体 Recall@K、MRR、nDCG 的差值及逐题差异；不同发布版本或不同数据集快照的运行返回 `comparable=false`，前端应展示差异但不得将其作为严格回归结论。
+
+运行记录的 `retrievalConfigSnapshot` 冻结创建时的 Agent 知识库绑定、平台知识库范围、知识库检索配置、索引状态以及 embedding Provider 的标识、地址、默认模型和状态。快照不包含 Provider API Key。
+
+在发布当前草稿版本或以当前草稿发起异步评测前，前端应请求数据集健康检查。空问题、没有可解析目标、标签粒度混用、目标文档不可用或不在 Agent 的当前有效检索范围内均为阻塞错误；存在阻塞错误时，后端会拒绝发布或创建草稿运行。已发布版本可继续运行，以保持冻结数据集的可追溯性。
+
+批量启停请求体为 `{ "caseIds": ["..."], "status": 0 | 1 }`。用例编辑、删除和启停只影响当前草稿，已发布版本和既有运行的快照不会变化。
+
+导入导出使用 JSON 数组，每项为 `{ "item": { "question": "...", "documentId": "...", "targetType": "DOCUMENT" }, "labels": [] }`。`labels` 为空时使用 `item` 的兼容目标字段；非空时使用多正例标签。提交导入前必须调用预校验，校验会返回行号及空问题、标签字段、文档可用性、Agent 检索范围、章节或 Chunk 解析失败等问题。只有预校验通过，确认导入接口才会写入草稿。
 
 ---
 

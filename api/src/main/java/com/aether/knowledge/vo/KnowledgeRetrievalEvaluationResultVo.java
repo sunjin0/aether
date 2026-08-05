@@ -13,7 +13,11 @@ public class KnowledgeRetrievalEvaluationResultVo {
     private String expectedDocumentId;
     private String expectedDocumentTitle;
     private String expectedSectionPath;
+    private String targetType;
+    private List<String> expectedChunkIds;
     private String status;
+    private String errorCode;
+    private String errorMessage;
     private Double recallAtK;
     private Double mrr;
     private Double ndcg;

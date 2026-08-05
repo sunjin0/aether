@@ -1,6 +1,7 @@
 package com.aether.knowledge.evaluation;
 
 import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -15,32 +16,52 @@ public final class KnowledgeRetrievalMetrics {
      */
     public static Result evaluate(Set<String> expectedChunkIds, List<String> retrievedChunkIds,
                                   Set<String> citedChunkIds, boolean answerGrounded) {
-        Set<String> expected = expectedChunkIds == null ? new HashSet<String>() : expectedChunkIds;
+        return evaluate(expectedChunkIds, retrievedChunkIds, citedChunkIds, answerGrounded, "CHUNK");
+    }
+
+    /**
+     * DOCUMENT 标注表示任一目标分块命中即可，SECTION 和 CHUNK 标注计算分块覆盖率。
+     * 重复召回不应同时提高 Recall 或 nDCG。
+     */
+    public static Result evaluate(Set<String> expectedChunkIds, List<String> retrievedChunkIds,
+                                  Set<String> citedChunkIds, boolean answerGrounded, String targetType) {
+        Set<String> expected = expectedChunkIds == null ? new HashSet<String>() : new HashSet<String>(expectedChunkIds);
         Set<String> cited = citedChunkIds == null ? new HashSet<String>() : citedChunkIds;
+        List<String> retrieved = distinct(retrievedChunkIds);
+        boolean documentTarget = "DOCUMENT".equalsIgnoreCase(targetType);
         int firstRelevantRank = 0;
         int relevantRetrieved = 0;
         double dcg = 0D;
-        if (retrievedChunkIds != null) {
-            for (int i = 0; i < retrievedChunkIds.size(); i++) {
-                if (expected.contains(retrievedChunkIds.get(i))) {
+        for (int i = 0; i < retrieved.size(); i++) {
+                if (expected.contains(retrieved.get(i))) {
                     relevantRetrieved++;
-                    if (firstRelevantRank == 0) firstRelevantRank = i + 1;
-                    dcg += 1D / log2(i + 2D);
+                    if (firstRelevantRank == 0) {
+                        firstRelevantRank = i + 1;
+                        if (documentTarget) dcg += 1D / log2(i + 2D);
+                    }
+                    if (!documentTarget) dcg += 1D / log2(i + 2D);
                 }
-            }
         }
         double idealDcg = 0D;
-        int idealCount = Math.min(expected.size(), retrievedChunkIds == null ? 0 : retrievedChunkIds.size());
+        int idealCount = Math.min(documentTarget ? Math.min(expected.size(), 1) : expected.size(), retrieved.size());
         for (int i = 0; i < idealCount; i++) idealDcg += 1D / log2(i + 2D);
         int citedRelevant = 0;
         for (String chunkId : cited) if (expected.contains(chunkId)) citedRelevant++;
         Result result = new Result();
-        result.recallAtK = expected.isEmpty() ? 1D : (double) relevantRetrieved / expected.size();
+        result.recallAtK = expected.isEmpty() ? 1D : documentTarget ? (relevantRetrieved > 0 ? 1D : 0D) : (double) relevantRetrieved / expected.size();
         result.mrr = firstRelevantRank == 0 ? 0D : 1D / firstRelevantRank;
         result.ndcg = idealDcg == 0D ? 1D : dcg / idealDcg;
         result.citationPrecision = cited.isEmpty() ? 0D : (double) citedRelevant / cited.size();
         result.citationRecall = expected.isEmpty() ? 1D : (double) citedRelevant / expected.size();
         result.grounded = answerGrounded;
+        return result;
+    }
+
+    private static List<String> distinct(List<String> chunkIds) {
+        if (chunkIds == null || chunkIds.isEmpty()) return new ArrayList<String>();
+        List<String> result = new ArrayList<String>();
+        Set<String> seen = new HashSet<String>();
+        for (String chunkId : chunkIds) if (chunkId != null && seen.add(chunkId)) result.add(chunkId);
         return result;
     }
 

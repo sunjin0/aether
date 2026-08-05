@@ -18,6 +18,10 @@ public class KnowledgeRetrievalEvaluationCaseEntity extends BaseEntity {
     private String documentId;
     /** 期望命中的章节路径；为空表示整篇文档。 */
     private String sectionPath;
+    /** 标注粒度：DOCUMENT、SECTION 或 CHUNK。 */
+    private String targetType;
+    /** 标注粒度为 CHUNK 时指定的目标分块 ID。 */
+    private String chunkId;
     /** 标注备注。 */
     private String remark;
     /** 启用状态：1 启用，0 停用。 */

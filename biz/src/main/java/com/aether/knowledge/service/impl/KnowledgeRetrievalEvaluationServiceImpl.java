@@ -28,20 +28,26 @@ public class KnowledgeRetrievalEvaluationServiceImpl implements KnowledgeRetriev
         double recall = 0D, mrr = 0D, ndcg = 0D;
         for (KnowledgeRetrievalEvaluationCase item : valid) {
             if (item == null || StringUtils.isBlank(item.getQuestion())) continue;
-            // 直接调用 Agent 当前检索配置，避免评测逻辑和线上检索逻辑出现偏差。
-            KnowledgeRetrievalResult result = retrievalService.retrieve(agentDefinitionId, item.getQuestion());
-            List<String> retrieved = result.getChunks() == null ? Collections.<String>emptyList() : result.getChunks().stream()
-                    .map(chunk -> chunk.getId()).filter(StringUtils::isNotBlank).collect(Collectors.toList());
-            // 评测阶段只关注检索命中，不进行答案引用和 grounded 判定。
-            KnowledgeRetrievalMetrics.Result metrics = KnowledgeRetrievalMetrics.evaluate(
-                    new HashSet<String>(item.getExpectedChunkIds() == null ? Collections.<String>emptyList() : item.getExpectedChunkIds()),
-                    retrieved, Collections.<String>emptySet(), false);
             KnowledgeRetrievalEvaluationReport.Item outcome = new KnowledgeRetrievalEvaluationReport.Item();
-            outcome.setQuestion(item.getQuestion()); outcome.setRetrievedChunkIds(new ArrayList<String>(retrieved));
-            outcome.setRecallAtK(metrics.getRecallAtK()); outcome.setMrr(metrics.getMrr()); outcome.setNdcg(metrics.getNdcg());
-            report.getItems().add(outcome); recall += metrics.getRecallAtK(); mrr += metrics.getMrr(); ndcg += metrics.getNdcg();
+            outcome.setQuestion(item.getQuestion());
+            try {
+                // 直接调用 Agent 当前检索配置，避免评测逻辑和线上检索逻辑出现偏差。
+                KnowledgeRetrievalResult result = retrievalService.retrieve(agentDefinitionId, item.getQuestion());
+                List<String> retrieved = result.getChunks() == null ? Collections.<String>emptyList() : result.getChunks().stream()
+                        .map(chunk -> chunk.getId()).filter(StringUtils::isNotBlank).collect(Collectors.toList());
+                KnowledgeRetrievalMetrics.Result metrics = KnowledgeRetrievalMetrics.evaluate(
+                        new HashSet<String>(item.getExpectedChunkIds() == null ? Collections.<String>emptyList() : item.getExpectedChunkIds()),
+                        retrieved, Collections.<String>emptySet(), false, item.getTargetType());
+                outcome.setStatus("EVALUATED"); outcome.setRetrievedChunkIds(new ArrayList<String>(retrieved));
+                outcome.setRecallAtK(metrics.getRecallAtK()); outcome.setMrr(metrics.getMrr()); outcome.setNdcg(metrics.getNdcg());
+                recall += metrics.getRecallAtK(); mrr += metrics.getMrr(); ndcg += metrics.getNdcg();
+            } catch (Exception exception) {
+                outcome.setStatus("RETRIEVAL_ERROR"); outcome.setErrorCode("RETRIEVAL_FAILED");
+                outcome.setErrorMessage(StringUtils.abbreviate(exception.getMessage(), 500)); report.setFailedCount(report.getFailedCount() + 1);
+            }
+            report.getItems().add(outcome);
         }
-        report.setTotal(report.getItems().size());
+        report.setTotal(report.getItems().size() - report.getFailedCount());
         if (report.getTotal() > 0) { report.setRecallAtK(recall / report.getTotal()); report.setMrr(mrr / report.getTotal()); report.setNdcg(ndcg / report.getTotal()); }
         return report;
     }

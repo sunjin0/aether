@@ -1,0 +1,167 @@
+package com.aether.knowledge.service.impl;
+
+import com.alibaba.fastjson2.JSON;
+import com.aether.knowledge.entity.KnowledgeRetrievalEvaluationResult;
+import com.aether.knowledge.entity.KnowledgeRetrievalEvaluationRun;
+import com.aether.knowledge.entity.KnowledgeRetrievalEvaluationTask;
+import com.aether.knowledge.entity.KnowledgeDocument;
+import com.aether.knowledge.evaluation.KnowledgeRetrievalMetrics;
+import com.aether.knowledge.mapper.KnowledgeRetrievalEvaluationResultMapper;
+import com.aether.knowledge.mapper.KnowledgeRetrievalEvaluationRunMapper;
+import com.aether.knowledge.mapper.KnowledgeRetrievalEvaluationTaskMapper;
+import com.aether.knowledge.model.KnowledgeRetrievalResult;
+import com.aether.knowledge.service.KnowledgeRetrievalService;
+import com.aether.knowledge.service.KnowledgeDocumentService;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/** Executes evaluation tasks outside the HTTP request and recovers tasks after a process restart. */
+@Component
+public class KnowledgeRetrievalEvaluationTaskWorker {
+    private static final long LEASE_MILLIS = 30L * 60L * 1000L;
+    private static final int BATCH_SIZE = 10;
+    private final KnowledgeRetrievalEvaluationTaskMapper taskMapper;
+    private final KnowledgeRetrievalEvaluationRunMapper runMapper;
+    private final KnowledgeRetrievalEvaluationResultMapper resultMapper;
+    private final KnowledgeRetrievalService retrievalService;
+    private final KnowledgeDocumentService documentService;
+    private final TaskExecutor taskExecutor;
+
+    public KnowledgeRetrievalEvaluationTaskWorker(KnowledgeRetrievalEvaluationTaskMapper taskMapper,
+                                                  KnowledgeRetrievalEvaluationRunMapper runMapper,
+                                                   KnowledgeRetrievalEvaluationResultMapper resultMapper,
+                                                   KnowledgeRetrievalService retrievalService,
+                                                   KnowledgeDocumentService documentService,
+                                                   @Qualifier("asyncPoolTaskExecutor") TaskExecutor taskExecutor) {
+        this.taskMapper = taskMapper;
+        this.runMapper = runMapper;
+        this.resultMapper = resultMapper;
+        this.retrievalService = retrievalService;
+        this.documentService = documentService;
+        this.taskExecutor = taskExecutor;
+    }
+
+    public void dispatch(String runId) {
+        List<KnowledgeRetrievalEvaluationTask> tasks = taskMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationTask.class)
+                .eq(KnowledgeRetrievalEvaluationTask::getRunId, runId).eq(KnowledgeRetrievalEvaluationTask::getStatus, "QUEUED")
+                .eq(KnowledgeRetrievalEvaluationTask::getDeleted, false).orderByAsc(KnowledgeRetrievalEvaluationTask::getCreatedAt).last("LIMIT " + BATCH_SIZE));
+        for (final KnowledgeRetrievalEvaluationTask task : tasks) taskExecutor.execute(new Runnable() {
+            @Override public void run() { execute(task.getId()); }
+        });
+    }
+
+    @Scheduled(fixedDelayString = "${aether.knowledge.evaluation.scan-interval-ms:3000}", initialDelay = 10000L)
+    public void dispatchPendingTasks() {
+        long staleBefore = System.currentTimeMillis() - LEASE_MILLIS;
+        taskMapper.update(null, Wrappers.lambdaUpdate(KnowledgeRetrievalEvaluationTask.class)
+                .eq(KnowledgeRetrievalEvaluationTask::getStatus, "RUNNING").lt(KnowledgeRetrievalEvaluationTask::getStartedAt, staleBefore)
+                .eq(KnowledgeRetrievalEvaluationTask::getDeleted, false).set(KnowledgeRetrievalEvaluationTask::getStatus, "QUEUED")
+                .set(KnowledgeRetrievalEvaluationTask::getErrorCode, "LEASE_EXPIRED").set(KnowledgeRetrievalEvaluationTask::getErrorMessage, "Worker lease expired."));
+        List<KnowledgeRetrievalEvaluationTask> tasks = taskMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationTask.class)
+                .eq(KnowledgeRetrievalEvaluationTask::getStatus, "QUEUED").eq(KnowledgeRetrievalEvaluationTask::getDeleted, false)
+                .orderByAsc(KnowledgeRetrievalEvaluationTask::getCreatedAt).last("LIMIT " + BATCH_SIZE));
+        for (KnowledgeRetrievalEvaluationTask task : tasks) dispatch(task.getRunId());
+    }
+
+    private void execute(String taskId) {
+        long now = System.currentTimeMillis();
+        int claimed = taskMapper.update(null, Wrappers.lambdaUpdate(KnowledgeRetrievalEvaluationTask.class)
+                .eq(KnowledgeRetrievalEvaluationTask::getId, taskId).eq(KnowledgeRetrievalEvaluationTask::getStatus, "QUEUED")
+                .eq(KnowledgeRetrievalEvaluationTask::getDeleted, false).set(KnowledgeRetrievalEvaluationTask::getStatus, "RUNNING")
+                .set(KnowledgeRetrievalEvaluationTask::getStartedAt, now).setSql("attempt_count = attempt_count + 1"));
+        if (claimed == 0) return;
+        KnowledgeRetrievalEvaluationTask task = taskMapper.selectById(taskId);
+        KnowledgeRetrievalEvaluationRun run = runMapper.selectById(task.getRunId());
+        if (run == null || !"RUNNING".equals(run.getStatus())) { cancel(task); return; }
+        try {
+            KnowledgeRetrievalResult retrieval = retrievalService.retrieve(run.getAgentDefinitionIdSnapshot(), task.getQuestionSnapshot());
+            if (!retrieval.isRetrievalAttempted() || retrieval.isRetrievalFailed()) {
+                saveResult(task, "RETRIEVAL_ERROR", Collections.<String>emptyList(), Collections.<Map<String, Object>>emptyList(), null, "RETRIEVAL_UNAVAILABLE", "No enabled indexed knowledge base with an available embedding provider.");
+                finish(task, "FAILED", "RETRIEVAL_UNAVAILABLE", "No enabled indexed knowledge base with an available embedding provider.");
+                return;
+            }
+            List<String> retrieved = retrieval.getChunks() == null ? Collections.<String>emptyList() : retrieval.getChunks().stream()
+                    .map(chunk -> chunk.getId()).filter(StringUtils::isNotBlank).collect(Collectors.toList());
+            Set<String> retrievedDocumentIds = retrieval.getChunks() == null ? Collections.<String>emptySet() : retrieval.getChunks().stream().map(com.aether.knowledge.entity.KnowledgeDocumentChunk::getDocumentId).filter(StringUtils::isNotBlank).collect(Collectors.toSet());
+            Map<String, String> documentTitles = retrievedDocumentIds.isEmpty() ? Collections.<String, String>emptyMap() : documentService.listByIds(retrievedDocumentIds).stream().collect(Collectors.toMap(KnowledgeDocument::getId, KnowledgeDocument::getTitle));
+            List<Map<String, Object>> retrievedItems = new ArrayList<>();
+            if (retrieval.getChunks() != null) for (int index = 0; index < retrieval.getChunks().size(); index++) {
+                com.aether.knowledge.entity.KnowledgeDocumentChunk chunk = retrieval.getChunks().get(index);
+                Map<String, Object> item = new LinkedHashMap<>(); item.put("id", chunk.getId()); item.put("documentId", chunk.getDocumentId()); item.put("documentTitle", documentTitles.get(chunk.getDocumentId())); item.put("sectionPath", chunk.getSectionPath()); item.put("chunkIndex", chunk.getChunkIndex()); item.put("rank", index + 1); retrievedItems.add(item);
+            }
+            List<String> expected = JSON.parseArray(task.getExpectedChunkIdsSnapshot(), String.class);
+            KnowledgeRetrievalMetrics.Result metrics = KnowledgeRetrievalMetrics.evaluate(new HashSet<String>(expected), retrieved,
+                    Collections.<String>emptySet(), false, task.getTargetTypeSnapshot());
+            saveResult(task, "EVALUATED", retrieved, retrievedItems, metrics, null, null);
+            finish(task, "SUCCEEDED", null, null);
+        } catch (Exception exception) {
+            String message = StringUtils.defaultIfBlank(StringUtils.abbreviate(exception.getMessage(), 1000), exception.getClass().getSimpleName());
+            int attemptCount = task.getAttemptCount() == null ? 1 : task.getAttemptCount();
+            if (attemptCount < task.getMaxAttempts()) {
+                taskMapper.update(null, Wrappers.lambdaUpdate(KnowledgeRetrievalEvaluationTask.class).eq(KnowledgeRetrievalEvaluationTask::getId, taskId)
+                        .eq(KnowledgeRetrievalEvaluationTask::getStatus, "RUNNING").set(KnowledgeRetrievalEvaluationTask::getStatus, "QUEUED")
+                        .set(KnowledgeRetrievalEvaluationTask::getErrorCode, "RETRIEVAL_FAILED").set(KnowledgeRetrievalEvaluationTask::getErrorMessage, message));
+            } else {
+                saveResult(task, "RETRIEVAL_ERROR", Collections.<String>emptyList(), Collections.<Map<String, Object>>emptyList(), null, "RETRIEVAL_FAILED", message);
+                finish(task, "FAILED", "RETRIEVAL_FAILED", message);
+            }
+        } finally { updateRun(task.getRunId()); dispatch(task.getRunId()); }
+    }
+
+    private void saveResult(KnowledgeRetrievalEvaluationTask task, String status, List<String> retrieved, List<Map<String, Object>> retrievedItems,
+                            KnowledgeRetrievalMetrics.Result metrics, String errorCode, String errorMessage) {
+        KnowledgeRetrievalEvaluationResult result = new KnowledgeRetrievalEvaluationResult();
+        result.setRunId(task.getRunId()); result.setEvaluationCaseId(task.getEvaluationCaseId()); result.setStatus(status);
+        result.setQuestionSnapshot(task.getQuestionSnapshot()); result.setTargetTypeSnapshot(task.getTargetTypeSnapshot());
+        result.setExpectedChunkIdsSnapshot(task.getExpectedChunkIdsSnapshot()); result.setExpectedDocumentIdSnapshot(task.getExpectedDocumentIdSnapshot());
+        result.setExpectedSectionPathSnapshot(task.getExpectedSectionPathSnapshot()); result.setExpectedDocumentTitleSnapshot(StringUtils.isBlank(task.getExpectedDocumentIdSnapshot()) ? null : documentService.getById(task.getExpectedDocumentIdSnapshot()) == null ? null : documentService.getById(task.getExpectedDocumentIdSnapshot()).getTitle()); result.setRetrievedChunkIds(JSON.toJSONString(retrieved)); result.setRetrievedItemsSnapshot(JSON.toJSONString(retrievedItems));
+        if (metrics != null) { result.setRecallAtK(metrics.getRecallAtK()); result.setMrr(metrics.getMrr()); result.setNdcg(metrics.getNdcg()); }
+        result.setErrorCode(errorCode); result.setErrorMessage(errorMessage); resultMapper.insert(result);
+    }
+
+    private void finish(KnowledgeRetrievalEvaluationTask task, String status, String errorCode, String errorMessage) {
+        taskMapper.update(null, Wrappers.lambdaUpdate(KnowledgeRetrievalEvaluationTask.class).eq(KnowledgeRetrievalEvaluationTask::getId, task.getId())
+                .eq(KnowledgeRetrievalEvaluationTask::getStatus, "RUNNING").set(KnowledgeRetrievalEvaluationTask::getStatus, status)
+                .set(KnowledgeRetrievalEvaluationTask::getFinishedAt, System.currentTimeMillis()).set(KnowledgeRetrievalEvaluationTask::getErrorCode, errorCode)
+                .set(KnowledgeRetrievalEvaluationTask::getErrorMessage, errorMessage));
+    }
+
+    private void cancel(KnowledgeRetrievalEvaluationTask task) {
+        taskMapper.update(null, Wrappers.lambdaUpdate(KnowledgeRetrievalEvaluationTask.class).eq(KnowledgeRetrievalEvaluationTask::getId, task.getId())
+                .eq(KnowledgeRetrievalEvaluationTask::getStatus, "RUNNING").set(KnowledgeRetrievalEvaluationTask::getStatus, "CANCELLED")
+                .set(KnowledgeRetrievalEvaluationTask::getFinishedAt, System.currentTimeMillis()));
+    }
+
+    public void updateRun(String runId) {
+        List<KnowledgeRetrievalEvaluationTask> tasks = taskMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationTask.class)
+                .eq(KnowledgeRetrievalEvaluationTask::getRunId, runId).eq(KnowledgeRetrievalEvaluationTask::getDeleted, false));
+        int queued = 0, running = 0, failed = 0, succeeded = 0;
+        for (KnowledgeRetrievalEvaluationTask task : tasks) {
+            if ("QUEUED".equals(task.getStatus())) queued++; else if ("RUNNING".equals(task.getStatus())) running++;
+            else if ("FAILED".equals(task.getStatus())) failed++; else if ("SUCCEEDED".equals(task.getStatus())) succeeded++;
+        }
+        if (queued > 0 || running > 0) return;
+        List<KnowledgeRetrievalEvaluationResult> results = resultMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationResult.class)
+                .eq(KnowledgeRetrievalEvaluationResult::getRunId, runId).eq(KnowledgeRetrievalEvaluationResult::getDeleted, false));
+        double recall = 0D, mrr = 0D, ndcg = 0D; int evaluated = 0;
+        for (KnowledgeRetrievalEvaluationResult result : results) if ("EVALUATED".equals(result.getStatus())) { evaluated++; recall += result.getRecallAtK(); mrr += result.getMrr(); ndcg += result.getNdcg(); }
+        KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
+        if (run == null || !"RUNNING".equals(run.getStatus())) return;
+        run.setStatus(failed == 0 ? "SUCCEEDED" : evaluated == 0 ? "FAILED" : "PARTIAL_FAILED"); run.setTotalCount(evaluated); run.setFailedCount(failed);
+        run.setRecallAtK(evaluated == 0 ? 0D : recall / evaluated); run.setMrr(evaluated == 0 ? 0D : mrr / evaluated); run.setNdcg(evaluated == 0 ? 0D : ndcg / evaluated);
+        run.setFinishedAt(System.currentTimeMillis()); run.setErrorSummaryJson(failed == 0 ? null : JSON.toJSONString(Collections.singletonMap("RETRIEVAL_FAILED", failed))); runMapper.updateById(run);
+    }
+}
