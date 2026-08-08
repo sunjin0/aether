@@ -9,7 +9,8 @@ Java 8, Spring Boot 2.7.18, multi-module Maven project. There is no Maven wrappe
 Module dependency direction (upstream → downstream):
 
 - `common`: shared infrastructure and utilities (response wrapper, base entity, i18n, exception handling, interceptor, Redis, MyBatis-Plus config, permission AOP, token/AES utilities, validation helpers).
-- `api`: contract/data layer. MyBatis-Plus entities, VOs, mapper interfaces, service interfaces, i18n/resource YAML files.
+- `api`: contract/data layer. MyBatis-Plus entities, VOs, mapper interfaces, service interfaces, Flyway migrations, i18n/resource YAML files.
+- `storage`: MinIO object-storage adapter (`com.aether.storage.service.ObjectStorageService`); depended on by `biz` and `admin`.
 - `biz`: business implementation layer. Service implementations extend `ServiceImpl<Mapper, Entity>` and implement interfaces from `api`.
 - `admin`: executable Spring Boot admin/API application. REST controllers and `AdminApplication`.
 - `front`: executable Spring Boot application shell with `FrontApplication`; no discovered controllers, reuses `biz/common`.
@@ -98,10 +99,15 @@ qodana scan --linter jetbrains/qodana-jvm:2025.1
 ```sh
 mvn clean package -pl admin -am
 docker build -t admin-service:latest admin/
-docker run --rm --name admin-container -p 9080:8080 admin-service:latest
+docker run -d --name admin-container -p 8080:8080 admin-service:latest
 ```
 
-Caveats: `admin/Dockerfile` copies `admin/target/admin-*.jar`, exposes port `8080`, and runs `java -jar admin.jar`. The Jenkinsfile currently maps `9080:9080`, while `admin/src/main/resources/application.yml` sets `server.port: 8080`; verify the intended container port before relying on CI/deploy behavior.
+Caveats: `admin/Dockerfile` copies `admin/target/admin-*.jar`, exposes port `8080`, and runs `java -jar admin.jar`. The container maps host `8080` to container `8080`, matching `admin/src/main/resources/application.yml` (`server.port: 8080`); verify the intended container port before relying on CI/deploy behavior.
+
+Real infra deploys through Docker Compose instead of the single container above:
+
+- `docker-compose.yml`: builds only `admin`, runs with `SPRING_PROFILES_ACTIVE=prod`, and attaches to the external network `aether-mcp-server_default` (`AETHER_SHARED_NETWORK`); all config comes from env vars documented in `.env.example`.
+- `docker-compose.all.yml`: full stack (PostgreSQL, Redis, MinIO, admin, dashboard, deep-agent, MCP) built from Git sources; requires a populated `.env.all` (copy `.env.all.example`) with `GIT_AUTH_TOKEN` and production secrets. Host ports are non-default (admin `ADMIN_PORT` 18080).
 
 ## Runtime configuration
 
@@ -109,6 +115,7 @@ Caveats: `admin/Dockerfile` copies `admin/target/admin-*.jar`, exposes port `808
 - `admin` explicitly listens on port `8080`; `front` uses Spring Boot's default unless overridden.
 - Profile-specific datasource/Redis/mail configuration lives in `api/src/main/resources/application-dev.yml`, `application-test.yml`, and `application-prod.yml` and is placed on the app classpath through module dependencies.
 - i18n message bundles are in `api/src/main/resources/i18n/`, with `spring.messages.basename: i18n.api`.
+- Runtime infra is PostgreSQL, Redis, and MinIO. Config is env-var driven with local defaults (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `MINIO_*`, `AETHER_DEEP_AGENT_*`, `AETHER_MCP_DELEGATION_SECRET`); see `.env.example`/`.env.all.example`.
 
 ## Architecture notes
 
@@ -125,6 +132,7 @@ Caveats: `admin/Dockerfile` copies `admin/target/admin-*.jar`, exposes port `808
 - Shared entity fields are in `common/src/main/java/com/aether/entity/BaseEntity.java`.
 - `common/src/main/java/com/aether/config/MyBatisPlusConfig.java` registers pagination, optimistic-locker, and block-attack interceptors.
 - `common/src/main/java/com/aether/config/MyMetaObjectHandler.java` auto-fills common fields such as timestamps, state/deleted flags, and sort number.
+- DB schema is managed by Flyway: SQL migrations in `api/src/main/resources/db/migration/postgresql/` (39 `V*.sql`) run automatically on app startup (`out-of-order: false`, `clean-disabled: true`). Change schema by adding a new `V*__*.sql`; do not edit applied migrations or create tables by hand.
 
 ### Authentication and permissions
 
@@ -141,4 +149,4 @@ Caveats: `admin/Dockerfile` copies `admin/target/admin-*.jar`, exposes port `808
 
 ## Documentation lookup
 
-If a question cannot be answered confidently from the codebase or existing context, read the relevant documents under `docs/` before guessing.
+If a question cannot be answered confidently from the codebase or existing context, read the relevant documents under `docs/` before guessing. `docs/README.md` is the doc index; `docs/superpowers/` holds historical design records and is not a current interface contract.

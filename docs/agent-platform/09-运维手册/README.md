@@ -6,10 +6,10 @@
 
 ## 数据库与 Flyway 迁移
 
-建表与数据迁移全部由 Flyway 管理，迁移脚本位于 `api/src/main/resources/db/migration/postgresql/`（V1__init.sql ~ V32）：
+建表与数据迁移全部由 Flyway 管理，迁移脚本位于 `api/src/main/resources/db/migration/postgresql/`（V1__init.sql ~ V37）：
 
 - `V1__init.sql`：完整初始化（建表 + 种子数据 + 公共索引 + pgvector）。
-- `V2`~`V32`：增量变更（会话摘要字段、Deep Agent、混合检索、检索评测、服务账号、工作流运行时、触发器、菜单/权限种子）。
+- `V2`~`V37`：增量变更（会话摘要字段、Deep Agent、混合检索、检索评测、服务账号、工作流运行时、触发器、菜单/权限种子及评测可靠性增强）。
 
 Admin/Front 启动时自动执行迁移；相关配置见 `admin/src/main/resources/application.yml` 的 `spring.flyway` 块（locations、baseline-on-migrate、validate-on-migrate）。
 

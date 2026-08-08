@@ -15,6 +15,8 @@ import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.ChatAttachmentService;
 import com.aether.agent.service.DeepAgentRunService;
 import com.aether.agent.service.KnowledgeContextService;
+import com.aether.agent.skill.service.SkillContextService;
+import com.aether.agent.skill.service.SkillRuntimeContext;
 import com.aether.agent.vo.AgentConversationVo;
 import com.aether.agent.vo.AgentChatAttachmentVo;
 import com.aether.agent.vo.AgentMessageVo;
@@ -85,6 +87,7 @@ public class AgentChatController {
     private final DeepAgentCallbackController deepAgentCallbackController;
     private final KnowledgeContextService knowledgeContextService;
     private final DeepAgentConfig deepAgentConfig;
+    private final SkillContextService skillContextService;
     private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
 
@@ -93,7 +96,7 @@ public class AgentChatController {
                                AgentMessageService agentMessageService, ChatAttachmentService chatAttachmentService,
                                AgentDefinitionService agentDefinitionService, DeepAgentRunService deepAgentRunService,
                                DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
-                               DeepAgentConfig deepAgentConfig) {
+                               DeepAgentConfig deepAgentConfig, SkillContextService skillContextService) {
         this.agentChatService = agentChatService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
@@ -103,6 +106,25 @@ public class AgentChatController {
         this.deepAgentCallbackController = deepAgentCallbackController;
         this.knowledgeContextService = knowledgeContextService;
         this.deepAgentConfig = deepAgentConfig;
+        this.skillContextService = skillContextService;
+    }
+
+    /** 兼容既有控制器单元测试；生产环境始终使用注入 Skill 上下文服务的完整构造器。 */
+    public AgentChatController(AgentChatService agentChatService, AgentConversationService agentConversationService,
+                               AgentMessageService agentMessageService, ChatAttachmentService chatAttachmentService,
+                               AgentDefinitionService agentDefinitionService, DeepAgentRunService deepAgentRunService,
+                               DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
+                               DeepAgentConfig deepAgentConfig) {
+        this(agentChatService, agentConversationService, agentMessageService, chatAttachmentService, agentDefinitionService,
+                deepAgentRunService, deepAgentCallbackController, knowledgeContextService, deepAgentConfig, null);
+    }
+
+    /** 无 Skill 上下文服务时退回 Agent 原生系统提示词的缺省上下文，保证单元测试链路可用。 */
+    private SkillRuntimeContext defaultSkillContext(AgentDefinition agent) {
+        SkillRuntimeContext context = new SkillRuntimeContext();
+        context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt()));
+        context.setSnapshot("{\"installed\":false}");
+        return context;
     }
 
     @ApiOperation("非流式聊天（兼容接口，已弃用；新调用请使用 /api/agent/chat/stream）")
@@ -444,13 +466,12 @@ public class AgentChatController {
                 }
                 final String conversationId = conversation.getId();
 
+                SkillRuntimeContext skillContext = skillContextService == null ? defaultSkillContext(agent) : skillContextService.resolve(agent, dto);
                 List<ModelChatMessage> ctx = new ArrayList<>();
-                if (agent.getSystemPrompt() != null) {
-                    ctx.add(new ModelChatMessage("system", agent.getSystemPrompt()));
-                }
+                if (StringUtils.isNotBlank(skillContext.getSystemPrompt())) ctx.add(new ModelChatMessage("system", skillContext.getSystemPrompt()));
                 String taskContext = buildDeepTaskContext(dto);
                 List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                        ctx, userId, conversationId, agent.getId(), taskContext);
+                        ctx, userId, conversationId, agent.getId(), taskContext, skillContext.getKnowledgeBaseIds());
 
                 AgentStreamCallback callback = new AgentStreamCallback() {
                     @Override public void onMessage(String cid, String chunk) {
@@ -521,7 +542,7 @@ public class AgentChatController {
                     @Override public boolean isClosed() { return closed.get(); }
                 };
                 String runId = deepAgentRunService.startRun(agent, userId, conversationId, dto.getMessage(),
-                        dto.getAttachmentContent(), dto.getAttachments(), sources, registeredRunId -> {
+                        dto.getAttachmentContent(), dto.getAttachments(), sources, skillContext, registeredRunId -> {
                     runIdRef.set(registeredRunId);
                     deepAgentCallbackController.registerCallback(registeredRunId, callback);
                 });

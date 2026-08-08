@@ -38,7 +38,7 @@ pipeline {
                 sh 'docker stop admin-container || true'
                 sh 'docker rm admin-container || true'
                 // 运行新的容器
-                sh 'docker run -d --name admin-container -p 9080:9080 admin-service:latest'
+                sh 'docker run -d --name admin-container -p 8080:8080 admin-service:latest'
                 sh 'echo "部署完成..."'
             }
         }

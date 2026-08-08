@@ -9,6 +9,8 @@ import org.springframework.web.multipart.MultipartFile;
 public interface ObjectStorageService {
     /** 上传一个对象；bucket 为存储桶名称，objectKey 为业务生成的对象键。 */
     String upload(String bucket, String objectKey, MultipartFile file);
+    /** 上传内存字节流（用于非 multipart 场景）；contentType 为空时回退 octet-stream。 */
+    String upload(String bucket, String objectKey, byte[] content, String contentType);
     /** 生成指定有效期（秒）的 GET 临时访问 URL。 */
     String presignedGetUrl(String bucket, String objectKey, int expirySeconds);
     /** 读取对象的全部字节；仅供后端解析器使用。 */

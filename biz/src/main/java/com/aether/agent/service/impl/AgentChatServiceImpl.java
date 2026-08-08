@@ -34,6 +34,8 @@ import com.aether.agent.service.ConversationContextService;
 import com.aether.agent.service.QueryRewriteService;
 import com.aether.agent.service.ChatRunService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
+import com.aether.agent.skill.service.SkillContextService;
+import com.aether.agent.skill.service.SkillRuntimeContext;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
@@ -43,6 +45,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -85,11 +88,13 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final ConversationContextService conversationContextService;
     private final AdminPreferenceExtractionService adminPreferenceExtractionService;
     private final QueryRewriteService queryRewriteService;
+    private final SkillContextService skillContextService;
 
     /** 默认关闭，避免每轮聊天在主模型调用前额外等待一次同步模型重写。 */
     @Value("${agent.chat.query-rewrite.enabled:false}")
     private boolean queryRewriteEnabled;
 
+    @Autowired
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
                                 ModelProviderService modelProviderService,
                                 AgentConversationService agentConversationService,
@@ -101,7 +106,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                                  InteractionReplyService interactionReplyService,
                                  ConversationContextService conversationContextService,
                                  AdminPreferenceExtractionService adminPreferenceExtractionService,
-                                 QueryRewriteService queryRewriteService) {
+                                  QueryRewriteService queryRewriteService, SkillContextService skillContextService) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.agentConversationService = agentConversationService;
@@ -114,6 +119,25 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.conversationContextService = conversationContextService;
         this.adminPreferenceExtractionService = adminPreferenceExtractionService;
         this.queryRewriteService = queryRewriteService;
+        this.skillContextService = skillContextService;
+    }
+
+    /** 保持既有单元测试和非 Spring 手工构造调用兼容，运行时由完整构造器注入 Skill 服务。 */
+    public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
+                                 ModelProviderService modelProviderService,
+                                 AgentConversationService agentConversationService,
+                                 AgentMessageService agentMessageService,
+                                 ChatRunService chatRunService,
+                                 ModelClientFactory modelClientFactory,
+                                 AgentToolWorkflow agentToolWorkflow,
+                                 KnowledgeContextService knowledgeContextService,
+                                 InteractionReplyService interactionReplyService,
+                                 ConversationContextService conversationContextService,
+                                 AdminPreferenceExtractionService adminPreferenceExtractionService,
+                                 QueryRewriteService queryRewriteService) {
+        this(agentDefinitionService, modelProviderService, agentConversationService, agentMessageService, chatRunService,
+                modelClientFactory, agentToolWorkflow, knowledgeContextService, interactionReplyService,
+                conversationContextService, adminPreferenceExtractionService, queryRewriteService, null);
     }
 
     @Override
@@ -132,15 +156,21 @@ public class AgentChatServiceImpl implements AgentChatService {
         String runId = null;
 
         try {
+            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto);
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()));
+                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds());
             conversationContextService.enforceBudget(context, agent, provider);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(agentToolWorkflow.getRequestTools(agent.getId()));
+            request.setTools(agentToolWorkflow.getRequestTools(skillContext.getTools()));
+
+            // 在任何模型调用前冻结本次 Skill 装配结果，失败运行同样可追溯。
+            runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(),
+                    effectiveContent(rewrittenContent, dto.getMessage()), null, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ModelChatResponse modelResponse = modelClient.chat(request);
@@ -162,7 +192,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             boolean toolCallSucceeded = false;
             while (hasToolCalls(modelResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
                 if (runId == null) {
-                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), modelResponse, 0, RUN_STATUS_SUCCESS, null);
+                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), modelResponse, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
                 }
                 iteration++;
                 toolCallAttempted = true;
@@ -182,7 +212,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 // The non-streaming response can only return one message, so the
                 // prelude is recovered through normal conversation history.
                 saveAssistantPreludeIfPresent(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime);
-                AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), modelResponse, agent, userId, runId);
+                AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), modelResponse, agent, userId, runId, skillContext.getTools());
                 if (approval != null) {
                     updateConversationMessageCount(conversation.getId());
                     updateRun(runId, approval.getId(), modelResponse, System.currentTimeMillis() - startTime,
@@ -191,7 +221,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     BeanUtils.copyProperties(approval, vo);
                     return vo;
                 }
-                List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(modelResponse, agent, userId, runId);
+                List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(modelResponse, agent, userId, runId, skillContext.getTools());
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 addToolResultsToContext(context, modelResponse, toolResults);
@@ -235,7 +265,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (runId == null) {
                 runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), modelResponse, latencyMs,
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
-                        authenticityCheck.isValid() ? null : authenticityCheck.getReason());
+                        authenticityCheck.isValid() ? null : authenticityCheck.getReason(), skillContext.getSnapshot());
             } else {
                 updateRun(runId, assistantMessage.getId(), modelResponse, latencyMs,
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
@@ -279,9 +309,11 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         try {
             long t0 = System.currentTimeMillis();
+            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto);
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()));
+                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds());
             conversationContextService.enforceBudget(context, agent, provider);
             long t1 = System.currentTimeMillis();
             log.info("上下文构建耗时: {}ms", t1 - t0);
@@ -290,7 +322,11 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(agentToolWorkflow.getRequestTools(agent.getId()));
+            request.setTools(agentToolWorkflow.getRequestTools(skillContext.getTools()));
+
+            // SSE 首个分片到达前即保存运行快照，避免连接中断时丢失实际授权上下文。
+            runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(),
+                    effectiveContent(rewrittenContent, dto.getMessage()), null, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             // 推理未开启时，不转发reasoning chunks
@@ -317,7 +353,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             ModelChatResponse chatResponse = toChatResponse(modelResponse);
             while (hasToolCalls(chatResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
                 if (runId == null) {
-                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), chatResponse, 0, RUN_STATUS_SUCCESS, null);
+                    runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), chatResponse, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
                 }
                 iteration++;
                 toolCallAttempted = true;
@@ -350,7 +386,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     }
                     return;
                 }
-                AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), chatResponse, agent, userId, runId);
+                AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), chatResponse, agent, userId, runId, skillContext.getTools());
                 if (approval != null) {
                     updateConversationMessageCount(conversation.getId());
                     AgentMessageVo approvalVo = new AgentMessageVo();
@@ -367,7 +403,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     }
                     return;
                 }
-                List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId);
+                List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId, skillContext.getTools());
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 addToolResultsToContext(context, chatResponse, toolResults);
@@ -426,7 +462,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (runId == null) {
                 runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), chatResponse, latencyMs,
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
-                        authenticityCheck.isValid() ? null : authenticityCheck.getReason());
+                        authenticityCheck.isValid() ? null : authenticityCheck.getReason(), skillContext.getSnapshot());
             } else {
                 updateRun(runId, assistantMessage.getId(), chatResponse, latencyMs,
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
@@ -472,9 +508,11 @@ public class AgentChatServiceImpl implements AgentChatService {
             applyReplyThinkingConfig(dto, agent);
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
 
+            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto);
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                    context, userId, conversation.getId(), agent.getId(), answerContent);
+                    context, userId, conversation.getId(), agent.getId(), answerContent, skillContext.getKnowledgeBaseIds());
             approvalExecution = agentToolWorkflow.executeApprovedMcpTool(question, dto.getAnswer(), agent, userId);
             if (approvalExecution != null) {
                 runId = approvalExecution.getRunId();
@@ -490,7 +528,13 @@ public class AgentChatServiceImpl implements AgentChatService {
             // MCP (or ask_user) again, otherwise the model can immediately ask
             // the same confirmation a second time.
             boolean approvalRejected = approvalExecution != null && !approvalExecution.getResult().isSuccess();
-            request.setTools(approvalRejected ? Collections.<AgentTool>emptyList() : agentToolWorkflow.getRequestTools(agent.getId()));
+            request.setTools(approvalRejected ? Collections.<AgentTool>emptyList() : agentToolWorkflow.getRequestTools(skillContext.getTools()));
+
+            // 回答分支同样在模型调用前固化 Skill 快照；已存在的审批续跑运行保留其原始快照。
+            if (runId == null) {
+                runId = saveRun(agent, provider, userId, conversation.getId(), answerMessage.getId(), answerContent,
+                        null, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
+            }
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ForwardingStreamCallback streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
@@ -509,7 +553,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             ModelChatResponse chatResponse = toChatResponse(modelResponse);
             while (hasToolCalls(chatResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
                 if (runId == null) {
-                    runId = saveRun(agent, provider, userId, conversation.getId(), answerMessage.getId(), answerContent, chatResponse, 0, RUN_STATUS_SUCCESS, null);
+                    runId = saveRun(agent, provider, userId, conversation.getId(), answerMessage.getId(), answerContent, chatResponse, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
                 }
                 iteration++;
                 toolCallAttempted = true;
@@ -544,7 +588,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     return;
                 }
 
-                AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), chatResponse, agent, userId, runId);
+                AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), chatResponse, agent, userId, runId, skillContext.getTools());
                 if (approval != null) {
                     updateConversationMessageCount(conversation.getId());
                     AgentMessageVo approvalVo = new AgentMessageVo();
@@ -561,7 +605,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     }
                     return;
                 }
-                List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId);
+                List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId, skillContext.getTools());
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 addToolResultsToContext(context, chatResponse, toolResults);
                 conversationContextService.enforceBudget(context, agent, provider);
@@ -614,7 +658,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (runId == null) {
                 saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), answerContent, chatResponse, latencyMs,
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
-                        authenticityCheck.isValid() ? null : authenticityCheck.getReason());
+                        authenticityCheck.isValid() ? null : authenticityCheck.getReason(), skillContext.getSnapshot());
             } else {
                 updateRun(runId, assistantMessage.getId(), chatResponse, latencyMs,
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
@@ -1027,6 +1071,13 @@ public class AgentChatServiceImpl implements AgentChatService {
                 response, latencyMs, status, errorMsg);
     }
 
+    private String saveRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
+                           String messageId, String input, ModelChatResponse response, long latencyMs,
+                           Integer status, String errorMsg, String skillSnapshot) {
+        return chatRunService.create(agent, provider, userId, conversationId, messageId, input,
+                response, latencyMs, status, errorMsg, skillSnapshot);
+    }
+
     private void updateRun(String runId, String messageId, ModelChatResponse response, long latencyMs,
                            Integer status, String errorMsg) {
         chatRunService.update(runId, messageId, response, latencyMs, status, errorMsg);
@@ -1099,6 +1150,22 @@ public class AgentChatServiceImpl implements AgentChatService {
     private List<ModelChatMessage> buildContextWithSummary(AgentDefinition agent, ModelProvider provider, 
                                                            String conversationId) {
         return conversationContextService.buildWithSummary(agent, provider, conversationId);
+    }
+
+    /** 用冻结后的 Skill 指令替换历史中的 Agent 系统提示词，避免同一请求出现两套策略。 */
+    private void applySkillPrompt(List<ModelChatMessage> context, SkillRuntimeContext skillContext) {
+        if (context == null || skillContext == null || !skillContext.isInstalled()) return;
+        if (!context.isEmpty() && "system".equals(context.get(0).getRole())) context.set(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
+        else context.add(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
+    }
+
+    private SkillRuntimeContext resolveSkillContext(AgentDefinition agent, AgentChatDto dto) {
+        if (skillContextService != null) return skillContextService.resolve(agent, dto);
+        SkillRuntimeContext context = new SkillRuntimeContext();
+        context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt()));
+        context.setTools(agentToolWorkflow.getBoundTools(agent.getId()));
+        context.setSnapshot("{\"installed\":false}");
+        return context;
     }
 
     /**

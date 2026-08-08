@@ -87,6 +87,13 @@ public class AgentToolWorkflow {
         return toolCatalog.getRequestTools(agentId);
     }
 
+    /** Skill 运行时使用已冻结的 MCP 工具，并保留平台内置交互工具。 */
+    public List<AgentTool> getRequestTools(List<AgentTool> scopedTools) {
+        List<AgentTool> tools = new ArrayList<>(scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools);
+        tools.addAll(toolRegistry.getTools());
+        return tools;
+    }
+
     /** 返回 Agent 已绑定且处于可用状态的工具。 */
     public List<AgentTool> getBoundTools(String agentId) {
         return toolCatalog.getBoundTools(agentId);
@@ -181,6 +188,23 @@ public class AgentToolWorkflow {
         return results;
     }
 
+    /** 仅执行本次请求冻结作用域内的 MCP 工具，防止模型伪造调用绕过 Skill 收敛。 */
+    public List<ToolExecutionResult> executeMcpCalls(ModelChatResponse response, AgentDefinition agent,
+                                                       String userId, String runId, List<AgentTool> scopedTools) {
+        List<ToolExecutionResult> results = new ArrayList<>();
+        Map<String, AgentTool> toolMap = new HashMap<>();
+        for (AgentTool tool : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools) toolMap.put(tool.getName(), tool);
+        for (ToolCall call : parseCalls(response)) {
+            AgentTool tool = toolMap.get(call.getName());
+            if (tool == null) { ToolExecutionResult failure = ToolExecutionResult.failure("工具未在本次 Skill 作用域内: " + call.getName(), STATUS_SECURITY_BLOCK); failure.setToolCallId(call.getId()); results.add(failure); saveAudit(runId, call, null, agent.getId(), failure); continue; }
+            ToolExecutionResult result;
+            try { result = executeMcpTool(tool, call.getArguments(), runId, userId, agent.getId()); }
+            catch (Exception e) { result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED); }
+            result.setToolCallId(call.getId()); results.add(result); saveAudit(runId, call, tool, agent.getId(), result);
+        }
+        return results;
+    }
+
     /**
      * 为首次 MCP 调用创建确认交互。高风险工具会在前端配置中携带风险说明和命令预览。
      */
@@ -228,6 +252,25 @@ public class AgentToolWorkflow {
         message.setContent(config.getString("question"));
         message.setQuestionConfig(config.toJSONString());
         messageService.save(message);
+        return message;
+    }
+
+    /** 使用本次运行冻结工具集创建审批卡片。 */
+    public AgentMessage createMcpApproval(String conversationId, ModelChatResponse response,
+                                          AgentDefinition agent, String userId, String runId, List<AgentTool> scopedTools) {
+        List<ToolCall> calls = parseCalls(response); if (calls.isEmpty()) return null;
+        ToolCall call = calls.get(0); AgentTool tool = null;
+        for (AgentTool item : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools) if (call.getName().equals(item.getName())) { tool = item; break; }
+        if (tool == null) return null;
+        if (hasActiveGrant(userId, agent.getId(), tool.getId())) return null;
+        ToolCallRiskAnalyzer.Risk risk = riskAnalyzer.analyze(tool, call.getArguments());
+        String requestUrl = resolveMcpRequestUrl(tool);
+        AgentToolCallLog audit = savePendingAudit(runId, call, tool, agent.getId(), requestUrl);
+        JSONObject config = new JSONObject();
+        config.put("type", "group"); config.put("layout", "confirm"); config.put("question", "请确认 MCP 工具调用");
+        config.put("questions", buildApprovalQuestions("high".equals(risk.getLevel()) ? "AI 请求执行高危 MCP 工具操作，请核对调用详情后确认。" : "AI 请求调用 MCP 工具，请核对调用详情后确认。"));
+        config.put("approvalType", MCP_APPROVAL_TYPE); config.put("auditLogId", audit.getId()); config.put("runId", runId); config.put("toolId", tool.getId()); config.put("toolCallId", call.getId()); config.put("toolName", call.getName()); config.put("arguments", call.getArguments()); config.put("riskLevel", risk.getLevel()); config.put("riskReason", risk.getReason()); config.put("approval", buildApprovalDetail(tool, call, requestUrl, risk, audit.getId()));
+        AgentMessage message = new AgentMessage(); message.setConversationId(conversationId); message.setRole("assistant"); message.setMessageType("interaction"); message.setInteractionType("group"); message.setInteractionStatus("pending"); message.setContent(config.getString("question")); message.setQuestionConfig(config.toJSONString()); messageService.save(message);
         return message;
     }
 

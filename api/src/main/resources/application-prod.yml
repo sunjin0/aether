@@ -76,6 +76,12 @@ storage:
     bucket: ${MINIO_FILE_BUCKET:aether}
     max-size: ${FILE_MAX_SIZE:52428800}
 
+skill:
+  storage:
+    bucket: ${MINIO_SKILL_BUCKET:aether-skill}
+    max-size: ${SKILL_RESOURCE_MAX_SIZE:10485760}
+
+
 aether:
   deep-agent:
     base-url: ${AETHER_DEEP_AGENT_BASE_URL:}

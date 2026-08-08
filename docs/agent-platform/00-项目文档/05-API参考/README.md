@@ -1,6 +1,6 @@
 # Aether API 接口参考
 
-> 来源：`admin` 模块 35 个 REST 控制器；更新日期：2026-08-05
+> 来源：`admin` 模块 36 个 REST 控制器；更新日期：2026-08-07
 > 通用前缀：`/api`；通用响应包装：`WebResponse<T>`（`code`/`message`/`data`/`total`）。
 > 鉴权：请求头 `Authorization: Bearer {token}`；权限由 `@Permission` 注解控制（见 §11）。
 
@@ -218,6 +218,40 @@
 | POST | `/api/agent/deep-runs/callback/{runId}` | Deep Agent 事件回调（HMAC 验签） |
 | GET | `/api/agent/deep-runs/{runId}/stream` | Deep 运行事件重放（SSE，归属校验） |
 
+### 4.9 Skill 技能管理（V38）
+
+#### AgentSkillController — `/api/agent/skill`（类 `/agent/skill` 读）
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| POST | `/api/agent/skill/list` | 类 | 分页查询；`name/code/category` 模糊、`status` 精确筛选 |
+| GET | `/api/agent/skill/{id}` | 类 | 详情：`skill`、`draft`（可空）、`currentVersion`、`tools`、`knowledgeBases`、`resources` |
+| POST | `/api/agent/skill` | Write | 创建 Skill 主记录并生成可编辑草稿 |
+| PUT | `/api/agent/skill/{id}` | Write | 编辑草稿基本信息与依赖声明 |
+| POST | `/api/agent/skill/{id}/draft` | Write | 基于最新发布版本创建下一草稿（每 Skill 最多一个草稿） |
+| GET | `/api/agent/skill/{id}/versions` | 类 | 版本历史（含草稿） |
+| POST | `/api/agent/skill/{id}/versions/{versionId}/publish` | Write | 发布版本；仅允许发布当前草稿 |
+| PUT | `/api/agent/skill/{id}/status` | Write | 启用/停用（body `status`：`1` 启用、`2` 停用） |
+
+> 设计草案中的 `POST /{id}/resources`（资源上传）、`GET /{id}/resources`、`POST /{id}/preview`（预览合成提示词）一期暂未实现，发布与预览预算校验在服务端完成。
+
+#### AgentDefinitionSkillBindingController — `/api/agent/definition`（类 `/agent/definition` 读）
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/api/agent/definition/{agentId}/skills` | 类 | 查询 Agent 已安装 Skill 绑定 |
+| POST | `/api/agent/definition/{agentId}/skills` | Write | 安装已发布版本（body 见下） |
+| PUT | `/api/agent/definition/{agentId}/skills/{bindingId}` | Write | 调整优先级、启停、升级版本 |
+| DELETE | `/api/agent/definition/{agentId}/skills/{bindingId}` | Write | 卸载 Skill |
+
+安装 body（`AgentSkillInstallDto`）：`skillVersionId`（必填）、`priority`（默认 0）、`status`、`configOverrides`。
+更新 body（`AgentSkillBindingUpdateDto`）：`skillVersionId`、`priority`、`status`、`configOverrides` 均可选。
+
+#### 聊天 DTO 增量字段（V38）
+`AgentChatDto` 新增可选字段：
+```java
+private Map<String, Map<String, Object>> skillInputs; // key = 已安装 Skill 的 code
+```
+外层 key 必须是该 Agent 已安装 Skill 的 `code`，内层按对应版本 `input_schema` 校验；未传 `skillInputs` 时仍自动装配该 Agent 全部启用 Skill。请求不得携带 `skillIds` 或选择/跳过字段。
+
 ---
 
 ## 5. 知识库
@@ -350,7 +384,7 @@
 | `/sys/role` `/sys/resource` `/sys/dict` `/sys/config` `/sys/preference` | 系统管理 |
 | `/user/member` | 前端成员 |
 | `/msg/email` `/msg/sms` | 消息 |
-| `/agent/definition` `/agent/tool` `/agent/run` `/agent/chat` `/agent/conversation` `/agent/tool-call-log` `/agent/mcp-server` `/agent/model-provider` | Agent 平台 |
+| `/agent/definition` `/agent/tool` `/agent/run` `/agent/chat` `/agent/conversation` `/agent/tool-call-log` `/agent/mcp-server` `/agent/model-provider` `/agent/skill` | Agent 平台 |
 | `/knowledge/base` `/knowledge/document` `/knowledge/evaluation` | 知识库 |
 | `/dashboard` | 工作台 |
 | `/workflow/workflow` `/workflow/run` `/workflow/operations` `/workflow/schedule` | 工作流 |

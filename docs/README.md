@@ -33,6 +33,7 @@
 | [知识库 AI 审查](agent-platform/08-知识库AI审查/README.md) | AI 补丁建议、Diff、采纳与冲突处理。 |
 | [前端管理员偏好对接](agent-platform/10-前端管理员偏好对接/README.md) | 管理员偏好功能的前端集成说明。 |
 | [RAG 检索评测优化方案](agent-platform/11-RAG评测优化方案/README.md) | 检索评测的数据集版本、运行快照、异步任务、指标、诊断与实施方案。 |
+| [智能体技能 Skill 模块方案](agent-platform/12-智能体技能Skill模块/README.md) | Skill 技能包、版本控制、资源、工具与知识库权限收敛、脚本安全边界及实施方案。 |
 
 ## 运维与版本记录
 

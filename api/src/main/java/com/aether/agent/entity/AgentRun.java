@@ -68,4 +68,8 @@ public class AgentRun extends BaseEntity {
 
     @ApiModelProperty(value = "Execution mode: STANDARD or DEEP")
     private String executionMode;
+
+    /** 本次运行冻结的 Skill、工具和知识库作用域快照 JSON。 */
+    @ApiModelProperty(value = "Resolved Skill context snapshot JSON")
+    private String skillSnapshot;
 }

@@ -40,6 +40,20 @@ public class ChatRunService {
         return run.getId();
     }
 
+    /** 创建标准聊天运行并持久化请求开始时冻结的 Skill 审计快照。 */
+    public String create(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
+                         String messageId, String input, ModelChatResponse response, long latencyMs,
+                         Integer status, String errorMsg, String skillSnapshot) {
+        String runId = create(agent, provider, userId, conversationId, messageId, input, response, latencyMs, status, errorMsg);
+        if (skillSnapshot != null) {
+            AgentRun update = new AgentRun();
+            update.setId(runId);
+            update.setSkillSnapshot(skillSnapshot);
+            agentRunService.updateById(update);
+        }
+        return runId;
+    }
+
     public void update(String runId, String messageId, ModelChatResponse response, long latencyMs,
                        Integer status, String errorMsg) {
         AgentRun run = new AgentRun();

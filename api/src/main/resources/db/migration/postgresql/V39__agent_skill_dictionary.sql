@@ -1,0 +1,30 @@
+-- 技能模块字典数据：技能分类、技能标签、工具调用策略
+-- 供前端通过 /api/sys/dict/options?parentCode=XXX 拉取下拉选项
+
+INSERT INTO sys_dict (id, code, parent, name, name_cn, val, remark, state, deleted, created_at, updated_at, sort_num) VALUES
+-- 技能分类
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Category', NULL, 'Skill Category', '技能分类', NULL, '技能分类字典', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 1),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Category_General', 'Agent_Skill_Category', 'General', '通用', 'general', '通用技能', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 1),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Category_Dev', 'Agent_Skill_Category', 'Development', '开发', 'dev', '软件开发技能', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 2),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Category_Data', 'Agent_Skill_Category', 'Data Analysis', '数据分析', 'data', '数据分析技能', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 3),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Category_Writing', 'Agent_Skill_Category', 'Content Writing', '内容创作', 'writing', '文案与创作技能', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 4),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Category_Office', 'Agent_Skill_Category', 'Office Efficiency', '办公效率', 'office', '办公效率技能', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 5),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Category_Ops', 'Agent_Skill_Category', 'Operations', '运维', 'ops', '运维监控技能', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 6),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Category_Support', 'Agent_Skill_Category', 'Customer Support', '客服支持', 'support', '客服支持技能', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 7),
+
+-- 技能标签（可多选，也可自由补充）
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tag', NULL, 'Skill Tag', '技能标签', NULL, '技能标签字典', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 1),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tag_Code', 'Agent_Skill_Tag', 'Code Generation', '代码生成', 'code', NULL, 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 1),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tag_Summary', 'Agent_Skill_Tag', 'Summarization', '摘要', 'summary', NULL, 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 2),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tag_Extract', 'Agent_Skill_Tag', 'Extraction', '信息抽取', 'extract', NULL, 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 3),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tag_Translate', 'Agent_Skill_Tag', 'Translation', '翻译', 'translate', NULL, 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 4),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tag_Automation', 'Agent_Skill_Tag', 'Automation', '自动化', 'automation', NULL, 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 5),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tag_Knowledge', 'Agent_Skill_Tag', 'Knowledge Base', '知识库增强', 'knowledge', NULL, 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 6),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tag_Report', 'Agent_Skill_Tag', 'Report Writing', '报告撰写', 'report', NULL, 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 7),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tag_Assistant', 'Agent_Skill_Tag', 'Personal Assistant', '智能助手', 'assistant', NULL, 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 8),
+
+-- 技能工具调用策略
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tool_Policy', NULL, 'Skill Tool Policy', '工具调用策略', NULL, '技能工具调用策略字典', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 1),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tool_Policy_Allow', 'Agent_Skill_Tool_Policy', 'Allow List', '白名单', 'ALLOW_LIST', '仅允许声明列表内的工具', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 1),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tool_Policy_Deny', 'Agent_Skill_Tool_Policy', 'Deny List', '黑名单', 'DENY_LIST', '禁止调用声明列表内的工具', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 2),
+(nextval('sys_dict_id_seq')::text, 'Agent_Skill_Tool_Policy_Free', 'Agent_Skill_Tool_Policy', 'Free', '自由调用', 'FREE', '不限制工具调用', 1, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 3);

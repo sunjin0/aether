@@ -5,6 +5,7 @@ import com.aether.agent.entity.*;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.tools.AgentToolCatalog;
+import com.aether.agent.skill.service.SkillRuntimeContext;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -76,9 +77,24 @@ public class DeepAgentRunService {
         return startRun(agent, userId, conversationId, task, null, null, sources, registerCallback);
     }
 
+    /** 使用调用方已解析的 Skill 上下文创建 Deep 运行，避免在此处重新扩大工具范围。 */
+    public String startRun(AgentDefinition agent, String userId, String conversationId,
+                           String task, String attachmentContent, String attachments,
+                           List<Map<String, Object>> sources, SkillRuntimeContext skillContext,
+                           Consumer<String> registerCallback) {
+        return startRunInternal(agent, userId, conversationId, task, attachmentContent, attachments, sources, skillContext, registerCallback);
+    }
+
     public String startRun(AgentDefinition agent, String userId, String conversationId,
                            String task, String attachmentContent, String attachments,
                            List<Map<String, Object>> sources, Consumer<String> registerCallback) {
+        return startRunInternal(agent, userId, conversationId, task, attachmentContent, attachments, sources, null, registerCallback);
+    }
+
+    private String startRunInternal(AgentDefinition agent, String userId, String conversationId,
+                                    String task, String attachmentContent, String attachments,
+                                    List<Map<String, Object>> sources, SkillRuntimeContext skillContext,
+                                    Consumer<String> registerCallback) {
         AgentConversation conversation = agentConversationService.getById(conversationId);
         initializeConversationTitle(conversation, task);
 
@@ -100,6 +116,7 @@ public class DeepAgentRunService {
         run.setStatus(STATUS_QUEUED);
         run.setExecutionMode("DEEP");
         run.setModel(agent.getModel());
+        if (skillContext != null) run.setSkillSnapshot(skillContext.getSnapshot());
         agentRunService.save(run);
         String runId = run.getId();
         run.setExternalRunId(runId);
@@ -112,7 +129,8 @@ public class DeepAgentRunService {
             if (registerCallback != null) {
                 registerCallback.accept(runId);
             }
-            List<String> allowedTools = toolCatalog.getBoundTools(agent.getId()).stream()
+            List<AgentTool> resolvedTools = skillContext == null ? toolCatalog.getBoundTools(agent.getId()) : skillContext.getTools();
+            List<String> allowedTools = resolvedTools.stream()
                     .filter(t -> t.getMcpToolName() != null)
                     .map(AgentTool::getMcpToolName)
                     .collect(Collectors.toList());
@@ -127,7 +145,7 @@ public class DeepAgentRunService {
             request.put("agent_id", agent.getId());
             request.put("conversation_id", conversationId);
             request.put("task", buildTaskContext(task, attachmentContent));
-            request.put("system_prompt", agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "");
+            request.put("system_prompt", skillContext == null ? (agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "") : skillContext.getSystemPrompt());
             request.put("knowledge_sources", knowledgeSources);
             request.put("allowed_tools", allowedTools);
             request.put("delegation_token", delegationToken);

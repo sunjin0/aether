@@ -46,4 +46,7 @@ public class AgentChatDto {
 
     /** JSON metadata returned by the attachment-upload operation. */
     private String attachments;
+
+    /** 按平台自动装配的 Skill 编码分组的可选输入，客户端不能选择或跳过 Skill。 */
+    private Map<String, Map<String, Object>> skillInputs;
 }

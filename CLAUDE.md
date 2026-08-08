@@ -102,10 +102,10 @@ qodana scan --linter jetbrains/qodana-jvm:2025.1
 ```sh
 mvn clean package -pl admin -am
 docker build -t admin-service:latest admin/
-docker run --rm --name admin-container -p 9080:8080 admin-service:latest
+docker run -d --name admin-container -p 8080:8080 admin-service:latest
 ```
 
-Caveats: `admin/Dockerfile` copies `admin/target/admin-*.jar`, exposes port `8080`, and runs `java -jar admin.jar`. The Jenkinsfile currently maps `9080:9080`, while `admin/src/main/resources/application.yml` sets `server.port: 8080`; verify the intended container port before relying on CI/deploy behavior.
+Caveats: `admin/Dockerfile` copies `admin/target/admin-*.jar`, exposes port `8080`, and runs `java -jar admin.jar`. The container maps host `8080` to container `8080`, matching `admin/src/main/resources/application.yml` (`server.port: 8080`); verify the intended container port before relying on CI/deploy behavior.
 
 ## Runtime configuration
 

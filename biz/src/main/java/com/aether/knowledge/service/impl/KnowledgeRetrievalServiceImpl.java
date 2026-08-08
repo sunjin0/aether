@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import java.util.Set;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -104,11 +105,16 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * 流程依次为：解析知识库、查询改写、向量/词法混合召回、重排序、邻块合并和 token 截断。
      */
     public KnowledgeRetrievalResult retrieve(String agentDefinitionId, String query) {
+        return retrieve(agentDefinitionId, query, null);
+    }
+
+    @Override
+    public KnowledgeRetrievalResult retrieve(String agentDefinitionId, String query, Set<String> scopedKnowledgeBaseIds) {
         KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
         if (StringUtils.isBlank(agentDefinitionId) || StringUtils.isBlank(query)) {
             return result;
         }
-        String retrievalCacheKey = retrievalCacheKey(agentDefinitionId, query);
+        String retrievalCacheKey = retrievalCacheKey(agentDefinitionId + ":" + (scopedKnowledgeBaseIds == null ? "default" : scopedKnowledgeBaseIds.toString()), query);
         CachedRetrieval cachedRetrieval = retrievalCache.get(retrievalCacheKey);
         if (cachedRetrieval != null && cachedRetrieval.expiresAt > System.currentTimeMillis()) {
             return copyResult(cachedRetrieval.result);
@@ -123,9 +129,12 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                     .filter(StringUtils::isNotBlank)
                     .distinct()
                     .collect(Collectors.toList());
-            List<KnowledgeBase> platformBases = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
+            if (scopedKnowledgeBaseIds != null) {
+                boundKbIds.retainAll(scopedKnowledgeBaseIds);
+            }
+            List<KnowledgeBase> platformBases = scopedKnowledgeBaseIds == null ? knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
                     .eq(KnowledgeBase::getScope, KnowledgeBaseScope.PLATFORM).eq(KnowledgeBase::getStatus, STATUS_ENABLED)
-                    .eq(KnowledgeBase::getIndexStatus, KB_INDEX_STATUS_DONE).eq(KnowledgeBase::getDeleted, false));
+                    .eq(KnowledgeBase::getIndexStatus, KB_INDEX_STATUS_DONE).eq(KnowledgeBase::getDeleted, false)) : Collections.emptyList();
             if (platformBases != null) platformBases.forEach(item -> boundKbIds.add(item.getId()));
             if (boundKbIds.isEmpty()) return result;
             List<KnowledgeBase> knowledgeBases = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)

@@ -126,6 +126,35 @@ public class KnowledgeContextService {
         return sources;
     }
 
+    /** 按 Skill 冻结后的知识库集合检索，避免平台知识库在受限运行中被自动加入。 */
+    public List<Map<String, Object>> enhance(List<ModelChatMessage> context, String userId, String conversationId,
+                                              String agentId, String query, Set<String> knowledgeBaseIds) {
+        return enhanceScoped(context, userId, conversationId, agentId, query, knowledgeBaseIds);
+    }
+
+    private List<Map<String, Object>> enhanceScoped(List<ModelChatMessage> context, String userId, String conversationId,
+                                                     String agentId, String query, Set<String> knowledgeBaseIds) {
+        List<Map<String, Object>> sources = new ArrayList<>();
+        if (context == null) return sources;
+        int insertIndex = 0; while (insertIndex < context.size() && "system".equals(context.get(insertIndex).getRole())) insertIndex++;
+        String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
+        if (StringUtils.isNotBlank(preferenceContext)) context.add(insertIndex++, new ModelChatMessage("system", preferenceContext));
+        KnowledgeRetrievalResult retrieval = retrievalService.retrieve(agentId, query, knowledgeBaseIds);
+        if (retrieval == null) retrieval = new KnowledgeRetrievalResult();
+        if (StringUtils.isNotBlank(retrieval.getContext())) {
+            context.add(insertIndex++, new ModelChatMessage("system", retrieval.getContext()));
+        } else if (retrieval.isRetrievalAttempted()) {
+            context.add(insertIndex++, new ModelChatMessage("system", retrieval.isStrictGrounding()
+                    ? "本轮未检索到足以支撑回答的知识库片段。当前 Agent 只能基于知识库资料回答；请明确说明资料不足，不得使用模型固有知识作答。"
+                    : "本轮未检索到足以支撑回答的知识库片段。不得将推测或模型固有知识表述为知识库结论。"));
+        }
+        List<KnowledgeDocumentChunk> chunks = retrieval.getChunks() == null ? Collections.<KnowledgeDocumentChunk>emptyList() : retrieval.getChunks();
+        Map<String, String> documentNames = resolveDocumentNames(chunks);
+        for (KnowledgeDocumentChunk chunk : chunks) { Map<String, Object> source = new HashMap<>(); source.put("knowledgeBaseId", chunk.getKnowledgeBaseId()); source.put("documentId", chunk.getDocumentId()); source.put("documentVersionId", chunk.getDocumentVersionId()); source.put("documentName", StringUtils.defaultIfBlank(documentNames.get(chunk.getDocumentId()), "知识库文档 " + (sources.size() + 1))); source.put("citationIndex", sources.size() + 1); source.put("chunkId", chunk.getId()); source.put("chunkIndex", chunk.getChunkIndex()); source.put("sectionPath", chunk.getSectionPath()); source.put("similarity", chunk.getSimilarity()); source.put("retrievalScore", chunk.getRetrievalScore()); source.put("content", truncate(chunk.getContent(), 500)); sources.add(source); }
+        if (!sources.isEmpty()) context.add(insertIndex, new ModelChatMessage("system", buildCitationInstruction(sources, retrieval.isStrictGrounding())));
+        return sources;
+    }
+
     /** 仅返回回答实际标注的来源；不修改回答内容。 */
     public List<Map<String, Object>> ensureCitations(ModelStreamResponse response, List<Map<String, Object>> sources) {
         return filterCitedSources(response.getContent(), sources);

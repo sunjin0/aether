@@ -53,6 +53,19 @@ public class MinioObjectStorageService implements ObjectStorageService {
         }
     }
 
+    public String upload(String bucket, String objectKey, byte[] content, String contentType) {
+        try (InputStream in = new java.io.ByteArrayInputStream(content)) {
+            MinioClient client = client();
+            if (!client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
+                client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+            }
+            client.putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(in, content.length, -1).contentType(blank(contentType) ? "application/octet-stream" : contentType).build());
+            return objectKey;
+        } catch (Exception e) {
+            throw new ObjectStorageUnavailableException("uploading object", e);
+        }
+    }
+
     /**
      * 仅生成 GET 类型的临时签名 URL，知识库预览当前使用 600 秒。
      */

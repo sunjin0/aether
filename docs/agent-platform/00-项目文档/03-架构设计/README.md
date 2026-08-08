@@ -77,10 +77,10 @@ storage MinIO 对象存储抽象（知识库/附件复用；front 不直接依�
    - 校验 Agent/供应商启用，应用深度思考配置（默认关闭）。
    - 创建/复用会话，保存用户消息（可选查询改写，默认关闭）。
    - `ConversationContextService.buildWithSummary` 组装上下文（≤10 条原始消息；超过后注入 `【对话历史摘要】` + 摘要游标之后的消息）。
-   - `KnowledgeContextService.enhance` 注入 RAG 检索结果与引用编号。
+   - `KnowledgeContextService.enhance` 在 Agent 已授权范围内注入 RAG 检索结果与引用编号；安装 Skill 后还必须应用 Skill 声明的知识库交集。
    - 调用模型流式接口；工具循环（最多 5 轮）内执行 `ask_user` 或 MCP 审批。
 3. 模型分片经 `ModelStreamCallback` → `AgentStreamCallback` → SSE 事件 `message`/`reasoning`/`tool_call`/`question`/`done`/`error`。
-4. 结束后异步写 `agent_run`、`agent_tool_call_log`、引用日志，并异步提取管理员偏好。
+4. 未安装 Skill 时结束后写 `agent_run`、`agent_tool_call_log`、引用日志，并异步提取管理员偏好。Skill 接入后在首次模型调用前先创建运行记录并冻结 Skill 快照，结束后再更新其状态和计量。
 
 ### 4.2 工具真实性防护
 模型若声称调用了工具但无成功的工具调用，`AgentChatServiceImpl` 会去工具重试一次，仍异常则返回道歉消息，防止幻觉伪造工具结果。

@@ -1,7 +1,7 @@
 # Aether 数据库设计
 
-> 数据源：`api/src/main/resources/db/migration/postgresql/V1__init.sql` ~ `V32`（Flyway）
-> 数据库：PostgreSQL 16 + pgvector；更新日期：2026-08-04
+> 数据源：`api/src/main/resources/db/migration/postgresql/V1__init.sql` ~ `V38`（Flyway）
+> 数据库：PostgreSQL 16 + pgvector；更新日期：2026-08-07
 
 ---
 
@@ -30,7 +30,7 @@
 | 偏好 | `sys_admin_preference` `sys_admin_preference_event` | 管理员长期记忆 |
 | 成员 | `user_member` | 前端成员 |
 | 消息 | `msg_email` `msg_sms` | 邮件/短信记录 |
-| Agent 平台 | `agent_model_provider` `agent_definition` `agent_mcp_server` `agent_tool` `agent_tool_binding` `agent_conversation` `agent_message` `agent_run` `agent_run_step` `agent_tool_call_log` | 模型、Agent、工具、会话、运行 |
+| Agent 平台 | `agent_model_provider` `agent_definition` `agent_mcp_server` `agent_tool` `agent_tool_binding` `agent_conversation` `agent_message` `agent_run` `agent_run_step` `agent_tool_call_log` `agent_skill` `agent_skill_version` `agent_skill_resource` `agent_skill_tool_binding` `agent_skill_knowledge_binding` `agent_definition_skill_binding` | 模型、Agent、工具、会话、运行、技能（V38） |
 | 知识库 | `knowledge_base` `agent_knowledge_base_binding` `knowledge_document` `knowledge_document_version` `knowledge_document_chunk` `knowledge_index_job` `knowledge_review_task` `knowledge_review_action_log` `knowledge_ai_review` `knowledge_ai_review_issue` `knowledge_reference_log` `knowledge_retrieval_log` `knowledge_retrieval_evaluation_*` | RAG 与审核评测 |
 | 工作流 | `agent_workflow` `agent_workflow_version` `agent_workflow_instance` `agent_workflow_node_instance` `agent_workflow_execution_job` `agent_workflow_callback_delivery` `agent_workflow_webhook_trigger` `agent_workflow_schedule_trigger` `agent_workflow_template` | 工作流运行时 |
 
@@ -176,6 +176,54 @@
 `run_id, tool_id, tool_call_id, tool_name, arguments, agent_definition_id, request_url/method/headers/body, response_status/body, latency_ms, status, error_msg`。
 `status`：成功/失败/安全拦截/待审批。
 
+### 7.9 智能体技能（Skill，V38）
+
+#### 7.9.1 `agent_skill` 技能主记录
+| 字段 | 说明 |
+| --- | --- |
+| name / code | 名称与全局唯一编码；`uk_code`（逻辑删除内唯一） |
+| description / category | 用途说明与分类（制度问答、风险评估等） |
+| status | `0` 草稿/未启用、`1` 启用、`2` 停用 |
+| current_version_id | 当前最新已发布版本 ID；不影响 Agent 已固定安装的旧版本 |
+| icon / tags | 展示信息 |
+
+#### 7.9.2 `agent_skill_version` 版本快照（草稿 + 发布共用）
+| 字段 | 说明 |
+| --- | --- |
+| skill_id / version_no | 所属 Skill 与发布递增版本号（草稿为空） |
+| instruction | 领域指令 Markdown |
+| input_schema / output_schema | 输入/输出契约 JSON Schema（TEXT） |
+| tool_policy | 工具调用策略说明 |
+| status | `0` 草稿（可编辑）、`1` 已发布（不可变） |
+| change_note / published_at / published_by | 变更说明与发布信息 |
+
+索引与约束：
+- `uk(skill_id, version_no)`：仅对已发布记录生效（`version_no IS NOT NULL`）。
+- `uk(skill_id)` 且 `status = 0`：每个 Skill 同时最多存在一个草稿。
+- 发布在事务内复制草稿及全部子项为不可变发布快照；已发布记录及其子项绝不更新。
+
+#### 7.9.3 `agent_skill_resource` 版本资源
+`skill_version_id, name, type(MARKDOWN/SCRIPT/TEMPLATE), language, object_key, content_sha256, size, purpose, status(0 禁用/1 启用)`。
+- `object_key`：不可覆盖对象键，发布后禁止替换与删除。
+- `content_sha256`：文件哈希，发布事务中复核后再冻结。
+- 上传校验扩展名/MIME/大小/数量；脚本一期仅作版本化资源，不执行。
+
+#### 7.9.4 `agent_skill_tool_binding` 版本工具声明
+`skill_version_id, tool_id, required, priority`；`uk(skill_version_id, tool_id)`。
+只声明依赖既有 `agent_tool`，不复制凭证；仅收窄 Agent 已授权工具范围。
+
+#### 7.9.5 `agent_skill_knowledge_binding` 版本知识库声明
+`skill_version_id, knowledge_base_id`；`uk(skill_version_id, knowledge_base_id)`。
+运行期最终范围 = Agent 已授权知识库 ∩ 本声明。
+
+#### 7.9.6 `agent_definition_skill_binding` Agent 安装项
+`agent_definition_id, skill_id, skill_version_id, priority, status(0/1), config_overrides`；`uk(agent_definition_id, skill_id)`。
+- `skill_version_id`：安装的明确版本，不自动跟随最新。
+- `config_overrides`：白名单内的安装级配置覆盖 JSON，不能扩展工具或知识库授权。
+
+#### 7.9.7 `agent_run.skill_snapshot`
+V38 为 `agent_run` 增加 `skill_snapshot TEXT`：在任何模型调用、检索或外部 Deep 请求前写入的冻结快照（实际版本与绑定、脱敏输入、资源对象键与 SHA-256、最终工具/知识库 ID、合成提示词 SHA-256、预算与裁剪结果），不保存完整敏感输入或资源正文。
+
 ---
 
 ## 8. 知识库（RAG）
@@ -279,6 +327,10 @@
 | `knowledge_document_chunk.index_status` | 0=待处理 … 2=已索引 |
 | 工作流实例 `status` | RUNNING / WAITING_USER / FAILED / COMPLETED / TERMINATED / TIMED_OUT |
 | 工具调用 `status` | 0=成功，1=失败，3=安全拦截，4=待审批 |
+| `agent_skill.status` | 0=草稿/未启用，1=启用，2=停用 |
+| `agent_skill_version.status` | 0=草稿（可编辑），1=已发布（不可变） |
+| `agent_skill_resource.status` | 0=禁用，1=启用 |
+| `agent_definition_skill_binding.status` | 0=停用，1=启用 |
 
 ---
 

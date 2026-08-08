@@ -20,7 +20,7 @@ COPY biz/ biz/
 COPY admin/ admin/
 COPY front/ front/
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -o clean package -pl admin -am -DskipTests
+    mvn -B clean package -pl admin -am -DskipTests
 
 FROM eclipse-temurin:11-jre-jammy
 WORKDIR /app

@@ -14,6 +14,10 @@
 | 外部集成 | [工作流业务集成](06-工作流业务集成/README.md) | 服务账号、Webhook、幂等启动和回调验签。 |
 | 技术方案 | [历史对话性能优化](07-历史对话性能优化/README.md) | 上下文缓存、摘要与性能优化。 |
 
+## 关联方案
+
+- 智能体技能（Skill）模块方案位于同级 `12-智能体技能Skill模块/README.md`（Agent 平台文档索引见 `docs/README.md`）。
+
 ## 使用约定
 
 - 数据库结构以 `api/src/main/resources/db/migration/postgresql/` 的 Flyway 迁移为准。

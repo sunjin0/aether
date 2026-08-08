@@ -213,4 +213,4 @@ Read 要求权限映射中存在该 path；Write 要求映射值为 `true`。完
 - **索引**：HNSW 索引
 - **嵌入模型**：`text-embedding-3-small`
 
-> 注：上表为 V0.x 基线结构。当前完整表结构（含服务账号、Deep Agent 运行步骤、工作流运行时、检索评测、AI 审查、偏好等）以 Flyway 迁移 `V1~V32` 为准，详见 `docs/agent-platform/00-项目文档/04-数据库设计/README.md`。
+> 注：上表为 V0.x 基线结构。当前完整表结构（含服务账号、Deep Agent 运行步骤、工作流运行时、检索评测、AI 审查、偏好等）以 Flyway 迁移 `V1~V37` 为准，详见 `docs/agent-platform/00-项目文档/04-数据库设计/README.md`。
