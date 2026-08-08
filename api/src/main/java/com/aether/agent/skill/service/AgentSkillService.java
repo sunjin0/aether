@@ -10,6 +10,9 @@ import com.aether.agent.skill.entity.AgentSkillResource;
 import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
+import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
+import com.aether.agent.skill.vo.AgentSkillVo;
+import com.aether.agent.skill.vo.AgentSkillStatisticsVo;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 import java.util.List;
@@ -35,4 +38,9 @@ public interface AgentSkillService extends IService<AgentSkill> {
     void removeDraftResource(String skillId, String resourceId);
     /** 使用样例输入预览合成提示词，不调用模型。 */
     AgentSkillPreviewVo preview(String skillId, AgentSkillPreviewDto dto);
+    /** 返回列表页所需的版本、绑定和依赖摘要。 */
+    AgentSkillVo lifecycle(AgentSkill skill);
+    /** 不修改数据的发布前检查；发布动作本身也会执行同一检查。 */
+    AgentSkillPublishCheckVo publishCheck(String skillId);
+    AgentSkillStatisticsVo statistics();
 }

@@ -21,6 +21,9 @@ public class AgentToolVo extends BaseEntity {
     @ApiModelProperty(value = "描述")
     private String description;
 
+    @ApiModelProperty(value = "系统图标库名称")
+    private String icon;
+
     @ApiModelProperty(value = "Tool business type, such as knowledge, ops, dev")
     private String toolType;
 

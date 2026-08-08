@@ -335,6 +335,12 @@ public class ConversationContextService {
     public void enforceBudget(List<ModelChatMessage> context,
                               AgentDefinition agent,
                               ModelProvider provider) {
+        int inputBudget = getInputTokenBudget(agent, provider);
+        enforceTokenBudget(context, inputBudget);
+    }
+
+    /** 返回为本次模型请求预留输出和安全余量后的可用输入 token 数。 */
+    public int getInputTokenBudget(AgentDefinition agent, ModelProvider provider) {
         int contextWindow = provider != null && provider.getContextWindow() != null
                 && provider.getContextWindow() > 0
                 ? provider.getContextWindow() : DEFAULT_CONTEXT_WINDOW_TOKENS;
@@ -342,9 +348,21 @@ public class ConversationContextService {
                 && agent.getMaxTokens() > 0
                 ? agent.getMaxTokens() : DEFAULT_COMPLETION_RESERVE_TOKENS;
         int safetyReserve = Math.max(512, contextWindow / 20);
-        int inputBudget = Math.max(MIN_INPUT_BUDGET_TOKENS,
+        return Math.max(MIN_INPUT_BUDGET_TOKENS,
                 contextWindow - completionReserve - safetyReserve);
-        enforceTokenBudget(context, inputBudget);
+    }
+
+    /**
+     * 已安装 Skill 的指令是版本化、可审计的运行输入，不能为了适应模型窗口而被静默截断。
+     */
+    public void requireInputBudget(List<ModelChatMessage> context,
+                                   AgentDefinition agent,
+                                   ModelProvider provider) {
+        int budget = getInputTokenBudget(agent, provider);
+        int actual = estimateContextTokens(context, agent == null ? null : agent.getModel());
+        if (actual > budget) {
+            throw new IllegalArgumentException("Skill context exceeds model input budget: " + actual + "/" + budget + " tokens");
+        }
     }
 
     void enforceBudget(List<ModelChatMessage> context, int maxChars) {

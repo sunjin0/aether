@@ -1,6 +1,8 @@
 package com.aether.agent.skill.service;
 
 import com.aether.agent.entity.AgentTool;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import lombok.Data;
 
 import java.util.Collections;
@@ -15,4 +17,15 @@ public class SkillRuntimeContext {
     private Set<String> knowledgeBaseIds = Collections.emptySet();
     private String snapshot;
     private boolean installed;
+
+    /** 将本次模型调用的预算数据纳入同一份冻结快照。 */
+    public void recordBudget(int inputBudget, int promptTokens, int contextTokens) {
+        JSONObject details = snapshot == null ? new JSONObject() : JSON.parseObject(snapshot);
+        JSONObject budget = new JSONObject();
+        budget.put("inputBudgetTokens", inputBudget);
+        budget.put("skillPromptTokens", promptTokens);
+        budget.put("contextTokens", contextTokens);
+        details.put("budget", budget);
+        snapshot = details.toJSONString();
+    }
 }

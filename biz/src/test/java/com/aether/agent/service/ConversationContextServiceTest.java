@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -50,6 +51,20 @@ class ConversationContextServiceTest {
         service = new ConversationContextService(messageService, cacheService, summaryService);
         agent = new AgentDefinition();
         provider = new ModelProvider();
+    }
+
+    @Test
+    void rejectsInstalledSkillContextThatExceedsInputBudget() {
+        provider.setContextWindow(1000);
+        agent.setMaxTokens(600);
+        List<ModelChatMessage> context = Collections.singletonList(
+                new ModelChatMessage("system", String.join("", Collections.nCopies(1000, "a"))));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> service.requireInputBudget(context, agent, provider));
+
+        assertTrue(exception.getMessage().contains("exceeds model input budget"));
+        assertEquals(256, service.getInputTokenBudget(agent, provider));
     }
 
     @Test

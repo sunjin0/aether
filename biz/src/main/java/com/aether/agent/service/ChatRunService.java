@@ -72,6 +72,17 @@ public class ChatRunService {
         agentRunService.updateById(run);
     }
 
+    /** 更新同一运行的审计快照，例如工具返回后重新计算的上下文预算。 */
+    public void updateSkillSnapshot(String runId, String skillSnapshot) {
+        if (runId == null || skillSnapshot == null) {
+            return;
+        }
+        AgentRun run = new AgentRun();
+        run.setId(runId);
+        run.setSkillSnapshot(skillSnapshot);
+        agentRunService.updateById(run);
+    }
+
     public void saveFailure(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                             String messageId, String input, long latencyMs, RuntimeException exception) {
         ModelChatResponse response = new ModelChatResponse();

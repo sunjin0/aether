@@ -8,6 +8,7 @@ import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.service.AgentSkillService;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
+import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
 import com.aether.agent.skill.vo.AgentSkillVo;
 import com.aether.entity.WebResponse;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -183,6 +184,19 @@ class AgentSkillControllerTest {
 
         assertEquals(200, response.getCode());
         assertNotNull(response.getData().getPrompt());
+    }
+
+    @Test
+    void publishCheckReturnsBlockersAndWarnings() {
+        AgentSkillPublishCheckVo check = new AgentSkillPublishCheckVo();
+        check.setReady(false);
+        check.getBlockers().add("请填写系统指令");
+        when(skillService.publishCheck("s1")).thenReturn(check);
+
+        WebResponse<AgentSkillPublishCheckVo> response = controller.publishCheck("s1");
+
+        assertEquals(200, response.getCode());
+        assertEquals("请填写系统指令", response.getData().getBlockers().get(0));
     }
 
     private AgentSkill skill(String id, String code, String name, int status) {

@@ -8,7 +8,9 @@ import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.service.AgentSkillService;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
+import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
 import com.aether.agent.skill.vo.AgentSkillVo;
+import com.aether.agent.skill.vo.AgentSkillStatisticsVo;
 import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
 import com.aether.local.CurrentUser;
@@ -43,7 +45,11 @@ public class AgentSkillController {
                 .eq(StringUtils.isNotBlank(query.getCategory()), AgentSkill::getCategory, query.getCategory())
                 .eq(query.getStatus() != null, AgentSkill::getStatus, query.getStatus())
                 .orderByDesc(AgentSkill::getCreatedAt));
-        List<AgentSkillVo> records = page.getRecords().stream().map(item -> { AgentSkillVo vo = new AgentSkillVo(); org.springframework.beans.BeanUtils.copyProperties(item, vo); return vo; }).collect(Collectors.toList());
+        List<AgentSkillVo> records = page.getRecords().stream().map(item -> {
+            AgentSkillVo vo = skillService.lifecycle(item);
+            if (vo == null) { vo = new AgentSkillVo(); org.springframework.beans.BeanUtils.copyProperties(item, vo); }
+            return vo;
+        }).collect(Collectors.toList());
         return WebResponse.Page(records, page.getTotal());
     }
 
@@ -61,6 +67,9 @@ public class AgentSkillController {
                 }).collect(Collectors.toList());
         return WebResponse.OK(os);
     }
+
+    @GetMapping("/statistics")
+    public WebResponse<AgentSkillStatisticsVo> statistics() { return WebResponse.OK(skillService.statistics()); }
 
     @GetMapping("/{id}")
     public WebResponse<AgentSkillDetailVo> detail(@PathVariable @NotBlank String id) { return WebResponse.OK(skillService.detail(id)); }
@@ -84,6 +93,11 @@ public class AgentSkillController {
         if (detail.getDraft() == null || !versionId.equals(detail.getDraft().getId())) throw new IllegalArgumentException("Only the current draft can be published");
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         return WebResponse.OK(skillService.publish(id, userId));
+    }
+
+    @GetMapping("/{id}/publish-check")
+    public WebResponse<AgentSkillPublishCheckVo> publishCheck(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(skillService.publishCheck(id));
     }
 
     @GetMapping("/{id}/versions")

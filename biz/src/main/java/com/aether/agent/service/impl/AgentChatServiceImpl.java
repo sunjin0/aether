@@ -161,6 +161,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
                     context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds());
+            enforceSkillBudget(context, agent, provider, skillContext);
             conversationContextService.enforceBudget(context, agent, provider);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
@@ -225,6 +226,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 addToolResultsToContext(context, modelResponse, toolResults);
+                enforceSkillBudget(context, agent, provider, skillContext);
+                chatRunService.updateSkillSnapshot(runId, skillContext.getSnapshot());
                 conversationContextService.enforceBudget(context, agent, provider);
                 
                 // 继续调用模型
@@ -314,6 +317,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
                     context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds());
+            enforceSkillBudget(context, agent, provider, skillContext);
             conversationContextService.enforceBudget(context, agent, provider);
             long t1 = System.currentTimeMillis();
             log.info("上下文构建耗时: {}ms", t1 - t0);
@@ -407,6 +411,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 
                 addToolResultsToContext(context, chatResponse, toolResults);
+                enforceSkillBudget(context, agent, provider, skillContext);
+                chatRunService.updateSkillSnapshot(runId, skillContext.getSnapshot());
                 conversationContextService.enforceBudget(context, agent, provider);
                 
                 // 继续调用模型（流式）
@@ -519,6 +525,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 addToolResultsToContext(context, approvalExecution.getToolCallResponse(),
                         Collections.singletonList(approvalExecution.getResult()));
             }
+            enforceSkillBudget(context, agent, provider, skillContext);
             conversationContextService.enforceBudget(context, agent, provider);
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
@@ -608,6 +615,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                 List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId, skillContext.getTools());
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 addToolResultsToContext(context, chatResponse, toolResults);
+                enforceSkillBudget(context, agent, provider, skillContext);
+                chatRunService.updateSkillSnapshot(runId, skillContext.getSnapshot());
                 conversationContextService.enforceBudget(context, agent, provider);
 
                 request.setMessages(context);
@@ -1157,6 +1166,17 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (context == null || skillContext == null || !skillContext.isInstalled()) return;
         if (!context.isEmpty() && "system".equals(context.get(0).getRole())) context.set(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
         else context.add(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
+    }
+
+    /** Skill 已装配时，先拒绝超预算请求，再执行普通历史上下文裁剪，确保 Skill 指令不被截断。 */
+    private void enforceSkillBudget(List<ModelChatMessage> context, AgentDefinition agent,
+                                    ModelProvider provider, SkillRuntimeContext skillContext) {
+        if (skillContext == null || !skillContext.isInstalled()) return;
+        int budget = conversationContextService.getInputTokenBudget(agent, provider);
+        int promptTokens = conversationContextService.estimateTokens(skillContext.getSystemPrompt(), agent.getModel());
+        int contextTokens = conversationContextService.estimateContextTokens(context, agent.getModel());
+        skillContext.recordBudget(budget, promptTokens, contextTokens);
+        conversationContextService.requireInputBudget(context, agent, provider);
     }
 
     private SkillRuntimeContext resolveSkillContext(AgentDefinition agent, AgentChatDto dto) {

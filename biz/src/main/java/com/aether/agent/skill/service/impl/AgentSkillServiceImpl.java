@@ -14,6 +14,9 @@ import com.aether.agent.skill.mapper.AgentSkillMapper;
 import com.aether.agent.skill.service.AgentSkillService;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
+import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
+import com.aether.agent.skill.vo.AgentSkillVo;
+import com.aether.agent.skill.vo.AgentSkillStatisticsVo;
 import com.aether.exception.ServerException;
 import com.aether.storage.service.ObjectStorageService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -31,6 +34,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * Skill 生命周期实现。
@@ -135,6 +140,8 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AgentSkillVersion publish(String skillId, String userId) {
+        AgentSkillPublishCheckVo check = publishCheck(skillId);
+        if (!check.isReady()) throw new ServerException(400, StringUtils.join(check.getBlockers(), "；"));
         AgentSkill skill = requireSkill(skillId);
         AgentSkillVersion draft = requireDraft(skillId);
         List<AgentSkillToolBinding> tools = toolBindingService.list(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, draft.getId()));
@@ -312,6 +319,64 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         String prompt = buildPreviewPrompt(skill, version, resources, inputs.get(skill.getCode()));
         result.setPrompt(prompt);
         result.setEstimatedTokens(prompt.length() / 4L);
+        return result;
+    }
+
+    @Override
+    public AgentSkillVo lifecycle(AgentSkill skill) {
+        AgentSkillVo result = new AgentSkillVo();
+        org.springframework.beans.BeanUtils.copyProperties(skill, result);
+        AgentSkillVersion draft = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class)
+                .eq(AgentSkillVersion::getSkillId, skill.getId()).eq(AgentSkillVersion::getStatus, 0));
+        result.setHasDraft(draft != null);
+        AgentSkillVersion current = StringUtils.isBlank(skill.getCurrentVersionId()) ? null : versionService.getById(skill.getCurrentVersionId());
+        result.setCurrentVersionNo(current == null ? null : current.getVersionNo());
+        result.setInstalledAgentCount(definitionBindingService.count(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class)
+                .eq(AgentDefinitionSkillBinding::getSkillId, skill.getId()).eq(AgentDefinitionSkillBinding::getStatus, 1)));
+        String versionId = draft != null ? draft.getId() : skill.getCurrentVersionId();
+        result.setToolCount(versionId == null ? 0L : toolBindingService.count(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, versionId)));
+        result.setKnowledgeBaseCount(versionId == null ? 0L : knowledgeBindingService.count(Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class).eq(AgentSkillKnowledgeBinding::getSkillVersionId, versionId)));
+        result.setResourceCount(versionId == null ? 0L : resourceService.count(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, versionId)));
+        return result;
+    }
+
+    @Override
+    public AgentSkillPublishCheckVo publishCheck(String skillId) {
+        AgentSkill skill = requireSkill(skillId);
+        AgentSkillPublishCheckVo result = new AgentSkillPublishCheckVo();
+        AgentSkillDetailVo detail = detail(skillId);
+        AgentSkillVersion draft = detail.getDraft();
+        if (draft == null) {
+            result.getBlockers().add("请先创建或续建草稿");
+            return result;
+        }
+        result.setDraftVersionId(draft.getId());
+        if (StringUtils.isBlank(draft.getInstruction())) result.getBlockers().add("请填写系统指令");
+        if (StringUtils.isBlank(skill.getDescription())) result.getWarnings().add("尚未填写技能描述，其他管理员难以理解其适用范围");
+        if (StringUtils.isBlank(draft.getInputSchema())) result.getWarnings().add("尚未声明输入参数，运行时输入将不受结构约束");
+        if (StringUtils.isBlank(draft.getOutputSchema())) result.getWarnings().add("尚未声明输出参数，回答格式可能不稳定");
+        if (detail.getResources().isEmpty()) result.getWarnings().add("未添加资源文件；如该技能依赖制度、模板或脚本，请在发布前补充");
+        Set<String> toolIds = new LinkedHashSet<>();
+        for (AgentSkillToolBinding binding : detail.getTools()) {
+            if (!toolIds.add(binding.getToolId())) result.getWarnings().add("工具依赖存在重复声明");
+            AgentTool tool = agentToolService.getById(binding.getToolId());
+            boolean available = tool != null && !Boolean.TRUE.equals(tool.getDeleted()) && Integer.valueOf(1).equals(tool.getStatus());
+            if (!available && Boolean.TRUE.equals(binding.getRequired())) result.getBlockers().add("必需工具不可用：" + binding.getToolId());
+            else if (!available) result.getWarnings().add("可选工具当前不可用：" + binding.getToolId());
+        }
+        result.setEstimatedTokens((long) (StringUtils.length(skill.getDescription()) + StringUtils.length(draft.getInstruction())) / 4L);
+        result.setReady(result.getBlockers().isEmpty());
+        return result;
+    }
+
+    @Override
+    public AgentSkillStatisticsVo statistics() {
+        AgentSkillStatisticsVo result = new AgentSkillStatisticsVo();
+        result.setTotalCount(count(Wrappers.lambdaQuery(AgentSkill.class).eq(AgentSkill::getDeleted, false)));
+        result.setEnabledCount(count(Wrappers.lambdaQuery(AgentSkill.class).eq(AgentSkill::getDeleted, false).eq(AgentSkill::getStatus, 1)));
+        result.setDraftCount(versionService.count(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getStatus, 0)));
+        result.setPublishedCount(count(Wrappers.lambdaQuery(AgentSkill.class).eq(AgentSkill::getDeleted, false).isNotNull(AgentSkill::getCurrentVersionId)));
+        result.setBoundAgentCount(definitionBindingService.count(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class).eq(AgentDefinitionSkillBinding::getStatus, 1)));
         return result;
     }
 
