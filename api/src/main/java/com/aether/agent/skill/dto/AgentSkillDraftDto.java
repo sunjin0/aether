@@ -17,6 +17,10 @@ public class AgentSkillDraftDto {
     private String inputSchema;
     private String outputSchema;
     private String toolPolicy;
+    private String routingSummary;
+    private java.util.List<String> triggerTerms;
+    private java.util.List<String> excludeTerms;
+    private java.util.List<String> routingExamples;
     private String changeNote;
     private List<AgentSkillToolDto> tools;
     private List<String> knowledgeBaseIds;

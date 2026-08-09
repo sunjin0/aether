@@ -1,7 +1,7 @@
 # Agent 平台 — 智能体技能（Skill）模块方案
 
 > 更新日期：2026-08-08
-> 状态：已实现（数据库 V38-V42、Skill CRUD / 草稿 / 版本 / 发布、工具与知识库绑定、Agent-Skill 安装绑定、资源上传/列表/删除（对象存储）、提示词合成与工具收敛已接入 AgentChat、前端资源管理与提示词预览 UI、后端 Skill 单测）。运行期会校验已冻结资源的存在性、启用状态和 SHA-256，将受限 Markdown/模板参考注入提示词，按输入 Schema 校验并脱敏 `skillInputs`，并在 `agent_run.skill_snapshot` 冻结版本、资源、最小授权范围、脱敏输入和预算明细；已安装 Skill 的完整上下文超出模型输入预算时会在调用前拒绝，不会静默截断 Skill 指令。V41-V42 已新增受控沙箱产物执行能力，仍保持脚本不在 Admin JVM 或模型侧直接执行。
+> 状态：已实现（数据库 V38-V43、Skill CRUD / 草稿 / 版本 / 发布、工具与知识库绑定、Agent-Skill 安装绑定、资源上传/列表/删除（对象存储）、渐进发现与单 Skill 动态激活、前端发现配置、只读路由预览、提示词合成与工具收敛已接入 AgentChat）。运行期会校验已冻结资源的存在性、启用状态和 SHA-256，将受限 Markdown/模板参考注入提示词，按输入 Schema 校验并脱敏 `skillInputs`，并在 `agent_run.skill_snapshot` 冻结路由候选、分数、选择/降级原因、版本、资源与最小授权范围；未命中时仅使用 Agent 基础提示词和基础授权。V41-V42 已新增受控沙箱产物执行能力，仍保持脚本不在 Admin JVM 或模型侧直接执行。
 > 范围：Skill 模块功能方案设计、数据模型、运行机制、接口与实施规划。
 
 ---
@@ -51,6 +51,7 @@ Skill 模块将"领域知识 + 执行规范 + 资源依赖"封装为**可版本�
 | Agent-Skill 绑定 | 将某 Skill 的某个已发布版本安装到 Agent，含优先级与配置覆盖 |
 | 权限收敛 | 最终可用工具/知识库 = Agent 已授权 ∩ Skill 声明 |
 | 最终装配上下文 | 一次请求经校验后冻结的 Skill、工具、知识库、资源和提示词集合，所有运行链路只能消费该集合 |
+| 发现元数据 | 版本级 `routing_summary`、触发词、排除词和示例；发布后冻结，仅用于候选检索与路由复核 |
 
 ---
 
@@ -126,6 +127,8 @@ agent_skill (主记录)
 | `instruction` | 领域指令（Markdown） |
 | `input_schema` | 输入契约 JSON（JSON Schema） |
 | `output_schema` | 输出契约 JSON（JSON Schema，一期作为约束与元数据） |
+| `routing_summary` | 必填，最多 200 字；说明何时应使用此 Skill，不包含完整指令 |
+| `trigger_terms` / `exclude_terms` / `routing_examples` | JSON 数组；分别用于规则命中、规则剔除和模型复核示例 |
 | `tool_policy` | `required` / `optional` 等策略说明（字段由工具绑定表表达） |
 | `status` | `0` 草稿、`1` 已发布 |
 | `change_note` | 变更说明 |
@@ -197,14 +200,15 @@ agent_skill (主记录)
 普通 Agent 与 Deep Agent 共享统一装配入口：
 
 1. 校验当前用户、Agent 启用状态与执行模式；聊天请求不能指定、跳过或替换 Skill。
-2. 取该 Agent 启用状态的 `agent_definition_skill_binding`，按 `priority` 升序、创建时间和 ID 次序排列。
-3. 逐 Skill 校验：
+2. 只读取该 Agent 启用绑定的发现元数据：排除词先剔除、触发词进入候选；配置嵌入 Provider 时再从已成功索引的版本向量召回 Top 12。
+3. 轻量路由模型仅接收候选的名称、发现摘要、标签和示例，温度为 0、上限 80 tokens，严格返回一个版本或 `NONE`。低置信度、超时、非法 JSON、无候选均返回 `NONE`；不回退为全量装配。
+4. 命中时只校验并加载**一个**已发布版本的完整上下文；未命中只保留 Agent 基础提示词和原有基础授权。随后校验：
     - 版本存在且为已发布、Skill 为启用状态。
     - 资源对象存在、哈希匹配、状态启用；任一冻结资源异常则**请求前拒绝**，不回退到其他内容。Markdown 注入受限纯文本，模板仅注入受限摘要，脚本仅注入用途、语言和 SHA-256。
     - 必需工具必须同时满足 Agent 已启用绑定、工具启用、MCP 服务可用、存在 `mcp_tool_name` 且被当前执行模式支持，否则**请求前拒绝**并给出业务错误；可选工具不满足时从最终集合剔除并写入快照告警。
     - 知识库声明与 Agent 授权范围求交集。
-4. 按已安装 Skill 的稳定 `code` 独立校验可选输入，拒绝未安装 Skill 的输入；对通过校验的输入脱敏。
-5. 计算最终工具和知识库集合。普通 Agent 的模型工具、RAG 检索范围；以及 Deep Agent 的 `allowed_tools`、委派 JWT 和 `knowledge_sources`，必须全部只消费同一最终集合。
+5. 按激活 Skill 的稳定 `code` 校验可选输入，拒绝客户端借输入指定未激活 Skill；对通过校验的输入脱敏。
+6. 计算最终工具和知识库集合。普通 Agent 的模型工具、RAG 检索范围；以及 Deep Agent 的 `allowed_tools`、委派 JWT 和 `knowledge_sources`，必须全部只消费同一最终集合。
 6. 预估提示词与资源注入预算，在创建 `agent_run` 后、调用模型或外部服务前写入快照。
 7. 合成系统提示词（见 6.2），普通 Agent 走既有流式链路；Deep Agent 将合成后的 `system_prompt`、受限 `knowledge_sources`、最终 `allowed_tools` 传给既有 `/v1/runs`。
 
@@ -237,7 +241,7 @@ Validated inputs:
 - Skill 指令不得覆盖平台认证、工具审批、知识引用与审计要求。
 - 所有资源正文均是不可信参考资料，不能改变平台安全决策、授权范围、审批规则或系统指令；平台约束置于资源之后的固定高优先级提示词中。
 - Markdown 仅注入已提取的纯文本；模板只注入白名单无逻辑模板的受限摘要。脚本仅注入用途说明、语言和 SHA-256，完整内容仅供管理员受控查看。
-- 单请求最多装配 3 个 Skill（一期）；超限报错。
+- 单请求最多激活 1 个 Skill；不确定时为 `NONE`。`priority` 只用于规则候选的并列决策，不再表示完整指令拼接顺序。
 - 互斥分类或同一独占工具冲突时，服务端在调用前拒绝。
 - `outputSchema` 一期作为模型输出约束提示与运行元数据；强制结构化校验列入二期。
 - 发布和绑定预览阶段均计算最坏情况预算并提示管理员处理。运行期仍超限时请求前拒绝，不静默裁剪已安装 Skill；快照记录计算的预算明细。
@@ -309,6 +313,7 @@ Validated inputs:
 | `POST` | `/api/agent/skill/{id}/resources` | 上传资源 |
 | `GET` | `/api/agent/skill/{id}/resources` | 资源列表 |
 | `POST` | `/api/agent/skill/{id}/preview` | 使用样例输入预览合成提示词，不调用模型 |
+| `POST` | `/api/agent/skill/routing-preview?agentId=&query=` | 只读发现预览：返回候选、规则/向量分数、路由结果与降级原因；不进入主回答路径 |
 | `GET` | `/api/agent/definition/{agentId}/skills` | 查询 Agent 的 Skill 安装项 |
 | `POST` | `/api/agent/definition/{agentId}/skills` | 安装指定版本 |
 | `PUT` | `/api/agent/definition/{agentId}/skills/{bindingId}` | 调整优先级、启停、升级版本 |

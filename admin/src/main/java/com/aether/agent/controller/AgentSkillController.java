@@ -1,6 +1,7 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.skill.dto.AgentSkillDraftDto;
+import com.aether.agent.skill.dto.SkillRoutingConfigDto;
 import com.aether.agent.skill.dto.AgentSkillPreviewDto;
 import com.aether.agent.skill.dto.AgentSkillExecutionConfigDto;
 import com.aether.agent.skill.dto.AgentSkillResourceGenerateDto;
@@ -10,6 +11,14 @@ import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.entity.AgentSkillExecutionConfig;
 import com.aether.agent.skill.service.AgentSkillService;
 import com.aether.agent.skill.service.SkillResourceWorkbenchService;
+import com.aether.agent.skill.service.SkillRouterService;
+import com.aether.agent.skill.service.SkillRouteDecision;
+import com.aether.agent.skill.service.SkillRoutingConfigService;
+import com.aether.agent.skill.service.SkillRoutingIndexService;
+import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.entity.AgentDefinition;
+import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
 import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
@@ -26,6 +35,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import javax.validation.constraints.NotBlank;
 import java.io.IOException;
@@ -40,10 +50,25 @@ import java.util.stream.Collectors;
 public class AgentSkillController {
     private final AgentSkillService skillService;
     private final SkillResourceWorkbenchService resourceWorkbenchService;
+    private final SkillRouterService skillRouterService;
+    private final AgentDefinitionService agentDefinitionService;
+    private final ModelProviderService modelProviderService;
+    private final SkillRoutingConfigService routingConfigService;
+    private final SkillRoutingIndexService routingIndexService;
 
-    public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService) {
+    @Autowired
+    public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService, SkillRouterService skillRouterService, AgentDefinitionService agentDefinitionService, ModelProviderService modelProviderService, SkillRoutingConfigService routingConfigService, SkillRoutingIndexService routingIndexService) {
         this.skillService = skillService;
         this.resourceWorkbenchService = resourceWorkbenchService;
+        this.skillRouterService = skillRouterService;
+        this.agentDefinitionService = agentDefinitionService;
+        this.modelProviderService = modelProviderService;
+        this.routingConfigService = routingConfigService;
+        this.routingIndexService = routingIndexService;
+    }
+    /** Test/backward-compatible constructor; Spring uses the complete dependency constructor. */
+    public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService) {
+        this(skillService, resourceWorkbenchService, null, null, null, null, null);
     }
 
     @PostMapping("/list")
@@ -161,6 +186,22 @@ public class AgentSkillController {
 
     @PostMapping("/{id}/preview")
     public WebResponse<AgentSkillPreviewVo> preview(@PathVariable @NotBlank String id, @RequestBody AgentSkillPreviewDto dto) { return WebResponse.OK(skillService.preview(id, dto)); }
+
+    /** Preview discovery only; it never loads full instructions or invokes the answer path. */
+    @PostMapping("/routing-preview")
+    public WebResponse<SkillRouteDecision> routingPreview(@RequestParam @NotBlank String agentId, @RequestParam @NotBlank String query) {
+        AgentDefinition agent = agentDefinitionService.getById(agentId);
+        if (agent == null) throw new IllegalArgumentException("Agent not found");
+        ModelProvider provider = modelProviderService.getById(agent.getModelProviderId());
+        return WebResponse.OK(skillRouterService.route(agent, provider, query, skillService.listBindings(agentId).stream().filter(binding -> Integer.valueOf(1).equals(binding.getStatus())).collect(Collectors.toList())));
+    }
+
+    @GetMapping("/routing-config")
+    public WebResponse<SkillRoutingConfigDto> routingConfig() { return WebResponse.OK(routingConfigService.get()); }
+
+    @PutMapping("/routing-config")
+    @Permission(path = "/agent/skill", type = Permission.Type.Write)
+    public WebResponse<Void> updateRoutingConfig(@RequestBody SkillRoutingConfigDto dto) { routingConfigService.update(dto); routingIndexService.reindexPublishedVersions(); return WebResponse.OK("Skill routing configuration updated"); }
 
     @GetMapping("/{id}/execution-config")
     public WebResponse<AgentSkillExecutionConfig> executionConfig(@PathVariable @NotBlank String id) {

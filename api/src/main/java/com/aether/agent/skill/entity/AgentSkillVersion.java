@@ -16,6 +16,10 @@ public class AgentSkillVersion extends BaseEntity {
     private String inputSchema;
     private String outputSchema;
     private String toolPolicy;
+    private String routingSummary;
+    private String triggerTerms;
+    private String excludeTerms;
+    private String routingExamples;
     private Integer status;
     private String changeNote;
     private Long publishedAt;

@@ -10,6 +10,8 @@ import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.ChatAttachmentService;
@@ -88,6 +90,7 @@ public class AgentChatController {
     private final KnowledgeContextService knowledgeContextService;
     private final DeepAgentConfig deepAgentConfig;
     private final SkillContextService skillContextService;
+    private final ModelProviderService modelProviderService;
     private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
 
@@ -96,7 +99,7 @@ public class AgentChatController {
                                AgentMessageService agentMessageService, ChatAttachmentService chatAttachmentService,
                                AgentDefinitionService agentDefinitionService, DeepAgentRunService deepAgentRunService,
                                DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
-                               DeepAgentConfig deepAgentConfig, SkillContextService skillContextService) {
+                                DeepAgentConfig deepAgentConfig, SkillContextService skillContextService, ModelProviderService modelProviderService) {
         this.agentChatService = agentChatService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
@@ -107,6 +110,7 @@ public class AgentChatController {
         this.knowledgeContextService = knowledgeContextService;
         this.deepAgentConfig = deepAgentConfig;
         this.skillContextService = skillContextService;
+        this.modelProviderService = modelProviderService;
     }
 
     /** 兼容既有控制器单元测试；生产环境始终使用注入 Skill 上下文服务的完整构造器。 */
@@ -116,7 +120,7 @@ public class AgentChatController {
                                DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
                                DeepAgentConfig deepAgentConfig) {
         this(agentChatService, agentConversationService, agentMessageService, chatAttachmentService, agentDefinitionService,
-                deepAgentRunService, deepAgentCallbackController, knowledgeContextService, deepAgentConfig, null);
+                deepAgentRunService, deepAgentCallbackController, knowledgeContextService, deepAgentConfig, null, null);
     }
 
     /** 无 Skill 上下文服务时退回 Agent 原生系统提示词的缺省上下文，保证单元测试链路可用。 */
@@ -466,7 +470,8 @@ public class AgentChatController {
                 }
                 final String conversationId = conversation.getId();
 
-                SkillRuntimeContext skillContext = skillContextService == null ? defaultSkillContext(agent) : skillContextService.resolve(agent, dto);
+                ModelProvider routingProvider = modelProviderService == null ? null : modelProviderService.getById(agent.getModelProviderId());
+                SkillRuntimeContext skillContext = skillContextService == null ? defaultSkillContext(agent) : skillContextService.resolve(agent, dto, dto.getMessage(), routingProvider);
                 List<ModelChatMessage> ctx = new ArrayList<>();
                 if (StringUtils.isNotBlank(skillContext.getSystemPrompt())) ctx.add(new ModelChatMessage("system", skillContext.getSystemPrompt()));
                 String taskContext = buildDeepTaskContext(dto);

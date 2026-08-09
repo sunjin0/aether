@@ -4,6 +4,7 @@ import com.aether.agent.dto.AgentChatDto;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.entity.AgentTool;
+import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
@@ -55,20 +56,27 @@ public class SkillContextService {
     private final AgentMcpServerService mcpServerService;
     private final ObjectStorageService objectStorageService;
     private final String resourceBucket;
+    private final SkillRouterService skillRouterService;
 
     public SkillContextService(AgentSkillService skillService, AgentSkillVersionServiceImpl versionService,
                                AgentSkillToolBindingServiceImpl toolBindingService, AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService,
                                AgentSkillExecutionConfigServiceImpl executionConfigService, AgentSkillResourceServiceImpl resourceService,
                                AgentToolCatalog toolCatalog, AgentMcpServerService mcpServerService,
                                ObjectStorageService objectStorageService,
-                               @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket) {
+                               @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket,
+                               SkillRouterService skillRouterService) {
         this.skillService = skillService; this.versionService = versionService; this.toolBindingService = toolBindingService;
         this.knowledgeBindingService = knowledgeBindingService; this.executionConfigService = executionConfigService;
         this.resourceService = resourceService; this.toolCatalog = toolCatalog; this.mcpServerService = mcpServerService;
         this.objectStorageService = objectStorageService; this.resourceBucket = resourceBucket;
+        this.skillRouterService = skillRouterService;
     }
 
     public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto) {
+        return resolve(agent, dto, dto == null ? null : dto.getMessage(), null);
+    }
+
+    public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, String routingQuery, ModelProvider provider) {
         List<AgentDefinitionSkillBinding> installations = skillService.listBindings(agent.getId()).stream()
                 .filter(item -> Integer.valueOf(1).equals(item.getStatus()))
                 .sorted((left, right) -> Integer.compare(left.getPriority() == null ? 0 : left.getPriority(), right.getPriority() == null ? 0 : right.getPriority()))
@@ -81,7 +89,13 @@ public class SkillContextService {
             context.setSnapshot("{\"installed\":false}");
             return context;
         }
-        if (installations.size() > 3) throw new ServerException(422, "Agent has more than three enabled Skills");
+        SkillRouteDecision route = skillRouterService == null ? new SkillRouteDecision() : skillRouterService.route(agent, provider, routingQuery, installations);
+        if (!route.isMatched()) {
+            if (dto != null && dto.getSkillInputs() != null && !dto.getSkillInputs().isEmpty()) throw new ServerException(422, "No Skill is active for supplied skill inputs");
+            context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt())); context.setTools(toolCatalog.getBoundTools(agent.getId())); context.setKnowledgeBaseIds(null);
+            context.setSnapshot(JSON.toJSONString(java.util.Collections.<String, Object>singletonMap("routing", route))); return context;
+        }
+        installations = installations.stream().filter(item -> route.getSkillVersionId().equals(item.getSkillVersionId())).collect(Collectors.toList());
 
         Map<String, Map<String, Object>> inputs = dto == null || dto.getSkillInputs() == null ? Collections.<String, Map<String, Object>>emptyMap() : dto.getSkillInputs();
         List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
@@ -129,7 +143,7 @@ public class SkillContextService {
         if (!artifactSkillCodes.isEmpty()) prompt.append("\n\n[Artifact Generation]\nWhen calling generate_artifact, skill_code must be exactly one of: ").append(String.join(", ", artifactSkillCodes)).append(".");
         prompt.append("\n\n[Platform Constraints]\n工具审批、安全与审计由平台统一控制。引用知识库资料时标注编号。");
         Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("installed", true); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
+        snapshot.put("installed", true); snapshot.put("routing", route); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
         snapshot.put("knowledgeBaseIds", declaredKnowledgeBaseIds == null ? Collections.emptySet() : declaredKnowledgeBaseIds); snapshot.put("artifactSkillCodes", artifactSkillCodes);
         context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools); context.setKnowledgeBaseIds(declaredKnowledgeBaseIds == null ? Collections.<String>emptySet() : declaredKnowledgeBaseIds); context.setArtifactSkillCodes(artifactSkillCodes); context.setSnapshot(JSON.toJSONString(snapshot));
         return context;

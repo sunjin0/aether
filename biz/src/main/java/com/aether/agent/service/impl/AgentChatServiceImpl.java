@@ -156,7 +156,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         String runId = null;
 
         try {
-            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto);
+            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveContent(rewrittenContent, dto.getMessage()), provider);
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
@@ -312,7 +312,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         try {
             long t0 = System.currentTimeMillis();
-            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto);
+            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveContent(rewrittenContent, dto.getMessage()), provider);
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
@@ -514,7 +514,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             applyReplyThinkingConfig(dto, agent);
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
 
-            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto);
+            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, answerContent, provider);
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
@@ -1179,8 +1179,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         conversationContextService.requireInputBudget(context, agent, provider);
     }
 
-    private SkillRuntimeContext resolveSkillContext(AgentDefinition agent, AgentChatDto dto) {
-        if (skillContextService != null) return skillContextService.resolve(agent, dto);
+    private SkillRuntimeContext resolveSkillContext(AgentDefinition agent, AgentChatDto dto, String routingQuery, ModelProvider provider) {
+        if (skillContextService != null) return skillContextService.resolve(agent, dto, routingQuery, provider);
         SkillRuntimeContext context = new SkillRuntimeContext();
         context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt()));
         context.setTools(agentToolWorkflow.getBoundTools(agent.getId()));

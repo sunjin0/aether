@@ -20,6 +20,7 @@ import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.storage.service.ObjectStorageService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
+import org.mockito.ArgumentMatchers;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -49,7 +50,8 @@ class SkillContextServiceTest {
     private final AgentToolCatalog toolCatalog = mock(AgentToolCatalog.class);
     private final AgentMcpServerService mcpServerService = mock(AgentMcpServerService.class);
     private final ObjectStorageService objectStorageService = mock(ObjectStorageService.class);
-    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, executionConfigService, resourceService, toolCatalog, mcpServerService, objectStorageService, "aether-skill");
+    private final SkillRouterService skillRouterService = mock(SkillRouterService.class);
+    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, executionConfigService, resourceService, toolCatalog, mcpServerService, objectStorageService, "aether-skill", skillRouterService);
 
     @BeforeEach
     void configureMcpServer() {
@@ -58,6 +60,12 @@ class SkillContextServiceTest {
         server.setStatus(1);
         server.setDeleted(false);
         when(mcpServerService.getById("mcp1")).thenReturn(server);
+        when(skillRouterService.route(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenAnswer(invocation -> {
+            java.util.List<AgentDefinitionSkillBinding> bindings = invocation.getArgument(3);
+            SkillRouteDecision decision = new SkillRouteDecision();
+            if (bindings != null && !bindings.isEmpty()) decision.setSkillVersionId(bindings.get(0).getSkillVersionId());
+            return decision;
+        });
     }
 
     @Test
@@ -76,7 +84,7 @@ class SkillContextServiceTest {
     }
 
     @Test
-    void rejectsMoreThanThreeInstalledSkills() {
+    void activatesOnlyRouterSelectedSkillEvenWhenManyAreInstalled() {
         AgentDefinition agent = agent("a1", "p");
         when(skillService.listBindings("a1")).thenReturn(Arrays.asList(
                 binding("a1", "s1", "v1", 1, 1),
@@ -85,7 +93,17 @@ class SkillContextServiceTest {
                 binding("a1", "s4", "v4", 4, 1)
         ));
 
-        assertThrows(RuntimeException.class, () -> service.resolve(agent, new AgentChatDto()));
+        when(skillService.getById("s1")).thenReturn(skill("s1", "s1c", "S1", 1));
+        when(versionService.getById("v1")).thenReturn(version("v1", "s1", 1, 1));
+        when(toolBindingService.list(any())).thenReturn(Collections.emptyList());
+        when(knowledgeBindingService.list(any())).thenReturn(Collections.emptyList());
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.singletonList(tool("t1", "Tool A", 1)));
+
+        SkillRuntimeContext context = service.resolve(agent, new AgentChatDto());
+
+        assertTrue(context.isInstalled());
+        assertTrue(context.getSystemPrompt().contains("## S1"));
+        assertFalse(context.getSystemPrompt().contains("s2"));
     }
 
     @Test
@@ -157,7 +175,7 @@ class SkillContextServiceTest {
     }
 
     @Test
-    void mergesToolDeclarationsAcrossSkillsBeforeIntersection() {
+    void doesNotMergeToolDeclarationsFromUnselectedSkills() {
         AgentDefinition agent = agent("a1", "p");
         when(skillService.listBindings("a1")).thenReturn(Arrays.asList(
                 binding("a1", "s1", "v1", 1, 1),
@@ -175,7 +193,25 @@ class SkillContextServiceTest {
 
         SkillRuntimeContext context = service.resolve(agent, new AgentChatDto());
 
-        assertEquals(2, context.getTools().size());
+        assertEquals(1, context.getTools().size());
+        assertEquals("t1", context.getTools().get(0).getId());
+    }
+
+    @Test
+    void routerNoneKeepsOnlyAgentBaseCapabilities() {
+        AgentDefinition agent = agent("a1", "base");
+        when(skillService.listBindings("a1")).thenReturn(Collections.singletonList(binding("a1", "s1", "v1", 1, 1)));
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.singletonList(tool("base", "Base tool", 1)));
+        SkillRouteDecision none = new SkillRouteDecision(); none.setReason("LOW_CONFIDENCE_OR_NONE");
+        when(skillRouterService.route(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(none);
+
+        SkillRuntimeContext context = service.resolve(agent, new AgentChatDto());
+
+        assertFalse(context.isInstalled());
+        assertEquals("base", context.getSystemPrompt());
+        assertEquals(1, context.getTools().size());
+        assertNull(context.getKnowledgeBaseIds());
+        assertTrue(context.getSnapshot().contains("LOW_CONFIDENCE_OR_NONE"));
     }
 
     @Test

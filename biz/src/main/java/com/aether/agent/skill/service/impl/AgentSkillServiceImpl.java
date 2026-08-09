@@ -13,6 +13,7 @@ import com.aether.agent.skill.dto.AgentSkillExecutionConfigDto;
 import com.aether.agent.skill.entity.*;
 import com.aether.agent.skill.mapper.AgentSkillMapper;
 import com.aether.agent.skill.service.AgentSkillService;
+import com.aether.agent.skill.service.SkillRoutingIndexService;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
 import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
@@ -37,6 +38,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import com.alibaba.fastjson2.JSON;
 
 /**
  * Skill 生命周期实现。
@@ -56,6 +58,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     private final ObjectStorageService objectStorageService;
     private final String resourceBucket;
     private final long maxResourceSize;
+    private final SkillRoutingIndexService routingIndexService;
 
     public AgentSkillServiceImpl(AgentSkillVersionServiceImpl versionService,
                                  AgentSkillToolBindingServiceImpl toolBindingService,
@@ -66,6 +69,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
                                  AgentDefinitionService agentDefinitionService,
                                  AgentToolService agentToolService,
                                  ObjectStorageService objectStorageService,
+                                 SkillRoutingIndexService routingIndexService,
                                  @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket,
                                  @Value("${skill.storage.max-size:10485760}") long maxResourceSize) {
         this.versionService = versionService;
@@ -77,6 +81,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         this.agentDefinitionService = agentDefinitionService;
         this.agentToolService = agentToolService;
         this.objectStorageService = objectStorageService;
+        this.routingIndexService = routingIndexService;
         this.resourceBucket = resourceBucket;
         this.maxResourceSize = maxResourceSize;
     }
@@ -112,7 +117,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         AgentSkillVersion source = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 1).orderByDesc(AgentSkillVersion::getVersionNo).last("limit 1"));
         if (source == null) throw new ServerException(409, "Skill has no published version to draft from");
         AgentSkillVersion draft = new AgentSkillVersion();
-        draft.setSkillId(skillId); draft.setStatus(0); draft.setInstruction(source.getInstruction()); draft.setInputSchema(source.getInputSchema()); draft.setOutputSchema(source.getOutputSchema()); draft.setToolPolicy(source.getToolPolicy()); draft.setChangeNote(source.getChangeNote());
+        draft.setSkillId(skillId); draft.setStatus(0); draft.setInstruction(source.getInstruction()); draft.setInputSchema(source.getInputSchema()); draft.setOutputSchema(source.getOutputSchema()); draft.setToolPolicy(source.getToolPolicy()); draft.setChangeNote(source.getChangeNote()); draft.setRoutingSummary(source.getRoutingSummary()); draft.setTriggerTerms(source.getTriggerTerms()); draft.setExcludeTerms(source.getExcludeTerms()); draft.setRoutingExamples(source.getRoutingExamples());
         versionService.save(draft);
         for (AgentSkillToolBinding sourceBinding : toolBindingService.list(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, source.getId()))) {
             AgentSkillToolBinding copy = new AgentSkillToolBinding(); copy.setSkillVersionId(draft.getId()); copy.setToolId(sourceBinding.getToolId()); copy.setRequired(sourceBinding.getRequired()); copy.setPriority(sourceBinding.getPriority()); toolBindingService.save(copy);
@@ -182,6 +187,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         skill.setCurrentVersionId(draft.getId());
         skill.setStatus(1);
         updateById(skill);
+        routingIndexService.indexPublishedVersion(draft.getId());
         return draft;
     }
 
@@ -401,6 +407,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         }
         result.setDraftVersionId(draft.getId());
         if (StringUtils.isBlank(draft.getInstruction())) result.getBlockers().add("请填写系统指令");
+        if (StringUtils.isBlank(draft.getRoutingSummary())) result.getBlockers().add("请填写 Skill 发现摘要");
+        else if (draft.getRoutingSummary().length() > 200) result.getBlockers().add("Skill 发现摘要不能超过 200 个字符");
+        validateRoutingMetadata(draft, result);
         if (StringUtils.isBlank(skill.getDescription())) result.getWarnings().add("尚未填写技能描述，其他管理员难以理解其适用范围");
         if (StringUtils.isBlank(draft.getInputSchema())) result.getWarnings().add("尚未声明输入参数，运行时输入将不受结构约束");
         if (StringUtils.isBlank(draft.getOutputSchema())) result.getWarnings().add("尚未声明输出参数，回答格式可能不稳定");
@@ -555,5 +564,6 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     private void requireAgent(String id) { AgentDefinition agent = agentDefinitionService.getById(id); if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) throw new ServerException(404, "Agent not found"); }
     private void validateIdentity(AgentSkillDraftDto dto) { if (dto == null || StringUtils.isBlank(dto.getName()) || StringUtils.isBlank(dto.getCode())) throw new ServerException(400, "Skill name and code are required"); }
     private void applyIdentity(AgentSkill target, AgentSkillDraftDto source) { target.setName(source.getName()); target.setCode(source.getCode()); target.setDescription(source.getDescription()); target.setCategory(source.getCategory()); target.setIcon(source.getIcon()); target.setTags(source.getTags()); }
-    private void applyDraft(AgentSkillVersion target, AgentSkillDraftDto source) { target.setInstruction(source.getInstruction()); target.setInputSchema(source.getInputSchema()); target.setOutputSchema(source.getOutputSchema()); target.setToolPolicy(source.getToolPolicy()); target.setChangeNote(source.getChangeNote()); }
+    private void applyDraft(AgentSkillVersion target, AgentSkillDraftDto source) { target.setInstruction(source.getInstruction()); target.setInputSchema(source.getInputSchema()); target.setOutputSchema(source.getOutputSchema()); target.setToolPolicy(source.getToolPolicy()); target.setChangeNote(source.getChangeNote()); target.setRoutingSummary(source.getRoutingSummary()); target.setTriggerTerms(JSON.toJSONString(source.getTriggerTerms() == null ? Collections.emptyList() : source.getTriggerTerms())); target.setExcludeTerms(JSON.toJSONString(source.getExcludeTerms() == null ? Collections.emptyList() : source.getExcludeTerms())); target.setRoutingExamples(JSON.toJSONString(source.getRoutingExamples() == null ? Collections.emptyList() : source.getRoutingExamples())); }
+    private void validateRoutingMetadata(AgentSkillVersion draft, AgentSkillPublishCheckVo result) { try { List<String> trigger = JSON.parseArray(StringUtils.defaultIfBlank(draft.getTriggerTerms(), "[]"), String.class); List<String> exclude = JSON.parseArray(StringUtils.defaultIfBlank(draft.getExcludeTerms(), "[]"), String.class); List<String> examples = JSON.parseArray(StringUtils.defaultIfBlank(draft.getRoutingExamples(), "[]"), String.class); if (trigger.size() > 20 || exclude.size() > 20 || examples.size() > 5) result.getBlockers().add("路由关键词最多 20 个，示例最多 5 个"); for (String value : trigger) if (exclude.contains(value)) result.getBlockers().add("触发词和排除词不能重复：" + value); } catch (Exception e) { result.getBlockers().add("路由发现配置必须是有效列表"); } }
 }
