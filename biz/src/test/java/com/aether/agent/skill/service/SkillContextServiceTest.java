@@ -3,23 +3,31 @@ package com.aether.agent.skill.service;
 import com.aether.agent.dto.AgentChatDto;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentTool;
+import com.aether.agent.entity.AgentMcpServer;
+import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillKnowledgeBinding;
 import com.aether.agent.skill.entity.AgentSkillToolBinding;
 import com.aether.agent.skill.entity.AgentSkillVersion;
+import com.aether.agent.skill.entity.AgentSkillResource;
 import com.aether.agent.skill.service.impl.AgentSkillKnowledgeBindingServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillExecutionConfigServiceImpl;
+import com.aether.agent.skill.service.impl.AgentSkillResourceServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillToolBindingServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
+import com.aether.storage.service.ObjectStorageService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -37,8 +45,20 @@ class SkillContextServiceTest {
     private final AgentSkillToolBindingServiceImpl toolBindingService = mock(AgentSkillToolBindingServiceImpl.class);
     private final AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService = mock(AgentSkillKnowledgeBindingServiceImpl.class);
     private final AgentSkillExecutionConfigServiceImpl executionConfigService = mock(AgentSkillExecutionConfigServiceImpl.class);
+    private final AgentSkillResourceServiceImpl resourceService = mock(AgentSkillResourceServiceImpl.class);
     private final AgentToolCatalog toolCatalog = mock(AgentToolCatalog.class);
-    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, executionConfigService, toolCatalog);
+    private final AgentMcpServerService mcpServerService = mock(AgentMcpServerService.class);
+    private final ObjectStorageService objectStorageService = mock(ObjectStorageService.class);
+    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, executionConfigService, resourceService, toolCatalog, mcpServerService, objectStorageService, "aether-skill");
+
+    @BeforeEach
+    void configureMcpServer() {
+        AgentMcpServer server = new AgentMcpServer();
+        server.setId("mcp1");
+        server.setStatus(1);
+        server.setDeleted(false);
+        when(mcpServerService.getById("mcp1")).thenReturn(server);
+    }
 
     @Test
     void noInstallationFallsBackToAgentDefaults() {
@@ -65,7 +85,7 @@ class SkillContextServiceTest {
                 binding("a1", "s4", "v4", 4, 1)
         ));
 
-        assertThrows(IllegalArgumentException.class, () -> service.resolve(agent, new AgentChatDto()));
+        assertThrows(RuntimeException.class, () -> service.resolve(agent, new AgentChatDto()));
     }
 
     @Test
@@ -75,11 +95,11 @@ class SkillContextServiceTest {
         when(skillService.getById("s1")).thenReturn(skill("s1", "s1c", "S1", 0));
         when(versionService.getById("v1")).thenReturn(version("v1", "s1", 1, 1));
 
-        assertThrows(IllegalArgumentException.class, () -> service.resolve(agent, new AgentChatDto()));
+        assertThrows(RuntimeException.class, () -> service.resolve(agent, new AgentChatDto()));
 
         when(skillService.getById("s1")).thenReturn(skill("s1", "s1c", "S1", 1));
         when(versionService.getById("v1")).thenReturn(version("v1", "s1", 1, 0));
-        assertThrows(IllegalArgumentException.class, () -> service.resolve(agent, new AgentChatDto()));
+        assertThrows(RuntimeException.class, () -> service.resolve(agent, new AgentChatDto()));
     }
 
     @Test
@@ -91,7 +111,7 @@ class SkillContextServiceTest {
         when(toolBindingService.list(any())).thenReturn(Collections.singletonList(toolBinding("v1", "tMissing", true, 0)));
         when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.singletonList(tool("tOther", "Other", 1)));
 
-        assertThrows(IllegalArgumentException.class, () -> service.resolve(agent, new AgentChatDto()));
+        assertThrows(RuntimeException.class, () -> service.resolve(agent, new AgentChatDto()));
     }
 
     @Test
@@ -133,7 +153,7 @@ class SkillContextServiceTest {
         inputs.put("not-installed-code", sample);
         dto.setSkillInputs(inputs);
 
-        assertThrows(IllegalArgumentException.class, () -> service.resolve(agent, dto));
+        assertThrows(RuntimeException.class, () -> service.resolve(agent, dto));
     }
 
     @Test
@@ -156,6 +176,58 @@ class SkillContextServiceTest {
         SkillRuntimeContext context = service.resolve(agent, new AgentChatDto());
 
         assertEquals(2, context.getTools().size());
+    }
+
+    @Test
+    void rejectsInputThatViolatesPublishedSchema() {
+        AgentDefinition agent = agent("a1", "p");
+        when(skillService.listBindings("a1")).thenReturn(Collections.singletonList(binding("a1", "s1", "v1", 1, 1)));
+        when(skillService.getById("s1")).thenReturn(skill("s1", "s1c", "S1", 1));
+        AgentSkillVersion version = version("v1", "s1", 1, 1);
+        version.setInputSchema("{\"type\":\"object\",\"required\":[\"caseId\"]}");
+        when(versionService.getById("v1")).thenReturn(version);
+        when(toolBindingService.list(any())).thenReturn(Collections.emptyList());
+        when(knowledgeBindingService.list(any())).thenReturn(Collections.emptyList());
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.emptyList());
+        AgentChatDto dto = new AgentChatDto();
+        dto.setSkillInputs(Collections.singletonMap("s1c", Collections.<String, Object>emptyMap()));
+
+        assertThrows(RuntimeException.class, () -> service.resolve(agent, dto));
+    }
+
+    @Test
+    void injectsVerifiedMarkdownAndMasksSensitiveInput() throws Exception {
+        AgentDefinition agent = agent("a1", "base");
+        when(skillService.listBindings("a1")).thenReturn(Collections.singletonList(binding("a1", "s1", "v1", 1, 1)));
+        when(skillService.getById("s1")).thenReturn(skill("s1", "s1c", "S1", 1));
+        AgentSkillVersion version = version("v1", "s1", 1, 1);
+        version.setInputSchema("{\"type\":\"object\",\"properties\":{\"apiToken\":{\"type\":\"string\"}}}");
+        version.setOutputSchema("{\"type\":\"object\"}");
+        when(versionService.getById("v1")).thenReturn(version);
+        when(toolBindingService.list(any())).thenReturn(Collections.emptyList());
+        when(knowledgeBindingService.list(any())).thenReturn(Collections.emptyList());
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.emptyList());
+        byte[] body = "# Rule\nDo not disclose secrets.".getBytes(StandardCharsets.UTF_8);
+        AgentSkillResource resource = new AgentSkillResource();
+        resource.setId("r1"); resource.setName("rule.md"); resource.setType("MARKDOWN"); resource.setStatus(1); resource.setObjectKey("skills/s1/v1/rule"); resource.setContentSha256(sha256(body)); resource.setSize((long) body.length);
+        when(resourceService.list(any())).thenReturn(Collections.singletonList(resource));
+        when(objectStorageService.getObject("aether-skill", resource.getObjectKey())).thenReturn(body);
+        AgentChatDto dto = new AgentChatDto();
+        dto.setSkillInputs(Collections.singletonMap("s1c", Collections.<String, Object>singletonMap("apiToken", "secret-value")));
+
+        SkillRuntimeContext context = service.resolve(agent, dto);
+
+        assertTrue(context.getSystemPrompt().contains("Do not disclose secrets."));
+        assertTrue(context.getSystemPrompt().contains("Output contract"));
+        assertTrue(context.getSystemPrompt().contains("***"));
+        assertFalse(context.getSnapshot().contains("secret-value"));
+    }
+
+    private String sha256(byte[] value) throws Exception {
+        byte[] hash = MessageDigest.getInstance("SHA-256").digest(value);
+        StringBuilder result = new StringBuilder();
+        for (byte item : hash) result.append(String.format("%02x", item));
+        return result.toString();
     }
 
     private AgentDefinition agent(String id, String systemPrompt) {
@@ -216,6 +288,8 @@ class SkillContextServiceTest {
         tool.setName(name);
         tool.setStatus(status);
         tool.setDeleted(false);
+        tool.setMcpServerId("mcp1");
+        tool.setMcpToolName("tool_" + id);
         return tool;
     }
 }
