@@ -11,6 +11,7 @@ import com.aether.agent.skill.service.SkillArtifactExecutionService;
 import com.aether.agent.skill.vo.ArtifactGenerationVo;
 import com.aether.agent.skill.vo.SandboxExecutionTaskVo;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.storage.service.ObjectStorageService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -65,24 +66,24 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
     @Override @Transactional(rollbackFor = Exception.class)
     public ArtifactGenerationVo request(String delegatedToken, ArtifactGenerationRequestDto request) {
         DecodedJWT token = verifyDelegation(delegatedToken);
-        if (request == null || StringUtils.isBlank(request.getSkillCode())) throw new ServerException(400, "skillCode is required");
+        if (request == null || StringUtils.isBlank(request.getSkillCode())) throw new ServerException(400, I18nUtils.getMessage("skill.artifact.skill-code.required"));
         String userId = token.getClaim("userId").asString(); String agentId = token.getClaim("agentId").asString(); String runId = token.getClaim("runId").asString();
-        if (StringUtils.isAnyBlank(userId, agentId, runId)) throw new ServerException(401, "Delegated execution context is incomplete");
+        if (StringUtils.isAnyBlank(userId, agentId, runId)) throw new ServerException(401, I18nUtils.getMessage("skill.artifact.delegation.context.incomplete"));
         List<String> allowedSkillCodes = token.getClaim("artifactSkillCodes").asList(String.class);
         if (allowedSkillCodes == null || !allowedSkillCodes.contains(request.getSkillCode())) {
-            throw new ServerException(422, "skillCode is not an artifact-capable Skill installed on this Agent");
+            throw new ServerException(422, I18nUtils.getMessage("skill.artifact.skill-code.not-installed"));
         }
         AgentSkill skill = skillService.getOne(Wrappers.lambdaQuery(AgentSkill.class).eq(AgentSkill::getCode, request.getSkillCode()));
-        if (skill == null || !Integer.valueOf(1).equals(skill.getStatus())) throw new ServerException(422, "Artifact-capable installed Skill is unavailable");
+        if (skill == null || !Integer.valueOf(1).equals(skill.getStatus())) throw new ServerException(422, I18nUtils.getMessage("skill.artifact.skill.unavailable"));
         AgentDefinitionSkillBinding binding = bindingService.getOne(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class)
                 .eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId).eq(AgentDefinitionSkillBinding::getSkillId, skill.getId()).eq(AgentDefinitionSkillBinding::getStatus, 1));
-        if (binding == null) throw new ServerException(403, "Skill is not installed on this Agent");
+        if (binding == null) throw new ServerException(403, I18nUtils.getMessage("skill.artifact.skill.not-installed"));
         AgentSkillVersion version = versionService.getById(binding.getSkillVersionId());
         AgentSkillExecutionConfig config = configService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class).eq(AgentSkillExecutionConfig::getSkillVersionId, binding.getSkillVersionId()));
-        if (version == null || !Integer.valueOf(1).equals(version.getStatus()) || config == null || !Boolean.TRUE.equals(config.getEnabled())) throw new ServerException(422, "Skill does not declare artifact execution");
+        if (version == null || !Integer.valueOf(1).equals(version.getStatus()) || config == null || !Boolean.TRUE.equals(config.getEnabled())) throw new ServerException(422, I18nUtils.getMessage("skill.artifact.execution.not-declared"));
         validateInput(version.getInputSchema(), request.getInput());
         List<AgentSkillResource> resources = resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, version.getId()).eq(AgentSkillResource::getStatus, 1));
-        if (resources.stream().noneMatch(r -> config.getEntryResourceId().equals(r.getId()))) throw new ServerException(422, "Frozen entry resource is unavailable");
+        if (resources.stream().noneMatch(r -> config.getEntryResourceId().equals(r.getId()))) throw new ServerException(422, I18nUtils.getMessage("skill.artifact.entry-resource.unavailable"));
         AgentSandboxExecution execution = new AgentSandboxExecution(); execution.setRunId(runId);
         execution.setSkillVersionId(version.getId()); execution.setUserId(userId); execution.setAgentDefinitionId(agentId);
         execution.setExecutionConfigSnapshot(JSON.toJSONString(config)); execution.setResourceSnapshot(JSON.toJSONString(resources));
@@ -134,19 +135,19 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
     @Override public byte[] readResource(String suppliedRunnerToken, String executionToken, String executionId, String resourceId) {
         requireRunner(suppliedRunnerToken); AgentSandboxExecution job = running(executionId); requireExecutionToken(job, executionToken);
         List<AgentSkillResource> resources = JSON.parseArray(job.getResourceSnapshot(), AgentSkillResource.class);
-        AgentSkillResource resource = resources.stream().filter(r -> resourceId.equals(r.getId())).findFirst().orElseThrow(() -> new ServerException(404, "Resource not found"));
-        byte[] content = storage.getObject(resourceBucket, resource.getObjectKey()); if (!sha256(content).equals(resource.getContentSha256())) throw new ServerException(409, "Frozen resource checksum mismatch"); return content;
+        AgentSkillResource resource = resources.stream().filter(r -> resourceId.equals(r.getId())).findFirst().orElseThrow(() -> new ServerException(404, I18nUtils.getMessage("skill.artifact.resource.not-found")));
+        byte[] content = storage.getObject(resourceBucket, resource.getObjectKey()); if (!sha256(content).equals(resource.getContentSha256())) throw new ServerException(409, I18nUtils.getMessage("skill.artifact.resource.checksum-mismatch")); return content;
     }
 
     @Override @Transactional(rollbackFor = Exception.class)
     public void complete(String suppliedRunnerToken, String executionToken, String executionId, String fileName, String contentType, byte[] content, String checksum, String logSummary, boolean finalArtifact) {
         requireRunner(suppliedRunnerToken); AgentSandboxExecution job = running(executionId); requireExecutionToken(job, executionToken); AgentSkillExecutionConfig config = JSON.parseObject(job.getExecutionConfigSnapshot(), AgentSkillExecutionConfig.class);
-        if (content == null || content.length == 0 || content.length > config.getMaxOutputBytes()) throw new ServerException(400, "Artifact size is invalid");
+        if (content == null || content.length == 0 || content.length > config.getMaxOutputBytes()) throw new ServerException(400, I18nUtils.getMessage("skill.artifact.size.invalid"));
         String extension = fileName == null ? "" : fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
-        List<String> formats = JSON.parseArray(config.getOutputFormats(), String.class); if (!formats.contains(extension)) throw new ServerException(400, "Artifact format is not declared by the Skill");
+        List<String> formats = JSON.parseArray(config.getOutputFormats(), String.class); if (!formats.contains(extension)) throw new ServerException(400, I18nUtils.getMessage("skill.artifact.format.not-declared"));
         validateContentType(extension, contentType);
-        if (artifactService.count(Wrappers.lambdaQuery(AgentArtifact.class).eq(AgentArtifact::getExecutionId, job.getId())) >= config.getMaxOutputFiles()) throw new ServerException(409, "Artifact count exceeds frozen limit");
-        String actualHash = sha256(content); if (!actualHash.equals(checksum)) throw new ServerException(409, "Artifact checksum mismatch");
+        if (artifactService.count(Wrappers.lambdaQuery(AgentArtifact.class).eq(AgentArtifact::getExecutionId, job.getId())) >= config.getMaxOutputFiles()) throw new ServerException(409, I18nUtils.getMessage("skill.artifact.count.exceeded"));
+        String actualHash = sha256(content); if (!actualHash.equals(checksum)) throw new ServerException(409, I18nUtils.getMessage("skill.artifact.checksum-mismatch"));
         AgentArtifact artifact = new AgentArtifact(); artifact.setExecutionId(job.getId()); artifact.setRunId(job.getRunId()); artifact.setSkillVersionId(job.getSkillVersionId()); artifact.setFileName(fileName);
         artifact.setObjectKey("chat/artifacts/" + job.getId() + "/" + UUID.randomUUID().toString() + "." + extension); artifact.setContentSha256(actualHash); artifact.setContentType(StringUtils.defaultIfBlank(contentType, "application/octet-stream")); artifact.setSize((long) content.length); artifact.setExpiresAt(System.currentTimeMillis() + 7L * 24 * 3600 * 1000); artifact.setLogSummary(StringUtils.abbreviate(logSummary, 4096)); artifact.setStatus(1);
         storage.upload(artifactBucket, artifact.getObjectKey(), content, artifact.getContentType()); artifactService.save(artifact);
@@ -165,40 +166,40 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
             attachToMessage(message, artifact);
         }
     }
-    private AgentSandboxExecution running(String id) { AgentSandboxExecution job = executionService.getById(id); if (job == null || !Integer.valueOf(1).equals(job.getStatus()) || job.getExpiresAt() < System.currentTimeMillis()) throw new ServerException(409, "Execution is not running"); return job; }
-    private void requireRunner(String value) { if (StringUtils.isBlank(runnerToken) || !MessageDigest.isEqual(runnerToken.getBytes(), StringUtils.defaultString(value).getBytes())) throw new ServerException(401, "Sandbox runner is not authorized"); }
+    private AgentSandboxExecution running(String id) { AgentSandboxExecution job = executionService.getById(id); if (job == null || !Integer.valueOf(1).equals(job.getStatus()) || job.getExpiresAt() < System.currentTimeMillis()) throw new ServerException(409, I18nUtils.getMessage("skill.artifact.execution.not-running")); return job; }
+    private void requireRunner(String value) { if (StringUtils.isBlank(runnerToken) || !MessageDigest.isEqual(runnerToken.getBytes(), StringUtils.defaultString(value).getBytes())) throw new ServerException(401, I18nUtils.getMessage("skill.artifact.runner.unauthorized")); }
     private void requireExecutionToken(AgentSandboxExecution job, String value) {
         try { DecodedJWT token = JWT.require(Algorithm.HMAC256(runnerToken)).build().verify(value);
-            if (!job.getId().equals(token.getClaim("executionId").asString()) || !MessageDigest.isEqual(job.getTokenHash().getBytes(), sha256(value).getBytes())) throw new ServerException(401, "Execution token is not authorized");
-        } catch (ServerException e) { throw e; } catch (Exception e) { throw new ServerException(401, "Execution token is not authorized"); }
+            if (!job.getId().equals(token.getClaim("executionId").asString()) || !MessageDigest.isEqual(job.getTokenHash().getBytes(), sha256(value).getBytes())) throw new ServerException(401, I18nUtils.getMessage("skill.artifact.execution-token.unauthorized"));
+        } catch (ServerException e) { throw e; } catch (Exception e) { throw new ServerException(401, I18nUtils.getMessage("skill.artifact.execution-token.unauthorized")); }
     }
-    private DecodedJWT verifyDelegation(String raw) { try { DecodedJWT token = JWT.require(Algorithm.HMAC256(deepAgentConfig.getMcpDelegationSecret())).build().verify(raw); if (!token.getClaim("allowedTools").asList(String.class).contains("generate_artifact")) throw new ServerException(403, "Artifact tool is not delegated"); return token; } catch (ServerException e) { throw e; } catch (Exception e) { throw new ServerException(401, "Invalid delegated execution token"); } }
+    private DecodedJWT verifyDelegation(String raw) { try { DecodedJWT token = JWT.require(Algorithm.HMAC256(deepAgentConfig.getMcpDelegationSecret())).build().verify(raw); if (!token.getClaim("allowedTools").asList(String.class).contains("generate_artifact")) throw new ServerException(403, I18nUtils.getMessage("skill.artifact.tool.not-delegated")); return token; } catch (ServerException e) { throw e; } catch (Exception e) { throw new ServerException(401, I18nUtils.getMessage("skill.artifact.delegation-token.invalid")); } }
     private String randomToken() { byte[] bytes = new byte[32]; new SecureRandom().nextBytes(bytes); return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes); }
     private void validateContentType(String extension, String contentType) {
         String expected;
         if ("pdf".equals(extension)) expected = "application/pdf";
         else if ("docx".equals(extension)) expected = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
         else if ("xlsx".equals(extension)) expected = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-        else throw new ServerException(400, "Artifact format is unsupported");
-        if (!expected.equalsIgnoreCase(StringUtils.defaultString(contentType))) throw new ServerException(400, "Artifact MIME type does not match its extension");
+        else throw new ServerException(400, I18nUtils.getMessage("skill.artifact.format.unsupported"));
+        if (!expected.equalsIgnoreCase(StringUtils.defaultString(contentType))) throw new ServerException(400, I18nUtils.getMessage("skill.artifact.mime-type.mismatch"));
     }
     /** Deliberately small, deterministic subset of JSON Schema for Skill inputs. */
     private void validateInput(String schemaText, Map<String, Object> input) {
         if (StringUtils.isBlank(schemaText)) return;
         JSONObject schema;
-        try { schema = JSON.parseObject(schemaText); } catch (Exception e) { throw new ServerException(422, "Published Skill input schema is invalid"); }
-        if (schema == null || (!StringUtils.isBlank(schema.getString("type")) && !"object".equals(schema.getString("type")))) throw new ServerException(422, "Published Skill input schema must be an object");
+        try { schema = JSON.parseObject(schemaText); } catch (Exception e) { throw new ServerException(422, I18nUtils.getMessage("skill.context.input-schema.invalid")); }
+        if (schema == null || (!StringUtils.isBlank(schema.getString("type")) && !"object".equals(schema.getString("type")))) throw new ServerException(422, I18nUtils.getMessage("skill.context.input-schema.object-required"));
         Map<String, Object> value = input == null ? Collections.emptyMap() : input;
-        for (String required : schema.getList("required", String.class) == null ? Collections.<String>emptyList() : schema.getList("required", String.class)) if (!value.containsKey(required) || value.get(required) == null) throw new ServerException(422, "Skill input is missing required field: " + required);
+        for (String required : schema.getList("required", String.class) == null ? Collections.<String>emptyList() : schema.getList("required", String.class)) if (!value.containsKey(required) || value.get(required) == null) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.required-field.missing", required));
         JSONObject properties = schema.getJSONObject("properties");
         boolean additional = !Boolean.FALSE.equals(schema.getBoolean("additionalProperties"));
         for (Map.Entry<String, Object> item : value.entrySet()) {
             JSONObject property = properties == null ? null : properties.getJSONObject(item.getKey());
-            if (property == null) { if (!additional) throw new ServerException(422, "Skill input has undeclared field: " + item.getKey()); continue; }
+            if (property == null) { if (!additional) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.field.undeclared", item.getKey())); continue; }
             String type = property.getString("type"); Object actual = item.getValue();
             if ("string".equals(type) && !(actual instanceof String) || "boolean".equals(type) && !(actual instanceof Boolean)
                     || "number".equals(type) && !(actual instanceof Number) || "integer".equals(type) && (!(actual instanceof Number) || ((Number) actual).doubleValue() % 1 != 0)
-                    || "array".equals(type) && !(actual instanceof Collection) || "object".equals(type) && !(actual instanceof Map)) throw new ServerException(422, "Skill input field has invalid type: " + item.getKey());
+                    || "array".equals(type) && !(actual instanceof Collection) || "object".equals(type) && !(actual instanceof Map)) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.field.invalid-type", item.getKey()));
         }
     }
     private void attachToRunMessage(AgentSandboxExecution job, AgentArtifact artifact) {
@@ -220,5 +221,5 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         message.setAttachments(JSON.toJSONString(attachments)); messageService.updateById(message); artifact.setMessageId(message.getId()); artifactService.updateById(artifact);
     }
     private String sha256(byte[] bytes) { return sha256(new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1)); }
-    private String sha256(String value) { try { byte[] hash = MessageDigest.getInstance("SHA-256").digest(value.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)); StringBuilder out = new StringBuilder(); for (byte b : hash) out.append(String.format("%02x", b)); return out.toString(); } catch (Exception e) { throw new ServerException(500, "Checksum failure"); } }
+    private String sha256(String value) { try { byte[] hash = MessageDigest.getInstance("SHA-256").digest(value.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)); StringBuilder out = new StringBuilder(); for (byte b : hash) out.append(String.format("%02x", b)); return out.toString(); } catch (Exception e) { throw new ServerException(500, I18nUtils.getMessage("skill.artifact.checksum.failure")); } }
 }

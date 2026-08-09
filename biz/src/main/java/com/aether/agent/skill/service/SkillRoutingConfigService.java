@@ -4,6 +4,7 @@ import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.skill.dto.SkillRoutingConfigDto;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.sys.entity.Config;
 import com.aether.sys.service.ConfigService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -34,7 +35,7 @@ public class SkillRoutingConfigService {
         String providerId = dto == null ? null : StringUtils.trimToNull(dto.getEmbeddingProviderId());
         if (providerId != null) {
             ModelProvider provider = providerService.getById(providerId);
-            if (provider == null || !Integer.valueOf(1).equals(provider.getStatus()) || Boolean.TRUE.equals(provider.getDeleted())) throw new ServerException(422, "Embedding Provider is unavailable");
+            if (provider == null || !Integer.valueOf(1).equals(provider.getStatus()) || Boolean.TRUE.equals(provider.getDeleted())) throw new ServerException(422, I18nUtils.getMessage("skill.routing.provider.unavailable"));
         }
         Config config = configService.getOne(Wrappers.lambdaQuery(Config.class).eq(Config::getCode, EMBEDDING_PROVIDER_CODE).orderByDesc(Config::getCreatedAt).last("limit 1"));
         String persisted = providerId == null ? DISABLED : providerId;

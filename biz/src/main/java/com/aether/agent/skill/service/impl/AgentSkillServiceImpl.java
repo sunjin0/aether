@@ -20,6 +20,7 @@ import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
 import com.aether.agent.skill.vo.AgentSkillVo;
 import com.aether.agent.skill.vo.AgentSkillStatisticsVo;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.storage.service.ObjectStorageService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -91,7 +92,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     public String createDraft(AgentSkillDraftDto dto) {
         validateIdentity(dto);
         if (lambdaQuery().eq(AgentSkill::getCode, dto.getCode()).one() != null) {
-            throw new ServerException(409, "Skill code already exists");
+            throw new ServerException(409, I18nUtils.getMessage("skill.code.exists"));
         }
         AgentSkill skill = new AgentSkill();
         applyIdentity(skill, dto);
@@ -111,11 +112,11 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     public String createNextDraft(String skillId) {
         requireSkill(skillId);
         if (versionService.count(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 0)) > 0) {
-            throw new ServerException(409, "Skill already has an editable draft");
+            throw new ServerException(409, I18nUtils.getMessage("skill.draft.editable-exists"));
         }
         // 新草稿从最新发布版本复制，确保管理员修改不会影响已安装的生产版本。
         AgentSkillVersion source = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 1).orderByDesc(AgentSkillVersion::getVersionNo).last("limit 1"));
-        if (source == null) throw new ServerException(409, "Skill has no published version to draft from");
+        if (source == null) throw new ServerException(409, I18nUtils.getMessage("skill.draft.published-source.required"));
         AgentSkillVersion draft = new AgentSkillVersion();
         draft.setSkillId(skillId); draft.setStatus(0); draft.setInstruction(source.getInstruction()); draft.setInputSchema(source.getInputSchema()); draft.setOutputSchema(source.getOutputSchema()); draft.setToolPolicy(source.getToolPolicy()); draft.setChangeNote(source.getChangeNote()); draft.setRoutingSummary(source.getRoutingSummary()); draft.setTriggerTerms(source.getTriggerTerms()); draft.setExcludeTerms(source.getExcludeTerms()); draft.setRoutingExamples(source.getRoutingExamples());
         versionService.save(draft);
@@ -153,7 +154,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         AgentSkill skill = requireSkill(skillId);
         validateIdentity(dto);
         AgentSkill sameCode = lambdaQuery().eq(AgentSkill::getCode, dto.getCode()).ne(AgentSkill::getId, skillId).one();
-        if (sameCode != null) throw new ServerException(409, "Skill code already exists");
+        if (sameCode != null) throw new ServerException(409, I18nUtils.getMessage("skill.code.exists"));
         applyIdentity(skill, dto);
         updateById(skill);
         AgentSkillVersion draft = requireDraft(skillId);
@@ -166,14 +167,14 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     @Transactional(rollbackFor = Exception.class)
     public AgentSkillVersion publish(String skillId, String userId) {
         AgentSkillPublishCheckVo check = publishCheck(skillId);
-        if (!check.isReady()) throw new ServerException(400, StringUtils.join(check.getBlockers(), "；"));
+        if (!check.isReady()) throw new ServerException(400, StringUtils.join(check.getBlockers(), ", "));
         AgentSkill skill = requireSkill(skillId);
         AgentSkillVersion draft = requireDraft(skillId);
         List<AgentSkillToolBinding> tools = toolBindingService.list(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, draft.getId()));
         for (AgentSkillToolBinding binding : tools) {
             AgentTool tool = agentToolService.getById(binding.getToolId());
             if (tool == null || Boolean.TRUE.equals(tool.getDeleted()) || !Integer.valueOf(1).equals(tool.getStatus())) {
-                throw new ServerException(400, "Skill references an unavailable tool");
+                throw new ServerException(400, I18nUtils.getMessage("skill.tool.unavailable"));
             }
         }
         // 只以已发布版本计算序号，草稿不占用正式版本号。
@@ -220,13 +221,13 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     public String install(String agentId, AgentSkillInstallDto dto) {
         requireAgent(agentId);
         AgentSkillVersion version = requirePublishedVersion(dto.getSkillVersionId());
-        if (definitionBindingService.count(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class).eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId).eq(AgentDefinitionSkillBinding::getSkillId, version.getSkillId())) > 0) throw new ServerException(409, "Skill is already installed");
+        if (definitionBindingService.count(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class).eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId).eq(AgentDefinitionSkillBinding::getSkillId, version.getSkillId())) > 0) throw new ServerException(409, I18nUtils.getMessage("skill.installation.already-exists"));
         AgentDefinitionSkillBinding binding = new AgentDefinitionSkillBinding(); binding.setAgentDefinitionId(agentId); binding.setSkillId(version.getSkillId()); binding.setSkillVersionId(version.getId()); binding.setPriority(dto.getPriority()); binding.setStatus(dto.getStatus() == null ? 1 : dto.getStatus()); binding.setConfigOverrides(dto.getConfigOverrides()); definitionBindingService.save(binding); return binding.getId();
     }
 
     @Override public void updateBinding(String agentId, String bindingId, AgentSkillBindingUpdateDto dto) {
         AgentDefinitionSkillBinding binding = requireBinding(agentId, bindingId);
-        if (StringUtils.isNotBlank(dto.getSkillVersionId())) { AgentSkillVersion version = requirePublishedVersion(dto.getSkillVersionId()); if (!version.getSkillId().equals(binding.getSkillId())) throw new ServerException(400, "Version does not belong to installed Skill"); binding.setSkillVersionId(version.getId()); }
+        if (StringUtils.isNotBlank(dto.getSkillVersionId())) { AgentSkillVersion version = requirePublishedVersion(dto.getSkillVersionId()); if (!version.getSkillId().equals(binding.getSkillId())) throw new ServerException(400, I18nUtils.getMessage("skill.installation.version.mismatch")); binding.setSkillVersionId(version.getId()); }
         if (dto.getPriority() != null) binding.setPriority(dto.getPriority()); if (dto.getStatus() != null) binding.setStatus(dto.getStatus()); if (dto.getConfigOverrides() != null) binding.setConfigOverrides(dto.getConfigOverrides()); definitionBindingService.updateById(binding);
     }
     @Override public void removeBinding(String agentId, String bindingId) { definitionBindingService.removeById(requireBinding(agentId, bindingId).getId()); }
@@ -236,17 +237,17 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     public AgentSkillResource uploadResource(String skillId, String fileName, String contentType, byte[] content, String purpose, String type) {
         requireSkill(skillId);
         AgentSkillVersion draft = requireDraft(skillId);
-        if (content == null || content.length == 0) throw new ServerException(400, "skill.resource.file.required");
-        if (content.length > maxResourceSize) throw new ServerException(400, "skill.resource.file.size-exceeded");
+        if (content == null || content.length == 0) throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.required"));
+        if (content.length > maxResourceSize) throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.size-exceeded"));
         String[] parsed = parseResource(fileName, type);
         if (resourceService.count(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, draft.getId())) >= MAX_DRAFT_RESOURCE_COUNT) {
-            throw new ServerException(400, "skill.resource.count-exceeded");
+            throw new ServerException(400, I18nUtils.getMessage("skill.resource.count-exceeded"));
         }
         String sha256 = sha256Hex(content);
         // 不可覆盖对象键：skills/{skillId}/{versionId}/{sha256}，同内容上传幂等复用。
         String objectKey = "skills/" + skillId + "/" + draft.getId() + "/" + sha256;
         AgentSkillResource existing = resourceService.getOne(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getObjectKey, objectKey).eq(AgentSkillResource::getSkillVersionId, draft.getId()));
-        if (existing != null) throw new ServerException(409, "skill.resource.duplicate");
+        if (existing != null) throw new ServerException(409, I18nUtils.getMessage("skill.resource.duplicate"));
         objectStorageService.upload(resourceBucket, objectKey, content, StringUtils.defaultIfBlank(contentType, "application/octet-stream"));
         AgentSkillResource resource = new AgentSkillResource();
         resource.setSkillVersionId(draft.getId());
@@ -267,15 +268,15 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     public AgentSkillResource updateDraftResource(String skillId, String resourceId, String fileName, String contentType, byte[] content, String purpose, String type) {
         AgentSkillVersion draft = requireDraft(skillId);
         AgentSkillResource resource = resourceService.getById(resourceId);
-        if (resource == null || !draft.getId().equals(resource.getSkillVersionId())) throw new ServerException(404, "skill.resource.not-found");
-        if (content == null || content.length == 0 || content.length > maxResourceSize) throw new ServerException(400, "skill.resource.file.size-exceeded");
+        if (resource == null || !draft.getId().equals(resource.getSkillVersionId())) throw new ServerException(404, I18nUtils.getMessage("skill.resource.not-found"));
+        if (content == null || content.length == 0 || content.length > maxResourceSize) throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.size-exceeded"));
         String[] parsed = parseResource(fileName, type);
         AgentSkillExecutionConfig execution = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
                 .eq(AgentSkillExecutionConfig::getSkillVersionId, draft.getId()));
         if (execution != null && Boolean.TRUE.equals(execution.getEnabled()) && resourceId.equals(execution.getEntryResourceId())) {
             String expectedLanguage = "PYTHON".equals(execution.getRuntime()) ? "python" : "NODE".equals(execution.getRuntime()) ? "js" : null;
             if (!"SCRIPT".equals(parsed[0]) || !StringUtils.equalsIgnoreCase(expectedLanguage, parsed[1])) {
-                throw new ServerException(409, "The entry script language must match the configured execution runtime");
+                throw new ServerException(409, I18nUtils.getMessage("skill.execution.entry-runtime.mismatch"));
             }
         }
         String newObjectKey = "skills/" + skillId + "/" + draft.getId() + "/" + sha256Hex(content);
@@ -301,12 +302,12 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         AgentSkillVersion draft = requireDraft(skillId);
         AgentSkillResource resource = resourceService.getById(resourceId);
         if (resource == null || !draft.getId().equals(resource.getSkillVersionId())) {
-            throw new ServerException(404, "skill.resource.not-found");
+            throw new ServerException(404, I18nUtils.getMessage("skill.resource.not-found"));
         }
         AgentSkillExecutionConfig execution = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
                 .eq(AgentSkillExecutionConfig::getSkillVersionId, draft.getId()));
         if (execution != null && Boolean.TRUE.equals(execution.getEnabled()) && resourceId.equals(execution.getEntryResourceId())) {
-            throw new ServerException(409, "Disable artifact execution or select another entry script before deleting this resource");
+            throw new ServerException(409, I18nUtils.getMessage("skill.execution.resource.delete.blocked"));
         }
         resourceService.removeById(resourceId);
         try {
@@ -321,7 +322,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         AgentSkill skill = requireSkill(skillId);
         AgentSkillVersion version = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 0));
         if (version == null) version = StringUtils.isBlank(skill.getCurrentVersionId()) ? null : versionService.getById(skill.getCurrentVersionId());
-        if (version == null) throw new ServerException(409, "skill.resource.no-version");
+        if (version == null) throw new ServerException(409, I18nUtils.getMessage("skill.resource.no-version"));
 
         AgentSkillPreviewVo result = new AgentSkillPreviewVo();
         result.setSkillId(skill.getId());
@@ -463,7 +464,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     @Transactional(rollbackFor = Exception.class)
     public void updateExecutionConfig(String skillId, AgentSkillExecutionConfigDto dto) {
         AgentSkillVersion draft = requireDraft(skillId);
-        if (dto == null) throw new ServerException(400, "Execution configuration is required");
+        if (dto == null) throw new ServerException(400, I18nUtils.getMessage("skill.execution.config.required"));
         boolean enabled = Boolean.TRUE.equals(dto.getEnabled());
         AgentSkillExecutionConfig config = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
                 .eq(AgentSkillExecutionConfig::getSkillVersionId, draft.getId()));
@@ -481,24 +482,24 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
 
     private void validateExecutionConfig(String versionId, AgentSkillExecutionConfigDto dto) {
         if (StringUtils.isBlank(dto.getEntryResourceId()) || StringUtils.isBlank(dto.getRuntime())) {
-            throw new ServerException(400, "Execution entry resource and runtime are required");
+            throw new ServerException(400, I18nUtils.getMessage("skill.execution.entry-runtime.required"));
         }
         String runtime = StringUtils.upperCase(dto.getRuntime());
-        if (!("PYTHON".equals(runtime) || "NODE".equals(runtime))) throw new ServerException(400, "Only PYTHON and NODE runtimes are supported");
+        if (!("PYTHON".equals(runtime) || "NODE".equals(runtime))) throw new ServerException(400, I18nUtils.getMessage("skill.execution.runtime.unsupported"));
         AgentSkillResource entry = resourceService.getById(dto.getEntryResourceId());
         if (entry == null || !versionId.equals(entry.getSkillVersionId()) || !"SCRIPT".equals(entry.getType()) || !Integer.valueOf(1).equals(entry.getStatus())) {
-            throw new ServerException(400, "Execution entry must be an enabled script resource in this draft");
+            throw new ServerException(400, I18nUtils.getMessage("skill.execution.entry.invalid"));
         }
         if (("PYTHON".equals(runtime) && !"python".equalsIgnoreCase(entry.getLanguage())) || ("NODE".equals(runtime) && !"js".equalsIgnoreCase(entry.getLanguage()))) {
-            throw new ServerException(400, "Execution runtime does not match entry script language");
+            throw new ServerException(400, I18nUtils.getMessage("skill.execution.runtime.language-mismatch"));
         }
         if (dto.getOutputFormats() == null || dto.getOutputFormats().isEmpty() || dto.getOutputFormats().size() > 3
                 || dto.getOutputFormats().stream().anyMatch(item -> !("pdf".equalsIgnoreCase(item) || "docx".equalsIgnoreCase(item) || "xlsx".equalsIgnoreCase(item)))) {
-            throw new ServerException(400, "Output formats must be PDF, DOCX, or XLSX");
+            throw new ServerException(400, I18nUtils.getMessage("skill.execution.output-formats.invalid"));
         }
-        if (dto.getTimeoutSeconds() == null || dto.getTimeoutSeconds() < 1 || dto.getTimeoutSeconds() > 60) throw new ServerException(400, "Timeout must be between 1 and 60 seconds");
-        if (dto.getMaxOutputFiles() == null || dto.getMaxOutputFiles() < 1 || dto.getMaxOutputFiles() > 3) throw new ServerException(400, "Output file count must be between 1 and 3");
-        if (dto.getMaxOutputBytes() == null || dto.getMaxOutputBytes() < 1 || dto.getMaxOutputBytes() > 52_428_800L) throw new ServerException(400, "Output size must not exceed 50 MB");
+        if (dto.getTimeoutSeconds() == null || dto.getTimeoutSeconds() < 1 || dto.getTimeoutSeconds() > 60) throw new ServerException(400, I18nUtils.getMessage("skill.execution.timeout.invalid"));
+        if (dto.getMaxOutputFiles() == null || dto.getMaxOutputFiles() < 1 || dto.getMaxOutputFiles() > 3) throw new ServerException(400, I18nUtils.getMessage("skill.execution.output-files.invalid"));
+        if (dto.getMaxOutputBytes() == null || dto.getMaxOutputBytes() < 1 || dto.getMaxOutputBytes() > 52_428_800L) throw new ServerException(400, I18nUtils.getMessage("skill.execution.output-size.invalid"));
     }
 
     private String buildPreviewPrompt(AgentSkill skill, AgentSkillVersion version, List<AgentSkillResource> resources, Map<String, Object> sampleInput) {
@@ -523,7 +524,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     /** 返回 [type, language]；按扩展名白名单解析，拒绝压缩包与未知类型。 */
     private String[] parseResource(String fileName, String declaredType) {
         String name = StringUtils.trimToNull(fileName);
-        if (name == null || name.indexOf('.') < 0) throw new ServerException(400, "skill.resource.file.unsupported-type");
+        if (name == null || name.indexOf('.') < 0) throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.unsupported-type"));
         String lower = name.toLowerCase(Locale.ROOT);
         String[] parsed;
         if (lower.endsWith(".md")) parsed = new String[]{"MARKDOWN", null};
@@ -531,9 +532,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         else if (lower.endsWith(".py")) parsed = new String[]{"SCRIPT", "python"};
         // Shell is deliberately not a Skill runtime.  Only the platform-owned Runner selects an interpreter.
         else if (lower.endsWith(".html") || lower.endsWith(".hbs") || lower.endsWith(".tpl") || lower.endsWith(".ftl")) parsed = new String[]{"TEMPLATE", null};
-        else throw new ServerException(400, "skill.resource.file.unsupported-type");
+        else throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.unsupported-type"));
         if (StringUtils.isNotBlank(declaredType) && !declaredType.equalsIgnoreCase(parsed[0])) {
-            throw new ServerException(400, "skill.resource.file.type-mismatch");
+            throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.type-mismatch"));
         }
         return parsed;
     }
@@ -546,7 +547,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
             for (byte b : hash) hex.append(String.format("%02x", b));
             return hex.toString();
         } catch (Exception e) {
-            throw new ServerException(500, "server.error");
+            throw new ServerException(500, I18nUtils.getMessage("server.error"));
         }
     }
 
@@ -554,15 +555,15 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         // 仅草稿允许整体替换依赖声明；已发布版本不会调用此方法。
         toolBindingService.remove(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, versionId));
         knowledgeBindingService.remove(Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class).eq(AgentSkillKnowledgeBinding::getSkillVersionId, versionId));
-        if (dto.getTools() != null) for (AgentSkillToolDto item : dto.getTools()) { if (StringUtils.isBlank(item.getToolId())) throw new ServerException(400, "Tool ID is required"); AgentSkillToolBinding binding = new AgentSkillToolBinding(); binding.setSkillVersionId(versionId); binding.setToolId(item.getToolId()); binding.setRequired(Boolean.TRUE.equals(item.getRequired())); binding.setPriority(item.getPriority()); toolBindingService.save(binding); }
-        if (dto.getKnowledgeBaseIds() != null) for (String id : dto.getKnowledgeBaseIds()) { if (StringUtils.isBlank(id)) throw new ServerException(400, "Knowledge base ID is required"); AgentSkillKnowledgeBinding binding = new AgentSkillKnowledgeBinding(); binding.setSkillVersionId(versionId); binding.setKnowledgeBaseId(id); knowledgeBindingService.save(binding); }
+        if (dto.getTools() != null) for (AgentSkillToolDto item : dto.getTools()) { if (StringUtils.isBlank(item.getToolId())) throw new ServerException(400, I18nUtils.getMessage("skill.binding.tool-id.required")); AgentSkillToolBinding binding = new AgentSkillToolBinding(); binding.setSkillVersionId(versionId); binding.setToolId(item.getToolId()); binding.setRequired(Boolean.TRUE.equals(item.getRequired())); binding.setPriority(item.getPriority()); toolBindingService.save(binding); }
+        if (dto.getKnowledgeBaseIds() != null) for (String id : dto.getKnowledgeBaseIds()) { if (StringUtils.isBlank(id)) throw new ServerException(400, I18nUtils.getMessage("skill.binding.knowledge-base-id.required")); AgentSkillKnowledgeBinding binding = new AgentSkillKnowledgeBinding(); binding.setSkillVersionId(versionId); binding.setKnowledgeBaseId(id); knowledgeBindingService.save(binding); }
     }
-    private AgentSkill requireSkill(String id) { AgentSkill value = getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, "Skill not found"); return value; }
-    private AgentSkillVersion requireDraft(String skillId) { AgentSkillVersion value = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 0)); if (value == null) throw new ServerException(409, "Skill has no editable draft"); return value; }
-    private AgentSkillVersion requirePublishedVersion(String id) { AgentSkillVersion value = versionService.getById(id); if (value == null || !Integer.valueOf(1).equals(value.getStatus())) throw new ServerException(400, "Skill version is not published"); AgentSkill skill = requireSkill(value.getSkillId()); if (!Integer.valueOf(1).equals(skill.getStatus())) throw new ServerException(400, "Skill is disabled"); return value; }
-    private AgentDefinitionSkillBinding requireBinding(String agentId, String id) { AgentDefinitionSkillBinding value = definitionBindingService.getById(id); if (value == null || !agentId.equals(value.getAgentDefinitionId())) throw new ServerException(404, "Skill installation not found"); return value; }
-    private void requireAgent(String id) { AgentDefinition agent = agentDefinitionService.getById(id); if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) throw new ServerException(404, "Agent not found"); }
-    private void validateIdentity(AgentSkillDraftDto dto) { if (dto == null || StringUtils.isBlank(dto.getName()) || StringUtils.isBlank(dto.getCode())) throw new ServerException(400, "Skill name and code are required"); }
+    private AgentSkill requireSkill(String id) { AgentSkill value = getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("skill.not-found")); return value; }
+    private AgentSkillVersion requireDraft(String skillId) { AgentSkillVersion value = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 0)); if (value == null) throw new ServerException(409, I18nUtils.getMessage("skill.draft.not-found")); return value; }
+    private AgentSkillVersion requirePublishedVersion(String id) { AgentSkillVersion value = versionService.getById(id); if (value == null || !Integer.valueOf(1).equals(value.getStatus())) throw new ServerException(400, I18nUtils.getMessage("skill.version.not-published")); AgentSkill skill = requireSkill(value.getSkillId()); if (!Integer.valueOf(1).equals(skill.getStatus())) throw new ServerException(400, I18nUtils.getMessage("skill.disabled")); return value; }
+    private AgentDefinitionSkillBinding requireBinding(String agentId, String id) { AgentDefinitionSkillBinding value = definitionBindingService.getById(id); if (value == null || !agentId.equals(value.getAgentDefinitionId())) throw new ServerException(404, I18nUtils.getMessage("skill.installation.not-found")); return value; }
+    private void requireAgent(String id) { AgentDefinition agent = agentDefinitionService.getById(id); if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("skill.agent.not-found")); }
+    private void validateIdentity(AgentSkillDraftDto dto) { if (dto == null || StringUtils.isBlank(dto.getName()) || StringUtils.isBlank(dto.getCode())) throw new ServerException(400, I18nUtils.getMessage("skill.identity.required")); }
     private void applyIdentity(AgentSkill target, AgentSkillDraftDto source) { target.setName(source.getName()); target.setCode(source.getCode()); target.setDescription(source.getDescription()); target.setCategory(source.getCategory()); target.setIcon(source.getIcon()); target.setTags(source.getTags()); }
     private void applyDraft(AgentSkillVersion target, AgentSkillDraftDto source) { target.setInstruction(source.getInstruction()); target.setInputSchema(source.getInputSchema()); target.setOutputSchema(source.getOutputSchema()); target.setToolPolicy(source.getToolPolicy()); target.setChangeNote(source.getChangeNote()); target.setRoutingSummary(source.getRoutingSummary()); target.setTriggerTerms(JSON.toJSONString(source.getTriggerTerms() == null ? Collections.emptyList() : source.getTriggerTerms())); target.setExcludeTerms(JSON.toJSONString(source.getExcludeTerms() == null ? Collections.emptyList() : source.getExcludeTerms())); target.setRoutingExamples(JSON.toJSONString(source.getRoutingExamples() == null ? Collections.emptyList() : source.getRoutingExamples())); }
     private void validateRoutingMetadata(AgentSkillVersion draft, AgentSkillPublishCheckVo result) { try { List<String> trigger = JSON.parseArray(StringUtils.defaultIfBlank(draft.getTriggerTerms(), "[]"), String.class); List<String> exclude = JSON.parseArray(StringUtils.defaultIfBlank(draft.getExcludeTerms(), "[]"), String.class); List<String> examples = JSON.parseArray(StringUtils.defaultIfBlank(draft.getRoutingExamples(), "[]"), String.class); if (trigger.size() > 20 || exclude.size() > 20 || examples.size() > 5) result.getBlockers().add("路由关键词最多 20 个，示例最多 5 个"); for (String value : trigger) if (exclude.contains(value)) result.getBlockers().add("触发词和排除词不能重复：" + value); } catch (Exception e) { result.getBlockers().add("路由发现配置必须是有效列表"); } }

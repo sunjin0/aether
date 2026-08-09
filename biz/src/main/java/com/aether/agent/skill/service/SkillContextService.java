@@ -20,6 +20,7 @@ import com.aether.agent.skill.service.impl.AgentSkillToolBindingServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.storage.service.ObjectStorageService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -91,7 +92,7 @@ public class SkillContextService {
         }
         SkillRouteDecision route = skillRouterService == null ? new SkillRouteDecision() : skillRouterService.route(agent, provider, routingQuery, installations);
         if (!route.isMatched()) {
-            if (dto != null && dto.getSkillInputs() != null && !dto.getSkillInputs().isEmpty()) throw new ServerException(422, "No Skill is active for supplied skill inputs");
+            if (dto != null && dto.getSkillInputs() != null && !dto.getSkillInputs().isEmpty()) throw new ServerException(422, I18nUtils.getMessage("skill.context.no-active-skill"));
             context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt())); context.setTools(toolCatalog.getBoundTools(agent.getId())); context.setKnowledgeBaseIds(null);
             context.setSnapshot(JSON.toJSONString(java.util.Collections.<String, Object>singletonMap("routing", route))); return context;
         }
@@ -108,7 +109,7 @@ public class SkillContextService {
         for (AgentDefinitionSkillBinding installation : installations) {
             AgentSkill skill = skillService.getById(installation.getSkillId());
             AgentSkillVersion version = versionService.getById(installation.getSkillVersionId());
-            if (skill == null || version == null || !Integer.valueOf(1).equals(skill.getStatus()) || !Integer.valueOf(1).equals(version.getStatus())) throw new ServerException(422, "Installed Skill version is unavailable");
+            if (skill == null || version == null || !Integer.valueOf(1).equals(skill.getStatus()) || !Integer.valueOf(1).equals(version.getStatus())) throw new ServerException(422, I18nUtils.getMessage("skill.context.version.unavailable"));
             installedCodes.add(skill.getCode());
             AgentSkillExecutionConfig execution = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class).eq(AgentSkillExecutionConfig::getSkillVersionId, version.getId()));
             if (execution != null && Boolean.TRUE.equals(execution.getEnabled())) artifactSkillCodes.add(skill.getCode());
@@ -117,7 +118,7 @@ public class SkillContextService {
             Set<String> toolIds = declarations.stream().map(AgentSkillToolBinding::getToolId).collect(Collectors.toCollection(LinkedHashSet::new));
             for (AgentSkillToolBinding declaration : declarations) {
                 AgentTool tool = boundTools.stream().filter(item -> declaration.getToolId().equals(item.getId())).findFirst().orElse(null);
-                if (Boolean.TRUE.equals(declaration.getRequired()) && (!boundToolIds.contains(declaration.getToolId()) || !isLiveMcpTool(tool))) throw new ServerException(422, "Required Skill tool is not available: " + declaration.getToolId());
+                if (Boolean.TRUE.equals(declaration.getRequired()) && (!boundToolIds.contains(declaration.getToolId()) || !isLiveMcpTool(tool))) throw new ServerException(422, I18nUtils.getMessage("skill.context.required-tool.unavailable", new Object[]{declaration.getToolId()}));
             }
             declaredToolIds = merge(declaredToolIds, toolIds);
             Set<String> knowledgeIds = knowledgeBindingService.list(Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class).eq(AgentSkillKnowledgeBinding::getSkillVersionId, version.getId()))
@@ -137,7 +138,7 @@ public class SkillContextService {
             snapshot.put("input", maskedInput); snapshot.put("resources", resources.stream().map(this::resourceSnapshot).collect(Collectors.toList()));
             snapshotSkills.add(snapshot);
         }
-        for (String code : inputs.keySet()) if (!installedCodes.contains(code)) throw new ServerException(422, "Skill input is not installed on this Agent");
+        for (String code : inputs.keySet()) if (!installedCodes.contains(code)) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.not-installed"));
         Set<String> finalToolIds = declaredToolIds;
         List<AgentTool> tools = boundTools.stream().filter(item -> finalToolIds != null && finalToolIds.contains(item.getId()) && isLiveMcpTool(item)).collect(Collectors.toList());
         if (!artifactSkillCodes.isEmpty()) prompt.append("\n\n[Artifact Generation]\nWhen calling generate_artifact, skill_code must be exactly one of: ").append(String.join(", ", artifactSkillCodes)).append(".");
@@ -165,10 +166,10 @@ public class SkillContextService {
         if (resources == null || resources.isEmpty()) return "";
         StringBuilder result = new StringBuilder("\n\n## 资源参考");
         for (AgentSkillResource resource : resources) {
-            if (!Integer.valueOf(1).equals(resource.getStatus())) throw new ServerException(422, "Frozen Skill resource is disabled: " + resource.getName());
+            if (!Integer.valueOf(1).equals(resource.getStatus())) throw new ServerException(422, I18nUtils.getMessage("skill.context.resource.disabled", new Object[]{resource.getName()}));
             byte[] content;
-            try { content = objectStorageService.getObject(resourceBucket, resource.getObjectKey()); } catch (Exception e) { throw new ServerException(422, "Frozen Skill resource is unavailable: " + resource.getName()); }
-            if (content == null || !sha256(content).equalsIgnoreCase(resource.getContentSha256())) throw new ServerException(422, "Frozen Skill resource checksum mismatch: " + resource.getName());
+            try { content = objectStorageService.getObject(resourceBucket, resource.getObjectKey()); } catch (Exception e) { throw new ServerException(422, I18nUtils.getMessage("skill.context.resource.unavailable", new Object[]{resource.getName()})); }
+            if (content == null || !sha256(content).equalsIgnoreCase(resource.getContentSha256())) throw new ServerException(422, I18nUtils.getMessage("skill.context.resource.checksum-mismatch", new Object[]{resource.getName()}));
             result.append("\n- ").append(resource.getName()).append(" (").append(resource.getType()).append(")");
             if (StringUtils.isNotBlank(resource.getPurpose())) result.append("：").append(resource.getPurpose());
             if ("MARKDOWN".equals(resource.getType())) result.append("\n").append(toPlainText(content, MAX_MARKDOWN_CHARS));
@@ -182,16 +183,16 @@ public class SkillContextService {
         Map<String, Object> value = input == null ? Collections.<String, Object>emptyMap() : input;
         if (StringUtils.isNotBlank(schemaText)) {
             JSONObject schema;
-            try { schema = JSON.parseObject(schemaText); } catch (Exception e) { throw new ServerException(422, "Published Skill input schema is invalid"); }
-            if (schema == null || (!StringUtils.isBlank(schema.getString("type")) && !"object".equals(schema.getString("type")))) throw new ServerException(422, "Published Skill input schema must be an object");
+            try { schema = JSON.parseObject(schemaText); } catch (Exception e) { throw new ServerException(422, I18nUtils.getMessage("skill.context.input-schema.invalid")); }
+            if (schema == null || (!StringUtils.isBlank(schema.getString("type")) && !"object".equals(schema.getString("type")))) throw new ServerException(422, I18nUtils.getMessage("skill.context.input-schema.object-required"));
             List<String> required = schema.getList("required", String.class); if (required == null) required = Collections.emptyList();
-            for (String name : required) if (!value.containsKey(name) || value.get(name) == null) throw new ServerException(422, "Skill input is missing required field: " + name);
+            for (String name : required) if (!value.containsKey(name) || value.get(name) == null) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.required-field.missing", new Object[]{name}));
             JSONObject properties = schema.getJSONObject("properties"); boolean additional = !Boolean.FALSE.equals(schema.getBoolean("additionalProperties"));
             for (Map.Entry<String, Object> item : value.entrySet()) {
                 JSONObject property = properties == null ? null : properties.getJSONObject(item.getKey());
-                if (property == null) { if (!additional) throw new ServerException(422, "Skill input has undeclared field: " + item.getKey()); continue; }
+                if (property == null) { if (!additional) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.field.undeclared", new Object[]{item.getKey()})); continue; }
                 String type = property.getString("type"); Object actual = item.getValue();
-                if (("string".equals(type) && !(actual instanceof String)) || ("boolean".equals(type) && !(actual instanceof Boolean)) || ("number".equals(type) && !(actual instanceof Number)) || ("integer".equals(type) && (!(actual instanceof Number) || ((Number) actual).doubleValue() % 1 != 0)) || ("array".equals(type) && !(actual instanceof Collection)) || ("object".equals(type) && !(actual instanceof Map))) throw new ServerException(422, "Skill input field has invalid type: " + item.getKey());
+                if (("string".equals(type) && !(actual instanceof String)) || ("boolean".equals(type) && !(actual instanceof Boolean)) || ("number".equals(type) && !(actual instanceof Number)) || ("integer".equals(type) && (!(actual instanceof Number) || ((Number) actual).doubleValue() % 1 != 0)) || ("array".equals(type) && !(actual instanceof Collection)) || ("object".equals(type) && !(actual instanceof Map))) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.field.invalid-type", new Object[]{item.getKey()}));
             }
         }
         return mask(value);
@@ -202,5 +203,5 @@ public class SkillContextService {
     private Object maskValue(Object value) { if (value instanceof Map) return mask((Map<String, Object>) value); if (value instanceof Collection) { List<Object> result = new ArrayList<>(); for (Object item : (Collection<?>) value) result.add(maskValue(item)); return result; } return value; }
     private boolean isSensitive(String name) { String lower = StringUtils.defaultString(name).toLowerCase(); return lower.contains("password") || lower.contains("secret") || lower.contains("token") || lower.contains("credential") || lower.contains("authorization") || lower.endsWith("key"); }
     private String toPlainText(byte[] content, int maxChars) { String text = new String(content, StandardCharsets.UTF_8).replaceAll("(?s)<[^>]+>", " ").replaceAll("(?m)^\\s{0,3}#{1,6}\\s*", "").replaceAll("[`*_>#]", " ").replaceAll("\\s+", " ").trim(); return text.length() > maxChars ? text.substring(0, maxChars) + "…" : text; }
-    private String sha256(byte[] content) { try { byte[] hash = MessageDigest.getInstance("SHA-256").digest(content); StringBuilder value = new StringBuilder(); for (byte item : hash) value.append(String.format("%02x", item)); return value.toString(); } catch (Exception e) { throw new ServerException(500, "Skill resource checksum failure"); } }
+    private String sha256(byte[] content) { try { byte[] hash = MessageDigest.getInstance("SHA-256").digest(content); StringBuilder value = new StringBuilder(); for (byte item : hash) value.append(String.format("%02x", item)); return value.toString(); } catch (Exception e) { throw new ServerException(500, I18nUtils.getMessage("skill.context.resource.checksum.failure")); } }
 }

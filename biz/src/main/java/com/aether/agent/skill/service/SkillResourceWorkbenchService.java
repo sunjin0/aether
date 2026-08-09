@@ -13,6 +13,7 @@ import com.aether.agent.skill.service.impl.AgentSkillServiceImpl;
 import com.aether.agent.skill.vo.AgentSkillResourceGenerateVo;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.aether.storage.service.ObjectStorageService;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,27 +50,27 @@ public class SkillResourceWorkbenchService {
     public String content(String skillId, String resourceId) {
         AgentSkillResource resource = skillService.listResources(skillId).stream()
                 .filter(item -> resourceId.equals(item.getId())).findFirst()
-                .orElseThrow(() -> new ServerException(404, "skill.resource.not-found"));
+                .orElseThrow(() -> new ServerException(404, I18nUtils.getMessage("skill.resource.not-found")));
         if (resource.getSize() != null && resource.getSize() > MAX_PREVIEW_BYTES) {
-            throw new ServerException(413, "Resource is too large to preview online");
+            throw new ServerException(413, I18nUtils.getMessage("skill.resource.preview.too-large"));
         }
         byte[] bytes = storage.getObject(resourceBucket, resource.getObjectKey());
-        if (bytes.length > MAX_PREVIEW_BYTES) throw new ServerException(413, "Resource is too large to preview online");
+        if (bytes.length > MAX_PREVIEW_BYTES) throw new ServerException(413, I18nUtils.getMessage("skill.resource.preview.too-large"));
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
     public AgentSkillResourceGenerateVo generate(String skillId, AgentSkillResourceGenerateDto dto) {
         skillService.getById(skillId);
         if (dto == null || StringUtils.isBlank(dto.getProviderId()) || StringUtils.isBlank(dto.getPrompt())) {
-            throw new ServerException(400, "AI provider and generation request are required");
+            throw new ServerException(400, I18nUtils.getMessage("skill.resource.generate.provider-request.required"));
         }
         String type = StringUtils.upperCase(dto.getType());
         if (!Arrays.asList("MARKDOWN", "TEMPLATE", "SCRIPT").contains(type)) {
-            throw new ServerException(400, "Unsupported resource type");
+            throw new ServerException(400, I18nUtils.getMessage("skill.resource.type.unsupported"));
         }
         ModelProvider provider = providerService.getById(dto.getProviderId());
         if (provider == null || !Integer.valueOf(1).equals(provider.getStatus())) {
-            throw new ServerException(400, "Selected AI provider is unavailable");
+            throw new ServerException(400, I18nUtils.getMessage("skill.resource.generate.provider.unavailable"));
         }
         String name = normaliseName(dto.getName(), type);
         ModelChatRequest request = new ModelChatRequest();
@@ -82,7 +83,7 @@ public class SkillResourceWorkbenchService {
         ));
         ModelClient client = modelClientFactory.getClient(provider);
         ModelChatResponse response = client.chatByProvider(request);
-        if (response == null || StringUtils.isBlank(response.getContent())) throw new ServerException(502, "AI returned an empty resource draft");
+        if (response == null || StringUtils.isBlank(response.getContent())) throw new ServerException(502, I18nUtils.getMessage("skill.resource.generate.empty-response"));
         AgentSkillResourceGenerateVo result = new AgentSkillResourceGenerateVo();
         result.setName(name); result.setType(type); result.setPurpose(dto.getPurpose());
         result.setContent(stripFence(response.getContent())); result.setModel(response.getModel());
