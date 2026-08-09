@@ -182,7 +182,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
             
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
-            if (!Boolean.TRUE.equals(agent.getDefaultThinking())) {
+            if (!Boolean.TRUE.equals(agent.getDefaultThinking()) && StringUtils.isBlank(modelResponse.getToolCalls())) {
                 modelResponse.setReasoningContent(null);
                 modelResponse.setReasoningTokens(null);
             }
@@ -339,7 +339,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             ModelStreamResponse modelResponse = modelClient.stream(request, streamCallback);
             
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
-            if (!thinkingEnabled) {
+            if (!thinkingEnabled && StringUtils.isBlank(modelResponse.getToolCalls())) {
                 modelResponse.setReasoningContent(null);
                 modelResponse.setReasoningTokens(null);
             }
@@ -421,7 +421,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 modelResponse = modelClient.stream(request, streamCallback);
                 
                 // 推理未开启时，过滤掉reasoning_content
-                if (!thinkingEnabled) {
+                if (!thinkingEnabled && StringUtils.isBlank(modelResponse.getToolCalls())) {
                     modelResponse.setReasoningContent(null);
                 }
                 validateNonEmptyStreamResponse(modelResponse);
@@ -547,7 +547,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             ForwardingStreamCallback streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
             ModelStreamResponse modelResponse = modelClient.stream(request, streamCallback);
 
-            if (!thinkingEnabled) {
+            if (!thinkingEnabled && StringUtils.isBlank(modelResponse.getToolCalls())) {
                 modelResponse.setReasoningContent(null);
                 modelResponse.setReasoningTokens(null);
             }
@@ -622,7 +622,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 request.setMessages(context);
                 streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
                 modelResponse = modelClient.stream(request, streamCallback);
-                if (!thinkingEnabled) {
+                if (!thinkingEnabled && StringUtils.isBlank(modelResponse.getToolCalls())) {
                     modelResponse.setReasoningContent(null);
                     modelResponse.setReasoningTokens(null);
                 }
@@ -1223,7 +1223,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (context == null || response == null || toolResults == null || toolResults.isEmpty()) {
             return;
         }
-        context.add(new ModelChatMessage("assistant", response.getContent(), response.getToolCalls(), null));
+        // DeepSeek thinking mode requires the prior reasoning_content to be replayed
+        // together with the assistant tool call before a tool result can be continued.
+        context.add(new ModelChatMessage("assistant", response.getContent(), response.getToolCalls(), null,
+                response.getReasoningContent()));
         Map<String, String> toolNameByCallId = parseToolNameByCallId(response.getToolCalls());
         for (ToolExecutionResult result : toolResults) {
             if (result == null) {

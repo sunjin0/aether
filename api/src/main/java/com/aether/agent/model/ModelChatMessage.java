@@ -18,6 +18,9 @@ public class ModelChatMessage {
 
     private String toolCallId;
 
+    /** Required by thinking-mode OpenAI-compatible providers when continuing after a tool call. */
+    private String reasoningContent;
+
     private transient Integer cachedTokens;
 
     public ModelChatMessage(String role, String content) {
@@ -30,5 +33,10 @@ public class ModelChatMessage {
         this.content = content;
         this.toolCalls = toolCalls;
         this.toolCallId = toolCallId;
+    }
+
+    public ModelChatMessage(String role, String content, String toolCalls, String toolCallId, String reasoningContent) {
+        this(role, content, toolCalls, toolCallId);
+        this.reasoningContent = reasoningContent;
     }
 }

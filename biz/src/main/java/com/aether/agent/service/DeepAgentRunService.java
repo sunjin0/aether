@@ -6,6 +6,7 @@ import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.skill.service.SkillRuntimeContext;
+import com.aether.agent.skill.service.SkillArtifactExecutionService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -43,6 +44,7 @@ public class DeepAgentRunService {
     private final DelegationTokenService delegationTokenService;
     private final AgentToolCatalog toolCatalog;
     private final KnowledgeContextService knowledgeContextService;
+    private final SkillArtifactExecutionService artifactExecutionService;
     private final DeepAgentConfig config;
 
     public DeepAgentRunService(AgentRunService agentRunService,
@@ -54,6 +56,7 @@ public class DeepAgentRunService {
                                DelegationTokenService delegationTokenService,
                                AgentToolCatalog toolCatalog,
                                KnowledgeContextService knowledgeContextService,
+                               SkillArtifactExecutionService artifactExecutionService,
                                DeepAgentConfig config) {
         this.agentRunService = agentRunService;
         this.agentRunStepService = agentRunStepService;
@@ -64,6 +67,7 @@ public class DeepAgentRunService {
         this.delegationTokenService = delegationTokenService;
         this.toolCatalog = toolCatalog;
         this.knowledgeContextService = knowledgeContextService;
+        this.artifactExecutionService = artifactExecutionService;
         this.config = config;
     }
 
@@ -134,8 +138,16 @@ public class DeepAgentRunService {
                     .filter(t -> t.getMcpToolName() != null)
                     .map(AgentTool::getMcpToolName)
                     .collect(Collectors.toList());
+            // Managed artifact execution is a platform capability, not a user-editable
+            // AgentTool. Grant it only when the already-frozen installed Skill declares it.
+            if (skillContext != null && skillContext.getArtifactSkillCodes() != null
+                    && !skillContext.getArtifactSkillCodes().isEmpty()) {
+                allowedTools.add("generate_artifact");
+            }
 
-            String delegationToken = delegationTokenService.create(runId, userId, agent.getId(), allowedTools);
+            List<String> artifactSkillCodes = skillContext == null || skillContext.getArtifactSkillCodes() == null
+                    ? Collections.<String>emptyList() : new ArrayList<>(skillContext.getArtifactSkillCodes());
+            String delegationToken = delegationTokenService.create(runId, userId, agent.getId(), allowedTools, artifactSkillCodes);
 
             List<Map<String, Object>> knowledgeSources = buildKnowledgeSources(sources);
 
@@ -417,6 +429,7 @@ public class DeepAgentRunService {
         if (!updated) {
             throw new IllegalStateException("更新 Deep Agent 最终运行记录失败");
         }
+        artifactExecutionService.attachPendingArtifacts(runId, message.getId());
         agentConversationService.update(null, Wrappers.lambdaUpdate(AgentConversation.class)
                 .eq(AgentConversation::getId, run.getConversationId())
                 .setSql("message_count = message_count + 1"));

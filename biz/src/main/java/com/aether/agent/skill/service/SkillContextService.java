@@ -29,17 +29,20 @@ public class SkillContextService {
     private final com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl versionService;
     private final com.aether.agent.skill.service.impl.AgentSkillToolBindingServiceImpl toolBindingService;
     private final com.aether.agent.skill.service.impl.AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService;
+    private final com.aether.agent.skill.service.impl.AgentSkillExecutionConfigServiceImpl executionConfigService;
     private final com.aether.agent.tools.AgentToolCatalog toolCatalog;
 
     public SkillContextService(AgentSkillService skillService,
                                com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl versionService,
                                com.aether.agent.skill.service.impl.AgentSkillToolBindingServiceImpl toolBindingService,
                                com.aether.agent.skill.service.impl.AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService,
+                               com.aether.agent.skill.service.impl.AgentSkillExecutionConfigServiceImpl executionConfigService,
                                com.aether.agent.tools.AgentToolCatalog toolCatalog) {
         this.skillService = skillService;
         this.versionService = versionService;
         this.toolBindingService = toolBindingService;
         this.knowledgeBindingService = knowledgeBindingService;
+        this.executionConfigService = executionConfigService;
         this.toolCatalog = toolCatalog;
     }
 
@@ -64,6 +67,7 @@ public class SkillContextService {
         StringBuilder prompt = new StringBuilder(StringUtils.defaultString(agent.getSystemPrompt()));
         List<Map<String, Object>> snapshotSkills = new ArrayList<>();
         Set<String> installedCodes = new LinkedHashSet<>();
+        Set<String> artifactSkillCodes = new LinkedHashSet<>();
         for (AgentDefinitionSkillBinding installation : installations) {
             AgentSkill skill = skillService.getById(installation.getSkillId());
             AgentSkillVersion version = versionService.getById(installation.getSkillVersionId());
@@ -71,6 +75,9 @@ public class SkillContextService {
                 throw new IllegalArgumentException("Installed Skill version is unavailable");
             }
             installedCodes.add(skill.getCode());
+            AgentSkillExecutionConfig execution = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
+                    .eq(AgentSkillExecutionConfig::getSkillVersionId, version.getId()));
+            if (execution != null && Boolean.TRUE.equals(execution.getEnabled())) artifactSkillCodes.add(skill.getCode());
             List<AgentSkillToolBinding> declarations = toolBindingService.list(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, version.getId()));
             Set<String> toolIds = declarations.stream().map(AgentSkillToolBinding::getToolId).collect(Collectors.toCollection(LinkedHashSet::new));
             Set<String> liveToolIds = toolCatalog.getBoundTools(agent.getId()).stream().map(AgentTool::getId).collect(Collectors.toSet());
@@ -92,9 +99,14 @@ public class SkillContextService {
         for (String code : inputs.keySet()) if (!installedCodes.contains(code)) throw new IllegalArgumentException("Skill input is not installed on this Agent");
         Set<String> finalAllowedToolIds = allowedToolIds;
         List<AgentTool> tools = toolCatalog.getBoundTools(agent.getId()).stream().filter(item -> finalAllowedToolIds != null && finalAllowedToolIds.contains(item.getId())).collect(Collectors.toList());
+        if (!artifactSkillCodes.isEmpty()) {
+            prompt.append("\n\n[Artifact Generation]\nWhen calling generate_artifact, skill_code must be exactly one of: ")
+                    .append(String.join(", ", artifactSkillCodes))
+                    .append(". Do not invent, translate, or use a Skill name as skill_code.");
+        }
         prompt.append("\n\n[Platform Constraints]\n工具审批、安全与审计由平台统一控制。引用知识库资料时标注编号。");
-        Map<String, Object> snapshot = new LinkedHashMap<>(); snapshot.put("installed", true); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList())); snapshot.put("knowledgeBaseIds", allowedKnowledgeBaseIds == null ? Collections.emptySet() : allowedKnowledgeBaseIds);
-        context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools); context.setKnowledgeBaseIds(allowedKnowledgeBaseIds == null ? Collections.emptySet() : allowedKnowledgeBaseIds); context.setSnapshot(JSON.toJSONString(snapshot));
+        Map<String, Object> snapshot = new LinkedHashMap<>(); snapshot.put("installed", true); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList())); snapshot.put("knowledgeBaseIds", allowedKnowledgeBaseIds == null ? Collections.emptySet() : allowedKnowledgeBaseIds); snapshot.put("artifactSkillCodes", artifactSkillCodes);
+        context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools); context.setKnowledgeBaseIds(allowedKnowledgeBaseIds == null ? Collections.emptySet() : allowedKnowledgeBaseIds); context.setArtifactSkillCodes(artifactSkillCodes); context.setSnapshot(JSON.toJSONString(snapshot));
         return context;
     }
 

@@ -10,6 +10,7 @@ import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.service.*;
 import com.aether.agent.tools.AgentToolCatalog;
+import com.aether.agent.skill.service.SkillArtifactExecutionService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -43,6 +44,7 @@ class DeepAgentRunServiceTest {
     @Mock private DelegationTokenService delegationTokenService;
     @Mock private AgentToolCatalog toolCatalog;
     @Mock private KnowledgeContextService knowledgeContextService;
+    @Mock private SkillArtifactExecutionService artifactExecutionService;
     @Mock private DeepAgentConfig config;
 
     private DeepAgentRunService service;
@@ -54,7 +56,7 @@ class DeepAgentRunServiceTest {
         service = new DeepAgentRunService(agentRunService, agentRunStepService,
                 signingClient, agentConversationService, agentMessageService,
                 toolCallLogService,
-                delegationTokenService, toolCatalog, knowledgeContextService, config);
+                delegationTokenService, toolCatalog, knowledgeContextService, artifactExecutionService, config);
     }
 
     @Test
@@ -69,7 +71,7 @@ class DeepAgentRunServiceTest {
             return true;
         });
         when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
-        when(delegationTokenService.create(eq("run-1"), eq("user-1"), eq("agent-1"), anyList()))
+        when(delegationTokenService.create(eq("run-1"), eq("user-1"), eq("agent-1"), anyList(), anyList()))
                 .thenReturn("delegation-jwt");
         when(toolCatalog.getBoundTools("agent-1")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap()))
@@ -113,7 +115,7 @@ class DeepAgentRunServiceTest {
             inv.getArgument(0, AgentRun.class).setId("run-title"); return true;
         });
         when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
-        when(delegationTokenService.create(eq("run-title"), anyString(), anyString(), anyList())).thenReturn("token");
+        when(delegationTokenService.create(eq("run-title"), anyString(), anyString(), anyList(), anyList())).thenReturn("token");
         when(toolCatalog.getBoundTools("agent-title")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap())).thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
 
@@ -136,7 +138,7 @@ class DeepAgentRunServiceTest {
             inv.getArgument(0, AgentRun.class).setId("run-attachment"); return true;
         });
         when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
-        when(delegationTokenService.create(eq("run-attachment"), anyString(), anyString(), anyList())).thenReturn("token");
+        when(delegationTokenService.create(eq("run-attachment"), anyString(), anyString(), anyList(), anyList())).thenReturn("token");
         when(toolCatalog.getBoundTools("agent-attachment")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap())).thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
 
@@ -162,7 +164,7 @@ class DeepAgentRunServiceTest {
             return true;
         });
         when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
-        when(delegationTokenService.create(anyString(), anyString(), anyString(), anyList()))
+        when(delegationTokenService.create(anyString(), anyString(), anyString(), anyList(), anyList()))
                 .thenReturn("delegation-jwt");
         when(toolCatalog.getBoundTools("agent-2")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap()))
@@ -245,7 +247,7 @@ class DeepAgentRunServiceTest {
             inv.getArgument(0, AgentMessage.class).setId("message-3");
             return true;
         });
-        when(delegationTokenService.create(eq("run-3"), anyString(), anyString(), anyList())).thenReturn("token");
+        when(delegationTokenService.create(eq("run-3"), anyString(), anyString(), anyList(), anyList())).thenReturn("token");
         when(toolCatalog.getBoundTools("agent-3")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap())).thenAnswer(inv -> {
             verify(registration).accept("run-3");

@@ -95,8 +95,9 @@ class AdminPreferenceExtractionServiceImplTest {
         when(messageMapper.selectList(any())).thenReturn(Arrays.asList(user, assistant));
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
         ModelChatResponse response = new ModelChatResponse();
-        response.setContent("[{\"category\":\"language\",\"key_name\":\"preferred_language\","
-                + "\"value\":\"zh-CN\",\"confidence\":0.9}]");
+        response.setContent("{\"summary\":\"The user wants Chinese responses.\",\"preferences\":[{"
+                + "\"category\":\"language\",\"key_name\":\"preferred_language\","
+                + "\"value\":\"zh-CN\",\"confidence\":0.9}]}");
         when(modelClient.chat(any())).thenReturn(response);
         when(preferenceMapper.selectByIdentity(
                 "user-1", "language", "preferred_language", "global", ""))

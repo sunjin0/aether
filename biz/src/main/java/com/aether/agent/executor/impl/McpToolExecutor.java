@@ -8,6 +8,7 @@ import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.mcp.McpClient;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.DelegationTokenService;
+import com.aether.agent.skill.service.ArtifactSkillAuthorizationService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson2.JSON;
@@ -17,6 +18,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * MCP tool executor. AgentTool stores the concrete MCP tool name and references an MCP server configuration.
@@ -29,12 +32,15 @@ public class McpToolExecutor implements ToolExecutor {
     private final McpClient mcpClient;
     private final AgentMcpServerService agentMcpServerService;
     private final DelegationTokenService delegationTokenService;
+    private final ArtifactSkillAuthorizationService artifactSkillAuthorizationService;
 
     public McpToolExecutor(McpClient mcpClient, AgentMcpServerService agentMcpServerService,
-                           DelegationTokenService delegationTokenService) {
+                           DelegationTokenService delegationTokenService,
+                           ArtifactSkillAuthorizationService artifactSkillAuthorizationService) {
         this.mcpClient = mcpClient;
         this.agentMcpServerService = agentMcpServerService;
         this.delegationTokenService = delegationTokenService;
+        this.artifactSkillAuthorizationService = artifactSkillAuthorizationService;
     }
 
     @Override
@@ -50,12 +56,19 @@ public class McpToolExecutor implements ToolExecutor {
         String requestUrl = null;
         try {
             AgentMcpServer server = buildServer(tool);
-            applyDelegationToken(server, context, tool);
+            String delegationToken = applyDelegationToken(server, context, tool);
             requestUrl = server.getBaseUrl();
             String mcpToolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
-            requestBody = JSON.toJSONString(context.getArguments());
+            Map<String, Object> arguments = context.getArguments() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(context.getArguments());
+            // FastMCP runs tool workers out of the inbound ASGI context.  This
+            // opaque five-minute token is injected by Java only; Admin verifies
+            // it again and never accepts a caller-provided command or image.
+            if ("generate_artifact".equals(mcpToolName)) arguments.put("aether_delegation", delegationToken);
+            Map<String, Object> auditArguments = new LinkedHashMap<>(arguments);
+            if (auditArguments.containsKey("aether_delegation")) auditArguments.put("aether_delegation", "***");
+            requestBody = JSON.toJSONString(auditArguments);
             mcpClient.ping(server);
-            JSONObject response = mcpClient.callTool(server, mcpToolName, context.getArguments());
+            JSONObject response = mcpClient.callTool(server, mcpToolName, arguments);
             long latencyMs = System.currentTimeMillis() - startTime;
 
             boolean mcpError = Boolean.TRUE.equals(response.getBoolean("isError"));
@@ -103,13 +116,16 @@ public class McpToolExecutor implements ToolExecutor {
     }
 
     /** 普通 Agent 与 Deep Agent 使用相同的 Java 委派 JWT，MCP 仅接受当前运行允许的工具。 */
-    private void applyDelegationToken(AgentMcpServer server, ToolExecutionContext context, AgentTool tool) {
+    private String applyDelegationToken(AgentMcpServer server, ToolExecutionContext context, AgentTool tool) {
         if (StringUtils.isAnyBlank(context.getRunId(), context.getUserId(), context.getAgentDefinitionId())) {
             throw new ServerException(422, I18nUtils.getMessage("agent.mcp.delegation-context.required"));
         }
         String toolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
         String token = delegationTokenService.create(context.getRunId(), context.getUserId(),
-                context.getAgentDefinitionId(), Collections.singletonList(toolName));
+                context.getAgentDefinitionId(), Collections.singletonList(toolName),
+                "generate_artifact".equals(toolName)
+                        ? new java.util.ArrayList<String>(artifactSkillAuthorizationService.resolve(context.getAgentDefinitionId()))
+                        : Collections.<String>emptyList());
         JSONObject headers = StringUtils.isBlank(server.getRequestHeaders())
                 ? new JSONObject() : JSON.parseObject(server.getRequestHeaders());
         headers.put("Authorization", "Bearer " + token);
@@ -118,6 +134,7 @@ public class McpToolExecutor implements ToolExecutor {
         }
         // 仅修改当前内存对象，绝不写回数据库或复用为长期静态令牌。
         server.setRequestHeaders(headers.toJSONString());
+        return token;
     }
 
     private String maskAuthorization(String headersJson) {

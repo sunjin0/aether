@@ -6,6 +6,7 @@ import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillResource;
 import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.service.AgentSkillService;
+import com.aether.agent.skill.service.SkillResourceWorkbenchService;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
 import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
@@ -30,7 +31,8 @@ import static org.mockito.Mockito.when;
 class AgentSkillControllerTest {
 
     private final AgentSkillService skillService = mock(AgentSkillService.class);
-    private final AgentSkillController controller = new AgentSkillController(skillService);
+    private final SkillResourceWorkbenchService resourceWorkbenchService = mock(SkillResourceWorkbenchService.class);
+    private final AgentSkillController controller = new AgentSkillController(skillService, resourceWorkbenchService);
 
     @Test
     void listReturnsPage() {

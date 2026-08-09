@@ -7,8 +7,6 @@ import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.service.ConversationSummaryService.SummarySnapshot;
-import com.alibaba.fastjson.JSONArray;
-import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
@@ -292,19 +290,10 @@ public class ConversationContextService {
     }
 
     private void addToolRun(List<ModelChatMessage> context, List<AgentToolCallLog> logs) {
-        JSONArray toolCalls = new JSONArray();
-        for (AgentToolCallLog log : logs) {
-            JSONObject function = new JSONObject();
-            function.put("name", log.getToolName());
-            function.put("arguments", truncate(
-                    StringUtils.defaultIfBlank(log.getArguments(), "{}"), 4000));
-            JSONObject call = new JSONObject();
-            call.put("id", log.getToolCallId());
-            call.put("type", "function");
-            call.put("function", function);
-            toolCalls.add(call);
-        }
-        context.add(new ModelChatMessage("assistant", null, toolCalls.toJSONString(), null));
+        // Historical tool calls do not retain the provider's reasoning_content. Replaying them as
+        // OpenAI tool protocol messages therefore makes DeepSeek thinking mode reject the next
+        // request. Preserve the useful audit context as ordinary assistant text instead.
+        StringBuilder summary = new StringBuilder("【历史工具执行】");
         for (AgentToolCallLog log : logs) {
             String content;
             if (Integer.valueOf(0).equals(log.getStatus())) {
@@ -313,9 +302,11 @@ public class ConversationContextService {
                 content = "工具执行未成功，status=" + log.getStatus()
                         + ", error=" + StringUtils.defaultString(log.getErrorMsg());
             }
-            context.add(new ModelChatMessage(
-                    "tool", truncate(content, 4000), null, log.getToolCallId()));
+            summary.append("\n- ").append(StringUtils.defaultIfBlank(log.getToolName(), "unknown_tool"))
+                    .append(" arguments=").append(truncate(StringUtils.defaultIfBlank(log.getArguments(), "{}"), 1000))
+                    .append(" result=").append(truncate(content, 4000));
         }
+        context.add(new ModelChatMessage("assistant", summary.toString()));
     }
 
     private String truncate(String value, int maxLength) {

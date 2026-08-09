@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page { size: A4; margin: 16mm 18mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #1f2937; font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; font-size: 10.5pt; line-height: 1.55; }
+    h1 { margin: 0; font-size: 25pt; letter-spacing: 2px; }
+    .headline { display: flex; justify-content: space-between; align-items: end; padding-bottom: 12px; border-bottom: 2px solid #2563eb; }
+    .contact { color: #4b5563; text-align: right; font-size: 9.5pt; }
+    .contact span + span::before { content: " · "; }
+    h2 { margin: 18px 0 8px; padding-left: 9px; border-left: 4px solid #2563eb; color: #1e3a8a; font-size: 13pt; }
+    .summary { margin: 0; white-space: pre-line; }
+    .item { margin: 0 0 12px; page-break-inside: avoid; }
+    .item-header { display: flex; justify-content: space-between; gap: 16px; font-weight: 700; }
+    .sub { color: #4b5563; }
+    ul { margin: 5px 0 0; padding-left: 18px; }
+    .skills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .skill { padding: 2px 8px; background: #eff6ff; border-radius: 10px; color: #1d4ed8; font-size: 9.5pt; }
+  </style>
+</head>
+<body>
+  <header class="headline">
+    <div><h1>{{name}}</h1><div class="sub">{{targetTitle}}</div></div>
+    <div class="contact"><span>{{phone}}</span><span>{{email}}</span><span>{{city}}</span></div>
+  </header>
+
+  {{#if summary}}<h2>个人概述</h2><p class="summary">{{summary}}</p>{{/if}}
+
+  {{#if experiences}}<h2>工作经历</h2>{{#each experiences}}<section class="item"><div class="item-header"><span>{{company}} · {{title}}</span><span>{{period}}</span></div><div class="sub">{{location}}</div><ul>{{#each achievements}}<li>{{this}}</li>{{/each}}</ul></section>{{/each}}{{/if}}
+
+  {{#if projects}}<h2>项目经历</h2>{{#each projects}}<section class="item"><div class="item-header"><span>{{name}} · {{role}}</span><span>{{period}}</span></div><p class="summary">{{description}}</p><ul>{{#each achievements}}<li>{{this}}</li>{{/each}}</ul></section>{{/each}}{{/if}}
+
+  {{#if education}}<h2>教育背景</h2>{{#each education}}<section class="item"><div class="item-header"><span>{{school}} · {{major}}</span><span>{{period}}</span></div><div class="sub">{{degree}}</div></section>{{/each}}{{/if}}
+
+  {{#if skills}}<h2>专业技能</h2><div class="skills">{{#each skills}}<span class="skill">{{this}}</span>{{/each}}</div>{{/if}}
+  {{#if certificates}}<h2>证书与补充信息</h2><p class="summary">{{certificates}}</p>{{/if}}
+</body>
+</html>

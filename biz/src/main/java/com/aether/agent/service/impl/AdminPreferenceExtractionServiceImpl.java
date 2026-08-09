@@ -145,7 +145,8 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
             promptBuilder.append(StringUtils.defaultString(lastAssistant.getContent(), "")).append("\n");
         }
         promptBuilder.append("=== End ===\n\n");
-        promptBuilder.append("Preferences format: [{\"category\":\"language|style|format|tech_stack|tool_strategy\",\"key_name\":\"...\",\"value\":\"...\",\"confidence\":0.0-1.0}]\n");
+        promptBuilder.append("Return only a JSON object in this format (no Markdown code fence): ");
+        promptBuilder.append("{\"summary\":\"...\",\"preferences\":[{\"category\":\"language|style|format|tech_stack|tool_strategy\",\"key_name\":\"...\",\"value\":\"...\",\"confidence\":0.0-1.0}]}\n");
         promptBuilder.append("Rules:\n");
         promptBuilder.append("- Only extract RECURRING patterns, not one-time requests\n");
         promptBuilder.append("- Exclude: passwords, tokens, temporary questions, one-off tasks\n");
@@ -218,16 +219,23 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
 
     private List<AdminPreference> parsePreferences(String response) {
         List<AdminPreference> result = new ArrayList<>();
-        String json = response;
-        if (json.contains("```json")) {
-            json = json.substring(json.indexOf("```json") + 7, json.lastIndexOf("```"));
-        } else if (json.contains("```")) {
-            json = json.substring(json.indexOf("```") + 3, json.lastIndexOf("```"));
+        String json = unwrapJsonCodeFence(response);
+        if (StringUtils.isBlank(json)) {
+            return result;
         }
 
         try {
-            JSONArray arr = JSONArray.parseArray(json.trim());
+            String trimmed = json.trim();
+            JSONArray arr;
+            if (trimmed.startsWith("{")) {
+                JSONObject payload = JSONObject.parseObject(trimmed);
+                arr = payload == null ? null : payload.getJSONArray("preferences");
+            } else {
+                // Keep accepting the legacy array-only response while the prompt is rolled out.
+                arr = JSONArray.parseArray(trimmed);
+            }
             if (arr == null) {
+                log.warn("Ignoring preference extraction response without a preferences array");
                 return result;
             }
             for (int i = 0; i < arr.size(); i++) {
@@ -263,9 +271,26 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                 result.add(pref);
             }
         } catch (Exception e) {
-            log.error("Failed to parse extraction response", e);
+            // Model output is untrusted; ignore a malformed response without failing the chat flow.
+            log.warn("Ignoring malformed preference extraction response: {}", e.getMessage());
         }
         return result;
+    }
+
+    private String unwrapJsonCodeFence(String response) {
+        if (StringUtils.isBlank(response)) {
+            return response;
+        }
+        String json = response.trim();
+        if (!json.startsWith("```")) {
+            return json;
+        }
+        int firstLineEnd = json.indexOf('\n');
+        int closingFence = json.lastIndexOf("```");
+        if (firstLineEnd < 0 || closingFence <= firstLineEnd) {
+            return json;
+        }
+        return json.substring(firstLineEnd + 1, closingFence).trim();
     }
 
     private String callModel(String prompt, ModelProvider provider,AgentDefinition agent) {

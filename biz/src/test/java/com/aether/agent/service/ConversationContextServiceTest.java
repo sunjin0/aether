@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -172,7 +173,7 @@ class ConversationContextServiceTest {
     }
 
     @Test
-    void restoresAuditedToolCallsBeforeTheirAssistantAnswer() {
+    void restoresAuditedToolCallsAsHistorySummaryBeforeTheirAssistantAnswer() {
         AgentMessage answer = message(1);
         answer.setRole("assistant");
         when(messageService.list(any())).thenReturn(Collections.singletonList(answer));
@@ -199,13 +200,12 @@ class ConversationContextServiceTest {
         List<ModelChatMessage> context =
                 toolAwareService.buildFromHistory(agent, "conversation-1");
 
-        assertEquals(3, context.size());
+        assertEquals(2, context.size());
         assertEquals("assistant", context.get(0).getRole());
-        assertTrue(context.get(0).getToolCalls().contains("\"lookup\""));
-        assertEquals("tool", context.get(1).getRole());
-        assertEquals("call-1", context.get(1).getToolCallId());
-        assertEquals("{\"name\":\"Aether\"}", context.get(1).getContent());
-        assertEquals("message-1", context.get(2).getContent());
+        assertNull(context.get(0).getToolCalls());
+        assertTrue(context.get(0).getContent().contains("lookup"));
+        assertTrue(context.get(0).getContent().contains("{\"name\":\"Aether\"}"));
+        assertEquals("message-1", context.get(1).getContent());
     }
 
     @Test

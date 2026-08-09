@@ -9,6 +9,7 @@ import com.aether.agent.skill.entity.AgentSkillKnowledgeBinding;
 import com.aether.agent.skill.entity.AgentSkillToolBinding;
 import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.service.impl.AgentSkillKnowledgeBindingServiceImpl;
+import com.aether.agent.skill.service.impl.AgentSkillExecutionConfigServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillToolBindingServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
@@ -35,8 +36,9 @@ class SkillContextServiceTest {
     private final AgentSkillVersionServiceImpl versionService = mock(AgentSkillVersionServiceImpl.class);
     private final AgentSkillToolBindingServiceImpl toolBindingService = mock(AgentSkillToolBindingServiceImpl.class);
     private final AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService = mock(AgentSkillKnowledgeBindingServiceImpl.class);
+    private final AgentSkillExecutionConfigServiceImpl executionConfigService = mock(AgentSkillExecutionConfigServiceImpl.class);
     private final AgentToolCatalog toolCatalog = mock(AgentToolCatalog.class);
-    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, toolCatalog);
+    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, executionConfigService, toolCatalog);
 
     @Test
     void noInstallationFallsBackToAgentDefaults() {

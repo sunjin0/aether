@@ -2,15 +2,20 @@ package com.aether.agent.controller;
 
 import com.aether.agent.skill.dto.AgentSkillDraftDto;
 import com.aether.agent.skill.dto.AgentSkillPreviewDto;
+import com.aether.agent.skill.dto.AgentSkillExecutionConfigDto;
+import com.aether.agent.skill.dto.AgentSkillResourceGenerateDto;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillResource;
 import com.aether.agent.skill.entity.AgentSkillVersion;
+import com.aether.agent.skill.entity.AgentSkillExecutionConfig;
 import com.aether.agent.skill.service.AgentSkillService;
+import com.aether.agent.skill.service.SkillResourceWorkbenchService;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
 import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
 import com.aether.agent.skill.vo.AgentSkillVo;
 import com.aether.agent.skill.vo.AgentSkillStatisticsVo;
+import com.aether.agent.skill.vo.AgentSkillResourceGenerateVo;
 import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
 import com.aether.local.CurrentUser;
@@ -34,8 +39,12 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/agent/skill")
 public class AgentSkillController {
     private final AgentSkillService skillService;
+    private final SkillResourceWorkbenchService resourceWorkbenchService;
 
-    public AgentSkillController(AgentSkillService skillService) { this.skillService = skillService; }
+    public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService) {
+        this.skillService = skillService;
+        this.resourceWorkbenchService = resourceWorkbenchService;
+    }
 
     @PostMapping("/list")
     public WebResponse<List<AgentSkillVo>> list(@RequestBody AgentSkillVo query) {
@@ -120,8 +129,31 @@ public class AgentSkillController {
         return WebResponse.OK(skillService.uploadResource(id, file.getOriginalFilename(), file.getContentType(), file.getBytes(), purpose, type));
     }
 
+    @PutMapping("/{id}/resources/{resourceId}")
+    @Permission(path = "/agent/skill", type = Permission.Type.Write)
+    public WebResponse<AgentSkillResource> updateResource(@PathVariable @NotBlank String id, @PathVariable @NotBlank String resourceId,
+                                                           @RequestParam("file") MultipartFile file,
+                                                           @RequestParam(value = "purpose", required = false) String purpose,
+                                                           @RequestParam(value = "type", required = false) String type) throws IOException {
+        return WebResponse.OK(skillService.updateDraftResource(id, resourceId, file.getOriginalFilename(), file.getContentType(), file.getBytes(), purpose, type));
+    }
+
     @GetMapping("/{id}/resources")
     public WebResponse<List<AgentSkillResource>> resources(@PathVariable @NotBlank String id) { return WebResponse.OK(skillService.listResources(id)); }
+
+    @GetMapping("/{id}/resources/{resourceId}/content")
+    public WebResponse<String> resourceContent(@PathVariable @NotBlank String id, @PathVariable @NotBlank String resourceId) {
+        // Keep the file body in data.  Passing a String to the single-argument
+        // overload would otherwise select OK(String message), leaving data empty.
+        return WebResponse.OK(null, resourceWorkbenchService.content(id, resourceId));
+    }
+
+    @PostMapping("/{id}/resources/generate")
+    @Permission(path = "/agent/skill", type = Permission.Type.Write)
+    public WebResponse<AgentSkillResourceGenerateVo> generateResource(@PathVariable @NotBlank String id,
+                                                                       @RequestBody AgentSkillResourceGenerateDto dto) {
+        return WebResponse.OK(resourceWorkbenchService.generate(id, dto));
+    }
 
     @DeleteMapping("/{id}/resources/{resourceId}")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
@@ -129,5 +161,18 @@ public class AgentSkillController {
 
     @PostMapping("/{id}/preview")
     public WebResponse<AgentSkillPreviewVo> preview(@PathVariable @NotBlank String id, @RequestBody AgentSkillPreviewDto dto) { return WebResponse.OK(skillService.preview(id, dto)); }
+
+    @GetMapping("/{id}/execution-config")
+    public WebResponse<AgentSkillExecutionConfig> executionConfig(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(skillService.executionConfig(id));
+    }
+
+    @PutMapping("/{id}/execution-config")
+    @Permission(path = "/agent/skill", type = Permission.Type.Write)
+    public WebResponse<Void> updateExecutionConfig(@PathVariable @NotBlank String id,
+                                                    @RequestBody AgentSkillExecutionConfigDto dto) {
+        skillService.updateExecutionConfig(id, dto);
+        return WebResponse.OK("Skill execution configuration updated");
+    }
 
 }

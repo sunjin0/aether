@@ -274,12 +274,18 @@ public class OpenAIModelClient implements ModelClient {
                 JSONObject item = new JSONObject();
                 item.put("role", role);
                 item.put("content", StringUtils.defaultString(message.getContent(), ""));
+                if (StringUtils.isNotBlank(message.getReasoningContent())) {
+                    item.put("reasoning_content", message.getReasoningContent());
+                }
                 item.put("tool_calls", normalizeToolCalls(JSONArray.parseArray(message.getToolCalls())));
                 array.add(item);
             } else {
                 JSONObject item = new JSONObject();
                 item.put("role", role);
                 item.put("content", StringUtils.defaultString(message.getContent(), ""));
+                if ("assistant".equals(role) && StringUtils.isNotBlank(message.getReasoningContent())) {
+                    item.put("reasoning_content", message.getReasoningContent());
+                }
                 if (hasToolCalls) {
                     item.put("tool_calls", normalizeToolCalls(JSONArray.parseArray(message.getToolCalls())));
                 }
