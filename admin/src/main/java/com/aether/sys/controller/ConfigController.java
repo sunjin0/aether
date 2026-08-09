@@ -38,6 +38,11 @@ public class ConfigController {
         Page<ConfigVo> list = configService.list(config);
         return WebResponse.Page(list.getRecords(), list.getTotal());
     }
+    @ApiOperation("获取配置树")
+    @GetMapping("/tree")
+    public WebResponse<List<ConfigVo>> tree(ConfigVo config) {
+        return WebResponse.OK(configService.tree(config));
+    }
     @ApiOperation("获取配置")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", required = true),
@@ -69,7 +74,7 @@ public class ConfigController {
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"code", "name"})
                                          Config config) {
-        boolean save = configService.save(config);
+        boolean save = configService.create(config);
             return WebResponse.OK(I18nUtils.getMessage(save ? "system.config.create.success" : "system.config.create.fail"), save);
     }
     @ApiOperation("修改字典")
@@ -81,7 +86,7 @@ public class ConfigController {
     public WebResponse<Boolean> update(@RequestBody
                                       @ValidEntity(fieldNames = {"code", "name"})
                                            Config config) {
-        boolean update = configService.updateById(config);
+        boolean update = configService.update(config);
         return WebResponse.OK(I18nUtils.getMessage(update ? "system.config.update.success" : "system.config.update.fail"), update);
     }
 }

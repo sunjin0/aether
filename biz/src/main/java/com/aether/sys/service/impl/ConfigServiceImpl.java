@@ -4,6 +4,8 @@ import com.aether.sys.mapper.ConfigMapper;
 import com.aether.sys.entity.Config;
 import com.aether.sys.vo.ConfigVo;
 import com.aether.sys.service.ConfigService;
+import com.aether.exception.ServerException;
+import com.aether.i18n.I18nUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -11,6 +13,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -94,24 +97,87 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
     }
 
     @Override
-    public boolean delete(String id) {
-        ConfigVo vo = new ConfigVo();
-        vo.setId(id);
-        ArrayList<String> ids = new ArrayList<>();
-        Page<ConfigVo> list = list(vo);
-        if (list.getRecords().size() == 1) {
-            Stack<ConfigVo> stack = new Stack<>();
-            stack.push(list.getRecords().get(0));
-            while (!stack.isEmpty()) {
-                ConfigVo item = stack.pop();
-                ids.add(item.getId());
-                if (item.getChildren() != null) {
-                    stack.addAll(item.getChildren());
+    public List<ConfigVo> tree() {
+        return tree(new ConfigVo());
+    }
+
+    @Override
+    public List<ConfigVo> tree(ConfigVo config) {
+        List<Config> configs = list(Wrappers.lambdaQuery(Config.class)
+                .orderByAsc(Config::getSortNum)
+                .orderByAsc(Config::getCode));
+        if (config != null && (StringUtils.isNotBlank(config.getName()) || StringUtils.isNotBlank(config.getCode())
+                || StringUtils.isNotBlank(config.getValue()) || StringUtils.isNotBlank(config.getRemark()))) {
+            Map<String, Config> byCode = configs.stream().collect(Collectors.toMap(Config::getCode, item -> item, (first, ignored) -> first));
+            Set<String> includedCodes = configs.stream()
+                    .filter(item -> containsIgnoreCase(item.getName(), config.getName())
+                            && containsIgnoreCase(item.getCode(), config.getCode())
+                            && containsIgnoreCase(item.getValue(), config.getValue())
+                            && containsIgnoreCase(item.getRemark(), config.getRemark()))
+                    .map(Config::getCode).collect(Collectors.toCollection(LinkedHashSet::new));
+            Deque<String> parents = new ArrayDeque<>(includedCodes);
+            while (!parents.isEmpty()) {
+                Config item = byCode.get(parents.pop());
+                if (item != null && StringUtils.isNotBlank(item.getParent()) && includedCodes.add(item.getParent())) {
+                    parents.push(item.getParent());
                 }
             }
+            configs = configs.stream().filter(item -> includedCodes.contains(item.getCode())).collect(Collectors.toList());
         }
-        return update(Wrappers.lambdaUpdate(Config.class)
-                .in(Config::getId, ids));
+        return buildTree(configs);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean delete(String id) {
+        Config root = getById(id);
+        if (root == null) {
+            throw new ServerException(404, I18nUtils.getMessage("system.config.not-found"));
+        }
+        Map<String, List<Config>> childrenByParent = list(Wrappers.lambdaQuery(Config.class))
+                .stream().collect(Collectors.groupingBy(Config::getParent));
+        List<Config> toDelete = new ArrayList<>();
+        Deque<Config> stack = new ArrayDeque<>();
+        stack.push(root);
+        while (!stack.isEmpty()) {
+            Config current = stack.pop();
+            toDelete.add(current);
+            for (Config child : childrenByParent.getOrDefault(current.getCode(), Collections.<Config>emptyList())) {
+                stack.push(child);
+            }
+        }
+        toDelete.forEach(item -> item.setDeleted(true));
+        return updateBatchById(toDelete);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean create(Config config) {
+        validateForCreate(config);
+        return save(config);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean update(Config config) {
+        if (config == null || StringUtils.isBlank(config.getId())) {
+            throw new ServerException(400, I18nUtils.getMessage("system.config.id.required"));
+        }
+        Config existing = getById(config.getId());
+        if (existing == null) {
+            throw new ServerException(404, I18nUtils.getMessage("system.config.not-found"));
+        }
+        if (!StringUtils.equals(existing.getCode(), StringUtils.trimToEmpty(config.getCode()))) {
+            throw new ServerException(409, I18nUtils.getMessage("system.config.code.immutable"));
+        }
+        validateFields(config);
+        validateParent(config.getParent(), existing.getCode(), existing.getId());
+        existing.setName(config.getName());
+        existing.setParent(StringUtils.trimToNull(config.getParent()));
+        existing.setValue(config.getValue());
+        existing.setRemark(config.getRemark());
+        existing.setSortNum(config.getSortNum());
+        return updateById(existing);
     }
     @Override
     public String getValue(String code) {
@@ -120,5 +186,76 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
                 .orderByDesc(Config::getCreatedAt)
                 .last("limit 1"));
         return one == null ? null : one.getValue();
+    }
+
+    private void validateForCreate(Config config) {
+        validateFields(config);
+        String code = StringUtils.trim(config.getCode());
+        if (count(Wrappers.lambdaQuery(Config.class).eq(Config::getCode, code)) > 0) {
+            throw new ServerException(409, I18nUtils.getMessage("system.config.code.exists"));
+        }
+        config.setCode(code);
+        validateParent(config.getParent(), code, null);
+    }
+
+    private void validateFields(Config config) {
+        if (config == null || StringUtils.isBlank(config.getCode()) || StringUtils.isBlank(config.getName())
+                || config.getValue() == null || config.getRemark() == null) {
+            throw new ServerException(400, I18nUtils.getMessage("system.config.fields.required"));
+        }
+        if (config.getCode().length() > 255 || config.getName().length() > 255 || config.getValue().length() > 255 || config.getRemark().length() > 255) {
+            throw new ServerException(400, I18nUtils.getMessage("system.config.fields.max-length"));
+        }
+    }
+
+    private void validateParent(String parent, String code, String id) {
+        String parentCode = StringUtils.trimToNull(parent);
+        if (parentCode == null) return;
+        if (StringUtils.equals(parentCode, code)) {
+            throw new ServerException(400, I18nUtils.getMessage("system.config.parent.self"));
+        }
+        Config parentConfig = getOne(Wrappers.lambdaQuery(Config.class).eq(Config::getCode, parentCode));
+        if (parentConfig == null) {
+            throw new ServerException(400, I18nUtils.getMessage("system.config.parent.not-found"));
+        }
+        if (id != null && isDescendant(parentCode, code)) {
+            throw new ServerException(400, I18nUtils.getMessage("system.config.parent.descendant"));
+        }
+    }
+
+    private boolean isDescendant(String candidateCode, String ancestorCode) {
+        Map<String, String> parentByCode = list(Wrappers.lambdaQuery(Config.class)).stream()
+                .collect(Collectors.toMap(Config::getCode, Config::getParent, (first, ignored) -> first));
+        String current = candidateCode;
+        Set<String> visited = new HashSet<>();
+        while (current != null && visited.add(current)) {
+            if (StringUtils.equals(current, ancestorCode)) return true;
+            current = parentByCode.get(current);
+        }
+        return false;
+    }
+
+    private List<ConfigVo> buildTree(List<Config> configs) {
+        Map<String, ConfigVo> byCode = new LinkedHashMap<>();
+        List<Config> sortedConfigs = new ArrayList<>(configs);
+        sortedConfigs.sort(Comparator.comparing(Config::getSortNum, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Config::getCode, Comparator.nullsLast(String::compareTo)));
+        for (Config item : sortedConfigs) {
+            ConfigVo vo = new ConfigVo();
+            BeanUtils.copyProperties(item, vo);
+            vo.setKey(item.getId());
+            vo.setChildren(new ArrayList<ConfigVo>());
+            byCode.put(item.getCode(), vo);
+        }
+        List<ConfigVo> roots = new ArrayList<>();
+        for (ConfigVo item : byCode.values()) {
+            ConfigVo parent = StringUtils.isBlank(item.getParent()) ? null : byCode.get(item.getParent());
+            if (parent == null) roots.add(item); else parent.getChildren().add(item);
+        }
+        return roots;
+    }
+
+    private boolean containsIgnoreCase(String value, String query) {
+        return StringUtils.isBlank(query) || StringUtils.containsIgnoreCase(value, query.trim());
     }
 }
