@@ -1161,9 +1161,20 @@ public class KnowledgeRetrievalEvaluationController {
                 item.put("status", base.getStatus());
                 item.put("indexStatus", base.getIndexStatus());
                 item.put("embeddingProviderId", providerId);
-                item.put("retrievalConfig", base.getRetrievalConfig());
+                com.alibaba.fastjson2.JSONObject retrievalConfig;
+                try {
+                    retrievalConfig = JSON.parseObject(StringUtils.defaultIfBlank(base.getRetrievalConfig(), "{}"));
+                } catch (Exception ignored) {
+                    retrievalConfig = new com.alibaba.fastjson2.JSONObject();
+                    retrievalConfig.put("raw", base.getRetrievalConfig());
+                }
+                retrievalConfig = effectiveRetrievalConfig(retrievalConfig);
+                item.put("retrievalConfig", retrievalConfig);
                 baseSnapshots.add(item);
                 if (StringUtils.isNotBlank(providerId)) providerIds.add(providerId);
+                String rerankProviderId = retrievalConfig.getString("rerankProviderId");
+                if (Boolean.TRUE.equals(retrievalConfig.getBoolean("rerankEnabled"))
+                        && StringUtils.isNotBlank(rerankProviderId)) providerIds.add(rerankProviderId);
             }
         List<Map<String, Object>> providerSnapshots = new ArrayList<>();
         if (!providerIds.isEmpty()) for (ModelProvider provider : modelProviderService.listByIds(providerIds)) {
@@ -1177,6 +1188,8 @@ public class KnowledgeRetrievalEvaluationController {
             providerSnapshots.add(item);
         }
         Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("schemaVersion", 2);
+        snapshot.put("capturedAt", System.currentTimeMillis());
         snapshot.put("agentDefinitionId", agentDefinitionId);
         snapshot.put("bindings", bindings.stream().map(binding -> {
             Map<String, Object> item = new LinkedHashMap<>();
@@ -1187,6 +1200,39 @@ public class KnowledgeRetrievalEvaluationController {
         snapshot.put("knowledgeBases", baseSnapshots);
         snapshot.put("providers", providerSnapshots);
         return JSON.toJSONString(snapshot);
+    }
+
+    /**
+     * Persist the values actually applied by the retriever, including defaults,
+     * so a run can be diagnosed without consulting the later live configuration.
+     */
+    private com.alibaba.fastjson2.JSONObject effectiveRetrievalConfig(com.alibaba.fastjson2.JSONObject configured) {
+        com.alibaba.fastjson2.JSONObject effective = new com.alibaba.fastjson2.JSONObject();
+        effective.put("topK", boundedInt(configured.getInteger("topK"), 6, 1, 20));
+        Double configuredMinSimilarity = configured.getDouble("minSimilarity");
+        if (configuredMinSimilarity == null) configuredMinSimilarity = configured.getDouble("scoreThreshold");
+        effective.put("minSimilarity", boundedDouble(configuredMinSimilarity, 0.30D, -1D, 1D));
+        effective.put("maxChunksPerDocument", boundedInt(configured.getInteger("maxChunksPerDocument"), 4, 1, 10));
+        effective.put("hybridEnabled", configured.getBoolean("hybridEnabled") == null || configured.getBoolean("hybridEnabled"));
+        effective.put("vectorWeight", boundedDouble(configured.getDouble("vectorWeight"), 0.70D, 0D, 1D));
+        effective.put("minLexicalScore", boundedDouble(configured.getDouble("minLexicalScore"), 0.05D, 0D, 1D));
+        effective.put("authorityScore", boundedDouble(configured.getDouble("authorityScore"), 0D, 0D, 1D));
+        effective.put("authorityWeight", boundedDouble(configured.getDouble("authorityWeight"), 0D, 0D, 1D));
+        effective.put("freshnessWeight", boundedDouble(configured.getDouble("freshnessWeight"), 0D, 0D, 1D));
+        effective.put("rerankEnabled", Boolean.TRUE.equals(configured.getBoolean("rerankEnabled")));
+        effective.put("rerankProviderId", configured.getString("rerankProviderId"));
+        effective.put("rerankModel", configured.getString("rerankModel"));
+        effective.put("rerankTopN", boundedInt(configured.getInteger("rerankTopN"), 6, 1, 20));
+        effective.put("strictGrounding", Boolean.TRUE.equals(configured.getBoolean("strictGrounding")));
+        return effective;
+    }
+
+    private int boundedInt(Integer value, int defaultValue, int min, int max) {
+        return Math.max(min, Math.min(max, value == null ? defaultValue : value));
+    }
+
+    private double boundedDouble(Double value, double defaultValue, double min, double max) {
+        return Math.max(min, Math.min(max, value == null ? defaultValue : value));
     }
 
     private List<KnowledgeDocumentChunk> resolveTargetChunks(String targetType, String documentId, String sectionPath, String chunkId) {
