@@ -17,6 +17,24 @@ public class KnowledgeReviewConfigResolver {
         return booleanValue(reviewConfig, "requireDifferentApprover", true);
     }
 
+    /**
+     * Returns the administrator selected to review submitted documents.  An empty value keeps
+     * the existing shared review-queue behaviour.
+     */
+    public String manualReviewerId(String reviewConfig) {
+        if (StringUtils.isBlank(reviewConfig)) {
+            throw new ServerException(500,
+                    I18nUtils.getMessage("knowledge.review.configuration.required"));
+        }
+        try {
+            return StringUtils.trimToNull(JSONObject.parseObject(reviewConfig)
+                    .getString("manualReviewerId"));
+        } catch (Exception e) {
+            throw new ServerException(500,
+                    I18nUtils.getMessage("knowledge.review.configuration.invalid"));
+        }
+    }
+
     private boolean booleanValue(String value, String key, boolean defaultValue) {
         if (StringUtils.isBlank(value)) {
             throw new ServerException(500,

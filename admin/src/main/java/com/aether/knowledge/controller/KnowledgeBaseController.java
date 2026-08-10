@@ -5,6 +5,8 @@ import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.entity.ModelProvider;
+import com.aether.sys.entity.User;
+import com.aether.sys.service.UserService;
 import com.aether.knowledge.vo.KnowledgeBaseVo;
 import com.aether.entity.WebResponse;
 import com.aether.entity.Option;
@@ -39,13 +41,16 @@ public class KnowledgeBaseController {
     private final KnowledgeBaseService knowledgeBaseService;
     private final KnowledgeAccessService knowledgeAccessService;
     private final ModelProviderService modelProviderService;
+    private final UserService userService;
 
     public KnowledgeBaseController(KnowledgeBaseService knowledgeBaseService,
                                    KnowledgeAccessService knowledgeAccessService,
-                                   ModelProviderService modelProviderService) {
+                                   ModelProviderService modelProviderService,
+                                   UserService userService) {
         this.knowledgeBaseService = knowledgeBaseService;
         this.knowledgeAccessService = knowledgeAccessService;
         this.modelProviderService = modelProviderService;
+        this.userService = userService;
     }
 
     /** 分页查询当前用户可见的知识库。 */
@@ -188,6 +193,14 @@ public class KnowledgeBaseController {
             }
             if (StringUtils.isBlank(config.getString("reviewModel"))) {
                 config.put("reviewModel", provider.getDefaultModel());
+            }
+            String manualReviewerId = StringUtils.trimToNull(config.getString("manualReviewerId"));
+            if (manualReviewerId != null) {
+                User reviewer = userService.getById(manualReviewerId);
+                if (reviewer == null || Boolean.TRUE.equals(reviewer.getDeleted())) {
+                    throw new ServerException(400, I18nUtils.getMessage("knowledge.base.manual-reviewer.invalid"));
+                }
+                config.put("manualReviewerId", manualReviewerId);
             }
             putDefault(config, "autoAiReview", true);
             putDefault(config, "aiReviewRequired", true);

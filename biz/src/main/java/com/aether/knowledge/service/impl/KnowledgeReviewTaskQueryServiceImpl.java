@@ -85,7 +85,10 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
                         .eq("reviewedByMe".equals(query.getView()),
                                 KnowledgeReviewTask::getReviewerId, currentAdminId)
                         .and("available".equals(query.getView()), nested -> nested
-                                .eq(KnowledgeReviewTask::getStatus, KnowledgeReviewTaskStatus.PENDING)
+                                .and(pending -> pending.eq(KnowledgeReviewTask::getStatus,
+                                                KnowledgeReviewTaskStatus.PENDING)
+                                        .and(assignee -> assignee.isNull(KnowledgeReviewTask::getReviewerId)
+                                                .or().eq(KnowledgeReviewTask::getReviewerId, currentAdminId)))
                                 .or(group -> group.eq(KnowledgeReviewTask::getStatus,
                                                 KnowledgeReviewTaskStatus.CLAIMED)
                                         .eq(KnowledgeReviewTask::getReviewerId, currentAdminId)))

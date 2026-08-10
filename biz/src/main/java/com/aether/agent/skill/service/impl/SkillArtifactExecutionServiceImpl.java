@@ -190,16 +190,16 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         try { schema = JSON.parseObject(schemaText); } catch (Exception e) { throw new ServerException(422, I18nUtils.getMessage("skill.context.input-schema.invalid")); }
         if (schema == null || (!StringUtils.isBlank(schema.getString("type")) && !"object".equals(schema.getString("type")))) throw new ServerException(422, I18nUtils.getMessage("skill.context.input-schema.object-required"));
         Map<String, Object> value = input == null ? Collections.emptyMap() : input;
-        for (String required : schema.getList("required", String.class) == null ? Collections.<String>emptyList() : schema.getList("required", String.class)) if (!value.containsKey(required) || value.get(required) == null) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.required-field.missing", required));
+        for (String required : schema.getList("required", String.class) == null ? Collections.<String>emptyList() : schema.getList("required", String.class)) if (!value.containsKey(required) || value.get(required) == null) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.required-field.missing", new Object[]{required}));
         JSONObject properties = schema.getJSONObject("properties");
         boolean additional = !Boolean.FALSE.equals(schema.getBoolean("additionalProperties"));
         for (Map.Entry<String, Object> item : value.entrySet()) {
             JSONObject property = properties == null ? null : properties.getJSONObject(item.getKey());
-            if (property == null) { if (!additional) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.field.undeclared", item.getKey())); continue; }
+            if (property == null) { if (!additional) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.field.undeclared", new Object[]{item.getKey()})); continue; }
             String type = property.getString("type"); Object actual = item.getValue();
             if ("string".equals(type) && !(actual instanceof String) || "boolean".equals(type) && !(actual instanceof Boolean)
                     || "number".equals(type) && !(actual instanceof Number) || "integer".equals(type) && (!(actual instanceof Number) || ((Number) actual).doubleValue() % 1 != 0)
-                    || "array".equals(type) && !(actual instanceof Collection) || "object".equals(type) && !(actual instanceof Map)) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.field.invalid-type", item.getKey()));
+                    || "array".equals(type) && !(actual instanceof Collection) || "object".equals(type) && !(actual instanceof Map)) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.field.invalid-type", new Object[]{item.getKey()}));
         }
     }
     private void attachToRunMessage(AgentSandboxExecution job, AgentArtifact artifact) {

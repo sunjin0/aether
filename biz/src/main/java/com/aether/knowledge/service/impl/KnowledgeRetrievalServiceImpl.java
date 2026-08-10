@@ -98,16 +98,18 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         this(knowledgeBaseService, bindingService, knowledgeDocumentChunkService, modelProviderService,
                 knowledgeEmbeddingService, null);
     }
-
-    @Override
     /**
      * 根据 Agent 当前绑定的知识库和检索配置执行一次检索。
      * 流程依次为：解析知识库、查询改写、向量/词法混合召回、重排序、邻块合并和 token 截断。
      */
+    @Override
     public KnowledgeRetrievalResult retrieve(String agentDefinitionId, String query) {
         return retrieve(agentDefinitionId, query, null);
     }
-
+    /**
+     * 根据 Agent 当前绑定的知识库和检索配置执行一次检索。
+     * 流程依次为：解析知识库、查询改写、向量/词法混合召回、重排序、邻块合并和 token 截断。
+     */
     @Override
     public KnowledgeRetrievalResult retrieve(String agentDefinitionId, String query, Set<String> scopedKnowledgeBaseIds) {
         KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
@@ -462,7 +464,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         try {
             return applyRankingPolicy(knowledgeRerankService.rerank(provider, config.rerankModel, query, candidates, config.rerankTopN), config);
         } catch (Exception e) {
-            log.warn("知识库重排序失败，使用融合排序: providerId={}", provider.getId(), e);
+            log.warn("知识库重排序失败，使用融合排序: providerId={}, reason={}", provider.getId(), e.getMessage());
             return candidates;
         }
     }

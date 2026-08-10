@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
@@ -51,9 +52,27 @@ public class OpenAICompatibleKnowledgeRerankService implements KnowledgeRerankSe
         }
         body.put("documents", documents);
         body.put("top_n", Math.min(Math.max(1, topN), candidates.size()));
-        String response = restTemplate.exchange(buildRerankUrl(provider.getApiBaseUrl()), HttpMethod.POST,
-                new HttpEntity<>(body.toJSONString(), headers), String.class).getBody();
+        String response = postRerank(provider.getApiBaseUrl(), body.toJSONString(), headers);
         return applyScores(response, candidates, topN);
+    }
+
+    /**
+     * OpenAI-compatible gateways normally expose /v1/rerank, while several local
+     * rerank services expose /rerank directly. Retry only a 404 on the alternate
+     * path so authentication and request errors remain visible to the caller.
+     */
+    private String postRerank(String baseUrl, String body, HttpHeaders headers) {
+        String[] urls = buildRerankUrls(baseUrl);
+        try {
+            return post(urls[0], body, headers);
+        } catch (HttpClientErrorException.NotFound notFound) {
+            if (urls.length < 2) throw notFound;
+            return post(urls[1], body, headers);
+        }
+    }
+
+    private String post(String url, String body, HttpHeaders headers) {
+        return restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), String.class).getBody();
     }
 
     private List<KnowledgeDocumentChunk> applyScores(String response, List<KnowledgeDocumentChunk> candidates, int topN) {
@@ -84,8 +103,14 @@ public class OpenAICompatibleKnowledgeRerankService implements KnowledgeRerankSe
         return ranked.subList(0, Math.min(Math.max(1, topN), ranked.size()));
     }
 
-    private String buildRerankUrl(String baseUrl) {
+    private String[] buildRerankUrls(String baseUrl) {
         String normalized = StringUtils.removeEnd(baseUrl, "/");
-        return normalized.endsWith("/v1") ? normalized + "/rerank" : normalized + "/v1/rerank";
+        // Allow the provider to specify an exact endpoint when it differs from
+        // either conventional base path.
+        if (normalized.endsWith("/rerank")) return new String[]{normalized};
+        if (normalized.endsWith("/v1")) {
+            return new String[]{normalized + "/rerank", StringUtils.removeEnd(normalized, "/v1") + "/rerank"};
+        }
+        return new String[]{normalized + "/v1/rerank", normalized + "/rerank"};
     }
 }

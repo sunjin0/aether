@@ -13,6 +13,11 @@ public interface ObjectStorageService {
     String upload(String bucket, String objectKey, byte[] content, String contentType);
     /** 生成指定有效期（秒）的 GET 临时访问 URL。 */
     String presignedGetUrl(String bucket, String objectKey, int expirySeconds);
+    /**
+     * Generates a temporary GET URL with an optional response content-type override.
+     * Useful for legacy text objects that were uploaded without a charset.
+     */
+    String presignedGetUrl(String bucket, String objectKey, int expirySeconds, String responseContentType);
     /** 读取对象的全部字节；仅供后端解析器使用。 */
     byte[] getObject(String bucket, String objectKey);
     /** Best-effort business cleanup for abandoned or deleted objects. */

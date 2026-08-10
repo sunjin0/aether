@@ -251,6 +251,7 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         task.setDocumentId(document.getId());
         task.setDocumentVersionId(versionId);
         task.setSubmitterId(submitter);
+        task.setReviewerId(configResolver.manualReviewerId(base.getReviewConfig()));
         task.setStatus(KnowledgeReviewTaskStatus.PENDING);
         task.setSourceChecksum(version.getContentChecksum());
         task.setSubmitComment(comment);
@@ -271,6 +272,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         KnowledgeReviewTask task = requireTask(taskId);
         KnowledgeBase base = accessService.requireApprovable(task.getKnowledgeBaseId());
         String reviewer = accessService.currentAdminId();
+        if (StringUtils.isNotBlank(task.getReviewerId()) && !reviewer.equals(task.getReviewerId())) {
+            throw new ServerException(403, I18nUtils.getMessage("knowledge.review-task.assigned-to-another-admin"));
+        }
         if (configResolver.isDifferentApproverRequired(base.getReviewConfig())
                 && reviewer.equals(task.getSubmitterId())) {
             throw new ServerException(403, I18nUtils.getMessage("knowledge.document.self-approval.forbidden"));

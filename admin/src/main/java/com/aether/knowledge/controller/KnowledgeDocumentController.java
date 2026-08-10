@@ -161,7 +161,8 @@ public class KnowledgeDocumentController {
         byte[] bytes = file.getBytes();
         KnowledgeDocument document = new KnowledgeDocument();
         document.setKnowledgeBaseId(knowledgeBaseId); document.setTitle(StringUtils.defaultIfBlank(title, name)); document.setSourceType(KnowledgeDocumentSourceType.FILE);
-        document.setOriginalFileName(name); document.setFileExtension(name.substring(name.lastIndexOf('.') + 1)); document.setMimeType(file.getContentType());
+        String contentType = storageContentType(name, file.getContentType());
+        document.setOriginalFileName(name); document.setFileExtension(name.substring(name.lastIndexOf('.') + 1)); document.setMimeType(contentType);
         String extractedContent = contentExtractor.extract(name, bytes);
         document.setFileSize(file.getSize()); document.setFileChecksum(sha256(bytes)); document.setContent(null);
         document.setStatus(0); document.setIndexStatus(0); document.setCurrentVersionNo(0);
@@ -169,7 +170,7 @@ public class KnowledgeDocumentController {
         String key = "knowledge/" + knowledgeBaseId + "/" + document.getId() + "/1/" + name.replaceAll("[^a-zA-Z0-9._-]", "_");
         boolean uploaded = false;
         try {
-            objectStorageService.upload(knowledgeBucket, key, file);
+            objectStorageService.upload(knowledgeBucket, key, bytes, contentType);
             uploaded = true;
             KnowledgeDocument storage = new KnowledgeDocument(); storage.setId(document.getId()); storage.setStorageBucket(knowledgeBucket); storage.setStorageObjectKey(key); knowledgeDocumentService.updateById(storage);
             KnowledgeDocument snapshot = knowledgeDocumentService.getById(document.getId());
@@ -228,12 +229,22 @@ public class KnowledgeDocumentController {
         public void setMessage(String message) { this.message = message; }
     }
 
+    /** Ensures UTF-8 response metadata for text formats, including old stored objects on preview. */
+    private String storageContentType(String fileName, String fallback) {
+        String lower = StringUtils.lowerCase(StringUtils.defaultString(fileName));
+        if (lower.endsWith(".md")) return "text/markdown; charset=UTF-8";
+        if (lower.endsWith(".txt")) return "text/plain; charset=UTF-8";
+        return fallback;
+    }
+
     @ApiOperation("Preview knowledge document")
     @GetMapping("/{id}/preview-url")
     public WebResponse<String> previewUrl(@PathVariable @NotBlank String id) {
         KnowledgeDocument document = getExisting(id);
         if (StringUtils.isBlank(document.getStorageObjectKey())) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.source-file.not-found"));
-        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.preview-url.ready"), objectStorageService.presignedGetUrl(document.getStorageBucket(), document.getStorageObjectKey(), 600));
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.preview-url.ready"), objectStorageService.presignedGetUrl(
+                document.getStorageBucket(), document.getStorageObjectKey(), 600,
+                storageContentType(document.getOriginalFileName(), document.getMimeType())));
     }
 
     @ApiOperation("文档版本列表")
