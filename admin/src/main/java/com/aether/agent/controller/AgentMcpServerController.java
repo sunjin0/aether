@@ -7,6 +7,7 @@ import com.aether.agent.mcp.McpClient;
 import com.aether.agent.mcp.McpToolDefinition;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.vo.AgentMcpServerVo;
 import com.aether.entity.WebResponse;
 import com.aether.entity.Option;
@@ -23,12 +24,14 @@ import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -48,6 +51,9 @@ public class AgentMcpServerController {
     private final AgentMcpServerService agentMcpServerService;
     private final AgentToolService agentToolService;
     private final McpClient mcpClient;
+
+    @Autowired(required = false)
+    private AgentToolCatalog agentToolCatalog;
 
     public AgentMcpServerController(AgentMcpServerService agentMcpServerService,
                                     AgentToolService agentToolService,
@@ -132,6 +138,9 @@ public class AgentMcpServerController {
         fillDefaults(server);
         applyAuthTokenForUpdate(server, existing, dto);
         boolean updated = agentMcpServerService.updateById(server);
+        if (updated) {
+            refreshImportedToolDefinitions(server);
+        }
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.mcp-server.update.success") : I18nUtils.getMessage("agent.mcp-server.update.fail"));
     }
 
@@ -258,6 +267,40 @@ public class AgentMcpServerController {
         }
         if (!mcpClient.supportsTransport(server.getTransport())) {
             throw new ServerException(422, I18nUtils.getMessage("mcp.server.transport.unsupported"));
+        }
+    }
+
+    /**
+     * Keep imported MCP schemas aligned whenever the connection is explicitly
+     * updated. Local display fields, status and Agent bindings stay untouched.
+     */
+    private void refreshImportedToolDefinitions(AgentMcpServer server) {
+        List<AgentTool> localTools = agentToolService.list(Wrappers.lambdaQuery(AgentTool.class)
+                .eq(AgentTool::getMcpServerId, server.getId()).eq(AgentTool::getDeleted, false));
+        if (localTools.isEmpty()) {
+            return;
+        }
+        validateTransport(server);
+        mcpClient.ping(server);
+        Map<String, McpToolDefinition> definitions = new HashMap<>();
+        for (McpToolDefinition definition : mcpClient.listTools(server)) {
+            if (definition != null && StringUtils.isNotBlank(definition.getName())) {
+                definitions.put(definition.getName(), definition);
+            }
+        }
+        for (AgentTool localTool : localTools) {
+            McpToolDefinition definition = definitions.get(localTool.getMcpToolName());
+            if (definition == null) {
+                continue;
+            }
+            AgentTool update = new AgentTool();
+            update.setId(localTool.getId());
+            update.setDescription(definition.getDescription());
+            update.setMcpInputSchema(definition.getInputSchema());
+            agentToolService.updateById(update);
+            if (agentToolCatalog != null) {
+                agentToolCatalog.evictByToolId(localTool.getId());
+            }
         }
     }
 

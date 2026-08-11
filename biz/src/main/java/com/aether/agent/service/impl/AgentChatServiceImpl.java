@@ -37,6 +37,7 @@ import com.aether.agent.service.ChatRunService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
 import com.aether.agent.skill.service.SkillContextService;
 import com.aether.agent.skill.service.SkillRuntimeContext;
+import com.aether.agent.skill.service.SkillArtifactExecutionService;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
@@ -91,6 +92,9 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AdminPreferenceExtractionService adminPreferenceExtractionService;
     private final QueryRewriteService queryRewriteService;
     private final SkillContextService skillContextService;
+
+    @Autowired(required = false)
+    private SkillArtifactExecutionService artifactExecutionService;
 
     /** 默认关闭，避免每轮聊天在主模型调用前额外等待一次同步模型重写。 */
     @Value("${agent.chat.query-rewrite.enabled:false}")
@@ -278,6 +282,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
                         authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             }
+            attachPendingArtifacts(runId, assistantMessage.getId());
 
             AgentMessageVo vo = new AgentMessageVo();
             BeanUtils.copyProperties(assistantMessage, vo);
@@ -478,6 +483,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
                         authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             }
+            attachPendingArtifacts(runId, assistantMessage.getId());
+            modelResponse.setRunId(runId);
             if (!callback.isClosed()) {
                 callback.onDone(conversation.getId(), assistantMessage.getId(), modelResponse);
             }
@@ -677,6 +684,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                         authenticityCheck.isValid() ? RUN_STATUS_SUCCESS : RUN_STATUS_FAILED,
                         authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             }
+            attachPendingArtifacts(runId, assistantMessage.getId());
+            modelResponse.setRunId(runId);
             if (!callback.isClosed()) {
                 callback.onDone(conversation.getId(), assistantMessage.getId(), modelResponse);
             }
@@ -1087,6 +1096,13 @@ public class AgentChatServiceImpl implements AgentChatService {
     private void updateRun(String runId, String messageId, ModelChatResponse response, long latencyMs,
                            Integer status, String errorMsg) {
         chatRunService.update(runId, messageId, response, latencyMs, status, errorMsg);
+    }
+
+    /** Reconciles files that finished while the Agent was still generating its final reply. */
+    private void attachPendingArtifacts(String runId, String messageId) {
+        if (artifactExecutionService != null && StringUtils.isNoneBlank(runId, messageId)) {
+            artifactExecutionService.attachPendingArtifacts(runId, messageId);
+        }
     }
 
     private String truncate(String value, int maxLength) {

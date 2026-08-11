@@ -10,6 +10,9 @@ import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.mcp.McpClient;
+import com.aether.agent.mcp.McpToolDefinition;
+import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.vo.AgentToolCallLogVo;
 import com.aether.agent.vo.AgentToolCallStatisticsVo;
 import com.aether.agent.vo.AgentToolFacetsVo;
@@ -56,6 +59,11 @@ public class AgentToolController {
     private final AgentMcpServerService agentMcpServerService;
     private final ToolExecutorFactory toolExecutorFactory;
     private final DictService dictService;
+
+    @Autowired(required = false)
+    private McpClient mcpClient;
+    @Autowired(required = false)
+    private AgentToolCatalog agentToolCatalog;
 
     @Autowired
     public AgentToolController(AgentToolService agentToolService,
@@ -112,6 +120,38 @@ public class AgentToolController {
                         .orderByAsc(AgentTool::getName))
                 .stream().map(item -> new Option(StringUtils.defaultIfBlank(item.getName(), item.getCode()), item.getId())).collect(Collectors.toList());
         return WebResponse.OK(options);
+    }
+
+    /** Manually refresh the remote MCP schema for one already imported tool. */
+    @ApiOperation("更新MCP工具定义")
+    @Permission(path = "/agent/tool", type = Permission.Type.Write)
+    @PostMapping("/{id}/refresh-definition")
+    public WebResponse<Void> refreshDefinition(@PathVariable @NotBlank String id) {
+        AgentTool tool = agentToolService.getById(id);
+        if (tool == null || Boolean.TRUE.equals(tool.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.tool.not-found"));
+        }
+        if (StringUtils.isBlank(tool.getMcpServerId()) || StringUtils.isBlank(tool.getMcpToolName()) || mcpClient == null) {
+            throw new ServerException(422, I18nUtils.getMessage("agent.tool.refresh-definition.unsupported"));
+        }
+        AgentMcpServer server = agentMcpServerService.getById(tool.getMcpServerId());
+        if (server == null || Boolean.TRUE.equals(server.getDeleted()) || !Integer.valueOf(1).equals(server.getStatus())) {
+            throw new ServerException(422, I18nUtils.getMessage("mcp.server.disabled"));
+        }
+        if (StringUtils.isBlank(server.getBaseUrl()) || !mcpClient.supportsTransport(server.getTransport())) {
+            throw new ServerException(422, I18nUtils.getMessage("mcp.server.transport.unsupported"));
+        }
+        mcpClient.ping(server);
+        McpToolDefinition remote = mcpClient.listTools(server).stream()
+                .filter(item -> item != null && tool.getMcpToolName().equals(item.getName()))
+                .findFirst().orElseThrow(() -> new ServerException(404, I18nUtils.getMessage("agent.tool.refresh-definition.not-found")));
+        AgentTool update = new AgentTool();
+        update.setId(tool.getId());
+        update.setDescription(remote.getDescription());
+        update.setMcpInputSchema(remote.getInputSchema());
+        agentToolService.updateById(update);
+        if (agentToolCatalog != null) agentToolCatalog.evictByToolId(tool.getId());
+        return WebResponse.OK(I18nUtils.getMessage("agent.tool.refresh-definition.success"));
     }
 
     /** 汇总工具中心的来源、类型和状态筛选项。 */

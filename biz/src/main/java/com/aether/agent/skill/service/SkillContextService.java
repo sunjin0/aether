@@ -168,6 +168,12 @@ public class SkillContextService {
         if (resources == null || resources.isEmpty()) return "";
         StringBuilder result = new StringBuilder("\n\n## 资源参考");
         for (AgentSkillResource resource : resources) {
+            // Artifact generation is now provided by the platform tool. Legacy script
+            // resources are no longer executed or exposed to the model, so an orphaned
+            // script object must not prevent the installed Skill from being used.
+            if ("SCRIPT".equals(resource.getType())) {
+                continue;
+            }
             if (!Integer.valueOf(1).equals(resource.getStatus())) throw new ServerException(422, I18nUtils.getMessage("skill.context.resource.disabled", new Object[]{resource.getName()}));
             byte[] content;
             try { content = objectStorageService.getObject(resourceBucket, resource.getObjectKey()); } catch (Exception e) { throw new ServerException(422, I18nUtils.getMessage("skill.context.resource.unavailable", new Object[]{resource.getName()})); }

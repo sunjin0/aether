@@ -61,6 +61,15 @@ public class AgentArtifactController {
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
 
+    @ApiOperation("查询本次运行已生成文件")
+    @GetMapping("/run/{runId}")
+    public WebResponse<AgentArtifact> byRun(@PathVariable @NotBlank String runId) {
+        AgentArtifact artifact = artifactService.getOne(com.baomidou.mybatisplus.core.toolkit.Wrappers.lambdaQuery(AgentArtifact.class)
+                .eq(AgentArtifact::getRunId, runId).eq(AgentArtifact::getUserId, currentUserId())
+                .isNull(AgentArtifact::getRecycledAt).orderByDesc(AgentArtifact::getCreatedAt).last("limit 1"));
+        return WebResponse.OK(artifact);
+    }
+
     @ApiOperation("预览生成文件")
     @GetMapping("/{id}/preview")
     public ResponseEntity<byte[]> preview(@PathVariable @NotBlank String id) {

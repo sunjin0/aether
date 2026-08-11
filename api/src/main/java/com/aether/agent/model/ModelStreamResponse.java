@@ -11,6 +11,8 @@ import java.util.Map;
 @Data
 public class ModelStreamResponse {
 
+    private String runId;
+
     private String content;
 
     private String reasoningContent;

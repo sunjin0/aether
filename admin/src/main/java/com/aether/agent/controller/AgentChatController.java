@@ -380,6 +380,7 @@ public class AgentChatController {
             data.put("conversationId", conversationId);
             data.put("messageId", messageId);
             if (response != null) {
+                data.put("runId", response.getRunId());
                 data.put("content", response.getContent());
                 data.put("reasoningContent", response.getReasoningContent());
                 data.put("model", response.getModel());
