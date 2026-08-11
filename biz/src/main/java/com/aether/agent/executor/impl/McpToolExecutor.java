@@ -123,9 +123,7 @@ public class McpToolExecutor implements ToolExecutor {
         String toolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
         String token = delegationTokenService.create(context.getRunId(), context.getUserId(),
                 context.getAgentDefinitionId(), Collections.singletonList(toolName),
-                "generate_artifact".equals(toolName)
-                        ? new java.util.ArrayList<String>(artifactSkillAuthorizationService.resolve(context.getAgentDefinitionId()))
-                        : Collections.<String>emptyList());
+                Collections.<String>emptyList());
         JSONObject headers = StringUtils.isBlank(server.getRequestHeaders())
                 ? new JSONObject() : JSON.parseObject(server.getRequestHeaders());
         headers.put("Authorization", "Bearer " + token);

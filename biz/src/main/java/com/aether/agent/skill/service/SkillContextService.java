@@ -141,7 +141,9 @@ public class SkillContextService {
         for (String code : inputs.keySet()) if (!installedCodes.contains(code)) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.not-installed"));
         Set<String> finalToolIds = declaredToolIds;
         List<AgentTool> tools = boundTools.stream().filter(item -> finalToolIds != null && finalToolIds.contains(item.getId()) && isLiveMcpTool(item)).collect(Collectors.toList());
-        if (!artifactSkillCodes.isEmpty()) prompt.append("\n\n[Artifact Generation]\nWhen calling generate_artifact, skill_code must be exactly one of: ").append(String.join(", ", artifactSkillCodes)).append(".");
+        if (tools.stream().anyMatch(tool -> "generate_artifact".equals(tool.getMcpToolName()))) {
+            prompt.append("\n\n[Artifact Generation]\nUse generate_artifact for file output. Provide title, content and format only; never select a Skill, script or template. This Skill's instructions above are the applicable document specification.");
+        }
         prompt.append("\n\n[Platform Constraints]\n工具审批、安全与审计由平台统一控制。引用知识库资料时标注编号。");
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("installed", true); snapshot.put("routing", route); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));

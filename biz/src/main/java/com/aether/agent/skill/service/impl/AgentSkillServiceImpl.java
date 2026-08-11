@@ -304,11 +304,8 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         if (resource == null || !draft.getId().equals(resource.getSkillVersionId())) {
             throw new ServerException(404, I18nUtils.getMessage("skill.resource.not-found"));
         }
-        AgentSkillExecutionConfig execution = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
-                .eq(AgentSkillExecutionConfig::getSkillVersionId, draft.getId()));
-        if (execution != null && Boolean.TRUE.equals(execution.getEnabled()) && resourceId.equals(execution.getEntryResourceId())) {
-            throw new ServerException(409, I18nUtils.getMessage("skill.execution.resource.delete.blocked"));
-        }
+        // 文件生成已迁移到平台通用渲染器，Skill 资源不再作为可执行入口，
+        // 历史执行配置不能阻止用户删除草稿中的脚本或模板资源。
         resourceService.removeById(resourceId);
         try {
             objectStorageService.removeObject(resourceBucket, resource.getObjectKey());

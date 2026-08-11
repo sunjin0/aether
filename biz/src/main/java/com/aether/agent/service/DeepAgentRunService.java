@@ -138,16 +138,10 @@ public class DeepAgentRunService {
                     .filter(t -> t.getMcpToolName() != null)
                     .map(AgentTool::getMcpToolName)
                     .collect(Collectors.toList());
-            // Managed artifact execution is a platform capability, not a user-editable
-            // AgentTool. Grant it only when the already-frozen installed Skill declares it.
-            if (skillContext != null && skillContext.getArtifactSkillCodes() != null
-                    && !skillContext.getArtifactSkillCodes().isEmpty()) {
-                allowedTools.add("generate_artifact");
-            }
-
-            List<String> artifactSkillCodes = skillContext == null || skillContext.getArtifactSkillCodes() == null
-                    ? Collections.<String>emptyList() : new ArrayList<>(skillContext.getArtifactSkillCodes());
-            String delegationToken = delegationTokenService.create(runId, userId, agent.getId(), allowedTools, artifactSkillCodes);
+            // 文件生成由已绑定的通用 generate_artifact 工具授权；Skill 仅影响本轮提示词规范，
+            // 不再通过委派令牌选择脚本或模板。
+            String delegationToken = delegationTokenService.create(runId, userId, agent.getId(), allowedTools,
+                    Collections.<String>emptyList());
 
             List<Map<String, Object>> knowledgeSources = buildKnowledgeSources(sources);
 

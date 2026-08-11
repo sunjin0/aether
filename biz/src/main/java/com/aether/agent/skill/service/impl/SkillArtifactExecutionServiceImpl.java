@@ -32,6 +32,8 @@ import java.util.stream.Collectors;
 /** Issues immutable, one-time sandbox jobs.  No user-controlled execution primitive crosses this boundary. */
 @Service
 public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecutionService {
+    private static final String PLATFORM_GENERIC_ARTIFACT_VERSION = "__platform_generic_artifact__";
+    private static final String PLATFORM_GENERIC_ENTRY = "__platform_generic_renderer__";
     private static final long TTL_MILLIS = 5 * 60 * 1000L;
     private final AgentSkillServiceImpl skillService;
     private final AgentSkillVersionServiceImpl versionService;
@@ -66,30 +68,36 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
     @Override @Transactional(rollbackFor = Exception.class)
     public ArtifactGenerationVo request(String delegatedToken, ArtifactGenerationRequestDto request) {
         DecodedJWT token = verifyDelegation(delegatedToken);
-        if (request == null || StringUtils.isBlank(request.getSkillCode())) throw new ServerException(400, I18nUtils.getMessage("skill.artifact.skill-code.required"));
+        if (request == null || StringUtils.isBlank(request.getFormat()) || StringUtils.isBlank(request.getContent())) {
+            throw new ServerException(400, I18nUtils.getMessage("skill.artifact.request.invalid"));
+        }
         String userId = token.getClaim("userId").asString(); String agentId = token.getClaim("agentId").asString(); String runId = token.getClaim("runId").asString();
         if (StringUtils.isAnyBlank(userId, agentId, runId)) throw new ServerException(401, I18nUtils.getMessage("skill.artifact.delegation.context.incomplete"));
-        List<String> allowedSkillCodes = token.getClaim("artifactSkillCodes").asList(String.class);
-        if (allowedSkillCodes == null || !allowedSkillCodes.contains(request.getSkillCode())) {
-            throw new ServerException(422, I18nUtils.getMessage("skill.artifact.skill-code.not-installed"));
-        }
-        AgentSkill skill = skillService.getOne(Wrappers.lambdaQuery(AgentSkill.class).eq(AgentSkill::getCode, request.getSkillCode()));
-        if (skill == null || !Integer.valueOf(1).equals(skill.getStatus())) throw new ServerException(422, I18nUtils.getMessage("skill.artifact.skill.unavailable"));
-        AgentDefinitionSkillBinding binding = bindingService.getOne(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class)
-                .eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId).eq(AgentDefinitionSkillBinding::getSkillId, skill.getId()).eq(AgentDefinitionSkillBinding::getStatus, 1));
-        if (binding == null) throw new ServerException(403, I18nUtils.getMessage("skill.artifact.skill.not-installed"));
-        AgentSkillVersion version = versionService.getById(binding.getSkillVersionId());
-        AgentSkillExecutionConfig config = configService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class).eq(AgentSkillExecutionConfig::getSkillVersionId, binding.getSkillVersionId()));
-        if (version == null || !Integer.valueOf(1).equals(version.getStatus()) || config == null || !Boolean.TRUE.equals(config.getEnabled())) throw new ServerException(422, I18nUtils.getMessage("skill.artifact.execution.not-declared"));
-        validateInput(version.getInputSchema(), request.getInput());
-        List<AgentSkillResource> resources = resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, version.getId()).eq(AgentSkillResource::getStatus, 1));
-        if (resources.stream().noneMatch(r -> config.getEntryResourceId().equals(r.getId()))) throw new ServerException(422, I18nUtils.getMessage("skill.artifact.entry-resource.unavailable"));
+        AgentSkillExecutionConfig config = platformGenericConfig(request.getFormat());
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("title", StringUtils.defaultIfBlank(request.getTitle(), "generated"));
+        input.put("fileName", request.getFileName());
+        input.put("format", request.getFormat().toLowerCase(Locale.ROOT));
+        input.put("content", request.getContent());
+        input.put("document", request.getDocument() == null ? Collections.emptyMap() : request.getDocument());
         AgentSandboxExecution execution = new AgentSandboxExecution(); execution.setRunId(runId);
-        execution.setSkillVersionId(version.getId()); execution.setUserId(userId); execution.setAgentDefinitionId(agentId);
-        execution.setExecutionConfigSnapshot(JSON.toJSONString(config)); execution.setResourceSnapshot(JSON.toJSONString(resources));
-        execution.setInputJson(JSON.toJSONString(request.getInput() == null ? Collections.emptyMap() : request.getInput()));
+        execution.setSkillVersionId(PLATFORM_GENERIC_ARTIFACT_VERSION); execution.setUserId(userId); execution.setAgentDefinitionId(agentId);
+        execution.setExecutionConfigSnapshot(JSON.toJSONString(config)); execution.setResourceSnapshot("[]");
+        execution.setInputJson(JSON.toJSONString(input));
         execution.setTokenHash(sha256(randomToken())); execution.setStatus(0); execution.setExpiresAt(System.currentTimeMillis() + TTL_MILLIS); executionService.save(execution);
         ArtifactGenerationVo result = new ArtifactGenerationVo(); result.setExecutionId(execution.getId()); result.setRunId(execution.getRunId()); result.setStatus("queued"); return result;
+    }
+
+    private AgentSkillExecutionConfig platformGenericConfig(String format) {
+        String normalized = StringUtils.lowerCase(StringUtils.trim(format));
+        if (!Arrays.asList("docx", "xlsx", "pdf").contains(normalized)) {
+            throw new ServerException(400, I18nUtils.getMessage("skill.artifact.format.not-declared"));
+        }
+        AgentSkillExecutionConfig config = new AgentSkillExecutionConfig();
+        config.setEnabled(true); config.setEntryResourceId(PLATFORM_GENERIC_ENTRY); config.setRuntime("PYTHON");
+        config.setOutputFormats(JSON.toJSONString(Collections.singletonList(normalized)));
+        config.setTimeoutSeconds(60); config.setMaxOutputFiles(1); config.setMaxOutputBytes(52_428_800L);
+        return config;
     }
 
     @Override @Transactional(rollbackFor = Exception.class)
