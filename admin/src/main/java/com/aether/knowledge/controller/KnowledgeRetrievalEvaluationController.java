@@ -28,9 +28,9 @@ import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.agent.entity.AgentKnowledgeBaseBinding;
-import com.aether.agent.entity.ModelProvider;
+import com.aether.agent.entity.ModelCatalog;
 import com.aether.agent.service.AgentKnowledgeBaseBindingService;
-import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.knowledge.vo.KnowledgeRetrievalEvaluationResultVo;
 import com.aether.knowledge.vo.KnowledgeRetrievalEvaluationComparisonVo;
 import com.aether.knowledge.vo.KnowledgeRetrievalEvaluationHealthVo;
@@ -76,7 +76,7 @@ public class KnowledgeRetrievalEvaluationController {
     private final KnowledgeBaseService knowledgeBaseService;
     private final KnowledgeAccessService knowledgeAccessService;
     private final AgentKnowledgeBaseBindingService bindingService;
-    private final ModelProviderService modelProviderService;
+    private final ModelCatalogService modelCatalogService;
 
     public KnowledgeRetrievalEvaluationController(KnowledgeRetrievalEvaluationService evaluationService,
                                                   KnowledgeRetrievalEvaluationSetMapper setMapper,
@@ -92,7 +92,7 @@ public class KnowledgeRetrievalEvaluationController {
                                                   KnowledgeBaseService knowledgeBaseService,
                                                   KnowledgeAccessService knowledgeAccessService,
                                                   AgentKnowledgeBaseBindingService bindingService,
-                                                  ModelProviderService modelProviderService) {
+                                                  ModelCatalogService modelCatalogService) {
         this.evaluationService = evaluationService;
         this.setMapper = setMapper;
         this.caseMapper = caseMapper;
@@ -107,7 +107,7 @@ public class KnowledgeRetrievalEvaluationController {
         this.knowledgeBaseService = knowledgeBaseService;
         this.knowledgeAccessService = knowledgeAccessService;
         this.bindingService = bindingService;
-        this.modelProviderService = modelProviderService;
+        this.modelCatalogService = modelCatalogService;
     }
 
     /**
@@ -1147,20 +1147,18 @@ public class KnowledgeRetrievalEvaluationController {
         List<AgentKnowledgeBaseBinding> bindings = bindingService.list(Wrappers.lambdaQuery(AgentKnowledgeBaseBinding.class).eq(AgentKnowledgeBaseBinding::getAgentDefinitionId, agentDefinitionId).eq(AgentKnowledgeBaseBinding::getDeleted, false));
         Set<String> bindingBaseIds = bindings.stream().filter(binding -> Integer.valueOf(1).equals(binding.getStatus())).map(AgentKnowledgeBaseBinding::getKnowledgeBaseId).filter(StringUtils::isNotBlank).collect(Collectors.toSet());
         List<KnowledgeBase> bases = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class).eq(KnowledgeBase::getDeleted, false));
-        List<ModelProvider> defaultProviders = modelProviderService.list(Wrappers.lambdaQuery(ModelProvider.class).eq(ModelProvider::getStatus, 1).eq(ModelProvider::getDeleted, false).orderByAsc(ModelProvider::getSortNum));
-        String defaultProviderId = defaultProviders.isEmpty() ? null : defaultProviders.get(0).getId();
         List<Map<String, Object>> baseSnapshots = new ArrayList<>();
-        Set<String> providerIds = new HashSet<>();
+        Set<String> modelIds = new HashSet<>();
         for (KnowledgeBase base : bases)
             if (bindingBaseIds.contains(base.getId()) || "PLATFORM".equals(base.getScope()) && Integer.valueOf(1).equals(base.getStatus()) && Integer.valueOf(2).equals(base.getIndexStatus())) {
-                String providerId = StringUtils.defaultIfBlank(base.getEmbeddingProviderId(), defaultProviderId);
+                String embeddingModelId = base.getEmbeddingModelId();
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", base.getId());
                 item.put("name", base.getName());
                 item.put("scope", base.getScope());
                 item.put("status", base.getStatus());
                 item.put("indexStatus", base.getIndexStatus());
-                item.put("embeddingProviderId", providerId);
+                item.put("embeddingModelId", embeddingModelId);
                 com.alibaba.fastjson2.JSONObject retrievalConfig;
                 try {
                     retrievalConfig = JSON.parseObject(StringUtils.defaultIfBlank(base.getRetrievalConfig(), "{}"));
@@ -1171,27 +1169,26 @@ public class KnowledgeRetrievalEvaluationController {
                 retrievalConfig = effectiveRetrievalConfig(retrievalConfig);
                 item.put("retrievalConfig", retrievalConfig);
                 baseSnapshots.add(item);
-                if (StringUtils.isNotBlank(providerId)) providerIds.add(providerId);
-                String rerankProviderId = retrievalConfig.getString("rerankProviderId");
+                if (StringUtils.isNotBlank(embeddingModelId)) modelIds.add(embeddingModelId);
+                String rerankModelId = retrievalConfig.getString("rerankModelId");
                 if (Boolean.TRUE.equals(retrievalConfig.getBoolean("rerankEnabled"))
-                        && StringUtils.isNotBlank(rerankProviderId)) providerIds.add(rerankProviderId);
-                String queryRewriteProviderId = retrievalConfig.getString("queryRewriteProviderId");
+                        && StringUtils.isNotBlank(rerankModelId)) modelIds.add(rerankModelId);
+                String queryRewriteModelId = retrievalConfig.getString("queryRewriteModelId");
                 if (Boolean.TRUE.equals(retrievalConfig.getBoolean("queryRewriteEnabled"))
-                        && StringUtils.isNotBlank(queryRewriteProviderId)) providerIds.add(queryRewriteProviderId);
+                        && StringUtils.isNotBlank(queryRewriteModelId)) modelIds.add(queryRewriteModelId);
             }
-        List<Map<String, Object>> providerSnapshots = new ArrayList<>();
-        if (!providerIds.isEmpty()) for (ModelProvider provider : modelProviderService.listByIds(providerIds)) {
+        List<Map<String, Object>> modelSnapshots = new ArrayList<>();
+        if (!modelIds.isEmpty()) for (ModelCatalog model : modelCatalogService.listByIds(modelIds)) {
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("id", provider.getId());
-            item.put("name", provider.getName());
-            item.put("type", provider.getType());
-            item.put("apiBaseUrl", provider.getApiBaseUrl());
-            item.put("defaultModel", provider.getDefaultModel());
-            item.put("status", provider.getStatus());
-            providerSnapshots.add(item);
+            item.put("id", model.getId());
+            item.put("name", model.getName());
+            item.put("providerId", model.getProviderId());
+            item.put("capabilities", model.getCapabilities());
+            item.put("status", model.getStatus());
+            modelSnapshots.add(item);
         }
         Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("schemaVersion", 2);
+        snapshot.put("schemaVersion", 3);
         snapshot.put("capturedAt", System.currentTimeMillis());
         snapshot.put("agentDefinitionId", agentDefinitionId);
         snapshot.put("bindings", bindings.stream().map(binding -> {
@@ -1201,7 +1198,7 @@ public class KnowledgeRetrievalEvaluationController {
             return item;
         }).collect(Collectors.toList()));
         snapshot.put("knowledgeBases", baseSnapshots);
-        snapshot.put("providers", providerSnapshots);
+        snapshot.put("models", modelSnapshots);
         return JSON.toJSONString(snapshot);
     }
 
@@ -1223,13 +1220,11 @@ public class KnowledgeRetrievalEvaluationController {
         effective.put("authorityWeight", boundedDouble(configured.getDouble("authorityWeight"), 0D, 0D, 1D));
         effective.put("freshnessWeight", boundedDouble(configured.getDouble("freshnessWeight"), 0D, 0D, 1D));
         effective.put("rerankEnabled", Boolean.TRUE.equals(configured.getBoolean("rerankEnabled")));
-        effective.put("rerankProviderId", configured.getString("rerankProviderId"));
-        effective.put("rerankModel", configured.getString("rerankModel"));
+        effective.put("rerankModelId", configured.getString("rerankModelId"));
         effective.put("rerankTopN", boundedInt(configured.getInteger("rerankTopN"), 6, 1, 20));
         effective.put("strictGrounding", Boolean.TRUE.equals(configured.getBoolean("strictGrounding")));
         effective.put("queryRewriteEnabled", Boolean.TRUE.equals(configured.getBoolean("queryRewriteEnabled")));
-        effective.put("queryRewriteProviderId", configured.getString("queryRewriteProviderId"));
-        effective.put("queryRewriteModel", configured.getString("queryRewriteModel"));
+        effective.put("queryRewriteModelId", configured.getString("queryRewriteModelId"));
         return effective;
     }
 

@@ -4,6 +4,7 @@ import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.sys.entity.User;
 import com.aether.sys.service.UserService;
@@ -41,15 +42,18 @@ public class KnowledgeBaseController {
     private final KnowledgeBaseService knowledgeBaseService;
     private final KnowledgeAccessService knowledgeAccessService;
     private final ModelProviderService modelProviderService;
+    private final ModelCatalogService modelCatalogService;
     private final UserService userService;
 
     public KnowledgeBaseController(KnowledgeBaseService knowledgeBaseService,
                                    KnowledgeAccessService knowledgeAccessService,
                                    ModelProviderService modelProviderService,
+                                   ModelCatalogService modelCatalogService,
                                    UserService userService) {
         this.knowledgeBaseService = knowledgeBaseService;
         this.knowledgeAccessService = knowledgeAccessService;
         this.modelProviderService = modelProviderService;
+        this.modelCatalogService = modelCatalogService;
         this.userService = userService;
     }
 
@@ -166,6 +170,10 @@ public class KnowledgeBaseController {
         KnowledgeBase kb = new KnowledgeBase();
         kb.setScope(vo.getScope());
         kb.setEmbeddingProviderId(vo.getEmbeddingProviderId());
+        kb.setEmbeddingModelId(vo.getEmbeddingModelId());
+        if (StringUtils.isBlank(kb.getEmbeddingModelId())) throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
+        com.aether.agent.entity.ModelCatalog catalog = modelCatalogService.requireAvailable(kb.getEmbeddingModelId(), "EMBEDDING");
+        kb.setEmbeddingProviderId(catalog.getProviderId());
         kb.setVisibility(vo.getVisibility());
         kb.setRetrievalConfig(vo.getRetrievalConfig());
         kb.setReviewConfig(vo.getReviewConfig());
@@ -181,19 +189,9 @@ public class KnowledgeBaseController {
         }
         try {
             JSONObject config = JSONObject.parseObject(value);
-            String providerId = config.getString("reviewModelProviderId");
-            if (StringUtils.isBlank(providerId)) {
-                throw new ServerException(400, I18nUtils.getMessage("knowledge.base.review-provider.required"));
-            }
-            ModelProvider provider = modelProviderService.getById(providerId);
-            if (provider == null || Boolean.TRUE.equals(provider.getDeleted()) || provider.getStatus() == null
-                    || provider.getStatus() != 1 || StringUtils.isBlank(provider.getDefaultModel())
-                    || StringUtils.containsIgnoreCase(provider.getDefaultModel(), "embedding")) {
-                throw new ServerException(400, I18nUtils.getMessage("knowledge.base.review-provider.invalid"));
-            }
-            if (StringUtils.isBlank(config.getString("reviewModel"))) {
-                config.put("reviewModel", provider.getDefaultModel());
-            }
+            String modelId = config.getString("reviewModelId");
+            if (StringUtils.isBlank(modelId)) throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
+            modelCatalogService.requireAvailable(modelId, "CHAT,MULTIMODAL");
             String manualReviewerId = StringUtils.trimToNull(config.getString("manualReviewerId"));
             if (manualReviewerId != null) {
                 User reviewer = userService.getById(manualReviewerId);

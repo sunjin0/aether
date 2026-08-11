@@ -6,6 +6,7 @@ import com.aether.agent.entity.AgentToolBinding;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.vo.AgentDefinitionVo;
 import com.aether.agent.vo.AgentToolBindingVo;
 import com.aether.entity.Option;
@@ -45,14 +46,17 @@ public class AgentDefinitionController {
     private final AgentDefinitionService agentDefinitionService;
     private final AgentToolBindingService agentToolBindingService;
     private final ModelProviderService modelProviderService;
+    private final ModelCatalogService modelCatalogService;
 
     @Autowired
     public AgentDefinitionController(AgentDefinitionService agentDefinitionService,
                                      AgentToolBindingService agentToolBindingService,
-                                     ModelProviderService modelProviderService) {
+                                     ModelProviderService modelProviderService,
+                                     ModelCatalogService modelCatalogService) {
         this.agentDefinitionService = agentDefinitionService;
         this.agentToolBindingService = agentToolBindingService;
         this.modelProviderService = modelProviderService;
+        this.modelCatalogService = modelCatalogService;
     }
 
     /** 分页查询 Agent 定义，支持名称、编码、状态和模型供应商筛选。 */
@@ -67,7 +71,7 @@ public class AgentDefinitionController {
                 .like(StringUtils.isNotBlank(vo.getName()), AgentDefinition::getName, vo.getName())
                 .like(StringUtils.isNotBlank(vo.getCode()), AgentDefinition::getCode, vo.getCode())
                 .eq(vo.getStatus() != null, AgentDefinition::getStatus, vo.getStatus())
-                .eq(StringUtils.isNotBlank(vo.getModelProviderId()), AgentDefinition::getModelProviderId, vo.getModelProviderId())
+                .eq(StringUtils.isNotBlank(vo.getModelId()), AgentDefinition::getModelId, vo.getModelId())
                 .eq(AgentDefinition::getDeleted, false)
                 .orderByDesc(AgentDefinition::getCreatedAt);
         Page<AgentDefinition> result = agentDefinitionService.page(page, wrapper);
@@ -127,6 +131,7 @@ public class AgentDefinitionController {
     @Transactional(rollbackFor = Exception.class)
     @PostMapping
     public WebResponse<String> save(@RequestBody AgentDefinitionDto dto) {
+        applyModelCatalog(dto);
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
         boolean saved = agentDefinitionService.save(definition);
@@ -152,6 +157,7 @@ public class AgentDefinitionController {
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}")
     public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody AgentDefinitionDto dto) {
+        applyModelCatalog(dto);
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
         definition.setId(id);
@@ -239,6 +245,15 @@ public class AgentDefinitionController {
      */
     @GetMapping("/model/providers")
     public WebResponse<List<Option>> getModelProviders() {
-        return WebResponse.OK(modelProviderService.getModelProviders());
+        return WebResponse.OK(modelCatalogService.getOptions("CHAT,MULTIMODAL"));
+    }
+
+    /** New catalog selections are normalized to the legacy fields for compatible callers. */
+    private void applyModelCatalog(AgentDefinitionDto dto) {
+        if (StringUtils.isBlank(dto.getModelId())) {
+            throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
+        }
+        com.aether.agent.entity.ModelCatalog catalog = modelCatalogService.requireAvailable(dto.getModelId(), "CHAT,MULTIMODAL");
+        dto.setModel(catalog.getName());
     }
 }

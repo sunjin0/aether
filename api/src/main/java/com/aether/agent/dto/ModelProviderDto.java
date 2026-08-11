@@ -25,7 +25,8 @@ public class ModelProviderDto {
     @ApiModelProperty(value = "API Key")
     private String apiKey;
 
-    @ApiModelProperty(value = "默认模型名称")
+    /** Legacy field is retained only for schema compatibility; new runtime selections use ModelCatalog. */
+    @ApiModelProperty(value = "历史默认模型名称（新配置不使用）")
     private String defaultModel;
 
     @ApiModelProperty(value = "模型上下文窗口大小（token），默认32768")

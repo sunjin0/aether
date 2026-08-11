@@ -19,6 +19,7 @@ import com.aether.knowledge.service.KnowledgeIndexJobService;
 import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.workflow.TransactionAfterCommitExecutor;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -45,6 +46,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
     private final KnowledgeDocumentChunkService knowledgeDocumentChunkService;
     private final KnowledgeBaseService knowledgeBaseService;
     private final ModelProviderService modelProviderService;
+    private final ModelCatalogService modelCatalogService;
     private final KnowledgeEmbeddingService knowledgeEmbeddingService;
     private final KnowledgeIndexJobService knowledgeIndexJobService;
     private final KnowledgeIndexWorker knowledgeIndexWorker;
@@ -56,6 +58,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
                                          KnowledgeDocumentChunkService knowledgeDocumentChunkService,
                                          KnowledgeBaseService knowledgeBaseService,
                                          ModelProviderService modelProviderService,
+                                         ModelCatalogService modelCatalogService,
                                          KnowledgeEmbeddingService knowledgeEmbeddingService,
                                          KnowledgeIndexJobService knowledgeIndexJobService,
                                          KnowledgeIndexWorker knowledgeIndexWorker,
@@ -66,6 +69,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
         this.knowledgeBaseService = knowledgeBaseService;
         this.modelProviderService = modelProviderService;
+        this.modelCatalogService = modelCatalogService;
         this.knowledgeEmbeddingService = knowledgeEmbeddingService;
         this.knowledgeIndexJobService = knowledgeIndexJobService;
         this.knowledgeIndexWorker = knowledgeIndexWorker;
@@ -268,13 +272,8 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
     }
 
     private ModelProvider getEmbeddingProvider(KnowledgeBase knowledgeBase) {
-        if (StringUtils.isNotBlank(knowledgeBase.getEmbeddingProviderId())) {
-            return modelProviderService.getById(knowledgeBase.getEmbeddingProviderId());
-        }
-        List<ModelProvider> providers = modelProviderService.list(Wrappers.lambdaQuery(ModelProvider.class)
-                .eq(ModelProvider::getStatus, 1)
-                .eq(ModelProvider::getDeleted, false)
-                .orderByAsc(ModelProvider::getSortNum));
-        return providers == null || providers.isEmpty() ? null : providers.get(0);
+        if (StringUtils.isBlank(knowledgeBase.getEmbeddingModelId())) return null;
+        try { return modelCatalogService.resolveProvider(knowledgeBase.getEmbeddingModelId(), "EMBEDDING"); }
+        catch (Exception e) { return null; }
     }
 }

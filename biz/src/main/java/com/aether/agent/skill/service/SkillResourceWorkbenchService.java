@@ -12,6 +12,7 @@ import com.aether.agent.skill.service.impl.AgentSkillResourceServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillServiceImpl;
 import com.aether.agent.skill.vo.AgentSkillResourceGenerateVo;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.storage.service.ObjectStorageService;
@@ -30,6 +31,7 @@ public class SkillResourceWorkbenchService {
     private final AgentSkillResourceServiceImpl resourceService;
     private final ObjectStorageService storage;
     private final ModelProviderService providerService;
+    private final ModelCatalogService modelCatalogService;
     private final ModelClientFactory modelClientFactory;
     private final String resourceBucket;
 
@@ -37,12 +39,14 @@ public class SkillResourceWorkbenchService {
                                          AgentSkillResourceServiceImpl resourceService,
                                          ObjectStorageService storage,
                                          ModelProviderService providerService,
+                                         ModelCatalogService modelCatalogService,
                                          ModelClientFactory modelClientFactory,
                                          @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket) {
         this.skillService = skillService;
         this.resourceService = resourceService;
         this.storage = storage;
         this.providerService = providerService;
+        this.modelCatalogService = modelCatalogService;
         this.modelClientFactory = modelClientFactory;
         this.resourceBucket = resourceBucket;
     }
@@ -61,21 +65,18 @@ public class SkillResourceWorkbenchService {
 
     public AgentSkillResourceGenerateVo generate(String skillId, AgentSkillResourceGenerateDto dto) {
         skillService.getById(skillId);
-        if (dto == null || StringUtils.isBlank(dto.getProviderId()) || StringUtils.isBlank(dto.getPrompt())) {
+        if (dto == null || StringUtils.isBlank(dto.getModelId()) || StringUtils.isBlank(dto.getPrompt())) {
             throw new ServerException(400, I18nUtils.getMessage("skill.resource.generate.provider-request.required"));
         }
         String type = StringUtils.upperCase(dto.getType());
         if (!Arrays.asList("MARKDOWN", "TEMPLATE", "SCRIPT").contains(type)) {
             throw new ServerException(400, I18nUtils.getMessage("skill.resource.type.unsupported"));
         }
-        ModelProvider provider = providerService.getById(dto.getProviderId());
-        if (provider == null || !Integer.valueOf(1).equals(provider.getStatus())) {
-            throw new ServerException(400, I18nUtils.getMessage("skill.resource.generate.provider.unavailable"));
-        }
+        ModelProvider provider = modelCatalogService.resolveProvider(dto.getModelId(), "CHAT,MULTIMODAL");
         String name = normaliseName(dto.getName(), type);
         ModelChatRequest request = new ModelChatRequest();
         request.setProvider(provider);
-        request.setModel(StringUtils.defaultIfBlank(dto.getModel(), provider.getDefaultModel()));
+        request.setModel(provider.getDefaultModel());
         request.setMaxCompletionTokens(4096);
         request.setMessages(Arrays.asList(
                 new ModelChatMessage("system", "You author a single Skill resource. Return only the file content, without Markdown fences or explanation. Follow the requested type exactly. For scripts, use only standard library APIs and read JSON from stdin, writing files only under ./output."),

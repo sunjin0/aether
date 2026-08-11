@@ -28,6 +28,7 @@ import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.KnowledgeContextService;
 import com.aether.agent.service.InteractionReplyService;
 import com.aether.agent.service.ConversationContextService;
@@ -78,6 +79,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     private final AgentDefinitionService agentDefinitionService;
     private final ModelProviderService modelProviderService;
+    private final ModelCatalogService modelCatalogService;
     private final AgentConversationService agentConversationService;
     private final AgentMessageService agentMessageService;
     private final ChatRunService chatRunService;
@@ -106,9 +108,11 @@ public class AgentChatServiceImpl implements AgentChatService {
                                  InteractionReplyService interactionReplyService,
                                  ConversationContextService conversationContextService,
                                  AdminPreferenceExtractionService adminPreferenceExtractionService,
-                                  QueryRewriteService queryRewriteService, SkillContextService skillContextService) {
+                                  QueryRewriteService queryRewriteService, SkillContextService skillContextService,
+                                  ModelCatalogService modelCatalogService) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
+        this.modelCatalogService = modelCatalogService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
         this.chatRunService = chatRunService;
@@ -137,7 +141,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                                  QueryRewriteService queryRewriteService) {
         this(agentDefinitionService, modelProviderService, agentConversationService, agentMessageService, chatRunService,
                 modelClientFactory, agentToolWorkflow, knowledgeContextService, interactionReplyService,
-                conversationContextService, adminPreferenceExtractionService, queryRewriteService, null);
+                conversationContextService, adminPreferenceExtractionService, queryRewriteService, null, null);
     }
 
     @Override
@@ -147,7 +151,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         long startTime = System.currentTimeMillis();
 
         AgentDefinition agent = getEnabledAgent(dto.getAgentId());
-        ModelProvider provider = getEnabledProvider(agent.getModelProviderId());
+        ModelProvider provider = getEnabledProvider(agent);
         applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
         String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
@@ -300,7 +304,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         long startTime = System.currentTimeMillis();
 
         AgentDefinition agent = getEnabledAgent(dto.getAgentId());
-        ModelProvider provider = getEnabledProvider(agent.getModelProviderId());
+        ModelProvider provider = getEnabledProvider(agent);
         applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
         String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
@@ -510,7 +514,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             markInteractionAnswered(question, dto.getAnswer(), System.currentTimeMillis());
 
             agent = getEnabledAgent(conversation.getAgentDefinitionId());
-            provider = getEnabledProvider(agent.getModelProviderId());
+            provider = getEnabledProvider(agent);
             applyReplyThinkingConfig(dto, agent);
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
 
@@ -809,18 +813,11 @@ public class AgentChatServiceImpl implements AgentChatService {
         return agent;
     }
 
-    private ModelProvider getEnabledProvider(String providerId) {
-        if (StringUtils.isBlank(providerId)) {
+    private ModelProvider getEnabledProvider(AgentDefinition agent) {
+        if (modelCatalogService == null || StringUtils.isBlank(agent.getModelId())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
         }
-        ModelProvider provider = modelProviderService.getById(providerId);
-        if (provider == null || Boolean.TRUE.equals(provider.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
-        }
-        if (!Integer.valueOf(PROVIDER_STATUS_ENABLED).equals(provider.getStatus())) {
-            throw new ServerException(422, I18nUtils.getMessage("agent.model.provider.disabled"));
-        }
-        return provider;
+        return modelCatalogService.resolveProvider(agent.getModelId(), "CHAT,MULTIMODAL");
     }
 
     private AgentConversation getOrCreateConversation(AgentChatDto dto, String userId, AgentDefinition agent) {

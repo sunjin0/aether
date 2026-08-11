@@ -26,6 +26,7 @@ public class AgentDefinitionDto {
 
     @ApiModelProperty(value = "关联模型供应商ID")
     private String modelProviderId;
+    private String modelId;
 
     @ApiModelProperty(value = "使用的模型名称")
     private String model;

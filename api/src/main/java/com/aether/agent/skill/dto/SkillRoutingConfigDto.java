@@ -5,5 +5,5 @@ import lombok.Data;
 /** Global discovery configuration. It does not change frozen Skill versions. */
 @Data
 public class SkillRoutingConfigDto {
-    private String embeddingProviderId;
+    private String embeddingModelId;
 }

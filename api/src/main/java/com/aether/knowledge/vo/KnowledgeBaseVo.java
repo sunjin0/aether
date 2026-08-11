@@ -16,6 +16,7 @@ public class KnowledgeBaseVo extends BaseEntity {
     private String scope;
 
     private String embeddingProviderId;
+    private String embeddingModelId;
 
     /** 后台管理员归属 ID。 */
     private String ownerAdminId;

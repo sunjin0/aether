@@ -1,7 +1,7 @@
 package com.aether.agent.skill.service;
 
 import com.aether.agent.entity.ModelProvider;
-import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.skill.dto.SkillRoutingConfigDto;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -14,32 +14,29 @@ import org.springframework.stereotype.Service;
 /** Persisted global routing settings managed from the Skill administration page. */
 @Service
 public class SkillRoutingConfigService {
-    private static final String EMBEDDING_PROVIDER_CODE = "skill.routing.embeddingProviderId";
+    private static final String EMBEDDING_MODEL_CODE = "skill.routing.embeddingModelId";
     private static final String DISABLED = "__DISABLED__";
     private final ConfigService configService;
-    private final ModelProviderService providerService;
+    private final ModelCatalogService modelCatalogService;
 
-    public SkillRoutingConfigService(ConfigService configService, ModelProviderService providerService) {
-        this.configService = configService; this.providerService = providerService;
+    public SkillRoutingConfigService(ConfigService configService, ModelCatalogService modelCatalogService) {
+        this.configService = configService; this.modelCatalogService = modelCatalogService;
     }
 
-    public String embeddingProviderId() {
-        String value = configService.getValue(EMBEDDING_PROVIDER_CODE);
+    public String embeddingModelId() {
+        String value = configService.getValue(EMBEDDING_MODEL_CODE);
         if (DISABLED.equals(value)) return null;
         return StringUtils.trimToNull(value);
     }
 
-    public SkillRoutingConfigDto get() { SkillRoutingConfigDto dto = new SkillRoutingConfigDto(); dto.setEmbeddingProviderId(embeddingProviderId()); return dto; }
+    public SkillRoutingConfigDto get() { SkillRoutingConfigDto dto = new SkillRoutingConfigDto(); dto.setEmbeddingModelId(embeddingModelId()); return dto; }
 
     public void update(SkillRoutingConfigDto dto) {
-        String providerId = dto == null ? null : StringUtils.trimToNull(dto.getEmbeddingProviderId());
-        if (providerId != null) {
-            ModelProvider provider = providerService.getById(providerId);
-            if (provider == null || !Integer.valueOf(1).equals(provider.getStatus()) || Boolean.TRUE.equals(provider.getDeleted())) throw new ServerException(422, I18nUtils.getMessage("skill.routing.provider.unavailable"));
-        }
-        Config config = configService.getOne(Wrappers.lambdaQuery(Config.class).eq(Config::getCode, EMBEDDING_PROVIDER_CODE).orderByDesc(Config::getCreatedAt).last("limit 1"));
-        String persisted = providerId == null ? DISABLED : providerId;
-        if (config == null) { config = new Config(); config.setCode(EMBEDDING_PROVIDER_CODE); config.setName("Skill 路由嵌入模型"); config.setRemark("Skill 渐进发现的向量召回 Provider"); config.setValue(persisted); configService.save(config); }
+        String modelId = dto == null ? null : StringUtils.trimToNull(dto.getEmbeddingModelId());
+        if (modelId != null) modelCatalogService.requireAvailable(modelId, "EMBEDDING");
+        Config config = configService.getOne(Wrappers.lambdaQuery(Config.class).eq(Config::getCode, EMBEDDING_MODEL_CODE).orderByDesc(Config::getCreatedAt).last("limit 1"));
+        String persisted = modelId == null ? DISABLED : modelId;
+        if (config == null) { config = new Config(); config.setCode(EMBEDDING_MODEL_CODE); config.setName("Skill 路由向量模型"); config.setRemark("Skill 渐进发现的向量召回模型目录项"); config.setValue(persisted); configService.save(config); }
         else { config.setValue(persisted); configService.updateById(config); }
     }
 }

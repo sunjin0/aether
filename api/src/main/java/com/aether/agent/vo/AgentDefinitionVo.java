@@ -30,6 +30,7 @@ public class AgentDefinitionVo extends BaseEntity {
 
     @ApiModelProperty(value = "关联模型供应商ID")
     private String modelProviderId;
+    private String modelId;
 
     @ApiModelProperty(value = "关联模型供应商名称")
     private String modelProviderName;

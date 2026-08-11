@@ -24,6 +24,7 @@ public class KnowledgeBase extends BaseEntity {
 
     /** Embedding 模型供应商 ID，由模型供应商下拉接口提供。 */
     private String embeddingProviderId;
+    private String embeddingModelId;
 
     /** 知识库归属的后台管理员 ID。 */
     private String ownerAdminId;

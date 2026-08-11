@@ -6,7 +6,7 @@ import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.model.ModelClientFactory;
-import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillRoutingIndex;
@@ -37,15 +37,15 @@ public class SkillRouterService {
     private final AgentSkillVersionServiceImpl versionService;
     private final AgentSkillRoutingIndexMapper indexMapper;
     private final KnowledgeEmbeddingService embeddingService;
-    private final ModelProviderService modelProviderService;
+    private final ModelCatalogService modelCatalogService;
     private final ModelClientFactory modelClientFactory;
     private final SkillRoutingConfigService routingConfigService;
 
     public SkillRouterService(AgentSkillService skillService, AgentSkillVersionServiceImpl versionService, AgentSkillRoutingIndexMapper indexMapper,
-                              KnowledgeEmbeddingService embeddingService, ModelProviderService modelProviderService, ModelClientFactory modelClientFactory,
+                              KnowledgeEmbeddingService embeddingService, ModelCatalogService modelCatalogService, ModelClientFactory modelClientFactory,
                               SkillRoutingConfigService routingConfigService) {
         this.skillService = skillService; this.versionService = versionService; this.indexMapper = indexMapper; this.embeddingService = embeddingService;
-        this.modelProviderService = modelProviderService; this.modelClientFactory = modelClientFactory; this.routingConfigService = routingConfigService;
+        this.modelCatalogService = modelCatalogService; this.modelClientFactory = modelClientFactory; this.routingConfigService = routingConfigService;
     }
 
     public SkillRouteDecision route(AgentDefinition agent, ModelProvider chatProvider, String query, List<AgentDefinitionSkillBinding> bindings) {
@@ -67,10 +67,10 @@ public class SkillRouterService {
         return new Candidate(skill, version, parse(version.getTriggerTerms()), parse(version.getExcludeTerms()), parse(version.getRoutingExamples()), binding.getPriority());
     }
     private void addSemanticCandidates(String query, List<Candidate> available, Set<String> output) {
-        String embeddingProviderId = routingConfigService.embeddingProviderId();
-        if (StringUtils.isBlank(embeddingProviderId) || available.isEmpty()) return;
+        String embeddingModelId = routingConfigService.embeddingModelId();
+        if (StringUtils.isBlank(embeddingModelId) || available.isEmpty()) return;
         try {
-            ModelProvider provider = modelProviderService.getById(embeddingProviderId); if (provider == null || !Integer.valueOf(1).equals(provider.getStatus())) return;
+            ModelProvider provider = modelCatalogService.resolveProvider(embeddingModelId, "EMBEDDING");
             String vector = embeddingService.toVectorLiteral(embeddingService.embed(provider, query));
             List<AgentSkillRoutingIndex> hits = indexMapper.findSimilar(available.stream().map(c -> c.version.getId()).collect(Collectors.toList()), vector, MAX_CANDIDATES);
             Map<String, Candidate> byVersion = available.stream().collect(Collectors.toMap(c -> c.version.getId(), c -> c));

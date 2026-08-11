@@ -17,6 +17,7 @@ import com.aether.agent.skill.service.SkillRoutingConfigService;
 import com.aether.agent.skill.service.SkillRoutingIndexService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
@@ -27,6 +28,7 @@ import com.aether.agent.skill.vo.AgentSkillStatisticsVo;
 import com.aether.agent.skill.vo.AgentSkillResourceGenerateVo;
 import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
+import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
 import com.aether.permission.Permission;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -42,7 +44,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/** Skill 管理接口，仅管理员可维护草稿、版本和启停状态。 */
+/**
+ * Skill 管理接口，仅管理员可维护草稿、版本和启停状态。
+ */
 @Validated
 @RestController
 @Permission(path = "/agent/skill")
@@ -53,22 +57,27 @@ public class AgentSkillController {
     private final SkillRouterService skillRouterService;
     private final AgentDefinitionService agentDefinitionService;
     private final ModelProviderService modelProviderService;
+    private final ModelCatalogService modelCatalogService;
     private final SkillRoutingConfigService routingConfigService;
     private final SkillRoutingIndexService routingIndexService;
 
     @Autowired
-    public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService, SkillRouterService skillRouterService, AgentDefinitionService agentDefinitionService, ModelProviderService modelProviderService, SkillRoutingConfigService routingConfigService, SkillRoutingIndexService routingIndexService) {
+    public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService, SkillRouterService skillRouterService, AgentDefinitionService agentDefinitionService, ModelProviderService modelProviderService, ModelCatalogService modelCatalogService, SkillRoutingConfigService routingConfigService, SkillRoutingIndexService routingIndexService) {
         this.skillService = skillService;
         this.resourceWorkbenchService = resourceWorkbenchService;
         this.skillRouterService = skillRouterService;
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
+        this.modelCatalogService = modelCatalogService;
         this.routingConfigService = routingConfigService;
         this.routingIndexService = routingIndexService;
     }
-    /** Test/backward-compatible constructor; Spring uses the complete dependency constructor. */
+
+    /**
+     * Test/backward-compatible constructor; Spring uses the complete dependency constructor.
+     */
     public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService) {
-        this(skillService, resourceWorkbenchService, null, null, null, null, null);
+        this(skillService, resourceWorkbenchService, null, null, null, null, null, null);
     }
 
     @PostMapping("/list")
@@ -81,7 +90,10 @@ public class AgentSkillController {
                 .orderByDesc(AgentSkill::getCreatedAt));
         List<AgentSkillVo> records = page.getRecords().stream().map(item -> {
             AgentSkillVo vo = skillService.lifecycle(item);
-            if (vo == null) { vo = new AgentSkillVo(); org.springframework.beans.BeanUtils.copyProperties(item, vo); }
+            if (vo == null) {
+                vo = new AgentSkillVo();
+                org.springframework.beans.BeanUtils.copyProperties(item, vo);
+            }
             return vo;
         }).collect(Collectors.toList());
         return WebResponse.Page(records, page.getTotal());
@@ -103,28 +115,40 @@ public class AgentSkillController {
     }
 
     @GetMapping("/statistics")
-    public WebResponse<AgentSkillStatisticsVo> statistics() { return WebResponse.OK(skillService.statistics()); }
+    public WebResponse<AgentSkillStatisticsVo> statistics() {
+        return WebResponse.OK(skillService.statistics());
+    }
 
     @GetMapping("/{id}")
-    public WebResponse<AgentSkillDetailVo> detail(@PathVariable @NotBlank String id) { return WebResponse.OK(skillService.detail(id)); }
+    public WebResponse<AgentSkillDetailVo> detail(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(skillService.detail(id));
+    }
 
     @PostMapping
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
-    public WebResponse<String> create(@RequestBody AgentSkillDraftDto dto) { return WebResponse.OK("Skill draft created", skillService.createDraft(dto)); }
+    public WebResponse<String> create(@RequestBody AgentSkillDraftDto dto) {
+        return WebResponse.OK(I18nUtils.getMessage("skill.draft.create.success"), skillService.createDraft(dto));
+    }
 
     @PutMapping("/{id}")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
-    public WebResponse<Void> updateDraft(@PathVariable @NotBlank String id, @RequestBody AgentSkillDraftDto dto) { skillService.updateDraft(id, dto); return WebResponse.OK("Skill draft updated"); }
+    public WebResponse<Void> updateDraft(@PathVariable @NotBlank String id, @RequestBody AgentSkillDraftDto dto) {
+        skillService.updateDraft(id, dto);
+        return WebResponse.OK(I18nUtils.getMessage("skill.draft.update.success"));
+    }
 
     @PostMapping("/{id}/draft")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
-    public WebResponse<String> createNextDraft(@PathVariable @NotBlank String id) { return WebResponse.OK("Skill draft created", skillService.createNextDraft(id)); }
+    public WebResponse<String> createNextDraft(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(I18nUtils.getMessage("skill.draft.create.success"), skillService.createNextDraft(id));
+    }
 
     @PostMapping("/{id}/versions/{versionId}/publish")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<AgentSkillVersion> publish(@PathVariable @NotBlank String id, @PathVariable @NotBlank String versionId) {
         AgentSkillDetailVo detail = skillService.detail(id);
-        if (detail.getDraft() == null || !versionId.equals(detail.getDraft().getId())) throw new IllegalArgumentException("Only the current draft can be published");
+        if (detail.getDraft() == null || !versionId.equals(detail.getDraft().getId()))
+            throw new IllegalArgumentException(I18nUtils.getMessage("skill.draft.publish.current.required"));
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         return WebResponse.OK(skillService.publish(id, userId));
     }
@@ -142,7 +166,11 @@ public class AgentSkillController {
     @PutMapping("/{id}/status")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<Void> status(@PathVariable @NotBlank String id, @RequestBody AgentSkillVo dto) {
-        AgentSkill skill = skillService.getById(id); if (skill == null) throw new IllegalArgumentException("Skill not found"); skill.setStatus(dto.getStatus()); skillService.updateById(skill); return WebResponse.OK("Skill status updated");
+        AgentSkill skill = skillService.getById(id);
+        if (skill == null) throw new IllegalArgumentException(I18nUtils.getMessage("skill.not-found"));
+        skill.setStatus(dto.getStatus());
+        skillService.updateById(skill);
+        return WebResponse.OK(I18nUtils.getMessage("skill.status.update.success"));
     }
 
     @PostMapping("/{id}/resources")
@@ -157,14 +185,16 @@ public class AgentSkillController {
     @PutMapping("/{id}/resources/{resourceId}")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<AgentSkillResource> updateResource(@PathVariable @NotBlank String id, @PathVariable @NotBlank String resourceId,
-                                                           @RequestParam("file") MultipartFile file,
-                                                           @RequestParam(value = "purpose", required = false) String purpose,
-                                                           @RequestParam(value = "type", required = false) String type) throws IOException {
+                                                          @RequestParam("file") MultipartFile file,
+                                                          @RequestParam(value = "purpose", required = false) String purpose,
+                                                          @RequestParam(value = "type", required = false) String type) throws IOException {
         return WebResponse.OK(skillService.updateDraftResource(id, resourceId, file.getOriginalFilename(), file.getContentType(), file.getBytes(), purpose, type));
     }
 
     @GetMapping("/{id}/resources")
-    public WebResponse<List<AgentSkillResource>> resources(@PathVariable @NotBlank String id) { return WebResponse.OK(skillService.listResources(id)); }
+    public WebResponse<List<AgentSkillResource>> resources(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(skillService.listResources(id));
+    }
 
     @GetMapping("/{id}/resources/{resourceId}/content")
     public WebResponse<String> resourceContent(@PathVariable @NotBlank String id, @PathVariable @NotBlank String resourceId) {
@@ -176,32 +206,45 @@ public class AgentSkillController {
     @PostMapping("/{id}/resources/generate")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<AgentSkillResourceGenerateVo> generateResource(@PathVariable @NotBlank String id,
-                                                                       @RequestBody AgentSkillResourceGenerateDto dto) {
+                                                                      @RequestBody AgentSkillResourceGenerateDto dto) {
         return WebResponse.OK(resourceWorkbenchService.generate(id, dto));
     }
 
     @DeleteMapping("/{id}/resources/{resourceId}")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
-    public WebResponse<Void> removeResource(@PathVariable @NotBlank String id, @PathVariable @NotBlank String resourceId) { skillService.removeDraftResource(id, resourceId); return WebResponse.OK("Skill resource removed"); }
+    public WebResponse<Void> removeResource(@PathVariable @NotBlank String id, @PathVariable @NotBlank String resourceId) {
+        skillService.removeDraftResource(id, resourceId);
+        return WebResponse.OK(I18nUtils.getMessage("skill.resource.remove.success"));
+    }
 
     @PostMapping("/{id}/preview")
-    public WebResponse<AgentSkillPreviewVo> preview(@PathVariable @NotBlank String id, @RequestBody AgentSkillPreviewDto dto) { return WebResponse.OK(skillService.preview(id, dto)); }
+    public WebResponse<AgentSkillPreviewVo> preview(@PathVariable @NotBlank String id, @RequestBody AgentSkillPreviewDto dto) {
+        return WebResponse.OK(skillService.preview(id, dto));
+    }
 
-    /** Preview discovery only; it never loads full instructions or invokes the answer path. */
+    /**
+     * Preview discovery only; it never loads full instructions or invokes the answer path.
+     */
     @PostMapping("/routing-preview")
     public WebResponse<SkillRouteDecision> routingPreview(@RequestParam @NotBlank String agentId, @RequestParam @NotBlank String query) {
         AgentDefinition agent = agentDefinitionService.getById(agentId);
-        if (agent == null) throw new IllegalArgumentException("Agent not found");
-        ModelProvider provider = modelProviderService.getById(agent.getModelProviderId());
+        if (agent == null) throw new IllegalArgumentException(I18nUtils.getMessage("skill.agent.not-found"));
+        ModelProvider provider = modelCatalogService == null ? null : modelCatalogService.resolveProvider(agent.getModelId(), "CHAT,MULTIMODAL");
         return WebResponse.OK(skillRouterService.route(agent, provider, query, skillService.listBindings(agentId).stream().filter(binding -> Integer.valueOf(1).equals(binding.getStatus())).collect(Collectors.toList())));
     }
 
     @GetMapping("/routing-config")
-    public WebResponse<SkillRoutingConfigDto> routingConfig() { return WebResponse.OK(routingConfigService.get()); }
+    public WebResponse<SkillRoutingConfigDto> routingConfig() {
+        return WebResponse.OK(routingConfigService.get());
+    }
 
     @PutMapping("/routing-config")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
-    public WebResponse<Void> updateRoutingConfig(@RequestBody SkillRoutingConfigDto dto) { routingConfigService.update(dto); routingIndexService.reindexPublishedVersions(); return WebResponse.OK("Skill routing configuration updated"); }
+    public WebResponse<Void> updateRoutingConfig(@RequestBody SkillRoutingConfigDto dto) {
+        routingConfigService.update(dto);
+        routingIndexService.reindexPublishedVersions();
+        return WebResponse.OK(I18nUtils.getMessage("skill.routing.config.update.success"));
+    }
 
     @GetMapping("/{id}/execution-config")
     public WebResponse<AgentSkillExecutionConfig> executionConfig(@PathVariable @NotBlank String id) {
@@ -211,9 +254,9 @@ public class AgentSkillController {
     @PutMapping("/{id}/execution-config")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<Void> updateExecutionConfig(@PathVariable @NotBlank String id,
-                                                    @RequestBody AgentSkillExecutionConfigDto dto) {
+                                                   @RequestBody AgentSkillExecutionConfigDto dto) {
         skillService.updateExecutionConfig(id, dto);
-        return WebResponse.OK("Skill execution configuration updated");
+        return WebResponse.OK(I18nUtils.getMessage("skill.execution.config.update.success"));
     }
 
 }

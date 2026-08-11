@@ -8,6 +8,7 @@ import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.model.ModelClientFactory;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeAiReview;
 import com.aether.knowledge.entity.KnowledgeAiReviewIssue;
@@ -51,6 +52,7 @@ public class KnowledgeAiReviewWorker {
     private final KnowledgeDocumentService documentService;
     private final KnowledgeBaseService baseService;
     private final ModelProviderService providerService;
+    private final ModelCatalogService modelCatalogService;
     private final ModelClientFactory clientFactory;
     private final ObjectProvider<KnowledgeAiReviewWorker> selfProvider;
     private final TransactionTemplate transactionTemplate;
@@ -61,6 +63,7 @@ public class KnowledgeAiReviewWorker {
                                    KnowledgeDocumentService documentService,
                                    KnowledgeBaseService baseService,
                                    ModelProviderService providerService,
+                                   ModelCatalogService modelCatalogService,
                                    ModelClientFactory clientFactory,
                                    ObjectProvider<KnowledgeAiReviewWorker> selfProvider,
                                    TransactionTemplate transactionTemplate) {
@@ -70,6 +73,7 @@ public class KnowledgeAiReviewWorker {
         this.documentService = documentService;
         this.baseService = baseService;
         this.providerService = providerService;
+        this.modelCatalogService = modelCatalogService;
         this.clientFactory = clientFactory;
         this.selfProvider = selfProvider;
         this.transactionTemplate = transactionTemplate;
@@ -329,14 +333,10 @@ public class KnowledgeAiReviewWorker {
     }
 
     private ModelProvider resolveProvider(KnowledgeBase base) {
-        String providerId = configString(base.getReviewConfig(), "reviewModelProviderId");
-        if (StringUtils.isBlank(providerId)) return null;
-        ModelProvider provider = providerService.getById(providerId);
-        if (provider == null || Boolean.TRUE.equals(provider.getDeleted())
-                || provider.getStatus() == null || provider.getStatus() != 1
-                || StringUtils.isBlank(provider.getDefaultModel())
-                || StringUtils.containsIgnoreCase(provider.getDefaultModel(), "embedding")) return null;
-        return provider;
+        String modelId = configString(base.getReviewConfig(), "reviewModelId");
+        if (StringUtils.isBlank(modelId)) return null;
+        try { return modelCatalogService.resolveProvider(modelId, "CHAT,MULTIMODAL"); }
+        catch (Exception e) { return null; }
     }
 
     private String configString(String config, String key) {

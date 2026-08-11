@@ -3,6 +3,8 @@ package com.aether.agent.controller;
 import com.aether.agent.dto.ModelProviderDto;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
+import com.aether.agent.entity.ModelCatalog;
 import com.aether.agent.vo.ModelProviderVo;
 import com.aether.entity.WebResponse;
 import com.aether.entity.Option;
@@ -10,6 +12,9 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
 import com.aether.utils.AesUtil;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -21,12 +26,21 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
 import javax.validation.Valid;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.io.IOException;
 import java.util.stream.Collectors;
 
 /**
@@ -40,10 +54,12 @@ import java.util.stream.Collectors;
 public class ModelProviderController {
 
     private final ModelProviderService modelProviderService;
+    private final ModelCatalogService modelCatalogService;
 
     @Autowired
-    public ModelProviderController(ModelProviderService modelProviderService) {
+    public ModelProviderController(ModelProviderService modelProviderService, ModelCatalogService modelCatalogService) {
         this.modelProviderService = modelProviderService;
+        this.modelCatalogService = modelCatalogService;
     }
 
     @ApiOperation("模型供应商列表")
@@ -93,7 +109,99 @@ public class ModelProviderController {
     })
     @GetMapping("/embedding-options")
     public WebResponse<List<Option>> embeddingOptions() {
-        return WebResponse.OK(modelProviderService.getEmbeddingProviderOptions());
+        return WebResponse.OK(modelCatalogService.getOptions("EMBEDDING"));
+    }
+
+    @ApiOperation("按能力获取供应商模型选项")
+    @GetMapping("/models/options")
+    public WebResponse<List<Option>> modelOptions(@RequestParam String capability) {
+        return WebResponse.OK(modelCatalogService.getOptions(capability));
+    }
+
+    @GetMapping("/models")
+    public WebResponse<List<ModelCatalog>> models(@RequestParam(required = false) String providerId) {
+        return WebResponse.OK(modelCatalogService.list(Wrappers.lambdaQuery(ModelCatalog.class)
+                .eq(StringUtils.isNotBlank(providerId), ModelCatalog::getProviderId, providerId)
+                .eq(ModelCatalog::getDeleted, false).orderByAsc(ModelCatalog::getSortNum)));
+    }
+
+    @ApiOperation("从供应商读取可用模型列表")
+    @GetMapping("/{id}/models/discover")
+    public WebResponse<List<Option>> discoverModels(@PathVariable @NotBlank String id) {
+        ModelProvider provider = modelProviderService.getById(id);
+        if (provider == null || Boolean.TRUE.equals(provider.getDeleted()) || StringUtils.isBlank(provider.getApiBaseUrl())) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
+        }
+        try {
+            // Alibaba Model Studio's OpenAI-compatible endpoint does not expose a stable
+            // GET /v1/models contract. Return the maintained Qwen model IDs instead.
+            if (StringUtils.containsIgnoreCase(provider.getApiBaseUrl(), "aliyuncs.com")) {
+                return WebResponse.OK(qwenModelOptions());
+            }
+            String baseUrl = StringUtils.removeEnd(provider.getApiBaseUrl(), "/");
+            String url = baseUrl.endsWith("/v1/models") ? baseUrl : (baseUrl.endsWith("/v1") ? baseUrl + "/models" : baseUrl + "/v1/models");
+            HttpHeaders headers = new HttpHeaders();
+            if (StringUtils.isNotBlank(provider.getApiKey())) headers.setBearerAuth(AesUtil.decrypt(provider.getApiKey()));
+            ResponseEntity<String> response = new RestTemplate().exchange(url, HttpMethod.GET, new HttpEntity<Void>(headers), String.class);
+            JSONObject payload = JSON.parseObject(response.getBody());
+            JSONArray models = payload == null ? null : payload.getJSONArray("data");
+            List<Option> result = new java.util.ArrayList<>();
+            if (models != null) for (int i = 0; i < models.size(); i++) {
+                JSONObject model = models.getJSONObject(i);
+                String name = model == null ? null : StringUtils.defaultIfBlank(model.getString("id"), model.getString("name"));
+                if (StringUtils.isNotBlank(name)) result.add(new Option(name, name));
+            }
+            return WebResponse.OK(result);
+        } catch (Exception e) {
+            throw new ServerException(502, I18nUtils.getMessage("agent.model.provider.models.discover.fail"));
+        }
+    }
+
+    private List<Option> qwenModelOptions() {
+        String[] models = {"qwen3.7-max", "qwen3.7-plus", "qwen3.6-flash", "qwen-max", "qwen-plus", "qwen-turbo", "qwen3-vl-plus", "qwen3-omni-flash", "text-embedding-v4", "qwen3-rerank"};
+        List<Option> result = new java.util.ArrayList<>();
+        for (String model : models) result.add(new Option(model, model));
+        return result;
+    }
+
+    @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @PostMapping("/models")
+    public WebResponse<String> saveModel(@RequestBody ModelCatalog model) {
+        if (StringUtils.isBlank(model.getProviderId()) || StringUtils.isBlank(model.getName()) || StringUtils.isBlank(model.getCapabilities()))
+            throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
+        modelCatalogService.validateForSave(model);
+        modelCatalogService.save(model);
+        return WebResponse.OK(I18nUtils.getMessage("agent.model.catalog.create.success"), model.getId());
+    }
+
+    @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @PutMapping("/models/{id}")
+    public WebResponse<Void> updateModel(@PathVariable String id, @RequestBody ModelCatalog model) {
+        model.setId(id); modelCatalogService.validateForSave(model); modelCatalogService.updateById(model);
+        return WebResponse.OK(I18nUtils.getMessage("agent.model.catalog.update.success"));
+    }
+
+    @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @PostMapping("/models/batch")
+    @Transactional(rollbackFor = Exception.class)
+    public WebResponse<Integer> saveModels(@RequestBody List<ModelCatalog> models) {
+        if (models == null || models.isEmpty()) throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
+        models.forEach(modelCatalogService::validateForSave);
+        modelCatalogService.saveBatch(models);
+        return WebResponse.OK(I18nUtils.getMessage("agent.model.catalog.create.success"), models.size());
+    }
+
+    @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @DeleteMapping("/models/{id}")
+    public WebResponse<Void> deleteModel(@PathVariable String id) {
+        return WebResponse.OK(modelCatalogService.removeById(id) ? I18nUtils.getMessage("agent.model.catalog.delete.success") : I18nUtils.getMessage("agent.model.catalog.delete.fail"));
+    }
+
+    @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @PutMapping("/models/{id}/status")
+    public WebResponse<Void> updateModelStatus(@PathVariable String id, @RequestBody ModelCatalog model) {
+        ModelCatalog update = new ModelCatalog(); update.setId(id); update.setStatus(model.getStatus());
+        return WebResponse.OK(modelCatalogService.updateById(update) ? I18nUtils.getMessage("agent.model.catalog.update.success") : I18nUtils.getMessage("agent.model.catalog.update.fail"));
     }
 
     @ApiOperation("模型供应商详情")
@@ -191,8 +299,30 @@ public class ModelProviderController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/{id}/test")
-    public WebResponse<Boolean> testConnection(@PathVariable @NotBlank String id) {
-        // TODO: V0.3 实现模型调用客户端后完善
-        return WebResponse.OK(I18nUtils.getMessage("agent.model-provider.connection.test.success"), true);
+    public WebResponse<Map<String, Object>> testConnection(@PathVariable @NotBlank String id) {
+        ModelProvider provider = modelProviderService.getById(id);
+        if (provider == null || Boolean.TRUE.equals(provider.getDeleted()) || StringUtils.isBlank(provider.getApiBaseUrl())) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
+        }
+        long startedAt = System.currentTimeMillis();
+        boolean connected = false;
+        String error = null;
+        try {
+            SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+            requestFactory.setConnectTimeout(5000);
+            requestFactory.setReadTimeout(10000);
+            RestTemplate client = new RestTemplate(requestFactory);
+            HttpHeaders headers = new HttpHeaders();
+            if (StringUtils.isNotBlank(provider.getApiKey())) headers.setBearerAuth(AesUtil.decrypt(provider.getApiKey()));
+            client.exchange(provider.getApiBaseUrl(), HttpMethod.OPTIONS, new HttpEntity<Void>(headers), Void.class);
+            connected = true;
+        } catch (Exception e) {
+            error = StringUtils.abbreviate(e.getMessage(), 240);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", connected);
+        result.put("elapsedMs", System.currentTimeMillis() - startedAt);
+        result.put("error", error);
+        return WebResponse.OK(connected ? I18nUtils.getMessage("agent.model-provider.connection.test.success") : I18nUtils.getMessage("agent.model-provider.connection.test.fail"), result);
     }
 }

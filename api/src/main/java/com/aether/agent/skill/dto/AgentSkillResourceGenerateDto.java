@@ -5,8 +5,7 @@ import lombok.Data;
 /** Request for an AI-generated, not-yet-persisted Skill resource draft. */
 @Data
 public class AgentSkillResourceGenerateDto {
-    private String providerId;
-    private String model;
+    private String modelId;
     private String type;
     private String name;
     private String purpose;

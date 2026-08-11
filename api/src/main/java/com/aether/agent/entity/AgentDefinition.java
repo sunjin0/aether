@@ -35,6 +35,9 @@ public class AgentDefinition extends BaseEntity {
     @ApiModelProperty(value = "关联模型供应商ID")
     private String modelProviderId;
 
+    /** Preferred catalog model. provider/model remain for legacy compatibility. */
+    private String modelId;
+
     @ApiModelProperty(value = "使用的模型名称")
     private String model;
 

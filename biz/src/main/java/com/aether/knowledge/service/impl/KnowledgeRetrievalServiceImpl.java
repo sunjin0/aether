@@ -16,6 +16,7 @@ import com.aether.knowledge.model.KnowledgeBaseScope;
 import com.aether.knowledge.model.KnowledgeRetrievalResult;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.service.QueryRewriteService;
+import com.aether.agent.service.ModelCatalogService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -78,6 +79,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     private final KnowledgeEmbeddingService knowledgeEmbeddingService;
     private final KnowledgeRerankService knowledgeRerankService;
     private final QueryRewriteService queryRewriteService;
+    private final ModelCatalogService modelCatalogService;
     private final ConcurrentHashMap<String, CachedEmbedding> queryEmbeddingCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CachedRetrieval> retrievalCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ProviderCircuit> providerCircuits = new ConcurrentHashMap<>();
@@ -91,7 +93,8 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                                               ModelProviderService modelProviderService,
                                               KnowledgeEmbeddingService knowledgeEmbeddingService,
                                               KnowledgeRerankService knowledgeRerankService,
-                                              QueryRewriteService queryRewriteService) {
+                                              QueryRewriteService queryRewriteService,
+                                              ModelCatalogService modelCatalogService) {
         this.knowledgeBaseService = knowledgeBaseService;
         this.bindingService = bindingService;
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
@@ -99,6 +102,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         this.knowledgeEmbeddingService = knowledgeEmbeddingService;
         this.knowledgeRerankService = knowledgeRerankService;
         this.queryRewriteService = queryRewriteService;
+        this.modelCatalogService = modelCatalogService;
     }
 
     public KnowledgeRetrievalServiceImpl(KnowledgeBaseService knowledgeBaseService,
@@ -108,7 +112,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                                          KnowledgeEmbeddingService knowledgeEmbeddingService,
                                          KnowledgeRerankService knowledgeRerankService) {
         this(knowledgeBaseService, bindingService, knowledgeDocumentChunkService, modelProviderService,
-                knowledgeEmbeddingService, knowledgeRerankService, null);
+                knowledgeEmbeddingService, knowledgeRerankService, null, null);
     }
 
     public KnowledgeRetrievalServiceImpl(KnowledgeBaseService knowledgeBaseService,
@@ -117,7 +121,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                                          ModelProviderService modelProviderService,
                                          KnowledgeEmbeddingService knowledgeEmbeddingService) {
         this(knowledgeBaseService, bindingService, knowledgeDocumentChunkService, modelProviderService,
-                knowledgeEmbeddingService, null, null);
+                knowledgeEmbeddingService, null, null, null);
     }
     /**
      * 根据 Agent 当前绑定的知识库和检索配置执行一次检索。
@@ -272,14 +276,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     }
 
     private ModelProvider getEmbeddingProvider(KnowledgeBase knowledgeBase) {
-        if (StringUtils.isNotBlank(knowledgeBase.getEmbeddingProviderId())) {
-            return modelProviderService.getById(knowledgeBase.getEmbeddingProviderId());
-        }
-        List<ModelProvider> providers = modelProviderService.list(Wrappers.lambdaQuery(ModelProvider.class)
-                .eq(ModelProvider::getStatus, STATUS_ENABLED)
-                .eq(ModelProvider::getDeleted, false)
-                .orderByAsc(ModelProvider::getSortNum));
-        return providers == null || providers.isEmpty() ? null : providers.get(0);
+        if (modelCatalogService == null || StringUtils.isBlank(knowledgeBase.getEmbeddingModelId())) return null;
+        try { return modelCatalogService.resolveProvider(knowledgeBase.getEmbeddingModelId(), "EMBEDDING"); }
+        catch (Exception e) { log.warn("知识库向量模型目录项不可用: knowledgeBaseId={}", knowledgeBase.getId()); return null; }
     }
 
     private List<Double> getQueryEmbedding(ModelProvider provider, String query) {
@@ -418,12 +417,10 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         double authorityWeight = 0D;
         double freshnessWeight = 0D;
         boolean rerankEnabled = false;
-        String rerankProviderId = null;
-        String rerankModel = null;
+        String rerankModelId = null;
         int rerankTopN = DEFAULT_TOP_K;
         boolean queryRewriteEnabled = false;
-        String queryRewriteProviderId = null;
-        String queryRewriteModel = null;
+        String queryRewriteModelId = null;
         boolean strictGrounding = false;
         if (StringUtils.isNotBlank(value)) {
             try {
@@ -435,10 +432,8 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                 Double configuredMinLexicalScore = json.getDouble("minLexicalScore");
                 Boolean configuredRerankEnabled = json.getBoolean("rerankEnabled");
                 Boolean configuredQueryRewriteEnabled = json.getBoolean("queryRewriteEnabled");
-                String configuredQueryRewriteProviderId = json.getString("queryRewriteProviderId");
-                String configuredQueryRewriteModel = json.getString("queryRewriteModel");
-                String configuredRerankProviderId = json.getString("rerankProviderId");
-                String configuredRerankModel = json.getString("rerankModel");
+                String configuredQueryRewriteModelId = json.getString("queryRewriteModelId");
+                String configuredRerankModelId = json.getString("rerankModelId");
                 Integer configuredRerankTopN = json.getInteger("rerankTopN");
                 Boolean configuredStrictGrounding = json.getBoolean("strictGrounding");
                 Double configuredAuthorityScore = json.getDouble("authorityScore");
@@ -467,10 +462,8 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                     rerankEnabled = configuredRerankEnabled;
                 }
                 if (configuredQueryRewriteEnabled != null) queryRewriteEnabled = configuredQueryRewriteEnabled;
-                queryRewriteProviderId = configuredQueryRewriteProviderId;
-                queryRewriteModel = configuredQueryRewriteModel;
-                rerankProviderId = configuredRerankProviderId;
-                rerankModel = configuredRerankModel;
+                queryRewriteModelId = configuredQueryRewriteModelId;
+                rerankModelId = configuredRerankModelId;
                 if (configuredRerankTopN != null) {
                     rerankTopN = Math.max(1, Math.min(MAX_TOP_K, configuredRerankTopN));
                 }
@@ -489,22 +482,22 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
         return new RetrievalConfig(topK, minSimilarity, maxChunksPerDocument,
                 hybridEnabled, vectorWeight, minLexicalScore, rerankEnabled,
-                rerankProviderId, rerankModel, rerankTopN, strictGrounding,
+                rerankModelId, rerankTopN, strictGrounding,
                 authorityScore, authorityWeight, freshnessWeight, queryRewriteEnabled,
-                queryRewriteProviderId, queryRewriteModel);
+                queryRewriteModelId);
     }
 
     /** 对宽召回候选集调用 reranker，并限制最终上下文数量。 */
     private List<KnowledgeDocumentChunk> rerankCandidates(List<KnowledgeDocumentChunk> candidates,
                                                            RetrievalConfig config, String query) {
         if (!config.rerankEnabled || knowledgeRerankService == null || candidates == null || candidates.isEmpty()
-                || StringUtils.isBlank(config.rerankProviderId)) {
+                || StringUtils.isBlank(config.rerankModelId)) {
             return candidates;
         }
-        ModelProvider provider = modelProviderService.getById(config.rerankProviderId);
+        ModelProvider provider = resolveProvider(config.rerankModelId, "RERANK");
         if (provider == null || Boolean.TRUE.equals(provider.getDeleted())
                 || !Integer.valueOf(STATUS_ENABLED).equals(provider.getStatus())) {
-            log.warn("知识库重排序模型不可用，使用融合排序: providerId={}", config.rerankProviderId);
+            log.warn("知识库重排序模型不可用，使用融合排序: modelId={}", config.rerankModelId);
             return candidates;
         }
         Long unavailableUntil = rerankNotFoundUntil.get(provider.getId());
@@ -512,7 +505,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
             return candidates;
         }
         try {
-            List<KnowledgeDocumentChunk> ranked = knowledgeRerankService.rerank(provider, config.rerankModel, query, candidates, config.rerankTopN);
+            List<KnowledgeDocumentChunk> ranked = knowledgeRerankService.rerank(provider, provider.getDefaultModel(), query, candidates, config.rerankTopN);
             rerankNotFoundUntil.remove(provider.getId());
             return applyRankingPolicy(ranked, config);
         } catch (Exception e) {
@@ -526,21 +519,27 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    private ModelProvider resolveProvider(String modelId, String capability) {
+        if (modelCatalogService == null || StringUtils.isBlank(modelId)) return null;
+        try { return modelCatalogService.resolveProvider(modelId, capability); }
+        catch (Exception e) { return null; }
+    }
+
     private String rewriteQuery(String query, RetrievalConfig config, List<ModelChatMessage> history) {
         if (!config.queryRewriteEnabled || queryRewriteService == null
-                || StringUtils.isBlank(config.queryRewriteProviderId)) return query;
-        ModelProvider provider = modelProviderService.getById(config.queryRewriteProviderId);
+                || StringUtils.isBlank(config.queryRewriteModelId)) return query;
+        ModelProvider provider = resolveProvider(config.queryRewriteModelId, "CHAT,MULTIMODAL");
         if (provider == null || Boolean.TRUE.equals(provider.getDeleted())
                 || !Integer.valueOf(STATUS_ENABLED).equals(provider.getStatus())) {
-            log.warn("知识库查询重写模型不可用，使用原查询: providerId={}", config.queryRewriteProviderId);
+            log.warn("知识库查询重写模型不可用，使用原查询: modelId={}", config.queryRewriteModelId);
             return query;
         }
         String cacheKey = retrievalCacheKey("rewrite:" + provider.getId() + ":"
-                + StringUtils.defaultString(config.queryRewriteModel), query);
+                + StringUtils.defaultString(provider.getDefaultModel()), query);
         CachedQueryRewrite cached = queryRewriteCache.get(cacheKey);
         if (cached != null && cached.expiresAt > System.currentTimeMillis()) return cached.query;
         String rewritten = queryRewriteService.rewrite(history, query, null, provider,
-                config.queryRewriteModel).getRewrittenContent();
+                provider.getDefaultModel()).getRewrittenContent();
         String effectiveQuery = StringUtils.defaultIfBlank(rewritten, query);
         evictQueryRewriteCache();
         queryRewriteCache.put(cacheKey, new CachedQueryRewrite(effectiveQuery,
@@ -887,23 +886,21 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         private final double vectorWeight;
         private final double minLexicalScore;
         private final boolean rerankEnabled;
-        private final String rerankProviderId;
-        private final String rerankModel;
+        private final String rerankModelId;
         private final int rerankTopN;
         private final boolean strictGrounding;
         private final double authorityScore;
         private final double authorityWeight;
         private final double freshnessWeight;
         private final boolean queryRewriteEnabled;
-        private final String queryRewriteProviderId;
-        private final String queryRewriteModel;
+        private final String queryRewriteModelId;
 
         private RetrievalConfig(int topK, double minSimilarity, int maxChunksPerDocument,
                                 boolean hybridEnabled, double vectorWeight, double minLexicalScore,
-                                boolean rerankEnabled, String rerankProviderId, String rerankModel, int rerankTopN,
+                                boolean rerankEnabled, String rerankModelId, int rerankTopN,
                                 boolean strictGrounding, double authorityScore, double authorityWeight,
                                 double freshnessWeight, boolean queryRewriteEnabled,
-                                String queryRewriteProviderId, String queryRewriteModel) {
+                                String queryRewriteModelId) {
             this.topK = topK;
             this.minSimilarity = minSimilarity;
             this.maxChunksPerDocument = maxChunksPerDocument;
@@ -911,16 +908,14 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
             this.vectorWeight = vectorWeight;
             this.minLexicalScore = minLexicalScore;
             this.rerankEnabled = rerankEnabled;
-            this.rerankProviderId = rerankProviderId;
-            this.rerankModel = rerankModel;
+            this.rerankModelId = rerankModelId;
             this.rerankTopN = rerankTopN;
             this.strictGrounding = strictGrounding;
             this.authorityScore = authorityScore;
             this.authorityWeight = authorityWeight;
             this.freshnessWeight = freshnessWeight;
             this.queryRewriteEnabled = queryRewriteEnabled;
-            this.queryRewriteProviderId = queryRewriteProviderId;
-            this.queryRewriteModel = queryRewriteModel;
+            this.queryRewriteModelId = queryRewriteModelId;
         }
     }
 
