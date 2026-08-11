@@ -156,7 +156,7 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         validateContentType(extension, contentType);
         if (artifactService.count(Wrappers.lambdaQuery(AgentArtifact.class).eq(AgentArtifact::getExecutionId, job.getId())) >= config.getMaxOutputFiles()) throw new ServerException(409, I18nUtils.getMessage("skill.artifact.count.exceeded"));
         String actualHash = sha256(content); if (!actualHash.equals(checksum)) throw new ServerException(409, I18nUtils.getMessage("skill.artifact.checksum-mismatch"));
-        AgentArtifact artifact = new AgentArtifact(); artifact.setExecutionId(job.getId()); artifact.setRunId(job.getRunId()); artifact.setSkillVersionId(job.getSkillVersionId()); artifact.setFileName(fileName);
+        AgentArtifact artifact = new AgentArtifact(); artifact.setExecutionId(job.getId()); artifact.setRunId(job.getRunId()); artifact.setSkillVersionId(job.getSkillVersionId()); artifact.setUserId(job.getUserId()); artifact.setAgentDefinitionId(job.getAgentDefinitionId()); artifact.setFileName(fileName);
         artifact.setObjectKey("chat/artifacts/" + job.getId() + "/" + UUID.randomUUID().toString() + "." + extension); artifact.setContentSha256(actualHash); artifact.setContentType(StringUtils.defaultIfBlank(contentType, "application/octet-stream")); artifact.setSize((long) content.length); artifact.setExpiresAt(System.currentTimeMillis() + 7L * 24 * 3600 * 1000); artifact.setLogSummary(StringUtils.abbreviate(logSummary, 4096)); artifact.setStatus(1);
         storage.upload(artifactBucket, artifact.getObjectKey(), content, artifact.getContentType()); artifactService.save(artifact);
         attachToRunMessage(job, artifact);

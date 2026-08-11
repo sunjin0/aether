@@ -14,12 +14,18 @@ public class AgentArtifact extends BaseEntity {
     private String runId;
     private String skillVersionId;
     private String messageId;
+    /** Owner copied from the sandbox execution to support secure file-library queries. */
+    private String userId;
+    /** Agent copied from the sandbox execution for file-library source filtering. */
+    private String agentDefinitionId;
     private String fileName;
     private String objectKey;
     private String contentSha256;
     private String contentType;
     private Long size;
     private Long expiresAt;
+    /** Timestamp when the owner moved the artifact to the recycle bin. */
+    private Long recycledAt;
     private String logSummary;
     private Integer status;
 }
