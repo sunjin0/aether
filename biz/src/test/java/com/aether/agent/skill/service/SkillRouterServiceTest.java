@@ -6,7 +6,7 @@ import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.model.ModelClient;
 import com.aether.agent.model.ModelClientFactory;
-import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillVersion;
@@ -30,17 +30,17 @@ class SkillRouterServiceTest {
     private final AgentSkillVersionServiceImpl versionService = mock(AgentSkillVersionServiceImpl.class);
     private final AgentSkillRoutingIndexMapper indexMapper = mock(AgentSkillRoutingIndexMapper.class);
     private final KnowledgeEmbeddingService embeddingService = mock(KnowledgeEmbeddingService.class);
-    private final ModelProviderService providerService = mock(ModelProviderService.class);
+    private final ModelCatalogService modelCatalogService = mock(ModelCatalogService.class);
     private final ModelClientFactory clientFactory = mock(ModelClientFactory.class);
     private final ModelClient client = mock(ModelClient.class);
     private final SkillRoutingConfigService routingConfigService = mock(SkillRoutingConfigService.class);
-    private final SkillRouterService service = new SkillRouterService(skillService, versionService, indexMapper, embeddingService, providerService, clientFactory, routingConfigService);
+    private final SkillRouterService service = new SkillRouterService(skillService, versionService, indexMapper, embeddingService, modelCatalogService, clientFactory, routingConfigService);
     private final AgentDefinition agent = new AgentDefinition();
     private final ModelProvider provider = new ModelProvider();
 
     @BeforeEach
     void setup() {
-        agent.setId("a1"); provider.setId("p1"); when(routingConfigService.embeddingProviderId()).thenReturn("");
+        agent.setId("a1"); provider.setId("p1"); when(routingConfigService.embeddingModelId()).thenReturn("");
         AgentSkill skill = new AgentSkill(); skill.setId("s1"); skill.setName("Refund"); skill.setCategory("support"); skill.setStatus(1);
         AgentSkillVersion version = new AgentSkillVersion(); version.setId("v1"); version.setSkillId("s1"); version.setStatus(1); version.setRoutingSummary("Handle refund requests"); version.setTriggerTerms("[\"refund\"]"); version.setExcludeTerms("[\"security\"]"); version.setRoutingExamples("[\"How do I request a refund?\"]");
         when(skillService.getById("s1")).thenReturn(skill); when(versionService.getById("v1")).thenReturn(version); when(clientFactory.getClient(provider)).thenReturn(client);

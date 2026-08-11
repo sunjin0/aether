@@ -2,6 +2,7 @@ package com.aether.knowledge.service.impl;
 
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nService;
 import com.aether.i18n.I18nUtils;
@@ -51,6 +52,7 @@ class KnowledgeDocumentIndexServiceImplTest {
     @Mock private KnowledgeDocumentChunkService chunkService;
     @Mock private KnowledgeBaseService baseService;
     @Mock private ModelProviderService providerService;
+    @Mock private ModelCatalogService modelCatalogService;
     @Mock private KnowledgeEmbeddingService embeddingService;
     @Mock private KnowledgeIndexJobService jobService;
     @Mock private KnowledgeIndexWorker indexWorker;
@@ -67,6 +69,7 @@ class KnowledgeDocumentIndexServiceImplTest {
         KnowledgeBase base = new KnowledgeBase();
         base.setId("kb-1");
         base.setEmbeddingProviderId("provider-1");
+        base.setEmbeddingModelId("model-1");
         KnowledgeDocument document = new KnowledgeDocument();
         document.setId("doc-1");
         document.setKnowledgeBaseId("kb-1");
@@ -78,7 +81,7 @@ class KnowledgeDocumentIndexServiceImplTest {
 
         List<Integer> batchSizes = new ArrayList<>();
         when(baseService.getById("kb-1")).thenReturn(base);
-        when(providerService.getById("provider-1")).thenReturn(provider);
+        when(modelCatalogService.resolveProvider("model-1", "EMBEDDING")).thenReturn(provider);
         when(embeddingService.embedAll(eq(provider), anyList())).thenAnswer(invocation -> {
             List<String> inputs = invocation.getArgument(1);
             batchSizes.add(inputs.size());
@@ -134,6 +137,7 @@ class KnowledgeDocumentIndexServiceImplTest {
     void reusesExistingEmbeddingForUnchangedChunk() throws Exception {
         KnowledgeBase base = new KnowledgeBase();
         base.setId("kb-1"); base.setEmbeddingProviderId("provider-1");
+        base.setEmbeddingModelId("model-1");
         KnowledgeDocument document = new KnowledgeDocument();
         document.setId("doc-1"); document.setKnowledgeBaseId("kb-1");
         KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
@@ -146,7 +150,7 @@ class KnowledgeDocumentIndexServiceImplTest {
         existing.setMetadata("{\"embeddingProviderId\":\"provider-1\",\"embeddingModel\":\"embedding-v1\"}");
 
         when(baseService.getById("kb-1")).thenReturn(base);
-        when(providerService.getById("provider-1")).thenReturn(provider);
+        when(modelCatalogService.resolveProvider("model-1", "EMBEDDING")).thenReturn(provider);
         when(chunkService.list(any())).thenReturn(Collections.singletonList(existing));
         when(chunkService.remove(any())).thenReturn(true);
         when(chunkService.saveVectorChunk(any())).thenReturn(true);
@@ -175,7 +179,7 @@ class KnowledgeDocumentIndexServiceImplTest {
     private KnowledgeDocumentIndexServiceImpl service(
             TransactionAfterCommitExecutor executor) {
         return new KnowledgeDocumentIndexServiceImpl(
-                documentService, chunkService, baseService, providerService, embeddingService,
+                documentService, chunkService, baseService, providerService, modelCatalogService, embeddingService,
                 jobService, indexWorker, versionService, new KnowledgeChunkSplitter(10, 0),
                 executor);
     }

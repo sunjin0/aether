@@ -229,7 +229,8 @@ public class AgentSkillController {
     public WebResponse<SkillRouteDecision> routingPreview(@RequestParam @NotBlank String agentId, @RequestParam @NotBlank String query) {
         AgentDefinition agent = agentDefinitionService.getById(agentId);
         if (agent == null) throw new IllegalArgumentException(I18nUtils.getMessage("skill.agent.not-found"));
-        ModelProvider provider = modelCatalogService == null ? null : modelCatalogService.resolveProvider(agent.getModelId(), "CHAT,MULTIMODAL");
+        ModelProvider provider = "DEEP".equalsIgnoreCase(agent.getExecutionMode()) || modelCatalogService == null
+                ? null : modelCatalogService.resolveProvider(agent.getModelId(), "CHAT,MULTIMODAL");
         return WebResponse.OK(skillRouterService.route(agent, provider, query, skillService.listBindings(agentId).stream().filter(binding -> Integer.valueOf(1).equals(binding.getStatus())).collect(Collectors.toList())));
     }
 

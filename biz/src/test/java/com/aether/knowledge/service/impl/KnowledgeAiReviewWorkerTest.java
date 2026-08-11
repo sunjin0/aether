@@ -2,6 +2,7 @@ package com.aether.knowledge.service.impl;
 
 import com.aether.agent.model.ModelClientFactory;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.i18n.I18nService;
 import com.aether.i18n.I18nUtils;
 import com.aether.knowledge.entity.KnowledgeAiReview;
@@ -39,6 +40,7 @@ class KnowledgeAiReviewWorkerTest {
     @Mock private KnowledgeDocumentService documentService;
     @Mock private KnowledgeBaseService baseService;
     @Mock private ModelProviderService providerService;
+    @Mock private ModelCatalogService modelCatalogService;
     @Mock private ModelClientFactory clientFactory;
     @Mock private ObjectProvider<KnowledgeAiReviewWorker> selfProvider;
     @Mock private TransactionTemplate transactionTemplate;
@@ -57,7 +59,7 @@ class KnowledgeAiReviewWorkerTest {
         TableInfoHelper.initTableInfo(assistant, KnowledgeDocumentVersion.class);
         TableInfoHelper.initTableInfo(assistant, KnowledgeDocument.class);
         worker = new KnowledgeAiReviewWorker(reviewService, issueService, versionService,
-                documentService, baseService, providerService, clientFactory, selfProvider,
+                documentService, baseService, providerService, modelCatalogService, clientFactory, selfProvider,
                 transactionTemplate);
         review = new KnowledgeAiReview();
         review.setId("review-1");

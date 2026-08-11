@@ -56,7 +56,8 @@ class KnowledgeContextServiceTest {
         KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
         KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
         result.setRetrievalAttempted(true);
-        when(retrievalService.retrieve("agent-1", "question")).thenReturn(result);
+        when(retrievalService.retrieveWithHistory(org.mockito.ArgumentMatchers.eq("agent-1"),
+                org.mockito.ArgumentMatchers.eq("question"), org.mockito.ArgumentMatchers.anyList())).thenReturn(result);
         KnowledgeContextService service = new KnowledgeContextService(
                 mock(AdminPreferenceService.class), retrievalService,
                 mock(KnowledgeDocumentService.class), mock(KnowledgeReferenceLogMapper.class));
@@ -73,7 +74,8 @@ class KnowledgeContextServiceTest {
         KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
         KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
         result.setRetrievalAttempted(true); result.setStrictGrounding(true);
-        when(retrievalService.retrieve("agent-1", "question")).thenReturn(result);
+        when(retrievalService.retrieveWithHistory(org.mockito.ArgumentMatchers.eq("agent-1"),
+                org.mockito.ArgumentMatchers.eq("question"), org.mockito.ArgumentMatchers.anyList())).thenReturn(result);
         KnowledgeContextService service = new KnowledgeContextService(
                 mock(AdminPreferenceService.class), retrievalService, mock(KnowledgeDocumentService.class));
         ArrayList<ModelChatMessage> context = new ArrayList<>();

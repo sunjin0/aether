@@ -34,6 +34,7 @@ import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
@@ -63,6 +64,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
@@ -73,6 +75,8 @@ class AgentChatServiceImplTest {
     private AgentDefinitionService agentDefinitionService;
     @Mock
     private ModelProviderService modelProviderService;
+    @Mock
+    private ModelCatalogService modelCatalogService;
     @Mock
     private AgentConversationService agentConversationService;
     @Mock
@@ -140,7 +144,7 @@ class AgentChatServiceImplTest {
                         new ConversationCacheService(redisTemplate),
                         new ConversationSummaryService(redisTemplate, modelClientFactory)),
                 adminPreferenceExtractionService,
-                new QueryRewriteService(modelClientFactory));
+                new QueryRewriteService(modelClientFactory), null, modelCatalogService);
         HashMap<String, String> user = new HashMap<>();
         user.put("userId", "user-1");
         CurrentUser.set(user);
@@ -148,6 +152,15 @@ class AgentChatServiceImplTest {
         when(toolRegistry.getTools()).thenReturn(Collections.singletonList(askUserHandler.getTool()));
         lenient().when(toolRegistry.getHandler("ask_user")).thenReturn(askUserHandler);
         lenient().when(agentToolBindingService.list(any())).thenReturn(Collections.emptyList());
+        lenient().when(modelCatalogService.resolveProvider(anyString(), anyString()))
+                .thenAnswer(invocation -> modelProviderService.getById("provider-1"));
+        lenient().doAnswer(invocation -> {
+            AgentRun run = invocation.getArgument(0);
+            if (run.getId() == null) {
+                run.setId("run-1");
+            }
+            return true;
+        }).when(agentRunService).save(any(AgentRun.class));
     }
 
     @AfterEach
@@ -161,6 +174,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setSystemPrompt("你是测试助手");
         agent.setTemperature(new BigDecimal("0.70"));
@@ -224,9 +238,9 @@ class AgentChatServiceImplTest {
         assertEquals("agent-1", runCaptor.getValue().getAgentDefinitionId());
         assertEquals("provider-1", runCaptor.getValue().getModelProviderId());
         assertEquals("conversation-1", runCaptor.getValue().getConversationId());
-        assertEquals("message-assistant-1", runCaptor.getValue().getMessageId());
+        assertEquals("message-user-1", runCaptor.getValue().getMessageId());
         assertEquals(0, runCaptor.getValue().getStatus());
-        assertEquals(7, runCaptor.getValue().getTotalTokens());
+        org.junit.jupiter.api.Assertions.assertNull(runCaptor.getValue().getTotalTokens());
 
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
         verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
@@ -244,6 +258,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setTemperature(new BigDecimal("0.70"));
         agent.setMaxTokens(128);
@@ -312,6 +327,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setTemperature(new BigDecimal("0.70"));
         agent.setMaxTokens(128);
@@ -372,7 +388,7 @@ class AgentChatServiceImplTest {
         ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
         verify(agentRunService).save(runCaptor.capture());
         assertEquals("message-user-1", runCaptor.getValue().getMessageId());
-        verify(agentRunService).updateById(any(AgentRun.class));
+        verify(agentRunService, org.mockito.Mockito.times(2)).updateById(any(AgentRun.class));
     }
 
     @Test
@@ -381,6 +397,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setTemperature(new BigDecimal("0.70"));
         agent.setMaxTokens(128);
@@ -422,6 +439,7 @@ class AgentChatServiceImplTest {
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");
         dto.setMessage("帮我部署");
+        dto.setInteractive(true);
 
         AgentMessageVo result = service.chat(dto);
 
@@ -437,6 +455,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setTemperature(new BigDecimal("0.70"));
         agent.setMaxTokens(128);
@@ -487,6 +506,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setTemperature(new BigDecimal("0.70"));
         agent.setMaxTokens(128);
@@ -540,6 +560,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setSystemPrompt("你是测试助手");
         agent.setTemperature(new BigDecimal("0.70"));
@@ -608,8 +629,8 @@ class AgentChatServiceImplTest {
 
         ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
         verify(agentRunService).save(runCaptor.capture());
-        assertEquals("message-assistant-1", runCaptor.getValue().getMessageId());
-        assertEquals("你好", runCaptor.getValue().getOutputContent());
+        assertEquals("message-user-1", runCaptor.getValue().getMessageId());
+        org.junit.jupiter.api.Assertions.assertNull(runCaptor.getValue().getOutputContent());
         assertEquals(0, runCaptor.getValue().getStatus());
     }
 
@@ -619,6 +640,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setSystemPrompt("你是测试助手");
         agent.setTemperature(new BigDecimal("0.70"));
@@ -709,6 +731,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setTemperature(new BigDecimal("0.70"));
         agent.setMaxTokens(128);
@@ -800,6 +823,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("gpt-test");
         agent.setTemperature(new BigDecimal("0.70"));
         agent.setMaxTokens(128);
@@ -863,6 +887,7 @@ class AgentChatServiceImplTest {
         agent.setId("agent-1");
         agent.setStatus(1);
         agent.setModelProviderId("provider-1");
+        agent.setModelId("model-1");
         agent.setModel("google/gemma-4-e4b");
         agent.setTemperature(new BigDecimal("0.70"));
         agent.setMaxTokens(128);

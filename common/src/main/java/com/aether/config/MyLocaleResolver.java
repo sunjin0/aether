@@ -27,8 +27,18 @@ public class MyLocaleResolver implements LocaleResolver {
         }
 
         try {
-            Locale locale = Locale.lookup(Locale.LanguageRange.parse(language), SUPPORTED_LOCALES);
-            return locale == null ? DEFAULT_LOCALE : locale;
+            for (Locale.LanguageRange range : Locale.LanguageRange.parse(language)) {
+                if (range.getWeight() <= 0D || "*".equals(range.getRange())) {
+                    continue;
+                }
+                Locale requested = Locale.forLanguageTag(range.getRange());
+                for (Locale supported : SUPPORTED_LOCALES) {
+                    if (supported.getLanguage().equalsIgnoreCase(requested.getLanguage())) {
+                        return supported;
+                    }
+                }
+            }
+            return DEFAULT_LOCALE;
         } catch (IllegalArgumentException ignored) {
             return DEFAULT_LOCALE;
         }

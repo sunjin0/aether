@@ -250,6 +250,10 @@ public class AgentDefinitionController {
 
     /** New catalog selections are normalized to the legacy fields for compatible callers. */
     private void applyModelCatalog(AgentDefinitionDto dto) {
+        // Deep Agent 的推理模型由 Deep Agent 运行服务独立管理，不使用 Agent 级模型目录。
+        if ("DEEP".equalsIgnoreCase(StringUtils.trim(dto.getExecutionMode()))) {
+            return;
+        }
         if (StringUtils.isBlank(dto.getModelId())) {
             throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
         }

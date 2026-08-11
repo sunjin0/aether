@@ -493,6 +493,8 @@ public class DeepAgentRunService {
             ks.put("chunkId", stringValue(src.get("chunkId")));
             ks.put("sectionPath", stringValue(src.get("sectionPath")));
             ks.put("content", content != null ? content : "");
+            ks.put("similarity", src.get("similarity"));
+            ks.put("retrievalScore", src.get("retrievalScore"));
             ks.put("citationIndex", citationIndex);
             ks.put("citation", citationIndex != null ? "【" + citationIndex + "】" : "");
             result.add(ks);

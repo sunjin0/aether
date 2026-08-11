@@ -4,6 +4,7 @@ import com.aether.agent.entity.AgentKnowledgeBaseBinding;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.AgentKnowledgeBaseBindingService;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.service.ModelCatalogService;
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.model.KnowledgeRetrievalResult;
@@ -11,6 +12,7 @@ import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.service.KnowledgeEmbeddingService;
 import com.aether.knowledge.service.KnowledgeRerankService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -27,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -36,14 +39,21 @@ class KnowledgeRetrievalServiceImplTest {
     @Mock private AgentKnowledgeBaseBindingService bindingService;
     @Mock private KnowledgeDocumentChunkService chunkService;
     @Mock private ModelProviderService providerService;
+    @Mock private ModelCatalogService modelCatalogService;
     @Mock private KnowledgeEmbeddingService embeddingService;
     @Mock private KnowledgeRerankService rerankService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(modelCatalogService.resolveProvider(anyString(), anyString()))
+                .thenAnswer(invocation -> providerService.getById(invocation.getArgument(0)));
+    }
 
     @Test
     void filtersCandidatesBelowConfiguredSimilarity() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setKnowledgeBaseId("kb-1");
-        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-1");
+        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-1").setEmbeddingModelId("provider-1");
         base.setId("kb-1");
         base.setRetrievalConfig("{\"topK\":3,\"minSimilarity\":0.7}");
         ModelProvider provider = new ModelProvider().setStatus(1);
@@ -59,8 +69,7 @@ class KnowledgeRetrievalServiceImplTest {
         when(chunkService.searchSimilarChunks(anyList(), anyString(), anyInt()))
                 .thenReturn(Arrays.asList(irrelevant, relevant));
 
-        KnowledgeRetrievalServiceImpl service = new KnowledgeRetrievalServiceImpl(
-                baseService, bindingService, chunkService, providerService, embeddingService);
+        KnowledgeRetrievalServiceImpl service = service();
         KnowledgeRetrievalResult result = service.retrieve("agent-1", "query");
 
         assertEquals(1, result.getChunks().size());
@@ -71,7 +80,7 @@ class KnowledgeRetrievalServiceImplTest {
     void appliesPerDocumentLimitAndRemovesDuplicateContent() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setKnowledgeBaseId("kb-1");
-        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-1");
+        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-1").setEmbeddingModelId("provider-1");
         base.setId("kb-1");
         base.setRetrievalConfig("{\"topK\":3,\"minSimilarity\":0.7,\"maxChunksPerDocument\":1}");
         ModelProvider provider = new ModelProvider().setStatus(1);
@@ -94,8 +103,7 @@ class KnowledgeRetrievalServiceImplTest {
         when(chunkService.searchSimilarChunks(anyList(), anyString(), anyInt()))
                 .thenReturn(Arrays.asList(first, sameDocument, duplicate, anotherDocument));
 
-        KnowledgeRetrievalServiceImpl service = new KnowledgeRetrievalServiceImpl(
-                baseService, bindingService, chunkService, providerService, embeddingService);
+        KnowledgeRetrievalServiceImpl service = service();
         KnowledgeRetrievalResult result = service.retrieve("agent-1", "query");
 
         assertEquals(2, result.getChunks().size());
@@ -107,7 +115,7 @@ class KnowledgeRetrievalServiceImplTest {
     void keepsHighestScoringChunkWhenRetrievedContextExceedsTokenBudget() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setKnowledgeBaseId("kb-1");
-        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-1");
+        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-1").setEmbeddingModelId("provider-1");
         base.setId("kb-1");
         ModelProvider provider = new ModelProvider().setStatus(1);
         provider.setId("provider-1");
@@ -124,8 +132,7 @@ class KnowledgeRetrievalServiceImplTest {
         when(chunkService.searchSimilarChunks(anyList(), anyString(), anyInt()))
                 .thenReturn(Arrays.asList(first, second));
 
-        KnowledgeRetrievalServiceImpl service = new KnowledgeRetrievalServiceImpl(
-                baseService, bindingService, chunkService, providerService, embeddingService);
+        KnowledgeRetrievalServiceImpl service = service();
         KnowledgeRetrievalResult result = service.retrieve("agent-1", "query");
 
         assertEquals(1, result.getChunks().size());
@@ -136,7 +143,7 @@ class KnowledgeRetrievalServiceImplTest {
     void cachesEmbeddingForRepeatedNormalizedQuery() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setKnowledgeBaseId("kb-cache");
-        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-cache");
+        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-cache").setEmbeddingModelId("provider-cache");
         base.setId("kb-cache");
         ModelProvider provider = new ModelProvider().setStatus(1);
         provider.setId("provider-cache"); provider.setDefaultModel("embedding-model");
@@ -151,8 +158,7 @@ class KnowledgeRetrievalServiceImplTest {
         when(chunkService.searchSimilarChunks(anyList(), anyString(), anyInt()))
                 .thenReturn(Collections.singletonList(candidate));
 
-        KnowledgeRetrievalServiceImpl service = new KnowledgeRetrievalServiceImpl(
-                baseService, bindingService, chunkService, providerService, embeddingService);
+        KnowledgeRetrievalServiceImpl service = service();
         service.retrieve("agent-cache", "repeat query");
         service.retrieve("agent-cache", "repeat   query");
 
@@ -164,7 +170,7 @@ class KnowledgeRetrievalServiceImplTest {
     void returnsLexicalOnlyCandidateThroughHybridRetrieval() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setKnowledgeBaseId("kb-hybrid");
-        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-hybrid");
+        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-hybrid").setEmbeddingModelId("provider-hybrid");
         base.setId("kb-hybrid");
         base.setRetrievalConfig("{\"minSimilarity\":0.8,\"hybridEnabled\":true,\"minLexicalScore\":0.05}");
         ModelProvider provider = new ModelProvider().setStatus(1);
@@ -183,8 +189,7 @@ class KnowledgeRetrievalServiceImplTest {
         when(chunkService.searchSimilarChunks(anyList(), anyString(), anyInt())).thenReturn(Collections.singletonList(semantic));
         when(chunkService.searchLexicalChunks(anyList(), anyString(), anyInt())).thenReturn(Collections.singletonList(lexical));
 
-        KnowledgeRetrievalServiceImpl service = new KnowledgeRetrievalServiceImpl(
-                baseService, bindingService, chunkService, providerService, embeddingService);
+        KnowledgeRetrievalServiceImpl service = service();
         KnowledgeRetrievalResult result = service.retrieve("agent-hybrid", "SKU-2026-A");
 
         assertEquals(1, result.getChunks().size());
@@ -195,9 +200,9 @@ class KnowledgeRetrievalServiceImplTest {
     void usesConfiguredRerankerBeforeSelectingFinalChunks() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setKnowledgeBaseId("kb-rerank");
-        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("embedding-provider");
+        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("embedding-provider").setEmbeddingModelId("embedding-provider");
         base.setId("kb-rerank");
-        base.setRetrievalConfig("{\"topK\":1,\"rerankEnabled\":true,\"rerankProviderId\":\"rerank-provider\",\"rerankTopN\":1}");
+        base.setRetrievalConfig("{\"topK\":1,\"rerankEnabled\":true,\"rerankModelId\":\"rerank-provider\",\"rerankTopN\":1}");
         ModelProvider embeddingProvider = new ModelProvider().setStatus(1);
         embeddingProvider.setId("embedding-provider");
         ModelProvider rerankProvider = new ModelProvider().setStatus(1);
@@ -217,8 +222,7 @@ class KnowledgeRetrievalServiceImplTest {
         when(rerankService.rerank(eq(rerankProvider), nullable(String.class), eq("question"), anyList(), eq(1)))
                 .thenReturn(Collections.singletonList(preferred));
 
-        KnowledgeRetrievalServiceImpl service = new KnowledgeRetrievalServiceImpl(
-                baseService, bindingService, chunkService, providerService, embeddingService, rerankService);
+        KnowledgeRetrievalServiceImpl service = service();
         KnowledgeRetrievalResult result = service.retrieve("agent-rerank", "question");
 
         assertEquals("preferred", result.getChunks().get(0).getId());
@@ -229,7 +233,7 @@ class KnowledgeRetrievalServiceImplTest {
     void expandsIdentifierTermsForLexicalRetrieval() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setKnowledgeBaseId("kb-expand");
-        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-expand");
+        KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-expand").setEmbeddingModelId("provider-expand");
         base.setId("kb-expand");
         ModelProvider provider = new ModelProvider().setStatus(1);
         provider.setId("provider-expand");
@@ -241,8 +245,7 @@ class KnowledgeRetrievalServiceImplTest {
         when(chunkService.searchSimilarChunks(anyList(), anyString(), anyInt())).thenReturn(Collections.emptyList());
         when(chunkService.searchLexicalChunks(anyList(), anyString(), anyInt())).thenReturn(Collections.emptyList());
 
-        KnowledgeRetrievalServiceImpl service = new KnowledgeRetrievalServiceImpl(
-                baseService, bindingService, chunkService, providerService, embeddingService);
+        KnowledgeRetrievalServiceImpl service = service();
         service.retrieve("agent-expand", "查询 SKU-2026-A 的状态");
 
         verify(chunkService).searchLexicalChunks(anyList(), eq("SKU-2026-A"), anyInt());
@@ -254,5 +257,10 @@ class KnowledgeRetrievalServiceImplTest {
         chunk.setContent(content);
         chunk.setSimilarity(similarity);
         return chunk;
+    }
+
+    private KnowledgeRetrievalServiceImpl service() {
+        return new KnowledgeRetrievalServiceImpl(baseService, bindingService, chunkService, providerService,
+                embeddingService, rerankService, null, modelCatalogService);
     }
 }

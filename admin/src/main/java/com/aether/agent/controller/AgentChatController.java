@@ -473,7 +473,8 @@ public class AgentChatController {
                 }
                 final String conversationId = conversation.getId();
 
-                ModelProvider routingProvider = modelCatalogService == null ? null : modelCatalogService.resolveProvider(agent.getModelId(), "CHAT,MULTIMODAL");
+                // Deep Agent 的模型由独立运行服务选择；不能在这里要求 Agent 配置普通聊天模型。
+                ModelProvider routingProvider = null;
                 SkillRuntimeContext skillContext = skillContextService == null ? defaultSkillContext(agent) : skillContextService.resolve(agent, dto, dto.getMessage(), routingProvider);
                 List<ModelChatMessage> ctx = new ArrayList<>();
                 if (StringUtils.isNotBlank(skillContext.getSystemPrompt())) ctx.add(new ModelChatMessage("system", skillContext.getSystemPrompt()));
@@ -491,13 +492,36 @@ public class AgentChatController {
                             emitter.send(SseEmitter.event().name("message").data(data.toJSONString()));
                         } catch (IOException e) { closed.set(true); }
                     }
-                    @Override public void onReasoning(String cid, String chunk) {}
-                    @Override public void onToolCall(String cid, String toolCallJson) {}
+                    @Override
+                    public void onReasoning(String cid, String chunk) {
+                        if (closed.get()) return;
+                        try {
+                            JSONObject data = new JSONObject();
+                            data.put("conversationId", cid);
+                            data.put("chunk", chunk);
+                            emitter.send(SseEmitter.event().name("reasoning").data(data.toJSONString()));
+                        } catch (IOException e) { closed.set(true); }
+                    }
+
+                    @Override
+                    public void onToolCall(String cid, String toolCallJson) {
+                        if (closed.get()) return;
+                        try {
+                            JSONObject data = new JSONObject();
+                            data.put("conversationId", cid);
+                            data.put("toolCalls", JSON.parseArray(toolCallJson));
+                            emitter.send(SseEmitter.event().name("tool_call").data(data.toJSONString()));
+                        } catch (Exception e) { closed.set(true); }
+                    }
 
                     @Override
                     public void onRunStep(String runId, String stepJson) {
                         if (closed.get()) return;
-                        try { emitter.send(SseEmitter.event().name("run_step").data(stepJson)); }
+                        try {
+                            JSONObject step = JSON.parseObject(stepJson);
+                            step.put("conversationId", conversationId);
+                            emitter.send(SseEmitter.event().name("run_step").data(step.toJSONString()));
+                        }
                         catch (IOException e) { closed.set(true); }
                     }
 

@@ -101,6 +101,25 @@ class DeepAgentRunServiceTest {
     }
 
     @Test
+    void keepsSimilarityInKnowledgeSourcesSentToDeepAgent() {
+        Map<String, Object> source = new LinkedHashMap<>();
+        source.put("documentName", "运维手册");
+        source.put("documentId", "document-1");
+        source.put("chunkId", "chunk-1");
+        source.put("content", "知识库内容");
+        source.put("citationIndex", 1);
+        source.put("similarity", 0.87D);
+        source.put("retrievalScore", 0.91D);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> result = (List<Map<String, Object>>) ReflectionTestUtils.invokeMethod(
+                service, "buildKnowledgeSources", Collections.singletonList(source));
+
+        assertEquals(0.87D, result.get(0).get("similarity"));
+        assertEquals(0.91D, result.get(0).get("retrievalScore"));
+    }
+
+    @Test
     void startRunKeepsExistingConversationTitle() {
         AgentDefinition agent = new AgentDefinition();
         agent.setId("agent-title");
