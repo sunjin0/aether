@@ -1,6 +1,6 @@
 # Aether 架构设计
 
-> 更新日期：2026-08-04
+> 更新日期：2026-08-11
 > 面向对象：Java 8 / Spring Boot 2.7.18 / MyBatis-Plus / PostgreSQL + pgvector / Redis / MinIO
 
 ---
@@ -71,10 +71,22 @@ storage MinIO 对象存储抽象（知识库/附件复用；front 不直接依�
 
 ## 4. 普通 Agent 聊天（SSE）
 
+### 4.0 模型解析与能力校验
+
+`ModelCatalogService` 是统一模型解析入口。业务仅保存模型目录 ID，运行时按所需能力读取目录项，确认目录项和所属供应商均启用后生成实际的 `ModelProvider` 调用配置：目录模型名称覆盖 `defaultModel`，存在 `endpointOverride` 时覆盖供应商基础地址。
+
+| 调用链 | 所需能力 |
+| --- | --- |
+| Agent 对话、查询重写、AI 审查 | `CHAT` 或 `MULTIMODAL` |
+| 知识库与 Skill 路由向量化 | `EMBEDDING` |
+| 知识库重排序 | `RERANK` |
+
+目录能力正确不等同于供应商端点协议正确。Rerank 仍需使用连接诊断和实际运行验证端点与响应结构。
+
 ### 4.1 流程
 1. `POST /api/agent/chat/stream` 建立 `SseEmitter`（超时 5 分钟，15s 心跳）。
 2. `AgentChatServiceImpl.stream`：
-   - 校验 Agent/供应商启用，应用深度思考配置（默认关闭）。
+   - 校验 Agent 及其 `CHAT/MULTIMODAL` 模型目录、所属供应商启用，应用深度思考配置（默认关闭）。
    - 创建/复用会话，保存用户消息（可选查询改写，默认关闭）。
    - `ConversationContextService.buildWithSummary` 组装上下文（≤10 条原始消息；超过后注入 `【对话历史摘要】` + 摘要游标之后的消息）。
    - `KnowledgeContextService.enhance` 在 Agent 已授权范围内注入 RAG 检索结果与引用编号；安装 Skill 后还必须应用 Skill 声明的知识库交集。
@@ -92,7 +104,7 @@ storage MinIO 对象存储抽象（知识库/附件复用；front 不直接依�
 ### 5.1 索引管道
 1. 文档上传（MinIO）→ `KnowledgeDocumentContentExtractor` 提取文本（Docling 服务解析 PDF/DOCX、XLSX 导入）。
 2. `KnowledgeChunkSplitter` 按标题/段落切块（默认 maxChars=2400、overlap=320）。
-3. `KnowledgeEmbeddingService` 调用 OpenAI 兼容 `/v1/embeddings`（1536 维），分批写入 `knowledge_document_chunk`。
+3. `KnowledgeEmbeddingService` 通过知识库的 `EMBEDDING` 模型目录调用 OpenAI 兼容 `/v1/embeddings`，分批写入 `knowledge_document_chunk`。
 4. 索引任务走 `knowledge_index_job` 队列，`KnowledgeIndexWorker` 定时领取（30 分钟租约）。
 
 ### 5.2 混合检索

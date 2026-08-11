@@ -1,6 +1,6 @@
 # Aether API 接口参考
 
-> 来源：`admin` 模块 36 个 REST 控制器；更新日期：2026-08-07
+> 来源：`admin` 模块 REST 控制器；更新日期：2026-08-11
 > 通用前缀：`/api`；通用响应包装：`WebResponse<T>`（`code`/`message`/`data`/`total`）。
 > 鉴权：请求头 `Authorization: Bearer {token}`；权限由 `@Permission` 注解控制（见 §11）。
 
@@ -130,6 +130,23 @@
 | PUT | `/api/agent/definition/{id}/status` | Write | 启用/禁用 |
 | POST | `/api/agent/definition/{id}/copy` | Write | 复制 |
 | GET | `/api/agent/definition/model/providers` | 类 | 模型供应商列表 |
+
+### 4.1.1 ModelProviderController — `/api/agent/model-provider`
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| POST | `/list` | Read | 供应商分页查询 |
+| GET | `/{id}` | Read | 供应商详情；不返回 API Key |
+| POST / PUT / DELETE | `/`、`/{id}` | Write | 供应商维护 |
+| POST | `/{id}/test` | Read | 连通性诊断，返回 `success`、`elapsedMs`、`error` |
+| GET | `/models` | Read | 模型目录；可用 `providerId` 过滤 |
+| GET | `/models/options?capability=...` | Read | 按能力获取可用模型目录选项 |
+| GET | `/{id}/models/discover` | Read | 从供应商读取模型候选 |
+| POST | `/models`、`/models/batch` | Write | 单条或事务批量创建目录项 |
+| PUT / DELETE | `/models/{id}` | Write | 修改或删除目录项 |
+| PUT | `/models/{id}/status` | Write | 启停目录项 |
+
+目录写入会校验供应商已启用、模型名称和能力非空，且能力属于受支持集合；批量接口任一项失败时整体回滚。
 
 ### 4.2 工具绑定 / 知识库绑定
 | 方法 | 路径 | 权限 | 说明 |

@@ -1,7 +1,7 @@
 # Agent 平台 — 架构设计
 
 > 合并来源：API.md、DATABASE.md
-> 更新日期：2026-08-05
+> 更新日期：2026-08-11
 
 ---
 
@@ -53,6 +53,15 @@
 | 删除 | DELETE | `/api/agent/model-provider/{id}` |
 | 启用/禁用 | PUT | `/api/agent/model-provider/{id}/status` |
 | 测试连接 | POST | `/api/agent/model-provider/{id}/test` |
+
+V45 起，供应商页面同时管理模型目录。供应商只保存连接信息，模型目录保存模型名称、能力、上下文窗口、状态和端点覆盖；Agent、知识库、查询重写、Rerank、AI 审查和 Skill 路由均通过目录项选择模型。目录写入与运行解析会校验能力、目录状态及供应商状态。
+
+| 功能 | 方法 | 路径 |
+|------|------|------|
+| 查询目录 | GET | `/api/agent/model-provider/models?providerId=...` |
+| 按能力获取选项 | GET | `/api/agent/model-provider/models/options?capability=...` |
+| 拉取模型候选 | GET | `/api/agent/model-provider/{id}/models/discover` |
+| 事务批量保存目录 | POST | `/api/agent/model-provider/models/batch` |
 
 ### 1.4 Agent 定义管理
 

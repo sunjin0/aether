@@ -1,7 +1,7 @@
 # Agent 平台 — 前端知识库对接
 
 > 合并来源：FRONTEND_ENTERPRISE_KNOWLEDGE_INTEGRATION_V2.md（主）、FRONTEND_ENTERPRISE_KNOWLEDGE_INTEGRATION.md（V1 已并入）、FRONTEND_KNOWLEDGE_PREFERENCE_INTEGRATION.md
-> 更新日期：2026-07-20
+> 更新日期：2026-08-11
 > 注：V1 文档内容已合并至此，V1 不再单独维护。
 
 ---
@@ -20,6 +20,14 @@
 5. 检索评测（评测集 + Recall@K / MRR / NDCG）
 6. Agent 知识库绑定
 7. 后台用户偏好管理（长期记忆）
+
+### 模型目录配置（V45）
+
+知识库表单不再选择单一“向量供应商”，而是选择能力为 `EMBEDDING` 的模型目录项并保存到 `embeddingModelId`；后端同时回填关联的 `embeddingProviderId` 供索引记录和审计使用。已禁用模型、已禁用供应商或能力不匹配的模型不能保存。
+
+检索配置中的查询重写与 Rerank 分别保存 `queryRewriteModelId`、`rerankModelId`。选择器仅展示 `CHAT/MULTIMODAL`、`RERANK` 能力对应的目录项。运行时再次校验，配置错误时查询重写降级为原始问题、Rerank 降级为融合排序。
+
+AI 审查配置保存 `reviewModelId`，要求模型具有 `CHAT` 或 `MULTIMODAL` 能力；人工审核人仍由 `manualReviewerId` 指定。
 
 ### 前端菜单与页面
 

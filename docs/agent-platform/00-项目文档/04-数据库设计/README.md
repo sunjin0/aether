@@ -128,30 +128,41 @@
 ### 7.1 `agent_model_provider` 模型供应商
 `name, type(openai/azure/anthropic/local), api_base_url, api_key(AES), default_model, context_window(默认32768), status`。`uk_name` 唯一。
 
-### 7.2 `agent_definition` Agent 定义
+自 V45 起，该表只维护连接配置；`default_model` 是历史字段，业务运行不再以它作为模型选择依据。
+
+### 7.2 `agent_model_catalog` 供应商模型目录（V45）
+
+`provider_id, name, capabilities, context_window, endpoint_override, status, sort_num, remark`。未删除记录以 `(provider_id, name)` 唯一。
+
+- `capabilities` 为 `CHAT`、`VIDEO`、`AUDIO`、`MULTIMODAL`、`EMBEDDING`、`RERANK` 的逗号分隔集合。
+- 模型目录是运行时选择模型的唯一来源；仅目录和供应商同时启用、且能力匹配时可以使用。
+- `endpoint_override` 可覆盖供应商基础地址，用于模型专用接口或 Rerank 端点。
+
+### 7.3 `agent_definition` Agent 定义
 | 字段 | 说明 |
 | --- | --- |
 | name / code | 名称与唯一编码 |
 | description / system_prompt | 描述与系统提示词 |
-| model_provider_id / model | 模型供应商与模型名 |
+| model_id | V45 新增，关联模型目录；要求 `CHAT` 或 `MULTIMODAL` |
+| model_provider_id / model | 历史兼容字段；不作为新运行配置来源 |
 | temperature / max_tokens | 参数（默认 0.70 / 2048） |
 | max_tool_rounds | 最大工具轮数，默认 1 |
 | default_thinking / default_reasoning_effort | 深度思考配置 |
 | access_type | `private` / `public` |
 | execution_mode | `STANDARD` / `DEEP`（V8） |
 
-### 7.3 `agent_mcp_server` MCP 服务
+### 7.4 `agent_mcp_server` MCP 服务
 `name, code, transport(http/sse/streamable_http), base_url, request_headers, auth_type(none/bearer/api_key), auth_token(AES), command, args, timeout_ms(30000), status`。
 
-### 7.4 `agent_tool` 工具 与 `agent_tool_binding`
+### 7.5 `agent_tool` 工具 与 `agent_tool_binding`
 - `agent_tool`：`name, code, tool_type, mcp_server_id, mcp_tool_name, mcp_input_schema, timeout_ms, status`；`uk_code`、`uk_server_tool` 唯一。
 - `agent_tool_binding`：`agent_definition_id, tool_id, priority, status`；`uk_agent_tool` 唯一。
 
-### 7.5 `agent_conversation` 会话
+### 7.6 `agent_conversation` 会话
 `user_id, agent_definition_id, title, message_count, status, summary, summary_covered_message_id, summary_covered_created_at, summary_updated_at`。
 `summary_*` 字段用于异步摘要的游标推进。
 
-### 7.6 `agent_message` 消息
+### 7.7 `agent_message` 消息
 | 字段 | 说明 |
 | --- | --- |
 | conversation_id / role | 所属会话与角色(user/assistant/tool) |
@@ -168,15 +179,15 @@
 | edited / original_content / edited_at | 编辑留痕 |
 | citations | 引用来源 JSON（V1 后期） |
 
-### 7.7 `agent_run` / `agent_run_step`
+### 7.8 `agent_run` / `agent_run_step`
 `agent_run`：`agent_definition_id, user_id, conversation_id, message_id, input/output_content, model, token统计, latency_ms, status, error_msg`；V8 增 `execution_mode`, `external_run_id`；V9 增 `retrieval_sources`。
 `agent_run_step`（V8）：Deep Agent 事件流 `run_id, event_id, event_type, data, occurred_at`；`uk_run_event` 唯一用于事件去重。
 
-### 7.8 `agent_tool_call_log` 工具调用审计
+### 7.9 `agent_tool_call_log` 工具调用审计
 `run_id, tool_id, tool_call_id, tool_name, arguments, agent_definition_id, request_url/method/headers/body, response_status/body, latency_ms, status, error_msg`。
 `status`：成功/失败/安全拦截/待审批。
 
-### 7.9 智能体技能（Skill，V38）
+### 7.10 智能体技能（Skill，V38）
 
 #### 7.9.1 `agent_skill` 技能主记录
 | 字段 | 说明 |
