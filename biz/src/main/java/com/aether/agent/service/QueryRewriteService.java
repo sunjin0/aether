@@ -40,6 +40,11 @@ public class QueryRewriteService {
     /** Returns an empty result when rewriting is unavailable; callers then use the original query. */
     public QueryRewriteResult rewrite(List<ModelChatMessage> history, String originalContent,
                                       AgentDefinition agent, ModelProvider provider) {
+        return rewrite(history, originalContent, agent, provider, null);
+    }
+
+    public QueryRewriteResult rewrite(List<ModelChatMessage> history, String originalContent,
+                                      AgentDefinition agent, ModelProvider provider, String model) {
         QueryRewriteResult result = new QueryRewriteResult();
         if (StringUtils.isBlank(originalContent) || provider == null) {
             return result;
@@ -49,6 +54,9 @@ public class QueryRewriteService {
             ModelChatRequest request = new ModelChatRequest();
             request.setAgent(agent);
             request.setProvider(provider);
+            request.setModel(agent == null
+                    ? StringUtils.defaultIfBlank(StringUtils.trimToNull(model), provider.getDefaultModel())
+                    : StringUtils.trimToNull(model));
             request.setTemperature(BigDecimal.ZERO);
             request.setMaxCompletionTokens(200);
             request.setResponseFormat(jsonObjectFormat());
@@ -56,7 +64,10 @@ public class QueryRewriteService {
                     buildPrompt(history, originalContent))));
 
             ModelClient client = modelClientFactory.getClient(provider);
-            ModelChatResponse response = client.chat(request);
+            // Knowledge-base retrieval can invoke query rewriting without an
+            // AgentDefinition. In that case the configured provider/model must
+            // be used directly instead of the Agent-dependent chat path.
+            ModelChatResponse response = agent == null ? client.chatByProvider(request) : client.chat(request);
             String rewritten = parseRewrittenContent(response == null ? null : response.getContent());
             if (StringUtils.isNotBlank(rewritten)) {
                 result.setRewrittenContent(rewritten);

@@ -1175,6 +1175,9 @@ public class KnowledgeRetrievalEvaluationController {
                 String rerankProviderId = retrievalConfig.getString("rerankProviderId");
                 if (Boolean.TRUE.equals(retrievalConfig.getBoolean("rerankEnabled"))
                         && StringUtils.isNotBlank(rerankProviderId)) providerIds.add(rerankProviderId);
+                String queryRewriteProviderId = retrievalConfig.getString("queryRewriteProviderId");
+                if (Boolean.TRUE.equals(retrievalConfig.getBoolean("queryRewriteEnabled"))
+                        && StringUtils.isNotBlank(queryRewriteProviderId)) providerIds.add(queryRewriteProviderId);
             }
         List<Map<String, Object>> providerSnapshots = new ArrayList<>();
         if (!providerIds.isEmpty()) for (ModelProvider provider : modelProviderService.listByIds(providerIds)) {
@@ -1224,6 +1227,9 @@ public class KnowledgeRetrievalEvaluationController {
         effective.put("rerankModel", configured.getString("rerankModel"));
         effective.put("rerankTopN", boundedInt(configured.getInteger("rerankTopN"), 6, 1, 20));
         effective.put("strictGrounding", Boolean.TRUE.equals(configured.getBoolean("strictGrounding")));
+        effective.put("queryRewriteEnabled", Boolean.TRUE.equals(configured.getBoolean("queryRewriteEnabled")));
+        effective.put("queryRewriteProviderId", configured.getString("queryRewriteProviderId"));
+        effective.put("queryRewriteModel", configured.getString("queryRewriteModel"));
         return effective;
     }
 

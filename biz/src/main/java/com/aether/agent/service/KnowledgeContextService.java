@@ -84,7 +84,7 @@ public class KnowledgeContextService {
         if (StringUtils.isNotBlank(preferenceContext)) {
             context.add(insertIndex++, new ModelChatMessage("system", preferenceContext));
         }
-        KnowledgeRetrievalResult retrieval = retrievalService.retrieve(agentId, query);
+        KnowledgeRetrievalResult retrieval = retrievalService.retrieveWithHistory(agentId, query, context);
         if (retrieval == null) {
             retrieval = new KnowledgeRetrievalResult();
         }
