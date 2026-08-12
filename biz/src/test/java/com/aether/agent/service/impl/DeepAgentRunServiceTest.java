@@ -71,7 +71,7 @@ class DeepAgentRunServiceTest {
             return true;
         });
         when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
-        when(delegationTokenService.create(eq("run-1"), eq("user-1"), eq("agent-1"), anyList(), anyList()))
+        when(delegationTokenService.create(eq("run-1"), eq("user-1"), eq("agent-1"), anyList()))
                 .thenReturn("delegation-jwt");
         when(toolCatalog.getBoundTools("agent-1")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap()))
@@ -134,7 +134,7 @@ class DeepAgentRunServiceTest {
             inv.getArgument(0, AgentRun.class).setId("run-title"); return true;
         });
         when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
-        when(delegationTokenService.create(eq("run-title"), anyString(), anyString(), anyList(), anyList())).thenReturn("token");
+        when(delegationTokenService.create(eq("run-title"), anyString(), anyString(), anyList())).thenReturn("token");
         when(toolCatalog.getBoundTools("agent-title")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap())).thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
 
@@ -157,7 +157,7 @@ class DeepAgentRunServiceTest {
             inv.getArgument(0, AgentRun.class).setId("run-attachment"); return true;
         });
         when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
-        when(delegationTokenService.create(eq("run-attachment"), anyString(), anyString(), anyList(), anyList())).thenReturn("token");
+        when(delegationTokenService.create(eq("run-attachment"), anyString(), anyString(), anyList())).thenReturn("token");
         when(toolCatalog.getBoundTools("agent-attachment")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap())).thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
 
@@ -183,7 +183,7 @@ class DeepAgentRunServiceTest {
             return true;
         });
         when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
-        when(delegationTokenService.create(anyString(), anyString(), anyString(), anyList(), anyList()))
+        when(delegationTokenService.create(anyString(), anyString(), anyString(), anyList()))
                 .thenReturn("delegation-jwt");
         when(toolCatalog.getBoundTools("agent-2")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap()))
@@ -266,7 +266,7 @@ class DeepAgentRunServiceTest {
             inv.getArgument(0, AgentMessage.class).setId("message-3");
             return true;
         });
-        when(delegationTokenService.create(eq("run-3"), anyString(), anyString(), anyList(), anyList())).thenReturn("token");
+        when(delegationTokenService.create(eq("run-3"), anyString(), anyString(), anyList())).thenReturn("token");
         when(toolCatalog.getBoundTools("agent-3")).thenReturn(Collections.emptyList());
         when(signingClient.signedPost(eq("/v1/runs"), anyMap())).thenAnswer(inv -> {
             verify(registration).accept("run-3");

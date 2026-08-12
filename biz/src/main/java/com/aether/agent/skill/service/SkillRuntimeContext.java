@@ -15,8 +15,6 @@ public class SkillRuntimeContext {
     private String systemPrompt;
     private List<AgentTool> tools = Collections.emptyList();
     private Set<String> knowledgeBaseIds = Collections.emptySet();
-    /** Frozen Skill codes whose installed version declares managed artifact execution. */
-    private Set<String> artifactSkillCodes = Collections.emptySet();
     private String snapshot;
     private boolean installed;
 

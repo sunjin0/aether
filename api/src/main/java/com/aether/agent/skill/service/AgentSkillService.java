@@ -8,8 +8,6 @@ import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillResource;
 import com.aether.agent.skill.entity.AgentSkillVersion;
-import com.aether.agent.skill.entity.AgentSkillExecutionConfig;
-import com.aether.agent.skill.dto.AgentSkillExecutionConfigDto;
 import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
 import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
@@ -34,7 +32,7 @@ public interface AgentSkillService extends IService<AgentSkill> {
 
     /** 上传资源到 Skill 草稿版本；content 为文件字节，fileName 用于类型判定。 */
     AgentSkillResource uploadResource(String skillId, String fileName, String contentType, byte[] content, String purpose, String type);
-    /** Replaces an editable draft resource while retaining its resource ID and dependent entry configuration. */
+    /** Replaces an editable draft resource while retaining its resource ID. */
     AgentSkillResource updateDraftResource(String skillId, String resourceId, String fileName, String contentType, byte[] content, String purpose, String type);
     /** 资源列表：有草稿时返回草稿资源，否则返回当前发布版本资源。 */
     List<AgentSkillResource> listResources(String skillId);
@@ -47,8 +45,4 @@ public interface AgentSkillService extends IService<AgentSkill> {
     /** 不修改数据的发布前检查；发布动作本身也会执行同一检查。 */
     AgentSkillPublishCheckVo publishCheck(String skillId);
     AgentSkillStatisticsVo statistics();
-    /** Returns the selected draft (or current published) version's immutable execution declaration. */
-    AgentSkillExecutionConfig executionConfig(String skillId);
-    /** Updates only the editable draft's declarative execution policy. */
-    void updateExecutionConfig(String skillId, AgentSkillExecutionConfigDto dto);
 }

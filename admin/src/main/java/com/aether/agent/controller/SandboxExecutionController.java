@@ -5,7 +5,6 @@ import com.aether.agent.skill.service.SkillArtifactExecutionService;
 import com.aether.agent.skill.vo.ArtifactGenerationVo;
 import com.aether.agent.skill.vo.SandboxExecutionTaskVo;
 import com.aether.entity.WebResponse;
-import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -33,11 +32,6 @@ public class SandboxExecutionController {
     @PostMapping("/runner/claim")
     public WebResponse<SandboxExecutionTaskVo> claim(@RequestHeader("X-Aether-Runner-Token") String token) {
         return WebResponse.OK(executionService.claimNext(token));
-    }
-
-    @GetMapping(value = "/runner/executions/{executionId}/resources/{resourceId}", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    public byte[] resource(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId, @PathVariable String resourceId) {
-        return executionService.readResource(token, executionToken, executionId, resourceId);
     }
 
     @PostMapping("/runner/executions/{executionId}/complete")

@@ -7,7 +7,6 @@ import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.mcp.McpClient;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.DelegationTokenService;
-import com.aether.agent.skill.service.ArtifactSkillAuthorizationService;
 import com.aether.exception.ServerException;
 import org.junit.jupiter.api.Test;
 
@@ -32,12 +31,11 @@ class McpToolExecutorTest {
         AgentMcpServer server = server();
         when(serverService.getById("server-1")).thenReturn(server);
         when(mcpClient.supportsTransport("http")).thenReturn(true);
-        when(delegationTokenService.create(any(), any(), any(), any(), any())).thenReturn("delegation-token");
+        when(delegationTokenService.create(any(), any(), any(), any())).thenReturn("delegation-token");
         doThrow(new ServerException(502, "MCP服务不可用，请检查服务状态或连接配置"))
                 .when(mcpClient).ping(server);
 
-        McpToolExecutor executor = new McpToolExecutor(mcpClient, serverService, delegationTokenService,
-                mock(ArtifactSkillAuthorizationService.class));
+        McpToolExecutor executor = new McpToolExecutor(mcpClient, serverService, delegationTokenService);
         ToolExecutionResult result = executor.execute(context());
 
         assertFalse(result.isSuccess());

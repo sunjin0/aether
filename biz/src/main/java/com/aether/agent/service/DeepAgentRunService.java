@@ -140,8 +140,7 @@ public class DeepAgentRunService {
                     .collect(Collectors.toList());
             // 文件生成由已绑定的通用 generate_artifact 工具授权；Skill 仅影响本轮提示词规范，
             // 不再通过委派令牌选择脚本或模板。
-            String delegationToken = delegationTokenService.create(runId, userId, agent.getId(), allowedTools,
-                    Collections.<String>emptyList());
+            String delegationToken = delegationTokenService.create(runId, userId, agent.getId(), allowedTools);
 
             List<Map<String, Object>> knowledgeSources = buildKnowledgeSources(sources);
 

@@ -8,12 +8,10 @@ import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
-import com.aether.agent.skill.entity.AgentSkillExecutionConfig;
 import com.aether.agent.skill.entity.AgentSkillKnowledgeBinding;
 import com.aether.agent.skill.entity.AgentSkillResource;
 import com.aether.agent.skill.entity.AgentSkillToolBinding;
 import com.aether.agent.skill.entity.AgentSkillVersion;
-import com.aether.agent.skill.service.impl.AgentSkillExecutionConfigServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillKnowledgeBindingServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillResourceServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillToolBindingServiceImpl;
@@ -51,7 +49,6 @@ public class SkillContextService {
     private final AgentSkillVersionServiceImpl versionService;
     private final AgentSkillToolBindingServiceImpl toolBindingService;
     private final AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService;
-    private final AgentSkillExecutionConfigServiceImpl executionConfigService;
     private final AgentSkillResourceServiceImpl resourceService;
     private final AgentToolCatalog toolCatalog;
     private final AgentMcpServerService mcpServerService;
@@ -61,13 +58,13 @@ public class SkillContextService {
 
     public SkillContextService(AgentSkillService skillService, AgentSkillVersionServiceImpl versionService,
                                AgentSkillToolBindingServiceImpl toolBindingService, AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService,
-                               AgentSkillExecutionConfigServiceImpl executionConfigService, AgentSkillResourceServiceImpl resourceService,
+                               AgentSkillResourceServiceImpl resourceService,
                                AgentToolCatalog toolCatalog, AgentMcpServerService mcpServerService,
                                ObjectStorageService objectStorageService,
                                @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket,
                                SkillRouterService skillRouterService) {
         this.skillService = skillService; this.versionService = versionService; this.toolBindingService = toolBindingService;
-        this.knowledgeBindingService = knowledgeBindingService; this.executionConfigService = executionConfigService;
+        this.knowledgeBindingService = knowledgeBindingService;
         this.resourceService = resourceService; this.toolCatalog = toolCatalog; this.mcpServerService = mcpServerService;
         this.objectStorageService = objectStorageService; this.resourceBucket = resourceBucket;
         this.skillRouterService = skillRouterService;
@@ -110,16 +107,13 @@ public class SkillContextService {
         Set<String> declaredToolIds = null, declaredKnowledgeBaseIds = null;
         StringBuilder prompt = new StringBuilder(StringUtils.defaultString(agent.getSystemPrompt()));
         List<Map<String, Object>> snapshotSkills = new ArrayList<>();
-        Set<String> installedCodes = new LinkedHashSet<>(), artifactSkillCodes = new LinkedHashSet<>();
+        Set<String> installedCodes = new LinkedHashSet<>();
 
         for (AgentDefinitionSkillBinding installation : installations) {
             AgentSkill skill = skillService.getById(installation.getSkillId());
             AgentSkillVersion version = versionService.getById(installation.getSkillVersionId());
             if (skill == null || version == null || !Integer.valueOf(1).equals(skill.getStatus()) || !Integer.valueOf(1).equals(version.getStatus())) throw new ServerException(422, I18nUtils.getMessage("skill.context.version.unavailable"));
             installedCodes.add(skill.getCode());
-            AgentSkillExecutionConfig execution = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class).eq(AgentSkillExecutionConfig::getSkillVersionId, version.getId()));
-            if (execution != null && Boolean.TRUE.equals(execution.getEnabled())) artifactSkillCodes.add(skill.getCode());
-
             List<AgentSkillToolBinding> declarations = toolBindingService.list(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, version.getId()));
             Set<String> toolIds = declarations.stream().map(AgentSkillToolBinding::getToolId).collect(Collectors.toCollection(LinkedHashSet::new));
             for (AgentSkillToolBinding declaration : declarations) {
@@ -153,8 +147,8 @@ public class SkillContextService {
         prompt.append("\n\n[Platform Constraints]\n工具审批、安全与审计由平台统一控制。引用知识库资料时标注编号。");
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("installed", true); snapshot.put("routing", route); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
-        snapshot.put("knowledgeBaseIds", declaredKnowledgeBaseIds == null ? Collections.emptySet() : declaredKnowledgeBaseIds); snapshot.put("artifactSkillCodes", artifactSkillCodes);
-        context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools); context.setKnowledgeBaseIds(declaredKnowledgeBaseIds == null ? Collections.<String>emptySet() : declaredKnowledgeBaseIds); context.setArtifactSkillCodes(artifactSkillCodes); context.setSnapshot(JSON.toJSONString(snapshot));
+        snapshot.put("knowledgeBaseIds", declaredKnowledgeBaseIds == null ? Collections.emptySet() : declaredKnowledgeBaseIds);
+        context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools); context.setKnowledgeBaseIds(declaredKnowledgeBaseIds == null ? Collections.<String>emptySet() : declaredKnowledgeBaseIds); context.setSnapshot(JSON.toJSONString(snapshot));
         return context;
     }
 

@@ -23,6 +23,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import lombok.Data;
 
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -35,34 +36,24 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
     private static final String PLATFORM_GENERIC_ARTIFACT_VERSION = "__platform_generic_artifact__";
     private static final String PLATFORM_GENERIC_ENTRY = "__platform_generic_renderer__";
     private static final long TTL_MILLIS = 5 * 60 * 1000L;
-    private final AgentSkillServiceImpl skillService;
-    private final AgentSkillVersionServiceImpl versionService;
-    private final AgentDefinitionSkillBindingServiceImpl bindingService;
-    private final AgentSkillExecutionConfigServiceImpl configService;
-    private final AgentSkillResourceServiceImpl resourceService;
     private final AgentSandboxExecutionServiceImpl executionService;
     private final AgentArtifactServiceImpl artifactService;
     private final ObjectStorageService storage;
     private final DeepAgentConfig deepAgentConfig;
     private final AgentRunService runService;
     private final AgentMessageService messageService;
-    private final String resourceBucket;
     private final String artifactBucket;
     private final String runnerToken;
 
-    public SkillArtifactExecutionServiceImpl(AgentSkillServiceImpl skillService, AgentSkillVersionServiceImpl versionService,
-            AgentDefinitionSkillBindingServiceImpl bindingService, AgentSkillExecutionConfigServiceImpl configService,
-            AgentSkillResourceServiceImpl resourceService, AgentSandboxExecutionServiceImpl executionService,
+    public SkillArtifactExecutionServiceImpl(AgentSandboxExecutionServiceImpl executionService,
             AgentArtifactServiceImpl artifactService, ObjectStorageService storage, DeepAgentConfig deepAgentConfig,
             AgentRunService runService, AgentMessageService messageService,
-            @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket,
             @Value("${artifact.storage.bucket:${MINIO_CHAT_ATTACHMENT_BUCKET:aether-chat}}") String artifactBucket,
             @Value("${aether.sandbox.runner-token:${AETHER_SANDBOX_RUNNER_TOKEN:}}") String runnerToken) {
-        this.skillService = skillService; this.versionService = versionService; this.bindingService = bindingService;
-        this.configService = configService; this.resourceService = resourceService; this.executionService = executionService;
+        this.executionService = executionService;
         this.artifactService = artifactService; this.storage = storage; this.deepAgentConfig = deepAgentConfig;
         this.runService = runService; this.messageService = messageService;
-        this.resourceBucket = resourceBucket; this.artifactBucket = artifactBucket; this.runnerToken = runnerToken;
+        this.artifactBucket = artifactBucket; this.runnerToken = runnerToken;
     }
 
     @Override @Transactional(rollbackFor = Exception.class)
@@ -73,7 +64,7 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         }
         String userId = token.getClaim("userId").asString(); String agentId = token.getClaim("agentId").asString(); String runId = token.getClaim("runId").asString();
         if (StringUtils.isAnyBlank(userId, agentId, runId)) throw new ServerException(401, I18nUtils.getMessage("skill.artifact.delegation.context.incomplete"));
-        AgentSkillExecutionConfig config = platformGenericConfig(request.getFormat());
+        ArtifactExecutionPolicy config = platformGenericConfig(request.getFormat());
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("title", StringUtils.defaultIfBlank(request.getTitle(), "generated"));
         input.put("fileName", request.getFileName());
@@ -88,13 +79,13 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         ArtifactGenerationVo result = new ArtifactGenerationVo(); result.setExecutionId(execution.getId()); result.setRunId(execution.getRunId()); result.setStatus("queued"); return result;
     }
 
-    private AgentSkillExecutionConfig platformGenericConfig(String format) {
+    private ArtifactExecutionPolicy platformGenericConfig(String format) {
         String normalized = StringUtils.lowerCase(StringUtils.trim(format));
         if (!Arrays.asList("docx", "xlsx", "pdf").contains(normalized)) {
             throw new ServerException(400, I18nUtils.getMessage("skill.artifact.format.not-declared"));
         }
-        AgentSkillExecutionConfig config = new AgentSkillExecutionConfig();
-        config.setEnabled(true); config.setEntryResourceId(PLATFORM_GENERIC_ENTRY); config.setRuntime("PYTHON");
+        ArtifactExecutionPolicy config = new ArtifactExecutionPolicy();
+        config.setEntryResourceId(PLATFORM_GENERIC_ENTRY); config.setRuntime("PYTHON");
         config.setOutputFormats(JSON.toJSONString(Collections.singletonList(normalized)));
         config.setTimeoutSeconds(60); config.setMaxOutputFiles(1); config.setMaxOutputBytes(52_428_800L);
         return config;
@@ -128,7 +119,7 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
                 .eq(AgentSandboxExecution::getStatus, 0)
                 .gt(AgentSandboxExecution::getExpiresAt, startedAt));
         if (!claimed) return null;
-        AgentSkillExecutionConfig config = JSON.parseObject(job.getExecutionConfigSnapshot(), AgentSkillExecutionConfig.class);
+        ArtifactExecutionPolicy config = JSON.parseObject(job.getExecutionConfigSnapshot(), ArtifactExecutionPolicy.class);
         List<AgentSkillResource> resources = JSON.parseArray(job.getResourceSnapshot(), AgentSkillResource.class);
         SandboxExecutionTaskVo task = new SandboxExecutionTaskVo(); task.setExecutionId(job.getId()); task.setExecutionToken(executionToken); task.setRunId(job.getRunId()); task.setSkillVersionId(job.getSkillVersionId());
         task.setRuntime(config.getRuntime()); task.setEntryResourceId(config.getEntryResourceId()); task.setOutputFormats(JSON.parseArray(config.getOutputFormats(), String.class));
@@ -140,16 +131,9 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         task.setResources(resources.stream().map(r -> { SandboxExecutionTaskVo.Resource item = new SandboxExecutionTaskVo.Resource(); item.setId(r.getId()); item.setName(r.getName()); item.setType(r.getType()); item.setLanguage(r.getLanguage()); item.setContentSha256(r.getContentSha256()); item.setSize(r.getSize()); return item; }).collect(Collectors.toList())); return task;
     }
 
-    @Override public byte[] readResource(String suppliedRunnerToken, String executionToken, String executionId, String resourceId) {
-        requireRunner(suppliedRunnerToken); AgentSandboxExecution job = running(executionId); requireExecutionToken(job, executionToken);
-        List<AgentSkillResource> resources = JSON.parseArray(job.getResourceSnapshot(), AgentSkillResource.class);
-        AgentSkillResource resource = resources.stream().filter(r -> resourceId.equals(r.getId())).findFirst().orElseThrow(() -> new ServerException(404, I18nUtils.getMessage("skill.artifact.resource.not-found")));
-        byte[] content = storage.getObject(resourceBucket, resource.getObjectKey()); if (!sha256(content).equals(resource.getContentSha256())) throw new ServerException(409, I18nUtils.getMessage("skill.artifact.resource.checksum-mismatch")); return content;
-    }
-
     @Override @Transactional(rollbackFor = Exception.class)
     public void complete(String suppliedRunnerToken, String executionToken, String executionId, String fileName, String contentType, byte[] content, String checksum, String logSummary, boolean finalArtifact) {
-        requireRunner(suppliedRunnerToken); AgentSandboxExecution job = running(executionId); requireExecutionToken(job, executionToken); AgentSkillExecutionConfig config = JSON.parseObject(job.getExecutionConfigSnapshot(), AgentSkillExecutionConfig.class);
+        requireRunner(suppliedRunnerToken); AgentSandboxExecution job = running(executionId); requireExecutionToken(job, executionToken); ArtifactExecutionPolicy config = JSON.parseObject(job.getExecutionConfigSnapshot(), ArtifactExecutionPolicy.class);
         if (content == null || content.length == 0 || content.length > config.getMaxOutputBytes()) throw new ServerException(400, I18nUtils.getMessage("skill.artifact.size.invalid"));
         String extension = fileName == null ? "" : fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
         List<String> formats = JSON.parseArray(config.getOutputFormats(), String.class); if (!formats.contains(extension)) throw new ServerException(400, I18nUtils.getMessage("skill.artifact.format.not-declared"));
@@ -230,4 +214,15 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
     }
     private String sha256(byte[] bytes) { return sha256(new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1)); }
     private String sha256(String value) { try { byte[] hash = MessageDigest.getInstance("SHA-256").digest(value.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)); StringBuilder out = new StringBuilder(); for (byte b : hash) out.append(String.format("%02x", b)); return out.toString(); } catch (Exception e) { throw new ServerException(500, I18nUtils.getMessage("skill.artifact.checksum.failure")); } }
+
+    /** Platform-owned limits for a generic file-generation job; not a Skill configuration. */
+    @Data
+    private static class ArtifactExecutionPolicy {
+        private String entryResourceId;
+        private String runtime;
+        private String outputFormats;
+        private Integer timeoutSeconds;
+        private Integer maxOutputFiles;
+        private Long maxOutputBytes;
+    }
 }

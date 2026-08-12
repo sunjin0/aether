@@ -8,7 +8,6 @@ import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.mcp.McpClient;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.DelegationTokenService;
-import com.aether.agent.skill.service.ArtifactSkillAuthorizationService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson2.JSON;
@@ -32,15 +31,12 @@ public class McpToolExecutor implements ToolExecutor {
     private final McpClient mcpClient;
     private final AgentMcpServerService agentMcpServerService;
     private final DelegationTokenService delegationTokenService;
-    private final ArtifactSkillAuthorizationService artifactSkillAuthorizationService;
 
     public McpToolExecutor(McpClient mcpClient, AgentMcpServerService agentMcpServerService,
-                           DelegationTokenService delegationTokenService,
-                           ArtifactSkillAuthorizationService artifactSkillAuthorizationService) {
+                           DelegationTokenService delegationTokenService) {
         this.mcpClient = mcpClient;
         this.agentMcpServerService = agentMcpServerService;
         this.delegationTokenService = delegationTokenService;
-        this.artifactSkillAuthorizationService = artifactSkillAuthorizationService;
     }
 
     @Override
@@ -122,8 +118,7 @@ public class McpToolExecutor implements ToolExecutor {
         }
         String toolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
         String token = delegationTokenService.create(context.getRunId(), context.getUserId(),
-                context.getAgentDefinitionId(), Collections.singletonList(toolName),
-                Collections.<String>emptyList());
+                context.getAgentDefinitionId(), Collections.singletonList(toolName));
         JSONObject headers = StringUtils.isBlank(server.getRequestHeaders())
                 ? new JSONObject() : JSON.parseObject(server.getRequestHeaders());
         headers.put("Authorization", "Bearer " + token);

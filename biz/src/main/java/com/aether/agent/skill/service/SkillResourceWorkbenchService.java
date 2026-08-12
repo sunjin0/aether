@@ -69,7 +69,7 @@ public class SkillResourceWorkbenchService {
             throw new ServerException(400, I18nUtils.getMessage("skill.resource.generate.provider-request.required"));
         }
         String type = StringUtils.upperCase(dto.getType());
-        if (!Arrays.asList("MARKDOWN", "TEMPLATE", "SCRIPT").contains(type)) {
+        if (!Arrays.asList("MARKDOWN", "TEMPLATE").contains(type)) {
             throw new ServerException(400, I18nUtils.getMessage("skill.resource.type.unsupported"));
         }
         ModelProvider provider = modelCatalogService.resolveProvider(dto.getModelId(), "CHAT,MULTIMODAL");
@@ -79,7 +79,7 @@ public class SkillResourceWorkbenchService {
         request.setModel(provider.getDefaultModel());
         request.setMaxCompletionTokens(4096);
         request.setMessages(Arrays.asList(
-                new ModelChatMessage("system", "You author a single Skill resource. Return only the file content, without Markdown fences or explanation. Follow the requested type exactly. For scripts, use only standard library APIs and read JSON from stdin, writing files only under ./output."),
+                new ModelChatMessage("system", "You author a single Skill reference resource. Return only the file content, without Markdown fences or explanation. Follow the requested type exactly."),
                 new ModelChatMessage("user", "Resource name: " + name + "\nType: " + type + "\nPurpose: " + StringUtils.defaultString(dto.getPurpose()) + "\nRequest:\n" + dto.getPrompt())
         ));
         ModelClient client = modelClientFactory.getClient(provider);
@@ -92,7 +92,7 @@ public class SkillResourceWorkbenchService {
     }
 
     private String normaliseName(String name, String type) {
-        String extension = "MARKDOWN".equals(type) ? ".md" : "SCRIPT".equals(type) ? ".py" : ".hbs";
+        String extension = "MARKDOWN".equals(type) ? ".md" : ".hbs";
         String value = StringUtils.defaultIfBlank(StringUtils.trimToNull(name), "generated-resource" + extension);
         return value.contains(".") ? value : value + extension;
     }

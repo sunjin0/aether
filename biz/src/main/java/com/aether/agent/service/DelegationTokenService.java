@@ -23,12 +23,6 @@ public class DelegationTokenService {
     }
 
     public String create(String runId, String userId, String agentId, List<String> allowedTools) {
-        return create(runId, userId, agentId, allowedTools, Collections.<String>emptyList());
-    }
-
-    /** Artifact-capable Skills are carried as a separate claim so the sandbox can enforce the frozen capability set. */
-    public String create(String runId, String userId, String agentId, List<String> allowedTools,
-                         List<String> artifactSkillCodes) {
         if (StringUtils.isBlank(config.getMcpDelegationSecret())) {
             throw new ServerException(500, I18nUtils.getMessage("agent.mcp.delegation-secret.missing"));
         }
@@ -38,7 +32,6 @@ public class DelegationTokenService {
                 .withClaim("userId", userId)
                 .withClaim("agentId", agentId)
                 .withClaim("allowedTools", allowedTools)
-                .withClaim("artifactSkillCodes", artifactSkillCodes == null ? Collections.<String>emptyList() : artifactSkillCodes)
                 .withIssuedAt(new Date(now))
                 .withExpiresAt(new Date(now + TOKEN_TTL_MINUTES * 60 * 1000))
                 .sign(Algorithm.HMAC256(config.getMcpDelegationSecret()));

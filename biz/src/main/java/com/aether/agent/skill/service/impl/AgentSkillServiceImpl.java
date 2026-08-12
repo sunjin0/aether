@@ -9,7 +9,6 @@ import com.aether.agent.skill.dto.AgentSkillDraftDto;
 import com.aether.agent.skill.dto.AgentSkillInstallDto;
 import com.aether.agent.skill.dto.AgentSkillPreviewDto;
 import com.aether.agent.skill.dto.AgentSkillToolDto;
-import com.aether.agent.skill.dto.AgentSkillExecutionConfigDto;
 import com.aether.agent.skill.entity.*;
 import com.aether.agent.skill.mapper.AgentSkillMapper;
 import com.aether.agent.skill.service.AgentSkillService;
@@ -52,7 +51,6 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     private final AgentSkillToolBindingServiceImpl toolBindingService;
     private final AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService;
     private final AgentSkillResourceServiceImpl resourceService;
-    private final AgentSkillExecutionConfigServiceImpl executionConfigService;
     private final AgentDefinitionSkillBindingServiceImpl definitionBindingService;
     private final AgentDefinitionService agentDefinitionService;
     private final AgentToolService agentToolService;
@@ -65,7 +63,6 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
                                  AgentSkillToolBindingServiceImpl toolBindingService,
                                  AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService,
                                  AgentSkillResourceServiceImpl resourceService,
-                                 AgentSkillExecutionConfigServiceImpl executionConfigService,
                                  AgentDefinitionSkillBindingServiceImpl definitionBindingService,
                                  AgentDefinitionService agentDefinitionService,
                                  AgentToolService agentToolService,
@@ -77,7 +74,6 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         this.toolBindingService = toolBindingService;
         this.knowledgeBindingService = knowledgeBindingService;
         this.resourceService = resourceService;
-        this.executionConfigService = executionConfigService;
         this.definitionBindingService = definitionBindingService;
         this.agentDefinitionService = agentDefinitionService;
         this.agentToolService = agentToolService;
@@ -128,22 +124,6 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         }
         for (AgentSkillResource sourceResource : resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, source.getId()))) {
             AgentSkillResource copy = new AgentSkillResource(); copy.setSkillVersionId(draft.getId()); copy.setName(sourceResource.getName()); copy.setType(sourceResource.getType()); copy.setLanguage(sourceResource.getLanguage()); copy.setObjectKey(sourceResource.getObjectKey()); copy.setContentSha256(sourceResource.getContentSha256()); copy.setSize(sourceResource.getSize()); copy.setPurpose(sourceResource.getPurpose()); copy.setStatus(sourceResource.getStatus()); resourceService.save(copy);
-        }
-        AgentSkillExecutionConfig sourceConfig = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
-                .eq(AgentSkillExecutionConfig::getSkillVersionId, source.getId()));
-        if (sourceConfig != null) {
-            AgentSkillExecutionConfig copy = new AgentSkillExecutionConfig();
-            copy.setSkillVersionId(draft.getId()); copy.setEnabled(sourceConfig.getEnabled());
-            // Resource IDs are version-local copies; resolve the copied resource by immutable object identity.
-            if (StringUtils.isNotBlank(sourceConfig.getEntryResourceId())) {
-                AgentSkillResource sourceEntry = resourceService.getById(sourceConfig.getEntryResourceId());
-                AgentSkillResource draftEntry = sourceEntry == null ? null : resourceService.getOne(Wrappers.lambdaQuery(AgentSkillResource.class)
-                        .eq(AgentSkillResource::getSkillVersionId, draft.getId()).eq(AgentSkillResource::getObjectKey, sourceEntry.getObjectKey()));
-                copy.setEntryResourceId(draftEntry == null ? null : draftEntry.getId());
-            }
-            copy.setRuntime(sourceConfig.getRuntime()); copy.setOutputFormats(sourceConfig.getOutputFormats());
-            copy.setTimeoutSeconds(sourceConfig.getTimeoutSeconds()); copy.setMaxOutputFiles(sourceConfig.getMaxOutputFiles());
-            copy.setMaxOutputBytes(sourceConfig.getMaxOutputBytes()); executionConfigService.save(copy);
         }
         return draft.getId();
     }
@@ -271,14 +251,6 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         if (resource == null || !draft.getId().equals(resource.getSkillVersionId())) throw new ServerException(404, I18nUtils.getMessage("skill.resource.not-found"));
         if (content == null || content.length == 0 || content.length > maxResourceSize) throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.size-exceeded"));
         String[] parsed = parseResource(fileName, type);
-        AgentSkillExecutionConfig execution = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
-                .eq(AgentSkillExecutionConfig::getSkillVersionId, draft.getId()));
-        if (execution != null && Boolean.TRUE.equals(execution.getEnabled()) && resourceId.equals(execution.getEntryResourceId())) {
-            String expectedLanguage = "PYTHON".equals(execution.getRuntime()) ? "python" : "NODE".equals(execution.getRuntime()) ? "js" : null;
-            if (!"SCRIPT".equals(parsed[0]) || !StringUtils.equalsIgnoreCase(expectedLanguage, parsed[1])) {
-                throw new ServerException(409, I18nUtils.getMessage("skill.execution.entry-runtime.mismatch"));
-            }
-        }
         String newObjectKey = "skills/" + skillId + "/" + draft.getId() + "/" + sha256Hex(content);
         objectStorageService.upload(resourceBucket, newObjectKey, content, StringUtils.defaultIfBlank(contentType, "application/octet-stream"));
         resource.setName(fileName); resource.setType(parsed[0]); resource.setLanguage(parsed[1]); resource.setObjectKey(newObjectKey);
@@ -412,13 +384,6 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         if (StringUtils.isBlank(draft.getInputSchema())) result.getWarnings().add("尚未声明输入参数，运行时输入将不受结构约束");
         if (StringUtils.isBlank(draft.getOutputSchema())) result.getWarnings().add("尚未声明输出参数，回答格式可能不稳定");
         if (detail.getResources().isEmpty()) result.getWarnings().add("未添加资源文件；如该技能依赖制度、模板或脚本，请在发布前补充");
-        AgentSkillExecutionConfig execution = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
-                .eq(AgentSkillExecutionConfig::getSkillVersionId, draft.getId()));
-        if (execution != null && Boolean.TRUE.equals(execution.getEnabled())) {
-            AgentSkillResource entry = StringUtils.isBlank(execution.getEntryResourceId()) ? null : resourceService.getById(execution.getEntryResourceId());
-            if (entry == null || !draft.getId().equals(entry.getSkillVersionId()) || !"SCRIPT".equals(entry.getType()) || !Integer.valueOf(1).equals(entry.getStatus())) result.getBlockers().add("受控产物执行缺少可用的入口脚本");
-            if (StringUtils.isBlank(execution.getRuntime()) || StringUtils.isBlank(execution.getOutputFormats())) result.getBlockers().add("受控产物执行配置不完整");
-        }
         Set<String> toolIds = new LinkedHashSet<>();
         for (AgentSkillToolBinding binding : detail.getTools()) {
             if (!toolIds.add(binding.getToolId())) result.getWarnings().add("工具依赖存在重复声明");
@@ -441,62 +406,6 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         result.setPublishedCount(count(Wrappers.lambdaQuery(AgentSkill.class).eq(AgentSkill::getDeleted, false).isNotNull(AgentSkill::getCurrentVersionId)));
         result.setBoundAgentCount(definitionBindingService.count(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class).eq(AgentDefinitionSkillBinding::getStatus, 1)));
         return result;
-    }
-
-    @Override
-    public AgentSkillExecutionConfig executionConfig(String skillId) {
-        AgentSkill skill = requireSkill(skillId);
-        AgentSkillVersion draft = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class)
-                .eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 0));
-        String versionId = draft == null ? skill.getCurrentVersionId() : draft.getId();
-        AgentSkillExecutionConfig config = StringUtils.isBlank(versionId) ? null : executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
-                .eq(AgentSkillExecutionConfig::getSkillVersionId, versionId));
-        if (config != null) return config;
-        AgentSkillExecutionConfig empty = new AgentSkillExecutionConfig();
-        empty.setSkillVersionId(versionId); empty.setEnabled(false); empty.setTimeoutSeconds(60);
-        empty.setMaxOutputFiles(3); empty.setMaxOutputBytes(52_428_800L); return empty;
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void updateExecutionConfig(String skillId, AgentSkillExecutionConfigDto dto) {
-        AgentSkillVersion draft = requireDraft(skillId);
-        if (dto == null) throw new ServerException(400, I18nUtils.getMessage("skill.execution.config.required"));
-        boolean enabled = Boolean.TRUE.equals(dto.getEnabled());
-        AgentSkillExecutionConfig config = executionConfigService.getOne(Wrappers.lambdaQuery(AgentSkillExecutionConfig.class)
-                .eq(AgentSkillExecutionConfig::getSkillVersionId, draft.getId()));
-        if (config == null) { config = new AgentSkillExecutionConfig(); config.setSkillVersionId(draft.getId()); }
-        config.setEnabled(enabled);
-        if (enabled) validateExecutionConfig(draft.getId(), dto);
-        config.setEntryResourceId(dto.getEntryResourceId());
-        config.setRuntime(enabled ? StringUtils.upperCase(dto.getRuntime()) : null);
-        config.setOutputFormats(enabled ? com.alibaba.fastjson2.JSON.toJSONString(dto.getOutputFormats()) : null);
-        config.setTimeoutSeconds(enabled ? dto.getTimeoutSeconds() : 60);
-        config.setMaxOutputFiles(enabled ? dto.getMaxOutputFiles() : 3);
-        config.setMaxOutputBytes(enabled ? dto.getMaxOutputBytes() : 52_428_800L);
-        if (StringUtils.isBlank(config.getId())) executionConfigService.save(config); else executionConfigService.updateById(config);
-    }
-
-    private void validateExecutionConfig(String versionId, AgentSkillExecutionConfigDto dto) {
-        if (StringUtils.isBlank(dto.getEntryResourceId()) || StringUtils.isBlank(dto.getRuntime())) {
-            throw new ServerException(400, I18nUtils.getMessage("skill.execution.entry-runtime.required"));
-        }
-        String runtime = StringUtils.upperCase(dto.getRuntime());
-        if (!("PYTHON".equals(runtime) || "NODE".equals(runtime))) throw new ServerException(400, I18nUtils.getMessage("skill.execution.runtime.unsupported"));
-        AgentSkillResource entry = resourceService.getById(dto.getEntryResourceId());
-        if (entry == null || !versionId.equals(entry.getSkillVersionId()) || !"SCRIPT".equals(entry.getType()) || !Integer.valueOf(1).equals(entry.getStatus())) {
-            throw new ServerException(400, I18nUtils.getMessage("skill.execution.entry.invalid"));
-        }
-        if (("PYTHON".equals(runtime) && !"python".equalsIgnoreCase(entry.getLanguage())) || ("NODE".equals(runtime) && !"js".equalsIgnoreCase(entry.getLanguage()))) {
-            throw new ServerException(400, I18nUtils.getMessage("skill.execution.runtime.language-mismatch"));
-        }
-        if (dto.getOutputFormats() == null || dto.getOutputFormats().isEmpty() || dto.getOutputFormats().size() > 3
-                || dto.getOutputFormats().stream().anyMatch(item -> !("pdf".equalsIgnoreCase(item) || "docx".equalsIgnoreCase(item) || "xlsx".equalsIgnoreCase(item)))) {
-            throw new ServerException(400, I18nUtils.getMessage("skill.execution.output-formats.invalid"));
-        }
-        if (dto.getTimeoutSeconds() == null || dto.getTimeoutSeconds() < 1 || dto.getTimeoutSeconds() > 60) throw new ServerException(400, I18nUtils.getMessage("skill.execution.timeout.invalid"));
-        if (dto.getMaxOutputFiles() == null || dto.getMaxOutputFiles() < 1 || dto.getMaxOutputFiles() > 3) throw new ServerException(400, I18nUtils.getMessage("skill.execution.output-files.invalid"));
-        if (dto.getMaxOutputBytes() == null || dto.getMaxOutputBytes() < 1 || dto.getMaxOutputBytes() > 52_428_800L) throw new ServerException(400, I18nUtils.getMessage("skill.execution.output-size.invalid"));
     }
 
     private String buildPreviewPrompt(AgentSkill skill, AgentSkillVersion version, List<AgentSkillResource> resources, Map<String, Object> sampleInput) {
@@ -525,9 +434,6 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         String lower = name.toLowerCase(Locale.ROOT);
         String[] parsed;
         if (lower.endsWith(".md")) parsed = new String[]{"MARKDOWN", null};
-        else if (lower.endsWith(".js")) parsed = new String[]{"SCRIPT", "js"};
-        else if (lower.endsWith(".py")) parsed = new String[]{"SCRIPT", "python"};
-        // Shell is deliberately not a Skill runtime.  Only the platform-owned Runner selects an interpreter.
         else if (lower.endsWith(".html") || lower.endsWith(".hbs") || lower.endsWith(".tpl") || lower.endsWith(".ftl")) parsed = new String[]{"TEMPLATE", null};
         else throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.unsupported-type"));
         if (StringUtils.isNotBlank(declaredType) && !declaredType.equalsIgnoreCase(parsed[0])) {

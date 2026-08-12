@@ -12,7 +12,6 @@ import com.aether.agent.skill.entity.AgentSkillToolBinding;
 import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.entity.AgentSkillResource;
 import com.aether.agent.skill.service.impl.AgentSkillKnowledgeBindingServiceImpl;
-import com.aether.agent.skill.service.impl.AgentSkillExecutionConfigServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillResourceServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillToolBindingServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
@@ -45,13 +44,12 @@ class SkillContextServiceTest {
     private final AgentSkillVersionServiceImpl versionService = mock(AgentSkillVersionServiceImpl.class);
     private final AgentSkillToolBindingServiceImpl toolBindingService = mock(AgentSkillToolBindingServiceImpl.class);
     private final AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService = mock(AgentSkillKnowledgeBindingServiceImpl.class);
-    private final AgentSkillExecutionConfigServiceImpl executionConfigService = mock(AgentSkillExecutionConfigServiceImpl.class);
     private final AgentSkillResourceServiceImpl resourceService = mock(AgentSkillResourceServiceImpl.class);
     private final AgentToolCatalog toolCatalog = mock(AgentToolCatalog.class);
     private final AgentMcpServerService mcpServerService = mock(AgentMcpServerService.class);
     private final ObjectStorageService objectStorageService = mock(ObjectStorageService.class);
     private final SkillRouterService skillRouterService = mock(SkillRouterService.class);
-    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, executionConfigService, resourceService, toolCatalog, mcpServerService, objectStorageService, "aether-skill", skillRouterService);
+    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, resourceService, toolCatalog, mcpServerService, objectStorageService, "aether-skill", skillRouterService);
 
     @BeforeEach
     void configureMcpServer() {

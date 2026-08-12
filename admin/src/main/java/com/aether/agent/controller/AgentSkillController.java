@@ -3,12 +3,10 @@ package com.aether.agent.controller;
 import com.aether.agent.skill.dto.AgentSkillDraftDto;
 import com.aether.agent.skill.dto.SkillRoutingConfigDto;
 import com.aether.agent.skill.dto.AgentSkillPreviewDto;
-import com.aether.agent.skill.dto.AgentSkillExecutionConfigDto;
 import com.aether.agent.skill.dto.AgentSkillResourceGenerateDto;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillResource;
 import com.aether.agent.skill.entity.AgentSkillVersion;
-import com.aether.agent.skill.entity.AgentSkillExecutionConfig;
 import com.aether.agent.skill.service.AgentSkillService;
 import com.aether.agent.skill.service.SkillResourceWorkbenchService;
 import com.aether.agent.skill.service.SkillRouterService;
@@ -245,19 +243,6 @@ public class AgentSkillController {
         routingConfigService.update(dto);
         routingIndexService.reindexPublishedVersions();
         return WebResponse.OK(I18nUtils.getMessage("skill.routing.config.update.success"));
-    }
-
-    @GetMapping("/{id}/execution-config")
-    public WebResponse<AgentSkillExecutionConfig> executionConfig(@PathVariable @NotBlank String id) {
-        return WebResponse.OK(skillService.executionConfig(id));
-    }
-
-    @PutMapping("/{id}/execution-config")
-    @Permission(path = "/agent/skill", type = Permission.Type.Write)
-    public WebResponse<Void> updateExecutionConfig(@PathVariable @NotBlank String id,
-                                                   @RequestBody AgentSkillExecutionConfigDto dto) {
-        skillService.updateExecutionConfig(id, dto);
-        return WebResponse.OK(I18nUtils.getMessage("skill.execution.config.update.success"));
     }
 
 }
