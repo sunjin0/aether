@@ -116,5 +116,5 @@ logging:
     org.apache.ibatis: WARN
     com.baomidou.mybatisplus: WARN
 knife4j:
-  enable: true
-  production: false
+  enable: false
+  production: true

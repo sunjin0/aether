@@ -10,6 +10,7 @@ import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.ConversationCacheService;
 import com.aether.agent.service.ConversationSummaryService;
+import com.aether.agent.tools.AgentToolWorkflow;
 import com.aether.i18n.I18nService;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
@@ -49,6 +50,7 @@ class AgentConversationControllerTest {
     @Mock private AdminPreferenceService preferenceService;
     @Mock private ConversationCacheService cacheService;
     @Mock private ConversationSummaryService summaryService;
+    @Mock private AgentToolWorkflow agentToolWorkflow;
     @Mock private I18nService i18nService;
 
     private AgentConversationController controller;
@@ -68,7 +70,7 @@ class AgentConversationControllerTest {
         CurrentUser.set(user);
         controller = new AgentConversationController(
                 conversationService, messageService, runService, toolCallLogService,
-                preferenceEventService, preferenceService, cacheService, summaryService);
+                preferenceEventService, preferenceService, cacheService, summaryService, agentToolWorkflow);
     }
 
     @AfterEach
@@ -123,6 +125,25 @@ class AgentConversationControllerTest {
 
         verify(cacheService, never()).evict("conversation-1");
         verify(summaryService, never()).evict("conversation-1");
+    }
+
+    @Test
+    void changingToolApprovalPolicyRevokesTemporaryApprovals() {
+        AgentConversation conversation = new AgentConversation();
+        conversation.setId("conversation-1");
+        conversation.setUserId("user-1");
+        conversation.setAgentDefinitionId("agent-1");
+        when(conversationService.getOne(any(Wrapper.class))).thenReturn(conversation);
+        when(conversationService.updateById(any(AgentConversation.class))).thenReturn(true);
+
+        HashMap<String, String> request = new HashMap<String, String>();
+        request.put("toolApprovalPolicy", "ask");
+        controller.updateToolApprovalPolicy("conversation-1", request);
+
+        ArgumentCaptor<AgentConversation> update = ArgumentCaptor.forClass(AgentConversation.class);
+        verify(conversationService).updateById(update.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("ask", update.getValue().getToolApprovalPolicy());
+        verify(agentToolWorkflow).revokeTemporaryGrants("user-1", "agent-1", "conversation-1");
     }
 
     private void initTableInfo(Class<?> type) {

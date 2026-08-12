@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class ToolCallRiskAnalyzerTest {
 
@@ -49,5 +50,60 @@ class ToolCallRiskAnalyzerTest {
         Map<String, Object> arguments = Collections.<String, Object>singletonMap("command", "rm -rf ./build");
 
         assertEquals("high", analyzer.analyze(new AgentTool().setName("shell"), arguments).getLevel());
+    }
+
+    @Test
+    void inspectsNestedArgumentsInsteadOfOnlyFirstCandidate() {
+        Map<String, Object> arguments = new HashMap<>();
+        arguments.put("filters", Collections.singletonMap("action", "delete"));
+        arguments.put("query", "find recent orders");
+
+        ToolCallRiskAnalyzer.Risk risk = analyzer.analyze(new AgentTool().setName("order_tool"), arguments);
+
+        assertEquals("high", risk.getLevel());
+        assertFalse(risk.getEvidence().isEmpty());
+    }
+
+    @Test
+    void treatsPlainQueryTextAsUnknownInsteadOfSql() {
+        Map<String, Object> arguments = Collections.<String, Object>singletonMap("query", "delete the word from this document");
+
+        assertEquals("medium", analyzer.analyze(new AgentTool().setName("document_tool"), arguments).getLevel());
+    }
+
+    @Test
+    void marksHttpWriteAndPrivateNetworkTargetAsHighRisk() {
+        Map<String, Object> arguments = new HashMap<>();
+        Map<String, Object> request = new HashMap<>();
+        request.put("method", "POST");
+        request.put("url", "http://192.168.1.8/admin");
+        arguments.put("request", request);
+
+        assertEquals("high", analyzer.analyze(new AgentTool().setName("http_client"), arguments).getLevel());
+    }
+
+    @Test
+    void marksSecretArgumentAsHighRiskWithoutExposingFullValue() {
+        ToolCallRiskAnalyzer.Risk risk = analyzer.analyze(new AgentTool().setName("client"),
+                Collections.<String, Object>singletonMap("apiKey", "super-secret-value"));
+
+        assertEquals("high", risk.getLevel());
+        assertFalse(risk.getCommandPreview().contains("super-secret-value"));
+    }
+
+    @Test
+    void usesToolDescriptionAsRiskSignal() {
+        AgentTool tool = new AgentTool().setName("gateway")
+                .setDescription("将配置发布到生产环境并重启服务");
+
+        assertEquals("high", analyzer.analyze(tool, Collections.<String, Object>emptyMap()).getLevel());
+    }
+
+    @Test
+    void recognizesReadOnlyToolDescription() {
+        AgentTool tool = new AgentTool().setName("catalog")
+                .setDescription("仅用于查询和查看商品目录，不会修改数据");
+
+        assertEquals("low", analyzer.analyze(tool, Collections.<String, Object>emptyMap()).getLevel());
     }
 }

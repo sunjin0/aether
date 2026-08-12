@@ -10,6 +10,7 @@ import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.ConversationCacheService;
 import com.aether.agent.service.ConversationSummaryService;
+import com.aether.agent.tools.AgentToolWorkflow;
 import com.aether.agent.vo.AgentConversationLifecycleVo;
 import com.aether.agent.vo.AgentConversationVo;
 import com.aether.agent.vo.AgentMessageStatisticsVo;
@@ -65,6 +66,7 @@ public class AgentConversationController {
     private final AdminPreferenceService adminPreferenceService;
     private final ConversationCacheService conversationCacheService;
     private final ConversationSummaryService conversationSummaryService;
+    private final AgentToolWorkflow agentToolWorkflow;
 
     @Autowired
     public AgentConversationController(AgentConversationService agentConversationService,
@@ -74,7 +76,8 @@ public class AgentConversationController {
                                        AdminPreferenceEventService adminPreferenceEventService,
                                        AdminPreferenceService adminPreferenceService,
                                        ConversationCacheService conversationCacheService,
-                                       ConversationSummaryService conversationSummaryService) {
+                                       ConversationSummaryService conversationSummaryService,
+                                       AgentToolWorkflow agentToolWorkflow) {
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
         this.agentRunService = agentRunService;
@@ -83,6 +86,7 @@ public class AgentConversationController {
         this.adminPreferenceService = adminPreferenceService;
         this.conversationCacheService = conversationCacheService;
         this.conversationSummaryService = conversationSummaryService;
+        this.agentToolWorkflow = agentToolWorkflow;
     }
 
     @ApiOperation("会话列表")
@@ -210,6 +214,25 @@ public class AgentConversationController {
                 }
             }
         }
+    }
+
+    @ApiOperation("更新会话工具确认策略")
+    @Permission(path = "/agent/conversation", type = Permission.Type.Write)
+    @PutMapping("/{id}/tool-approval-policy")
+    public WebResponse<Void> updateToolApprovalPolicy(@PathVariable @NotBlank String id,
+                                                       @RequestBody Map<String, String> body) {
+        AgentConversation conversation = getOwnedConversation(id);
+        String policy = body == null ? null : body.get("toolApprovalPolicy");
+        if (!"ask".equals(policy) && !"risky".equals(policy) && !"never".equals(policy)) {
+            throw new ServerException(422, "不支持的工具确认策略");
+        }
+        AgentConversation update = new AgentConversation();
+        update.setId(id);
+        update.setToolApprovalPolicy(policy);
+        agentConversationService.updateById(update);
+        // A previous "allow for 10 minutes" choice must not survive a policy change.
+        agentToolWorkflow.revokeTemporaryGrants(conversation.getUserId(), conversation.getAgentDefinitionId(), conversation.getId());
+        return WebResponse.OK(null);
     }
 
     @ApiOperation("关闭会话")

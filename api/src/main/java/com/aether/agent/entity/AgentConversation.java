@@ -33,6 +33,9 @@ public class AgentConversation extends BaseEntity {
     @ApiModelProperty(value = "状态：0-进行中，1-关闭，2-归档")
     private Integer status;
 
+    @ApiModelProperty(value = "会话工具确认策略：ask-每次请求，risky-仅高风险请求，never-自动批准")
+    private String toolApprovalPolicy;
+
     @ApiModelProperty(value = "持久化会话摘要")
     private String summary;
 

@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get install -y --no-install-recommends curl
 COPY --from=builder /build/admin/target/admin-*.jar admin.jar
 EXPOSE 8080
-ENV JAVA_OPTS="-Xmx1g -Xms512m -server"
+ENV JAVA_OPTS="-Xms256m -Xmx512m -Xss512k -XX:MaxMetaspaceSize=192m -XX:MaxDirectMemorySize=128m -XX:ReservedCodeCacheSize=96m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ExitOnOutOfMemoryError -server"
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:8080/v2/api-docs || exit 1
+  CMD curl -f http://localhost:8080/v3/api-docs || exit 1
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar admin.jar"]

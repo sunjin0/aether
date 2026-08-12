@@ -126,6 +126,7 @@ class AgentChatServiceImplTest {
                 agentToolService,
                 agentToolCallLogService,
                 agentMcpServerService,
+                agentRunService,
                 agentMessageService,
                 toolExecutorFactory,
                 redisTemplate,

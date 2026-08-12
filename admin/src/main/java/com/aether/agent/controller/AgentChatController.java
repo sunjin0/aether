@@ -57,8 +57,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -93,7 +95,9 @@ public class AgentChatController {
     private final SkillContextService skillContextService;
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
-    private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
+    /** Bounded SSE worker pool: a cached pool can otherwise exhaust native memory under slow clients. */
+    private final ExecutorService streamExecutor = new ThreadPoolExecutor(4, 32, 60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<Runnable>(200), new ThreadPoolExecutor.CallerRunsPolicy());
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired
@@ -470,6 +474,7 @@ public class AgentChatController {
                     conversation.setUserId(userId);
                     conversation.setAgentDefinitionId(agent.getId());
                     conversation.setStatus(0);
+                    conversation.setToolApprovalPolicy(normalizeToolApprovalPolicy(dto.getToolApprovalPolicy()));
                     agentConversationService.save(conversation);
                 }
                 final String conversationId = conversation.getId();
@@ -642,6 +647,10 @@ public class AgentChatController {
             totalSeconds = runTimeoutSeconds + DEEP_STREAM_TIMEOUT_MARGIN_SECONDS;
         }
         return totalSeconds > Long.MAX_VALUE / 1000L ? Long.MAX_VALUE : totalSeconds * 1000L;
+    }
+
+    private String normalizeToolApprovalPolicy(String policy) {
+        return "risky".equals(policy) || "never".equals(policy) ? policy : "ask";
     }
 
 }

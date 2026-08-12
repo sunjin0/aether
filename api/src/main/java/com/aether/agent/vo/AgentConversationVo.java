@@ -30,6 +30,9 @@ public class AgentConversationVo extends BaseEntity {
     @ApiModelProperty(value = "状态：0-进行中，1-关闭，2-归档")
     private Integer status;
 
+    @ApiModelProperty(value = "会话工具确认策略：ask、risky、never")
+    private String toolApprovalPolicy;
+
     private Long current;
     private Long pageSize;
 }

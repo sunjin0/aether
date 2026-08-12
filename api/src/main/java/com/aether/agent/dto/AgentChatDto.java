@@ -17,6 +17,9 @@ public class AgentChatDto {
     @ApiModelProperty(value = "Conversation ID")
     private String conversationId;
 
+    @ApiModelProperty(value = "Tool approval policy for a newly created conversation: ask, risky, never")
+    private String toolApprovalPolicy;
+
     @ApiModelProperty(value = "User message")
     private String message;
 

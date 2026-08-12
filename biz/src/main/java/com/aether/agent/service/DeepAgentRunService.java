@@ -120,7 +120,7 @@ public class DeepAgentRunService {
         run.setStatus(STATUS_QUEUED);
         run.setExecutionMode("DEEP");
         run.setModel(agent.getModel());
-        if (skillContext != null) run.setSkillSnapshot(skillContext.getSnapshot());
+        run.setSkillSnapshot(snapshotWithToolApprovalPolicy(skillContext, conversation));
         agentRunService.save(run);
         String runId = run.getId();
         run.setExternalRunId(runId);
@@ -154,6 +154,7 @@ public class DeepAgentRunService {
             request.put("system_prompt", skillContext == null ? (agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "") : skillContext.getSystemPrompt());
             request.put("knowledge_sources", knowledgeSources);
             request.put("allowed_tools", allowedTools);
+            request.put("tool_approval_policy", readToolApprovalPolicy(run.getSkillSnapshot()));
             request.put("delegation_token", delegationToken);
             if (agent.getMaxToolRounds() != null) {
                 request.put("max_steps", agent.getMaxToolRounds());
@@ -170,6 +171,22 @@ public class DeepAgentRunService {
             markFailed(runId, e.getMessage());
             throw new RuntimeException("创建 Deep Agent 运行失败: " + e.getMessage(), e);
         }
+    }
+
+    private String snapshotWithToolApprovalPolicy(SkillRuntimeContext skillContext, AgentConversation conversation) {
+        JSONObject snapshot = skillContext == null || StringUtils.isBlank(skillContext.getSnapshot())
+                ? new JSONObject() : JSON.parseObject(skillContext.getSnapshot());
+        snapshot.put("toolApprovalPolicy", normalizeToolApprovalPolicy(conversation == null ? null : conversation.getToolApprovalPolicy()));
+        return snapshot.toJSONString();
+    }
+
+    private String readToolApprovalPolicy(String snapshotJson) {
+        try { return normalizeToolApprovalPolicy(JSON.parseObject(snapshotJson).getString("toolApprovalPolicy")); }
+        catch (Exception ignored) { return "ask"; }
+    }
+
+    private String normalizeToolApprovalPolicy(String policy) {
+        return "risky".equals(policy) || "never".equals(policy) ? policy : "ask";
     }
 
     public boolean handleCallback(String runId, String eventId, String eventType, long occurredAt, String dataJson) {
@@ -195,6 +212,11 @@ public class DeepAgentRunService {
         if (actions == null || actions.isEmpty()) {
             throw new IllegalArgumentException("Deep tool approval has no actions");
         }
+        validateActionsInRunScope(run, actions);
+        if ("risky".equals(readToolApprovalPolicy(run.getSkillSnapshot())) && !containsHighRiskAction(run, actions)) {
+            resumeDeepToolDecisions(runId, approveAll(actions.size()));
+            return null;
+        }
         JSONObject config = new JSONObject();
         config.put("type", "group");
         config.put("layout", "confirm");
@@ -207,21 +229,26 @@ public class DeepAgentRunService {
         AgentTool firstTool = findBoundTool(run.getAgentDefinitionId(), firstToolName);
         JSONObject firstArguments = firstAction.getJSONObject("args");
         Map<String, Object> firstArgumentsMap = firstArguments == null ? Collections.emptyMap() : firstArguments.toJavaObject(Map.class);
-        ToolCallRiskAnalyzer.Risk risk = riskAnalyzer.analyze(firstTool, firstArgumentsMap);
+        ToolCallRiskAnalyzer.Risk risk = firstTool == null ? new ToolCallRiskAnalyzer.Risk("high", "工具不在当前授权范围内", null) : riskAnalyzer.analyze(firstTool, firstArgumentsMap);
         config.put("toolId", firstTool == null ? null : firstTool.getId());
         config.put("toolName", firstToolName);
         config.put("arguments", firstArgumentsMap);
         config.put("riskLevel", risk.getLevel());
         config.put("riskReason", risk.getReason());
+        config.put("riskEvidence", risk.getEvidence());
         JSONArray questions = new JSONArray();
         for (int i = 0; i < actions.size(); i++) {
             JSONObject action = actions.getJSONObject(i);
             String toolName = action.getString("name");
+            AgentTool actionTool = findBoundTool(run.getAgentDefinitionId(), toolName);
+            JSONObject actionArguments = action.getJSONObject("args");
+            Map<String, Object> actionArgumentsMap = actionArguments == null ? Collections.emptyMap() : actionArguments.toJavaObject(Map.class);
+            ToolCallRiskAnalyzer.Risk actionRisk = actionTool == null ? new ToolCallRiskAnalyzer.Risk("high", "工具不在当前授权范围内", null) : riskAnalyzer.analyze(actionTool, actionArgumentsMap);
             JSONObject question = new JSONObject();
             question.put("id", "decision-" + i);
             question.put("type", "choice");
             question.put("multiple", false);
-            question.put("question", "high".equals(risk.getLevel())
+            question.put("question", "high".equals(actionRisk.getLevel())
                     ? "AI 请求执行高危 MCP 工具操作，请核对调用详情后确认。"
                     : "AI 请求调用 MCP 工具，请核对调用详情后确认。");
             question.put("options", new JSONArray()
@@ -243,6 +270,30 @@ public class DeepAgentRunService {
             throw new IllegalStateException("保存 Deep 工具确认消息失败");
         }
         return message;
+    }
+
+    private boolean containsHighRiskAction(AgentRun run, JSONArray actions) {
+        for (int i = 0; i < actions.size(); i++) {
+            JSONObject action = actions.getJSONObject(i);
+            AgentTool tool = findBoundTool(run.getAgentDefinitionId(), action.getString("name"));
+            if (tool == null) return true;
+            JSONObject args = action.getJSONObject("args");
+            Map<String, Object> arguments = args == null ? Collections.emptyMap() : args.toJavaObject(Map.class);
+            if ("high".equals(riskAnalyzer.analyze(tool, arguments).getLevel())) return true;
+        }
+        return false;
+    }
+
+    private List<Map<String, String>> approveAll(int count) {
+        List<Map<String, String>> decisions = new ArrayList<>();
+        for (int i = 0; i < count; i++) decisions.add(Collections.singletonMap("type", "approve"));
+        return decisions;
+    }
+
+    private void resumeDeepToolDecisions(String runId, List<Map<String, String>> decisions) {
+        Map<String, Object> payload = new LinkedHashMap<>(); payload.put("run_id", runId); payload.put("decisions", decisions);
+        ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/resume", payload);
+        if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 自动批准恢复失败");
     }
 
     public AgentMessage createAskUserQuestion(String runId, String dataJson) {
@@ -292,7 +343,8 @@ public class DeepAgentRunService {
         if (!(rawAnswers instanceof Map)) throw new IllegalArgumentException("Tool approval answer is required");
         Map<?, ?> answers = (Map<?, ?>) rawAnswers;
         List<Map<String, String>> decisions = new ArrayList<>();
-        int decisionCount = config.getJSONArray("actions").size();
+        JSONArray actions = config.getJSONArray("actions");
+        int decisionCount = actions.size();
         for (int i = 0; i < decisionCount; i++) {
             Object rawDecision = answers.get("decision-" + i);
             String selected = rawDecision instanceof Map ? String.valueOf(((Map<?, ?>) rawDecision).get("selected")) : "reject";
@@ -311,6 +363,25 @@ public class DeepAgentRunService {
         ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/resume", payload);
         if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 恢复请求失败");
         return runId;
+    }
+
+    /** Re-check live binding and the immutable run scope before resuming a paused external tool call. */
+    private void validateActionsInRunScope(AgentRun run, JSONArray actions) {
+        Set<String> toolIds;
+        try {
+            JSONArray ids = JSON.parseObject(run.getSkillSnapshot()).getJSONArray("toolIds");
+            toolIds = ids == null ? Collections.<String>emptySet() : new HashSet<>(ids.toJavaList(String.class));
+        } catch (Exception e) {
+            throw new IllegalStateException("Deep 工具确认缺少运行授权范围");
+        }
+        Map<String, AgentTool> liveTools = toolCatalog.getBoundTools(run.getAgentDefinitionId()).stream()
+                .collect(Collectors.toMap(AgentTool::getMcpToolName, item -> item, (left, right) -> left));
+        for (int i = 0; i < actions.size(); i++) {
+            AgentTool tool = liveTools.get(actions.getJSONObject(i).getString("name"));
+            if (tool == null || !toolIds.contains(tool.getId())) {
+                throw new IllegalStateException("待确认工具已不可用或不在本次运行授权范围内");
+            }
+        }
     }
 
     /**

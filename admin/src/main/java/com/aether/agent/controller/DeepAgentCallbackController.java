@@ -155,6 +155,9 @@ public class DeepAgentCallbackController {
                         break;
                     case "tool.approval.required":
                         AgentMessage approval = deepAgentRunService.createToolApproval(runId, dataJson);
+                        if (approval == null) {
+                            break;
+                        }
                         AgentMessageVo approvalVo = new AgentMessageVo();
                         org.springframework.beans.BeanUtils.copyProperties(approval, approvalVo);
                         AgentStreamCallback approvalCallback = activeCallbacks.get(runId);

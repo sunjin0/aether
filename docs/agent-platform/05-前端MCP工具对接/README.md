@@ -136,6 +136,18 @@ agent_mcp_server (1) ──→ (N) agent_tool
 
 ## 八、工具调用日志显示
 
+## 八点一、会话工具确认策略
+
+聊天页的“工具确认设置”属于会话级设置，而不是工具目录的静态属性。创建运行时，平台会把策略与工具作用域冻结到运行快照；后续修改只影响新运行。
+
+| 值 | 行为 |
+| --- | --- |
+| `ask` | 每次 MCP 调用请求确认（默认） |
+| `risky` | 仅高风险调用请求确认 |
+| `never` | 当前会话运行自动批准 |
+
+更新接口：`PUT /api/agent/conversation/{id}/tool-approval-policy`，请求体为 `{"toolApprovalPolicy":"ask|risky|never"}`。十分钟临时批准按用户、Agent、会话与工具隔离；保存策略时会撤销当前会话的临时批准。
+
 ### 设计结论
 
 以 `agent_tool_call_log` 作为前端展示的事实来源，不新增持久化的 `tool` 角色消息。`successRate` 为百分数（范围 `0-100`），前端可直接追加 `%` 展示。

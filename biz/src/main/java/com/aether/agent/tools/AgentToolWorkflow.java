@@ -11,6 +11,7 @@ import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.service.AgentMcpServerService;
+import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -45,6 +47,9 @@ public class AgentToolWorkflow {
     private static final String MCP_APPROVAL_TYPE = "mcp_tool_approval";
     private static final String TOOL_APPROVAL_GRANT_KEY_PREFIX = "agent:tool-approval:";
     private static final long TOOL_APPROVAL_GRANT_TTL_MINUTES = 10;
+    private static final String APPROVAL_ASK = "ask";
+    private static final String APPROVAL_RISKY = "risky";
+    private static final String APPROVAL_NEVER = "never";
     private static final int STATUS_SUCCESS = 0;
     private static final int STATUS_FAILED = 1;
     private static final int STATUS_SECURITY_BLOCK = 3;
@@ -55,6 +60,7 @@ public class AgentToolWorkflow {
     private final AgentToolService agentToolService;
     private final AgentToolCallLogService toolCallLogService;
     private final AgentMcpServerService mcpServerService;
+    private final AgentRunService agentRunService;
     private final AgentMessageService messageService;
     private final ToolExecutorFactory executorFactory;
     private final RedisTemplate<String, Object> redisTemplate;
@@ -63,7 +69,7 @@ public class AgentToolWorkflow {
 
     public AgentToolWorkflow(ToolCallParser toolCallParser, AgentToolCatalog toolCatalog,
                              AgentToolService agentToolService, AgentToolCallLogService toolCallLogService,
-                             AgentMcpServerService mcpServerService, AgentMessageService messageService,
+                             AgentMcpServerService mcpServerService, AgentRunService agentRunService, AgentMessageService messageService,
                              ToolExecutorFactory executorFactory, RedisTemplate<String, Object> redisTemplate,
                              ToolRegistry toolRegistry) {
         this.toolCallParser = toolCallParser;
@@ -71,6 +77,7 @@ public class AgentToolWorkflow {
         this.agentToolService = agentToolService;
         this.toolCallLogService = toolCallLogService;
         this.mcpServerService = mcpServerService;
+        this.agentRunService = agentRunService;
         this.messageService = messageService;
         this.executorFactory = executorFactory;
         this.redisTemplate = redisTemplate;
@@ -107,6 +114,17 @@ public class AgentToolWorkflow {
     /** 工具配置变更时，清理所有绑定该工具的 Agent 缓存。 */
     public void evictToolCacheByToolId(String toolId) {
         toolCatalog.evictByToolId(toolId);
+    }
+
+    /** Revokes temporary approvals when a conversation's policy becomes stricter. */
+    public void revokeTemporaryGrants(String userId, String agentId, String conversationId) {
+        if (StringUtils.isAnyBlank(userId, agentId, conversationId)) return;
+        try {
+            Set<String> keys = redisTemplate.keys(TOOL_APPROVAL_GRANT_KEY_PREFIX + userId + ":" + agentId + ":" + conversationId + ":*");
+            if (keys != null && !keys.isEmpty()) redisTemplate.delete(keys);
+        } catch (Exception e) {
+            log.warn("撤销工具临时授权失败: userId={}, agentId={}", userId, agentId, e);
+        }
     }
 
     /** 判断模型是否请求了平台内置工具（例如询问用户）。 */
@@ -214,9 +232,17 @@ public class AgentToolWorkflow {
         if (calls.isEmpty()) {
             return null;
         }
-        ToolCall call = calls.get(0);
-        AgentTool tool = findBoundTool(agent.getId(), call.getName());
-        if (tool == null || hasActiveGrant(userId, agent.getId(), tool.getId())) {
+        ToolCall call = null;
+        AgentTool tool = null;
+        for (ToolCall candidate : calls) {
+            AgentTool candidateTool = findBoundTool(agent.getId(), candidate.getName());
+            if (candidateTool != null && shouldRequestApproval(runId, candidateTool, candidate, userId, agent.getId())) {
+                call = candidate;
+                tool = candidateTool;
+                break;
+            }
+        }
+        if (call == null) {
             return null;
         }
 
@@ -241,6 +267,7 @@ public class AgentToolWorkflow {
         config.put("arguments", call.getArguments());
         config.put("riskLevel", risk.getLevel());
         config.put("riskReason", risk.getReason());
+        config.put("riskEvidence", risk.getEvidence());
         config.put("approval", buildApprovalDetail(tool, call, requestUrl, risk, audit.getId()));
 
         AgentMessage message = new AgentMessage();
@@ -259,17 +286,25 @@ public class AgentToolWorkflow {
     public AgentMessage createMcpApproval(String conversationId, ModelChatResponse response,
                                           AgentDefinition agent, String userId, String runId, List<AgentTool> scopedTools) {
         List<ToolCall> calls = parseCalls(response); if (calls.isEmpty()) return null;
-        ToolCall call = calls.get(0); AgentTool tool = null;
-        for (AgentTool item : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools) if (call.getName().equals(item.getName())) { tool = item; break; }
+        ToolCall call = null; AgentTool tool = null;
+        for (ToolCall candidate : calls) {
+            for (AgentTool item : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools) {
+                if (candidate.getName().equals(item.getName()) && shouldRequestApproval(runId, item, candidate, userId, agent.getId())) {
+                    call = candidate;
+                    tool = item;
+                    break;
+                }
+            }
+            if (tool != null) break;
+        }
         if (tool == null) return null;
-        if (hasActiveGrant(userId, agent.getId(), tool.getId())) return null;
         ToolCallRiskAnalyzer.Risk risk = riskAnalyzer.analyze(tool, call.getArguments());
         String requestUrl = resolveMcpRequestUrl(tool);
         AgentToolCallLog audit = savePendingAudit(runId, call, tool, agent.getId(), requestUrl);
         JSONObject config = new JSONObject();
         config.put("type", "group"); config.put("layout", "confirm"); config.put("question", "请确认 MCP 工具调用");
         config.put("questions", buildApprovalQuestions("high".equals(risk.getLevel()) ? "AI 请求执行高危 MCP 工具操作，请核对调用详情后确认。" : "AI 请求调用 MCP 工具，请核对调用详情后确认。"));
-        config.put("approvalType", MCP_APPROVAL_TYPE); config.put("auditLogId", audit.getId()); config.put("runId", runId); config.put("toolId", tool.getId()); config.put("toolCallId", call.getId()); config.put("toolName", call.getName()); config.put("arguments", call.getArguments()); config.put("riskLevel", risk.getLevel()); config.put("riskReason", risk.getReason()); config.put("approval", buildApprovalDetail(tool, call, requestUrl, risk, audit.getId()));
+        config.put("approvalType", MCP_APPROVAL_TYPE); config.put("auditLogId", audit.getId()); config.put("runId", runId); config.put("toolId", tool.getId()); config.put("toolCallId", call.getId()); config.put("toolName", call.getName()); config.put("arguments", call.getArguments()); config.put("riskLevel", risk.getLevel()); config.put("riskReason", risk.getReason()); config.put("riskEvidence", risk.getEvidence()); config.put("approval", buildApprovalDetail(tool, call, requestUrl, risk, audit.getId()));
         AgentMessage message = new AgentMessage(); message.setConversationId(conversationId); message.setRole("assistant"); message.setMessageType("interaction"); message.setInteractionType("group"); message.setInteractionStatus("pending"); message.setContent(config.getString("question")); message.setQuestionConfig(config.toJSONString()); messageService.save(message);
         return message;
     }
@@ -292,8 +327,8 @@ public class AgentToolWorkflow {
         ToolExecutionResult result;
         if (!confirmed) {
             result = ToolExecutionResult.failure("用户拒绝执行此 MCP 工具调用", STATUS_SECURITY_BLOCK);
-        } else if (!isAvailable(tool)) {
-            result = ToolExecutionResult.failure("待确认的工具已不存在或被禁用", STATUS_FAILED);
+        } else if (!isAvailable(tool) || !isToolInRunScope(runId, tool.getId(), agent.getId())) {
+            result = ToolExecutionResult.failure("待确认工具已不可用或不在本次运行授权范围内", STATUS_SECURITY_BLOCK);
         } else {
             try {
                 result = executeMcpTool(tool, arguments, runId, userId, agent.getId());
@@ -303,7 +338,7 @@ public class AgentToolWorkflow {
         }
         result.setToolCallId(toolCallId);
         if ("allow_10m".equals(decision) && tool != null) {
-            saveGrant(userId, agent.getId(), tool.getId());
+            saveGrant(userId, agent.getId(), tool.getId(), question.getConversationId());
         }
         updateApprovalAudit(config.getString("auditLogId"), result, confirmed);
         return new ApprovalExecution(runId, buildToolCallResponse(toolCallId, toolName, arguments), result);
@@ -329,7 +364,7 @@ public class AgentToolWorkflow {
         }
         result.setToolCallId(call.getId());
         saveAudit(runId, call, tool, agentId, result);
-        if (allowTenMinutes && tool != null) saveGrant(userId, agentId, tool.getId());
+        if (allowTenMinutes && tool != null) saveGrant(userId, agentId, tool.getId(), null);
         return result;
     }
 
@@ -382,7 +417,8 @@ public class AgentToolWorkflow {
                 .fluentPut("method", "MCP tools/call").fluentPut("arguments", call.getArguments()));
         approval.put("risk", new JSONObject().fluentPut("level", risk.getLevel())
                 .fluentPut("reason", risk.getReason())
-                .fluentPut("commandPreview", truncate(risk.getCommandPreview(), 4000)));
+                .fluentPut("commandPreview", truncate(risk.getCommandPreview(), 4000))
+                .fluentPut("evidence", risk.getEvidence()));
         approval.put("auditLogId", auditLogId);
         approval.put("authorizationOptions", new JSONArray()
                 .fluentAdd(new JSONObject().fluentPut("value", "once").fluentPut("ttlSeconds", 0))
@@ -430,26 +466,55 @@ public class AgentToolWorkflow {
         return tool != null && !Boolean.TRUE.equals(tool.getDeleted()) && Integer.valueOf(1).equals(tool.getStatus());
     }
 
-    private boolean hasActiveGrant(String userId, String agentId, String toolId) {
+    private boolean hasActiveGrant(String userId, String agentId, String toolId, String conversationId) {
+        if (StringUtils.isBlank(conversationId)) return false;
         try {
-            return Boolean.TRUE.equals(redisTemplate.hasKey(grantKey(userId, agentId, toolId)));
+            return Boolean.TRUE.equals(redisTemplate.hasKey(grantKey(userId, agentId, toolId, conversationId)));
         } catch (Exception e) {
             log.warn("检查工具授权失败, 按未授权处理: userId={}, agentId={}, toolId={}", userId, agentId, toolId, e);
             return false;
         }
     }
 
-    private void saveGrant(String userId, String agentId, String toolId) {
+    private boolean isToolInRunScope(String runId, String toolId, String agentId) {
+        com.aether.agent.entity.AgentRun run = agentRunService.getById(runId);
+        if (run == null || !agentId.equals(run.getAgentDefinitionId()) || StringUtils.isBlank(run.getSkillSnapshot())) return false;
         try {
-            redisTemplate.opsForValue().set(grantKey(userId, agentId, toolId), "approved",
+            JSONArray toolIds = JSONObject.parseObject(run.getSkillSnapshot()).getJSONArray("toolIds");
+            return toolIds != null && toolIds.contains(toolId);
+        } catch (Exception ignored) { return false; }
+    }
+
+    /** The run snapshot wins over mutable session settings. Legacy runs default to ask. */
+    private boolean shouldRequestApproval(String runId, AgentTool tool, ToolCall call, String userId, String agentId) {
+        String policy = APPROVAL_ASK;
+        com.aether.agent.entity.AgentRun run = agentRunService.getById(runId);
+        if (hasActiveGrant(userId, agentId, tool.getId(), run == null ? null : run.getConversationId())) return false;
+        if (run != null && StringUtils.isNotBlank(run.getSkillSnapshot())) {
+            try { policy = StringUtils.defaultIfBlank(JSONObject.parseObject(run.getSkillSnapshot()).getString("toolApprovalPolicy"), APPROVAL_ASK); }
+            catch (Exception ignored) { /* legacy runs default to ask */ }
+        }
+        if (APPROVAL_NEVER.equals(policy)) {
+            return false;
+        }
+        if (APPROVAL_RISKY.equals(policy)) {
+            return "high".equals(riskAnalyzer.analyze(tool, call.getArguments()).getLevel());
+        }
+        return true;
+    }
+
+    private void saveGrant(String userId, String agentId, String toolId, String conversationId) {
+        if (StringUtils.isBlank(conversationId)) return;
+        try {
+            redisTemplate.opsForValue().set(grantKey(userId, agentId, toolId, conversationId), "approved",
                     TOOL_APPROVAL_GRANT_TTL_MINUTES, TimeUnit.MINUTES);
         } catch (Exception e) {
             log.warn("保存工具授权失败: userId={}, agentId={}, toolId={}", userId, agentId, toolId, e);
         }
     }
 
-    private String grantKey(String userId, String agentId, String toolId) {
-        return TOOL_APPROVAL_GRANT_KEY_PREFIX + userId + ":" + agentId + ":" + toolId;
+    private String grantKey(String userId, String agentId, String toolId, String conversationId) {
+        return TOOL_APPROVAL_GRANT_KEY_PREFIX + userId + ":" + agentId + ":" + conversationId + ":" + toolId;
     }
 
     private String resolveMcpRequestUrl(AgentTool tool) {

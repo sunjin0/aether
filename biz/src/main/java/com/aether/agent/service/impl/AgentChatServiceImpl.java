@@ -837,6 +837,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             conversation.setTitle(buildConversationTitle(dto.getMessage()));
             conversation.setMessageCount(0);
             conversation.setStatus(Boolean.TRUE.equals(dto.getTemporary()) ? 2 : CONVERSATION_STATUS_OPEN);
+            conversation.setToolApprovalPolicy(normalizeToolApprovalPolicy(dto.getToolApprovalPolicy()));
             agentConversationService.save(conversation);
             return conversation;
         }
@@ -855,6 +856,10 @@ public class AgentChatServiceImpl implements AgentChatService {
             throw new ServerException(422, I18nUtils.getMessage("agent.conversation.closed"));
         }
         return conversation;
+    }
+
+    private String normalizeToolApprovalPolicy(String policy) {
+        return "risky".equals(policy) || "never".equals(policy) ? policy : "ask";
     }
 
     private String buildConversationTitle(String message) {
@@ -1090,7 +1095,15 @@ public class AgentChatServiceImpl implements AgentChatService {
                            String messageId, String input, ModelChatResponse response, long latencyMs,
                            Integer status, String errorMsg, String skillSnapshot) {
         return chatRunService.create(agent, provider, userId, conversationId, messageId, input,
-                response, latencyMs, status, errorMsg, skillSnapshot);
+                response, latencyMs, status, errorMsg, snapshotWithToolApprovalPolicy(conversationId, skillSnapshot));
+    }
+
+    private String snapshotWithToolApprovalPolicy(String conversationId, String skillSnapshot) {
+        JSONObject snapshot = StringUtils.isBlank(skillSnapshot) ? new JSONObject() : JSONObject.parseObject(skillSnapshot);
+        AgentConversation conversation = agentConversationService.getById(conversationId);
+        String policy = conversation == null ? "ask" : normalizeToolApprovalPolicy(conversation.getToolApprovalPolicy());
+        snapshot.put("toolApprovalPolicy", policy);
+        return snapshot.toJSONString();
     }
 
     private void updateRun(String runId, String messageId, ModelChatResponse response, long latencyMs,

@@ -85,16 +85,22 @@ public class SkillContextService {
         SkillRuntimeContext context = new SkillRuntimeContext();
         if (installations.isEmpty()) {
             context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt()));
-            context.setTools(toolCatalog.getBoundTools(agent.getId()));
+            List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
+            context.setTools(boundTools);
             context.setKnowledgeBaseIds(null);
-            context.setSnapshot("{\"installed\":false}");
+            Map<String, Object> snapshot = new LinkedHashMap<>();
+            snapshot.put("installed", false);
+            snapshot.put("toolIds", boundTools.stream().map(AgentTool::getId).collect(Collectors.toList()));
+            context.setSnapshot(JSON.toJSONString(snapshot));
             return context;
         }
         SkillRouteDecision route = skillRouterService == null ? new SkillRouteDecision() : skillRouterService.route(agent, provider, routingQuery, installations);
         if (!route.isMatched()) {
             if (dto != null && dto.getSkillInputs() != null && !dto.getSkillInputs().isEmpty()) throw new ServerException(422, I18nUtils.getMessage("skill.context.no-active-skill"));
-            context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt())); context.setTools(toolCatalog.getBoundTools(agent.getId())); context.setKnowledgeBaseIds(null);
-            context.setSnapshot(JSON.toJSONString(java.util.Collections.<String, Object>singletonMap("routing", route))); return context;
+            List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
+            context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt())); context.setTools(boundTools); context.setKnowledgeBaseIds(null);
+            Map<String, Object> snapshot = new LinkedHashMap<>(); snapshot.put("routing", route); snapshot.put("toolIds", boundTools.stream().map(AgentTool::getId).collect(Collectors.toList()));
+            context.setSnapshot(JSON.toJSONString(snapshot)); return context;
         }
         installations = installations.stream().filter(item -> route.getSkillVersionId().equals(item.getSkillVersionId())).collect(Collectors.toList());
 

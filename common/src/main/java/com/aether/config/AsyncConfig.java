@@ -28,10 +28,10 @@ public class AsyncConfig implements AsyncConfigurer {
     @Bean(name = "asyncPoolTaskExecutor")
     public ThreadPoolTaskExecutor executor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(10);
-        executor.setMaxPoolSize(100);
-        executor.setQueueCapacity(50);
-        executor.setKeepAliveSeconds(200);
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(16);
+        executor.setQueueCapacity(100);
+        executor.setKeepAliveSeconds(60);
         executor.setThreadNamePrefix("async-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
@@ -53,4 +53,3 @@ public class AsyncConfig implements AsyncConfigurer {
         return (ex, method, params) -> log.error("线程池执行任务发现未知错误, 执行方法：{}", method.getName(), ex);
     }
 }
-
