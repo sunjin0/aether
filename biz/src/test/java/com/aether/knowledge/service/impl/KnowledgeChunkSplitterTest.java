@@ -25,6 +25,21 @@ class KnowledgeChunkSplitterTest {
     }
 
     @Test
+    void keepsHeadingOnlyParentWithItsFirstChildContent() {
+        KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(200, 0);
+        String content = "## 目的与治理原则\n\n### 可追溯的业务目的\n每个 AI 场景必须明确业务所有者、输入数据范围和人工接管路径。\n\n### 禁止的自动化决定\n最终决定必须由具备授权的人作出。";
+
+        List<KnowledgeChunkSplitter.Segment> chunks = splitter.split(content);
+
+        assertEquals(2, chunks.size());
+        assertEquals("目的与治理原则 > 可追溯的业务目的", chunks.get(0).getSectionPath());
+        assertTrue(chunks.get(0).getContent().startsWith("## 目的与治理原则\n### 可追溯的业务目的"));
+        assertTrue(chunks.get(0).getContent().contains("每个 AI 场景必须明确"));
+        assertEquals("目的与治理原则 > 禁止的自动化决定", chunks.get(1).getSectionPath());
+        assertTrue(chunks.get(1).getContent().startsWith("## 目的与治理原则\n### 禁止的自动化决定"));
+    }
+
+    @Test
     void usesSemanticBoundariesAndNeverExceedsLimit() {
         KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(60, 15);
         String content = "# 使用说明\n第一段介绍系统用途，并说明适用范围。\n\n"
@@ -75,6 +90,19 @@ class KnowledgeChunkSplitterTest {
         assertEquals(3, chunks.size());
         for (KnowledgeChunkSplitter.Segment chunk : chunks) {
             assertTrue(splitter.estimateTokens(chunk.getContent()) <= 4);
+        }
+    }
+
+    @Test
+    void keepsTableHeaderWithEverySplitTableChunk() {
+        KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(70, 0);
+        String table = "| 名称 | 说明 |\n| --- | --- |\n| Alpha | 第一条规则 |\n| Beta | 第二条规则 |\n| Gamma | 第三条规则 |\n| Delta | 第四条规则 |";
+
+        List<KnowledgeChunkSplitter.Segment> chunks = splitter.split(table);
+
+        assertTrue(chunks.size() > 1);
+        for (KnowledgeChunkSplitter.Segment chunk : chunks) {
+            assertTrue(chunk.getContent().startsWith("| 名称 | 说明 |\n| --- | --- |"));
         }
     }
 }

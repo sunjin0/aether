@@ -9,7 +9,10 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Splits knowledge content without cutting across headings and paragraphs unnecessarily. */
+/**
+ * Hybrid splitter: preserves Markdown structure first, then applies paragraph,
+ * table-aware, sentence and token-budget boundaries as successive fallbacks.
+ */
 @Component
 public class KnowledgeChunkSplitter {
     private static final Pattern HEADING = Pattern.compile("^(#{1,6})\\s+(.+?)\\s*$");
@@ -60,6 +63,8 @@ public class KnowledgeChunkSplitter {
                     headings[i] = null;
                 }
                 sectionPath = joinHeadings(headings);
+                appendHeadingContext(section, headings, level);
+                continue;
             }
             if (section.length() > 0) {
                 section.append('\n');
@@ -90,14 +95,48 @@ public class KnowledgeChunkSplitter {
 
     private void appendSection(List<Segment> output, String value, String sectionPath) {
         String section = StringUtils.trimToEmpty(value);
-        if (section.isEmpty()) {
+        // A title without body text is structural context, not a retrievable
+        // unit.  It is carried into the following child section instead.
+        if (section.isEmpty() || isHeadingOnly(section)) {
             return;
         }
         List<String> units = new ArrayList<>();
         for (String paragraph : section.split("\\n\\s*\\n+")) {
-            addUnit(units, paragraph.trim());
+            String block = paragraph.trim();
+            if (isMarkdownTable(block)) {
+                addTableUnits(units, block);
+            } else {
+                addUnit(units, block);
+            }
         }
         pack(output, units, sectionPath);
+    }
+
+    /** Repeats the active heading hierarchy at the beginning of a child section. */
+    private void appendHeadingContext(StringBuilder section, String[] headings, int currentLevel) {
+        for (int index = 0; index < currentLevel; index++) {
+            if (StringUtils.isBlank(headings[index])) {
+                continue;
+            }
+            if (section.length() > 0) {
+                section.append('\n');
+            }
+            section.append(StringUtils.repeat('#', index + 1)).append(' ').append(headings[index]);
+        }
+    }
+
+    private boolean isHeadingOnly(String section) {
+        boolean hasHeading = false;
+        for (String line : section.split("\\n")) {
+            if (StringUtils.isBlank(line)) {
+                continue;
+            }
+            if (!HEADING.matcher(line.trim()).matches()) {
+                return false;
+            }
+            hasHeading = true;
+        }
+        return hasHeading;
     }
 
     private void addUnit(List<String> units, String value) {
@@ -117,6 +156,49 @@ public class KnowledgeChunkSplitter {
         if (!foundSentence) {
             addHardSplit(units, value);
         }
+    }
+
+    /** Keeps Markdown table headers with every row group instead of cutting a row by character count. */
+    private void addTableUnits(List<String> units, String table) {
+        if (table.length() <= maxChars) {
+            units.add(table);
+            return;
+        }
+        String[] lines = table.split("\\n");
+        if (lines.length < 3) {
+            addHardSplit(units, table);
+            return;
+        }
+        String header = lines[0].trim();
+        String separator = lines[1].trim();
+        List<String> rows = new ArrayList<>();
+        for (int index = 2; index < lines.length; index++) {
+            if (StringUtils.isNotBlank(lines[index])) rows.add(lines[index].trim());
+        }
+        StringBuilder current = new StringBuilder(header).append('\n').append(separator);
+        for (String row : rows) {
+            if (current.length() + 1 + row.length() > maxChars && current.toString().split("\\n").length > 2) {
+                units.add(current.toString());
+                current.setLength(0);
+                current.append(header).append('\n').append(separator);
+            }
+            if (current.length() + 1 + row.length() > maxChars) {
+                addHardSplit(units, current.append('\n').append(row).toString());
+                current.setLength(0);
+                current.append(header).append('\n').append(separator);
+            } else {
+                current.append('\n').append(row);
+            }
+        }
+        if (current.toString().split("\\n").length > 2) {
+            units.add(current.toString());
+        }
+    }
+
+    private boolean isMarkdownTable(String value) {
+        String[] lines = value.split("\\n");
+        return lines.length >= 2 && lines[0].contains("|")
+                && lines[1].matches("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$");
     }
 
     private void addHardSplit(List<String> units, String value) {
@@ -144,7 +226,7 @@ public class KnowledgeChunkSplitter {
         List<String> current = new ArrayList<>();
         for (String unit : units) {
             while (!current.isEmpty() && exceedsChunkBudget(current, unit)) {
-                output.add(new Segment(StringUtils.join(current, "\n\n"), sectionPath));
+                appendSegment(output, StringUtils.join(current, "\n\n"), sectionPath);
                 current = overlapTail(current);
                 while (!current.isEmpty() && exceedsChunkBudget(current, unit)) {
                     current.remove(0);
@@ -153,8 +235,26 @@ public class KnowledgeChunkSplitter {
             current.add(unit);
         }
         if (!current.isEmpty()) {
-            output.add(new Segment(StringUtils.join(current, "\n\n"), sectionPath));
+            appendSegment(output, StringUtils.join(current, "\n\n"), sectionPath);
         }
+    }
+
+    /** Absorbs a tiny trailing unit when it still fits its preceding semantic section. */
+    private void appendSegment(List<Segment> output, String content, String sectionPath) {
+        if (content.length() < minimumChunkChars() && !output.isEmpty()) {
+            Segment previous = output.get(output.size() - 1);
+            String merged = previous.getContent() + "\n\n" + content;
+            if (StringUtils.equals(previous.getSectionPath(), sectionPath)
+                    && !exceedsChunkBudget(Collections.singletonList(previous.getContent()), content)) {
+                output.set(output.size() - 1, new Segment(merged, sectionPath));
+                return;
+            }
+        }
+        output.add(new Segment(content, sectionPath));
+    }
+
+    private int minimumChunkChars() {
+        return Math.min(180, Math.max(32, maxChars / 4));
     }
 
     private List<String> overlapTail(List<String> current) {

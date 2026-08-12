@@ -15,6 +15,7 @@ import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.service.KnowledgeDocumentWorkflowService;
 import com.aether.storage.service.ObjectStorageService;
 import com.aether.knowledge.service.impl.KnowledgeDocumentContentExtractor;
+import com.aether.knowledge.service.impl.KnowledgeDocumentMarkdownFormatter;
 import com.aether.knowledge.vo.KnowledgeDocumentVo;
 import com.aether.knowledge.vo.KnowledgeDocumentChunkVo;
 import com.aether.entity.WebResponse;
@@ -58,6 +59,7 @@ public class KnowledgeDocumentController {
     private final KnowledgeDocumentVersionService knowledgeDocumentVersionService;
     private final ObjectStorageService objectStorageService;
     private final KnowledgeDocumentContentExtractor contentExtractor;
+    private final KnowledgeDocumentMarkdownFormatter markdownFormatter;
     private final String knowledgeBucket;
     private final KnowledgeAccessService knowledgeAccessService;
     private final KnowledgeDocumentWorkflowService workflowService;
@@ -68,6 +70,7 @@ public class KnowledgeDocumentController {
                                    KnowledgeDocumentVersionService knowledgeDocumentVersionService,
                                    ObjectStorageService objectStorageService,
                                    KnowledgeDocumentContentExtractor contentExtractor,
+                                   KnowledgeDocumentMarkdownFormatter markdownFormatter,
                                    KnowledgeAccessService knowledgeAccessService,
                                    KnowledgeDocumentWorkflowService workflowService,
                                    @Value("${knowledge.storage.bucket:${MINIO_KNOWLEDGE_BUCKET:aether-knowledge}}") String knowledgeBucket) {
@@ -77,6 +80,7 @@ public class KnowledgeDocumentController {
         this.knowledgeDocumentVersionService = knowledgeDocumentVersionService;
         this.objectStorageService = objectStorageService;
         this.contentExtractor = contentExtractor;
+        this.markdownFormatter = markdownFormatter;
         this.knowledgeAccessService = knowledgeAccessService;
         this.workflowService = workflowService;
         this.knowledgeBucket = knowledgeBucket;
@@ -266,6 +270,50 @@ public class KnowledgeDocumentController {
         KnowledgeDocument document = getExisting(version.getKnowledgeDocumentId());
         knowledgeAccessService.requireReadable(document.getKnowledgeBaseId());
         return WebResponse.OK(version);
+    }
+
+    @ApiOperation("Preview original document version file")
+    @GetMapping("/version/{versionId}/preview-url")
+    public WebResponse<String> versionPreviewUrl(@PathVariable @NotBlank String versionId) {
+        KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
+        if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
+        }
+        KnowledgeDocument document = getExisting(version.getKnowledgeDocumentId());
+        knowledgeAccessService.requireReadable(document.getKnowledgeBaseId());
+        String objectKey = StringUtils.defaultIfBlank(version.getStorageObjectKey(), document.getStorageObjectKey());
+        if (StringUtils.isBlank(objectKey)) {
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.source-file.not-found"));
+        }
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.preview-url.ready"), objectStorageService.presignedGetUrl(
+                StringUtils.defaultIfBlank(version.getStorageBucket(), document.getStorageBucket()), objectKey, 600,
+                storageContentType(document.getOriginalFileName(), document.getMimeType())));
+    }
+
+    /**
+     * Re-extracts the original version file for a reviewer to fill the draft editor.
+     * The result is deliberately not persisted here: the reviewer still confirms it
+     * by saving the edited version content.
+     */
+    @ApiOperation("重新识别版本原文件内容")
+    @Permission(path = "/knowledge/document", type = Permission.Type.Write)
+    @PostMapping("/version/{versionId}/recognize-content")
+    public WebResponse<String> recognizeVersionContent(@PathVariable @NotBlank String versionId) {
+        KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
+        if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
+        }
+        KnowledgeDocument document = getExisting(version.getKnowledgeDocumentId());
+        knowledgeAccessService.requireWritable(document.getKnowledgeBaseId());
+        String objectKey = StringUtils.defaultIfBlank(version.getStorageObjectKey(), document.getStorageObjectKey());
+        if (StringUtils.isBlank(objectKey)) {
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.source-file.not-found"));
+        }
+        String bucket = StringUtils.defaultIfBlank(version.getStorageBucket(), document.getStorageBucket());
+        String fileName = StringUtils.defaultIfBlank(document.getOriginalFileName(), document.getTitle());
+        String extracted = contentExtractor.extract(fileName, objectStorageService.getObject(bucket, objectKey));
+        String content = markdownFormatter.format(knowledgeAccessService.requireReadable(document.getKnowledgeBaseId()), document.getTitle(), extracted);
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.content.recognized"), content);
     }
 
     @ApiOperation("文档版本分块列表")
