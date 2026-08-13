@@ -12,6 +12,7 @@ import com.aether.knowledge.mapper.KnowledgeReferenceLogMapper;
 import com.aether.knowledge.mapper.KnowledgeRetrievalLogMapper;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
+import com.aether.agent.observability.ChatLatencyMetrics;
 import com.aether.sys.service.AdminPreferenceService;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import javax.annotation.PreDestroy;
 
 /**
  * 负责把用户偏好和知识库检索结果注入模型上下文，并处理回答中的知识库引用。
@@ -41,6 +47,9 @@ public class KnowledgeContextService {
     private final KnowledgeDocumentService documentService;
     private final KnowledgeReferenceLogMapper referenceLogMapper;
     private final KnowledgeRetrievalLogMapper retrievalLogMapper;
+    /** Audit writes must not delay a streamed answer. The bounded queue protects request workers under DB pressure. */
+    private final ThreadPoolExecutor auditExecutor = new ThreadPoolExecutor(1, 2, 30L, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<Runnable>(500), new ThreadPoolExecutor.AbortPolicy());
 
     @Autowired
     public KnowledgeContextService(AdminPreferenceService preferenceService,
@@ -80,7 +89,9 @@ public class KnowledgeContextService {
         while (insertIndex < context.size() && "system".equals(context.get(insertIndex).getRole())) {
             insertIndex++;
         }
+        long preferenceStartedAt = System.currentTimeMillis();
         String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
+        ChatLatencyMetrics.record("chat.preference_context", System.currentTimeMillis() - preferenceStartedAt);
         if (StringUtils.isNotBlank(preferenceContext)) {
             context.add(insertIndex++, new ModelChatMessage("system", preferenceContext));
         }
@@ -137,7 +148,9 @@ public class KnowledgeContextService {
         List<Map<String, Object>> sources = new ArrayList<>();
         if (context == null) return sources;
         int insertIndex = 0; while (insertIndex < context.size() && "system".equals(context.get(insertIndex).getRole())) insertIndex++;
+        long preferenceStartedAt = System.currentTimeMillis();
         String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
+        ChatLatencyMetrics.record("chat.preference_context", System.currentTimeMillis() - preferenceStartedAt);
         if (StringUtils.isNotBlank(preferenceContext)) context.add(insertIndex++, new ModelChatMessage("system", preferenceContext));
         KnowledgeRetrievalResult retrieval = retrievalService.retrieve(agentId, query, knowledgeBaseIds);
         if (retrieval == null) retrieval = new KnowledgeRetrievalResult();
@@ -155,13 +168,17 @@ public class KnowledgeContextService {
         return sources;
     }
 
-    /** 仅返回回答实际标注的来源；不修改回答内容。 */
+    /** Removes citations that do not belong to this retrieval before the answer reaches the client. */
     public List<Map<String, Object>> ensureCitations(ModelStreamResponse response, List<Map<String, Object>> sources) {
+        if (response == null) return Collections.emptyList();
+        response.setContent(removeUnknownCitations(response.getContent(), sources));
         return filterCitedSources(response.getContent(), sources);
     }
 
-    /** 非流式版本：计算引用来源，不修改回答内容。 */
+    /** Non-streaming version of citation sanitization. */
     public List<Map<String, Object>> ensureCitations(ModelChatResponse response, List<Map<String, Object>> sources) {
+        if (response == null) return Collections.emptyList();
+        response.setContent(removeUnknownCitations(response.getContent(), sources));
         return filterCitedSources(response.getContent(), sources);
     }
 
@@ -204,6 +221,12 @@ public class KnowledgeContextService {
         } catch (Exception ignored) {
             // Citation logs are observability data; the user-visible answer is already persisted.
         }
+    }
+
+    /** Queues citation audit persistence after the user-visible response has been finalized. */
+    public void recordCitationsAsync(String agentId, String conversationId, String messageId,
+                                     List<Map<String, Object>> citedSources) {
+        submitAudit("citations", () -> recordCitations(agentId, conversationId, messageId, citedSources));
     }
 
     /** Records candidate-level retrieval outcomes without persisting raw user queries. */
@@ -249,6 +272,30 @@ public class KnowledgeContextService {
         }
     }
 
+    /** Queues retrieval audit persistence after the user-visible response has been finalized. */
+    public void recordRetrievalOutcomeAsync(String agentId, String conversationId, String messageId, String query,
+                                            List<Map<String, Object>> retrievedSources,
+                                            List<Map<String, Object>> citedSources) {
+        submitAudit("retrieval", () -> recordRetrievalOutcome(agentId, conversationId, messageId, query,
+                retrievedSources, citedSources));
+    }
+
+    private void submitAudit(String auditType, Runnable task) {
+        try {
+            auditExecutor.execute(task);
+        } catch (RejectedExecutionException e) {
+            // Audit data is best-effort; dropping it is preferable to delaying a live chat response.
+            org.slf4j.LoggerFactory.getLogger(KnowledgeContextService.class)
+                    .warn("知识审计任务被拒绝: type={}, active={}, queued={}", auditType,
+                            auditExecutor.getActiveCount(), auditExecutor.getQueue().size());
+        }
+    }
+
+    @PreDestroy
+    public void shutdownAuditExecutor() {
+        auditExecutor.shutdown();
+    }
+
     private Map<String, String> resolveDocumentNames(List<KnowledgeDocumentChunk> chunks) {
         List<String> documentIds = new ArrayList<>();
         for (KnowledgeDocumentChunk chunk : chunks) {
@@ -283,6 +330,26 @@ public class KnowledgeContextService {
             }
         }
         return citedSources;
+    }
+
+    private String removeUnknownCitations(String content, List<Map<String, Object>> sources) {
+        if (StringUtils.isBlank(content)) return content;
+        Set<Integer> availableIndexes = new HashSet<>();
+        if (sources != null) {
+            for (Map<String, Object> source : sources) {
+                Object index = source.get("citationIndex");
+                if (index instanceof Number) availableIndexes.add(((Number) index).intValue());
+            }
+        }
+        Matcher matcher = CITATION_PATTERN.matcher(content);
+        StringBuffer sanitized = new StringBuffer();
+        while (matcher.find()) {
+            int index = Integer.parseInt(matcher.group(1));
+            matcher.appendReplacement(sanitized, availableIndexes.contains(index)
+                    ? Matcher.quoteReplacement(matcher.group()) : "");
+        }
+        matcher.appendTail(sanitized);
+        return sanitized.toString();
     }
 
     private String buildCitationInstruction(List<Map<String, Object>> sources, boolean strictGrounding) {

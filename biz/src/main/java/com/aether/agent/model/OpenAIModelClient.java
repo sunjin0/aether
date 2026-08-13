@@ -1,6 +1,7 @@
 package com.aether.agent.model;
 
 import com.aether.agent.entity.AgentDefinition;
+import com.aether.agent.observability.ChatLatencyMetrics;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.exception.ServerException;
@@ -12,6 +13,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -111,7 +113,10 @@ public class OpenAIModelClient implements ModelClient {
             long t0 = System.currentTimeMillis();
             try (PooledHttpClient.HttpStreamResult result = pooledHttpClient.postStream(url, body.toJSONString(), authorization)) {
                 long t1 = System.currentTimeMillis();
-                log.info("模型连接耗时: {}ms, provider={}, model={}", t1 - t0, provider.getName(), agent.getModel());
+                log.info("模型连接耗时: requestId={}, {}ms, provider={}, model={}",
+                        StringUtils.defaultIfBlank(MDC.get("chatRequestId"), "n/a"), t1 - t0,
+                        provider.getName(), agent.getModel());
+                ChatLatencyMetrics.record("chat.model_connect", t1 - t0);
                 return parseStream(result.getInputStream(), agent.getModel(), callback);
             }
         } catch (ServerException e) {

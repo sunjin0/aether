@@ -1,6 +1,7 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentChatDto;
+import com.aether.agent.observability.ChatLatencyMetrics;
 import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentDefinition;
@@ -49,6 +50,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.io.IOException;
 import javax.servlet.http.HttpServletResponse;
@@ -56,16 +58,17 @@ import javax.validation.constraints.NotBlank;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.UUID;
 
 /**
  * Agent聊天 Controller。
@@ -82,6 +85,8 @@ public class AgentChatController {
     private static final long DEEP_STREAM_TIMEOUT_MARGIN_SECONDS = 30L;
     private static final long DEFAULT_DEEP_RUN_TIMEOUT_SECONDS = 600L;
     private static final long HEARTBEAT_INTERVAL_MS = 15000L; // 15秒心跳
+    private static final int STREAM_ACTIVE_WARNING_THRESHOLD = 28;
+    private static final int STREAM_QUEUE_WARNING_THRESHOLD = 160;
 
     private final AgentChatService agentChatService;
     private final AgentConversationService agentConversationService;
@@ -96,8 +101,8 @@ public class AgentChatController {
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
     /** Bounded SSE worker pool: a cached pool can otherwise exhaust native memory under slow clients. */
-    private final ExecutorService streamExecutor = new ThreadPoolExecutor(4, 32, 60L, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<Runnable>(200), new ThreadPoolExecutor.CallerRunsPolicy());
+    private final ThreadPoolExecutor streamExecutor = new ThreadPoolExecutor(4, 32, 60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<Runnable>(200), new ThreadPoolExecutor.AbortPolicy());
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired
@@ -180,6 +185,9 @@ public class AgentChatController {
     @PostMapping(value = "/stream", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestBody AgentChatDto dto, HttpServletResponse response) {
+        if (StringUtils.isBlank(dto.getRequestId())) {
+            dto.setRequestId(UUID.randomUUID().toString());
+        }
         AgentDefinition agent = agentChatService.getEnabledAgent(dto.getAgentId());
         if ("DEEP".equals(agent.getExecutionMode())) {
             if (StringUtils.isNotBlank(dto.getParentMessageId())) {
@@ -252,10 +260,24 @@ public class AgentChatController {
             }
         }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
 
-        streamExecutor.execute(() -> {
+        final long enqueuedAt = System.currentTimeMillis();
+        try {
+            streamExecutor.execute(() -> {
+            long queueWaitMs = System.currentTimeMillis() - enqueuedAt;
+            if (queueWaitMs > 0) {
+                ChatLatencyMetrics.record("chat.stream.queue_wait", queueWaitMs);
+                log.info("流式聊天任务开始: queueWait={}ms, active={}, queued={}", queueWaitMs,
+                        streamExecutor.getActiveCount(), streamExecutor.getQueue().size());
+            }
+            if (streamExecutor.getActiveCount() >= STREAM_ACTIVE_WARNING_THRESHOLD
+                    || streamExecutor.getQueue().size() >= STREAM_QUEUE_WARNING_THRESHOLD) {
+                log.warn("流式聊天容量接近饱和: active={}, queued={}, poolSize={}",
+                        streamExecutor.getActiveCount(), streamExecutor.getQueue().size(), streamExecutor.getPoolSize());
+            }
             try {
                 dto.setUserId(userId);
-                agentChatService.stream(dto, new SseAgentStreamCallback(emitter, closed));
+                MDC.put("chatRequestId", dto.getRequestId());
+                agentChatService.stream(dto, new SseAgentStreamCallback(emitter, closed, dto.getRequestId(), heartbeatScheduler));
             } catch (Exception e) {
                 log.error("流式聊天异常", e);
                 if (!closed.get()) {
@@ -271,9 +293,28 @@ public class AgentChatController {
                     }
                 }
             } finally {
+                MDC.remove("chatRequestId");
                 heartbeatTask.cancel(false);
             }
-        });
+            });
+        } catch (RejectedExecutionException e) {
+            heartbeatTask.cancel(false);
+            log.warn("流式聊天任务被拒绝: active={}, queued={}, completed={}", streamExecutor.getActiveCount(),
+                    streamExecutor.getQueue().size(), streamExecutor.getCompletedTaskCount());
+            if (!closed.get()) {
+                try {
+                    JSONObject errorData = new JSONObject();
+                    errorData.put("code", 503);
+                    errorData.put("message", "当前聊天请求较多，请稍后重试");
+                    emitter.send(SseEmitter.event().name("error").data(errorData.toJSONString()));
+                } catch (IOException | IllegalStateException ignored) {
+                    // 客户端连接已关闭，无需额外处理。
+                } finally {
+                    closed.set(true);
+                    emitter.complete();
+                }
+            }
+        }
         return emitter;
     }
 
@@ -331,41 +372,103 @@ public class AgentChatController {
 
     private static class SseAgentStreamCallback implements AgentStreamCallback {
 
+        private static final long MESSAGE_COALESCE_MS = 40L;
+        private static final int MESSAGE_COALESCE_CHARS = 256;
+
         private final SseEmitter emitter;
         private final AtomicBoolean closed;
+        private final String requestId;
+        private final ScheduledExecutorService scheduler;
+        private final Object messageLock = new Object();
+        private final StringBuilder pendingMessage = new StringBuilder();
+        private ScheduledFuture<?> pendingMessageFlush;
+        private boolean firstMessage = true;
+        private String lastConversationId;
 
-        private SseAgentStreamCallback(SseEmitter emitter, AtomicBoolean closed) {
+        private SseAgentStreamCallback(SseEmitter emitter, AtomicBoolean closed, String requestId,
+                                       ScheduledExecutorService scheduler) {
             this.emitter = emitter;
             this.closed = closed;
+            this.requestId = requestId;
+            this.scheduler = scheduler;
         }
 
         @Override
         public void onMessage(String conversationId, String chunk) {
+            if (StringUtils.isEmpty(chunk) || closed.get()) {
+                return;
+            }
+            synchronized (messageLock) {
+                lastConversationId = conversationId;
+                if (firstMessage) {
+                    firstMessage = false;
+                    sendMessage(conversationId, chunk);
+                    return;
+                }
+                pendingMessage.append(chunk);
+                if (pendingMessage.length() >= MESSAGE_COALESCE_CHARS) {
+                    flushPendingMessage(conversationId);
+                } else if (pendingMessageFlush == null || pendingMessageFlush.isDone()) {
+                    pendingMessageFlush = scheduler.schedule(() -> {
+                        synchronized (messageLock) {
+                            flushPendingMessage(conversationId);
+                        }
+                    }, MESSAGE_COALESCE_MS, TimeUnit.MILLISECONDS);
+                }
+            }
+        }
+
+        private void sendMessage(String conversationId, String chunk) {
             JSONObject data = new JSONObject();
             data.put("chunk", chunk);
             data.put("conversationId", conversationId);
             data.put("messageId", null);
+            data.put("requestId", requestId);
             send("message", data, false);
+        }
+
+        private void flushPendingMessage(String conversationId) {
+            if (pendingMessage.length() == 0) {
+                return;
+            }
+            String chunk = pendingMessage.toString();
+            pendingMessage.setLength(0);
+            if (pendingMessageFlush != null) {
+                pendingMessageFlush.cancel(false);
+                pendingMessageFlush = null;
+            }
+            sendMessage(conversationId, chunk);
         }
 
         @Override
         public void onReasoning(String conversationId, String chunk) {
+            synchronized (messageLock) {
+                flushPendingMessage(conversationId);
+            }
             JSONObject data = new JSONObject();
             data.put("chunk", chunk);
             data.put("conversationId", conversationId);
+            data.put("requestId", requestId);
             send("reasoning", data, false);
         }
 
         @Override
         public void onToolCall(String conversationId, String toolCallJson) {
+            synchronized (messageLock) {
+                flushPendingMessage(conversationId);
+            }
             JSONObject data = new JSONObject();
             data.put("conversationId", conversationId);
             data.put("toolCalls", JSON.parseArray(toolCallJson));
+            data.put("requestId", requestId);
             send("tool_call", data, false);
         }
 
         @Override
         public void onQuestion(String conversationId, String runId, AgentMessageVo question) {
+            synchronized (messageLock) {
+                flushPendingMessage(conversationId);
+            }
             JSONObject data = new JSONObject();
             data.put("conversationId", conversationId);
             data.put("runId", runId);
@@ -375,14 +478,19 @@ public class AgentChatController {
             data.put("interactionType", question.getInteractionType());
             data.put("interactionStatus", question.getInteractionStatus());
             data.put("questionConfig", JSON.parseObject(question.getQuestionConfig()));
+            data.put("requestId", requestId);
             send("question", data, false);
         }
 
         @Override
         public void onDone(String conversationId, String messageId, ModelStreamResponse response) {
+            synchronized (messageLock) {
+                flushPendingMessage(conversationId);
+            }
             JSONObject data = new JSONObject();
             data.put("conversationId", conversationId);
             data.put("messageId", messageId);
+            data.put("requestId", requestId);
             if (response != null) {
                 data.put("runId", response.getRunId());
                 data.put("content", response.getContent());
@@ -400,6 +508,17 @@ public class AgentChatController {
 
         @Override
         public void onError(int code, String message) {
+            synchronized (messageLock) {
+                if (StringUtils.isNotBlank(lastConversationId)) {
+                    flushPendingMessage(lastConversationId);
+                } else {
+                    if (pendingMessageFlush != null) {
+                        pendingMessageFlush.cancel(false);
+                        pendingMessageFlush = null;
+                    }
+                    pendingMessage.setLength(0);
+                }
+            }
             JSONObject data = new JSONObject();
             data.put("code", code);
             data.put("message", message);
@@ -409,6 +528,15 @@ public class AgentChatController {
         @Override
         public boolean isClosed() {
             return closed.get();
+        }
+
+        @Override
+        public void onStatus(String stage, String message) {
+            JSONObject data = new JSONObject();
+            data.put("requestId", requestId);
+            data.put("stage", stage);
+            data.put("message", message);
+            send("status", data, false);
         }
 
         private void send(String eventName, JSONObject data, boolean complete) {
@@ -464,7 +592,8 @@ public class AgentChatController {
         }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS));
         if (closed.get()) cleanup.run();
 
-        streamExecutor.execute(() -> {
+        try {
+            streamExecutor.execute(() -> {
             try {
                 AgentConversation conversation;
                 if (existingConversation != null) {
@@ -603,7 +732,24 @@ public class AgentChatController {
                     } catch (IOException ignored) {}
                 }
             }
-        });
+            });
+        } catch (RejectedExecutionException e) {
+            log.warn("Deep Agent 流式任务被拒绝: active={}, queued={}", streamExecutor.getActiveCount(),
+                    streamExecutor.getQueue().size());
+            if (!closed.get()) {
+                try {
+                    JSONObject err = new JSONObject();
+                    err.put("code", 503);
+                    err.put("message", "当前聊天请求较多，请稍后重试");
+                    emitter.send(SseEmitter.event().name("error").data(err.toJSONString()));
+                } catch (IOException | IllegalStateException ignored) {
+                    // 客户端连接已关闭，无需额外处理。
+                } finally {
+                    cleanup.run();
+                    emitter.complete();
+                }
+            }
+        }
         return emitter;
     }
 

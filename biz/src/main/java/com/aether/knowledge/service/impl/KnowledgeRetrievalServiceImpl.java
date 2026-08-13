@@ -5,6 +5,7 @@ import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.agent.entity.AgentKnowledgeBaseBinding;
 import com.aether.agent.entity.ModelProvider;
+import com.aether.agent.observability.ChatLatencyMetrics;
 import com.aether.agent.model.ModelChatMessage;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.service.KnowledgeEmbeddingService;
@@ -21,6 +22,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.client.HttpClientErrorException;
@@ -151,6 +153,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     private KnowledgeRetrievalResult retrieveInternal(String agentDefinitionId, String query,
                                                       Set<String> scopedKnowledgeBaseIds,
                                                       List<ModelChatMessage> rewriteHistory) {
+        long retrievalStartedAt = System.currentTimeMillis();
         KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
         if (StringUtils.isBlank(agentDefinitionId) || StringUtils.isBlank(query)) {
             return result;
@@ -158,6 +161,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         String retrievalCacheKey = retrievalCacheKey(agentDefinitionId + ":" + (scopedKnowledgeBaseIds == null ? "default" : scopedKnowledgeBaseIds.toString()), query);
         CachedRetrieval cachedRetrieval = retrievalCache.get(retrievalCacheKey);
         if (cachedRetrieval != null && cachedRetrieval.expiresAt > System.currentTimeMillis()) {
+            log.info("知识检索完成: requestId={}, agentId={}, cacheHit=true, total={}ms, chunks={}",
+                    currentRequestId(), agentDefinitionId, System.currentTimeMillis() - retrievalStartedAt,
+                    cachedRetrieval.result.getChunks() == null ? 0 : cachedRetrieval.result.getChunks().size());
             return copyResult(cachedRetrieval.result);
         }
         try {
@@ -221,11 +227,14 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                         if (config == null) {
                             continue;
                         }
+                        long rewriteStartedAt = System.currentTimeMillis();
                         String effectiveQuery = rewriteQuery(query, config, rewriteHistory);
+                        long vectorStartedAt = System.currentTimeMillis();
                         int retrievalLimit = Math.min(MAX_TOP_K * CANDIDATE_MULTIPLIER,
                                 config.topK * CANDIDATE_MULTIPLIER);
                         List<KnowledgeDocumentChunk> vectorCandidates = searchVectorCandidates(
                                 provider, knowledgeBaseId, effectiveQuery, retrievalLimit);
+                        long vectorCompletedAt = System.currentTimeMillis();
                         List<KnowledgeDocumentChunk> lexicalCandidates = Collections.emptyList();
                         if (config.hybridEnabled) {
                             try {
@@ -234,8 +243,19 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                                 log.warn("知识库全文检索失败，已降级为向量检索: knowledgeBaseId={}", knowledgeBaseId, e);
                             }
                         }
+                        long lexicalCompletedAt = System.currentTimeMillis();
                         List<KnowledgeDocumentChunk> fusedCandidates = fuseCandidates(vectorCandidates, lexicalCandidates, config);
-                        chunks.addAll(selectKnowledgeBaseChunks(rerankCandidates(fusedCandidates, config, effectiveQuery), config));
+                        List<KnowledgeDocumentChunk> rankedCandidates = rerankCandidates(fusedCandidates, config, effectiveQuery);
+                        long rerankCompletedAt = System.currentTimeMillis();
+                        chunks.addAll(selectKnowledgeBaseChunks(rankedCandidates, config));
+                        log.info("知识检索分段: requestId={}, knowledgeBaseId={}, rewrite={}ms, vector={}ms, lexical={}ms, rerank={}ms, vectorCandidates={}, lexicalCandidates={}, rankedCandidates={}",
+                                currentRequestId(), knowledgeBaseId, vectorStartedAt - rewriteStartedAt,
+                                vectorCompletedAt - vectorStartedAt, lexicalCompletedAt - vectorCompletedAt,
+                                rerankCompletedAt - lexicalCompletedAt, vectorCandidates.size(), lexicalCandidates.size(),
+                                rankedCandidates == null ? 0 : rankedCandidates.size());
+                        ChatLatencyMetrics.record("chat.rag.vector", vectorCompletedAt - vectorStartedAt);
+                        ChatLatencyMetrics.record("chat.rag.lexical", lexicalCompletedAt - vectorCompletedAt);
+                        ChatLatencyMetrics.record("chat.rag.rerank", rerankCompletedAt - lexicalCompletedAt);
                     }
                     providerCircuits.remove(provider.getId());
                     providerSucceeded = true;
@@ -268,6 +288,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
             builder.append("请优先依据以上知识片段回答；若片段不足以支持结论，请明确说明。");
             result.setContext(builder.toString());
             result.setChunks(chunks);
+            log.info("知识检索完成: requestId={}, agentId={}, cacheHit=false, total={}ms, chunks={}",
+                    currentRequestId(), agentDefinitionId, System.currentTimeMillis() - retrievalStartedAt, chunks.size());
+            ChatLatencyMetrics.record("chat.rag.total", System.currentTimeMillis() - retrievalStartedAt);
             return cacheResult(retrievalCacheKey, result);
         } catch (Exception e) {
             log.warn("知识库检索失败，已降级为无知识上下文: agentId={}", agentDefinitionId, e);
@@ -286,19 +309,25 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         long now = System.currentTimeMillis();
         CachedEmbedding cached = queryEmbeddingCache.get(cacheKey);
         if (cached != null && cached.expiresAt > now) {
+            log.info("查询向量缓存命中: requestId={}, providerId={}", currentRequestId(), provider.getId());
             return new ArrayList<>(cached.embedding);
         }
         synchronized (queryEmbeddingCache) {
             now = System.currentTimeMillis();
             cached = queryEmbeddingCache.get(cacheKey);
             if (cached != null && cached.expiresAt > now) {
+                log.info("查询向量缓存命中: requestId={}, providerId={}", currentRequestId(), provider.getId());
                 return new ArrayList<>(cached.embedding);
             }
             if (cached != null) {
                 queryEmbeddingCache.remove(cacheKey, cached);
             }
             evictQueryEmbeddingCache(now);
+            long embeddingStartedAt = System.currentTimeMillis();
             List<Double> embedding = knowledgeEmbeddingService.embed(provider, query);
+            log.info("查询向量生成: requestId={}, providerId={}, duration={}ms", currentRequestId(),
+                    provider.getId(), System.currentTimeMillis() - embeddingStartedAt);
+            ChatLatencyMetrics.record("chat.rag.embedding", System.currentTimeMillis() - embeddingStartedAt);
             if (embedding == null || embedding.isEmpty()) {
                 return embedding;
             }
@@ -519,6 +548,10 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    private String currentRequestId() {
+        return StringUtils.defaultIfBlank(MDC.get("chatRequestId"), "n/a");
+    }
+
     private ModelProvider resolveProvider(String modelId, String capability) {
         if (modelCatalogService == null || StringUtils.isBlank(modelId)) return null;
         try { return modelCatalogService.resolveProvider(modelId, capability); }
@@ -528,6 +561,10 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     private String rewriteQuery(String query, RetrievalConfig config, List<ModelChatMessage> history) {
         if (!config.queryRewriteEnabled || queryRewriteService == null
                 || StringUtils.isBlank(config.queryRewriteModelId)) return query;
+        if (!requiresConversationContext(query, history)) {
+            log.debug("跳过知识库查询重写（独立问句）: requestId={}", currentRequestId());
+            return query;
+        }
         ModelProvider provider = resolveProvider(config.queryRewriteModelId, "CHAT,MULTIMODAL");
         if (provider == null || Boolean.TRUE.equals(provider.getDeleted())
                 || !Integer.valueOf(STATUS_ENABLED).equals(provider.getStatus())) {
@@ -545,6 +582,17 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         queryRewriteCache.put(cacheKey, new CachedQueryRewrite(effectiveQuery,
                 System.currentTimeMillis() + QUERY_REWRITE_CACHE_TTL_MS));
         return effectiveQuery;
+    }
+
+    /** Query rewriting only helps when the new turn refers to earlier context. */
+    private boolean requiresConversationContext(String query, List<ModelChatMessage> history) {
+        if (history == null || history.isEmpty()) return false;
+        String normalized = StringUtils.defaultString(query).toLowerCase();
+        return normalized.contains("这") || normalized.contains("那") || normalized.contains("它")
+                || normalized.contains("上述") || normalized.contains("前述") || normalized.contains("之前")
+                || normalized.contains("刚才") || normalized.contains("继续") || normalized.contains("同样")
+                || normalized.contains("其中") || normalized.contains("上面") || normalized.contains("这个")
+                || normalized.contains("那个") || normalized.contains("第二个") || normalized.contains("第一个");
     }
 
     private void evictQueryRewriteCache() {

@@ -8,6 +8,7 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.pool.PoolStats;
 import org.apache.http.util.EntityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,13 +30,14 @@ public class PooledHttpClient {
     private static final Logger log = LoggerFactory.getLogger(PooledHttpClient.class);
 
     private CloseableHttpClient httpClient;
+    private PoolingHttpClientConnectionManager connectionManager;
 
     @PostConstruct
     public void init() {
-        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
-        cm.setMaxTotal(64);
-        cm.setDefaultMaxPerRoute(32);
-        cm.setValidateAfterInactivity(5_000);
+        connectionManager = new PoolingHttpClientConnectionManager();
+        connectionManager.setMaxTotal(64);
+        connectionManager.setDefaultMaxPerRoute(32);
+        connectionManager.setValidateAfterInactivity(5_000);
 
         RequestConfig requestConfig = RequestConfig.custom()
                 .setConnectTimeout(10_000)
@@ -44,7 +46,7 @@ public class PooledHttpClient {
                 .build();
 
         httpClient = HttpClients.custom()
-                .setConnectionManager(cm)
+                .setConnectionManager(connectionManager)
                 .setDefaultRequestConfig(requestConfig)
                 .setConnectionTimeToLive(60, TimeUnit.SECONDS)
                 .evictExpiredConnections()
@@ -77,6 +79,11 @@ public class PooledHttpClient {
         post.setEntity(new StringEntity(jsonBody, "UTF-8"));
 
         try {
+            PoolStats before = connectionManager == null ? null : connectionManager.getTotalStats();
+            if (before != null && before.getPending() > 0) {
+                log.warn("模型HTTP连接池存在等待: pending={}, leased={}, available={}, max={}",
+                        before.getPending(), before.getLeased(), before.getAvailable(), before.getMax());
+            }
             CloseableHttpResponse response = httpClient.execute(post);
             int statusCode = response.getStatusLine().getStatusCode();
             if (statusCode < 200 || statusCode >= 300) {

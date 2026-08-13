@@ -116,7 +116,8 @@ public class DeepAgentRunService {
         run.setUserId(userId);
         run.setConversationId(conversationId);
         run.setMessageId(userMsg.getId());
-        run.setInputContent(truncate(task));
+        // Replaced with the outbound Deep Agent request snapshot before dispatch.
+        run.setInputContent(task);
         run.setStatus(STATUS_QUEUED);
         run.setExecutionMode("DEEP");
         run.setModel(agent.getModel());
@@ -158,6 +159,12 @@ public class DeepAgentRunService {
             if (agent.getMaxToolRounds() != null) {
                 request.put("max_steps", agent.getMaxToolRounds());
             }
+            AgentRun inputUpdate = new AgentRun();
+            inputUpdate.setId(runId);
+            inputUpdate.setInputContent(deepAgentInputSnapshot(request));
+            if (!agentRunService.updateById(inputUpdate)) {
+                throw new IllegalStateException("保存 Deep Agent 输入快照失败");
+            }
 
             ResponseEntity<String> response = signingClient.signedPost("/v1/runs", request);
             if (response.getStatusCode() != HttpStatus.ACCEPTED) {
@@ -177,6 +184,13 @@ public class DeepAgentRunService {
                 ? new JSONObject() : JSON.parseObject(skillContext.getSnapshot());
         snapshot.put("toolApprovalPolicy", normalizeToolApprovalPolicy(conversation == null ? null : conversation.getToolApprovalPolicy()));
         return snapshot.toJSONString();
+    }
+
+    /** Keep the actual Deep Agent payload inspectable, but never persist its delegation credential. */
+    private String deepAgentInputSnapshot(Map<String, Object> request) {
+        Map<String, Object> snapshot = new LinkedHashMap<>(request);
+        snapshot.remove("delegation_token");
+        return JSON.toJSONString(snapshot);
     }
 
     private String readToolApprovalPolicy(String snapshotJson) {
@@ -483,7 +497,7 @@ public class DeepAgentRunService {
 
         boolean updated = agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
                 .set(AgentRun::getMessageId, message.getId())
-                .set(AgentRun::getOutputContent, truncate(content))
+                .set(AgentRun::getOutputContent, content)
                 .set(AgentRun::getModel, model)
                 .set(AgentRun::getPromptTokens, promptTokens)
                 .set(AgentRun::getCompletionTokens, completionTokens)
@@ -512,7 +526,7 @@ public class DeepAgentRunService {
                                  Integer promptTokens, Integer completionTokens, Integer totalTokens) {
         return agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
                 .set(AgentRun::getStatus, STATUS_SUCCEEDED)
-                .set(AgentRun::getOutputContent, truncate(content))
+                .set(AgentRun::getOutputContent, content)
                 .set(AgentRun::getModel, model)
                 .set(AgentRun::getPromptTokens, promptTokens)
                 .set(AgentRun::getCompletionTokens, completionTokens)
@@ -524,7 +538,7 @@ public class DeepAgentRunService {
     public boolean markFailed(String runId, String errorMsg) {
         return agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
                 .set(AgentRun::getStatus, STATUS_FAILED)
-                .set(AgentRun::getErrorMsg, truncate(errorMsg))
+                .set(AgentRun::getErrorMsg, errorMsg)
                 .eq(AgentRun::getId, runId)
                 .in(AgentRun::getStatus, STATUS_QUEUED, STATUS_RUNNING));
     }
@@ -564,10 +578,6 @@ public class DeepAgentRunService {
             result.add(ks);
         }
         return result;
-    }
-
-    private String truncate(String value) {
-        return value == null || value.length() <= 1024 ? value : value.substring(0, 1024);
     }
 
     private String truncate(String value, int maxLength) {

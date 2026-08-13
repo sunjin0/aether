@@ -24,8 +24,9 @@ public class ChatRunService {
         run.setConversationId(conversationId);
         run.setMessageId(messageId);
         run.setUserId(userId);
-        run.setInputContent(truncate(input));
-        run.setOutputContent(response == null ? null : truncate(response.getContent()));
+        // agent_run input/output columns are TEXT: preserve both sides in full for audit.
+        run.setInputContent(input);
+        run.setOutputContent(response == null ? null : response.getContent());
         run.setModel(response == null ? agent.getModel() : response.getModel());
         run.setModelProviderId(provider.getId());
         if (response != null) {
@@ -35,7 +36,7 @@ public class ChatRunService {
         }
         run.setLatencyMs((int) latencyMs);
         run.setStatus(status);
-        run.setErrorMsg(truncate(errorMsg));
+        run.setErrorMsg(errorMsg);
         agentRunService.save(run);
         return run.getId();
     }
@@ -59,7 +60,7 @@ public class ChatRunService {
         AgentRun run = new AgentRun();
         run.setId(runId);
         run.setMessageId(messageId);
-        run.setOutputContent(response == null ? null : truncate(response.getContent()));
+        run.setOutputContent(response == null ? null : response.getContent());
         if (response != null) {
             run.setModel(response.getModel());
             run.setPromptTokens(response.getPromptTokens());
@@ -68,7 +69,7 @@ public class ChatRunService {
         }
         run.setLatencyMs((int) latencyMs);
         run.setStatus(status);
-        run.setErrorMsg(truncate(errorMsg));
+        run.setErrorMsg(errorMsg);
         agentRunService.updateById(run);
     }
 
@@ -89,9 +90,5 @@ public class ChatRunService {
         response.setModel(agent.getModel());
         create(agent, provider, userId, conversationId, messageId, input, response,
                 latencyMs, RUN_STATUS_FAILED, exception.getMessage());
-    }
-
-    private String truncate(String value) {
-        return value == null || value.length() <= 1024 ? value : value.substring(0, 1024);
     }
 }

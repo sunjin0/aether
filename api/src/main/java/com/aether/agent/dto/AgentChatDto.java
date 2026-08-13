@@ -44,6 +44,9 @@ public class AgentChatDto {
     @ApiModelProperty(value = "Internal user ID")
     private String userId;
 
+    /** Server-generated request correlation ID for chat latency diagnostics. */
+    private String requestId;
+
     /** Text recognized during the attachment-upload operation. */
     private String attachmentContent;
 

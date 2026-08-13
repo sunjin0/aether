@@ -22,5 +22,8 @@ public interface AgentStreamCallback {
 
     boolean isClosed();
 
+    /** Emits a non-terminal progress stage before the first model token is available. */
+    default void onStatus(String stage, String message) {}
+
     default void onRunStep(String runId, String stepJson) {}
 }

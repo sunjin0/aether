@@ -7,6 +7,7 @@ import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
 import com.aether.sys.service.AdminPreferenceService;
 import com.aether.agent.model.ModelChatMessage;
+import com.aether.agent.model.ModelChatResponse;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -104,5 +105,19 @@ class KnowledgeContextServiceTest {
         assertEquals("MATCHED", captor.getValue().getOutcome());
         org.junit.jupiter.api.Assertions.assertTrue(captor.getValue().getCited());
         org.junit.jupiter.api.Assertions.assertFalse("private question".equals(captor.getValue().getQueryHash()));
+    }
+
+    @Test
+    void removesCitationIndexesThatWereNotProvidedByRetrieval() {
+        KnowledgeContextService service = new KnowledgeContextService(
+                mock(AdminPreferenceService.class), mock(KnowledgeRetrievalService.class),
+                mock(KnowledgeDocumentService.class));
+        ModelChatResponse response = new ModelChatResponse();
+        response.setContent("已验证【1】，不存在的引用【10】必须移除。");
+        Map<String, Object> source = new HashMap<>();
+        source.put("citationIndex", 1);
+
+        assertEquals(1, service.ensureCitations(response, Collections.singletonList(source)).size());
+        assertEquals("已验证【1】，不存在的引用必须移除。", response.getContent());
     }
 }

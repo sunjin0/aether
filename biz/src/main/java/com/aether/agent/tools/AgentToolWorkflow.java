@@ -34,6 +34,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import javax.annotation.PreDestroy;
 
 /**
  * Agent 工具调用工作流。
@@ -54,6 +60,7 @@ public class AgentToolWorkflow {
     private static final int STATUS_FAILED = 1;
     private static final int STATUS_SECURITY_BLOCK = 3;
     private static final int STATUS_PENDING_APPROVAL = 4;
+    private static final int MAX_PARALLEL_READ_ONLY_CALLS = 4;
 
     private final ToolCallParser toolCallParser;
     private final AgentToolCatalog toolCatalog;
@@ -66,6 +73,8 @@ public class AgentToolWorkflow {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ToolRegistry toolRegistry;
     private final ToolCallRiskAnalyzer riskAnalyzer = new ToolCallRiskAnalyzer();
+    private final ExecutorService readOnlyToolExecutor = new ThreadPoolExecutor(2, 8, 30L, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<Runnable>(64), new ThreadPoolExecutor.CallerRunsPolicy());
 
     public AgentToolWorkflow(ToolCallParser toolCallParser, AgentToolCatalog toolCatalog,
                              AgentToolService agentToolService, AgentToolCallLogService toolCallLogService,
@@ -212,15 +221,73 @@ public class AgentToolWorkflow {
         List<ToolExecutionResult> results = new ArrayList<>();
         Map<String, AgentTool> toolMap = new HashMap<>();
         for (AgentTool tool : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools) toolMap.put(tool.getName(), tool);
-        for (ToolCall call : parseCalls(response)) {
+        List<ToolCall> calls = parseCalls(response);
+        if (canExecuteReadOnlyCallsInParallel(calls, toolMap)) {
+            return executeReadOnlyCallsInParallel(calls, toolMap, agent, userId, runId);
+        }
+        for (ToolCall call : calls) {
             AgentTool tool = toolMap.get(call.getName());
             if (tool == null) { ToolExecutionResult failure = ToolExecutionResult.failure("工具未在本次 Skill 作用域内: " + call.getName(), STATUS_SECURITY_BLOCK); failure.setToolCallId(call.getId()); results.add(failure); saveAudit(runId, call, null, agent.getId(), failure); continue; }
-            ToolExecutionResult result;
-            try { result = executeMcpTool(tool, call.getArguments(), runId, userId, agent.getId()); }
-            catch (Exception e) { result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED); }
-            result.setToolCallId(call.getId()); results.add(result); saveAudit(runId, call, tool, agent.getId(), result);
+            ToolExecutionResult result = executeMcpCall(tool, call, runId, userId, agent.getId());
+            results.add(result); saveAudit(runId, call, tool, agent.getId(), result);
         }
         return results;
+    }
+
+    private boolean canExecuteReadOnlyCallsInParallel(List<ToolCall> calls, Map<String, AgentTool> toolMap) {
+        if (calls == null || calls.size() < 2 || calls.size() > MAX_PARALLEL_READ_ONLY_CALLS) return false;
+        for (ToolCall call : calls) {
+            AgentTool tool = toolMap.get(call.getName());
+            if (tool == null || !"low".equals(riskAnalyzer.analyze(tool, call.getArguments()).getLevel())) return false;
+        }
+        return true;
+    }
+
+    private List<ToolExecutionResult> executeReadOnlyCallsInParallel(List<ToolCall> calls,
+                                                                       Map<String, AgentTool> toolMap,
+                                                                       AgentDefinition agent, String userId,
+                                                                       String runId) {
+        long startedAt = System.currentTimeMillis();
+        List<Callable<ToolExecutionResult>> tasks = new ArrayList<>();
+        for (ToolCall call : calls) {
+            AgentTool tool = toolMap.get(call.getName());
+            tasks.add(() -> executeMcpCall(tool, call, runId, userId, agent.getId()));
+        }
+        List<ToolExecutionResult> results = new ArrayList<>();
+        try {
+            List<Future<ToolExecutionResult>> futures = readOnlyToolExecutor.invokeAll(tasks);
+            for (int i = 0; i < futures.size(); i++) {
+                ToolExecutionResult result;
+                try {
+                    result = futures.get(i).get();
+                } catch (Exception e) {
+                    result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED);
+                    result.setToolCallId(calls.get(i).getId());
+                }
+                results.add(result);
+                saveAudit(runId, calls.get(i), toolMap.get(calls.get(i).getName()), agent.getId(), result);
+            }
+            log.info("并行只读 MCP 工具完成: runId={}, calls={}, duration={}ms", runId, calls.size(),
+                    System.currentTimeMillis() - startedAt);
+            return results;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("并行工具调用被中断", e);
+        }
+    }
+
+    private ToolExecutionResult executeMcpCall(AgentTool tool, ToolCall call, String runId,
+                                                String userId, String agentId) {
+        ToolExecutionResult result;
+        try { result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId); }
+        catch (Exception e) { result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED); }
+        result.setToolCallId(call.getId());
+        return result;
+    }
+
+    @PreDestroy
+    public void shutdownReadOnlyToolExecutor() {
+        readOnlyToolExecutor.shutdown();
     }
 
     /**

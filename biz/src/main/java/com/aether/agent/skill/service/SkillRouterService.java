@@ -6,6 +6,7 @@ import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.model.ModelClientFactory;
+import com.aether.agent.observability.ChatLatencyMetrics;
 import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
@@ -17,6 +18,9 @@ import com.aether.knowledge.service.KnowledgeEmbeddingService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -27,12 +31,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /** Claude-style progressive disclosure: only metadata is routed, never full Skill bodies. */
 @Service
 public class SkillRouterService {
     private static final int MAX_CANDIDATES = 12;
+    private static final long ROUTE_CACHE_TTL_MS = 60 * 1000L;
+    private static final int ROUTE_CACHE_MAX_SIZE = 1000;
+    private static final Logger log = LoggerFactory.getLogger(SkillRouterService.class);
     private final AgentSkillService skillService;
     private final AgentSkillVersionServiceImpl versionService;
     private final AgentSkillRoutingIndexMapper indexMapper;
@@ -40,6 +48,8 @@ public class SkillRouterService {
     private final ModelCatalogService modelCatalogService;
     private final ModelClientFactory modelClientFactory;
     private final SkillRoutingConfigService routingConfigService;
+    /** Routing is deterministic for one installed-version set and query during the short TTL. */
+    private final ConcurrentHashMap<String, CachedRoute> routeCache = new ConcurrentHashMap<>();
 
     public SkillRouterService(AgentSkillService skillService, AgentSkillVersionServiceImpl versionService, AgentSkillRoutingIndexMapper indexMapper,
                               KnowledgeEmbeddingService embeddingService, ModelCatalogService modelCatalogService, ModelClientFactory modelClientFactory,
@@ -51,15 +61,58 @@ public class SkillRouterService {
     public SkillRouteDecision route(AgentDefinition agent, ModelProvider chatProvider, String query, List<AgentDefinitionSkillBinding> bindings) {
         SkillRouteDecision decision = new SkillRouteDecision();
         if (StringUtils.isBlank(query) || bindings == null || bindings.isEmpty()) { decision.setReason("NO_QUERY_OR_INSTALLATION"); return decision; }
+        String cacheKey = routeCacheKey(agent, query, bindings);
+        CachedRoute cached = routeCache.get(cacheKey);
+        if (cached != null && cached.expiresAt > System.currentTimeMillis()) {
+            ChatLatencyMetrics.record("chat.skill_route_cache_hit", 1L);
+            log.debug("技能路由缓存命中: requestId={}, agentId={}", currentRequestId(), agent == null ? null : agent.getId());
+            return copy(cached.decision);
+        }
+        long startedAt = System.currentTimeMillis();
         List<Candidate> available = bindings.stream().map(this::candidate).filter(c -> c != null).collect(Collectors.toList());
         LinkedHashSet<String> candidateIds = new LinkedHashSet<>();
         for (Candidate item : available) if (!matchesAny(query, item.excludeTerms) && matchesAny(query, item.triggerTerms)) { item.ruleMatched = true; candidateIds.add(item.version.getId()); }
         addSemanticCandidates(query, available, candidateIds);
-        if (candidateIds.isEmpty()) { decision.setReason("NO_CANDIDATE"); return decision; }
+        if (candidateIds.isEmpty()) { decision.setReason("NO_CANDIDATE"); return cache(cacheKey, decision, startedAt); }
         List<Candidate> candidates = available.stream().filter(c -> candidateIds.contains(c.version.getId())).sorted(Comparator.comparing((Candidate c) -> !c.ruleMatched).thenComparing(c -> c.priority == null ? Integer.MAX_VALUE : c.priority).thenComparing(c -> c.vectorScore == null ? Double.NEGATIVE_INFINITY : -c.vectorScore)).limit(MAX_CANDIDATES).collect(Collectors.toList());
         for (Candidate item : candidates) decision.getCandidates().add(item.audit());
-        return classify(agent, chatProvider, query, candidates, decision);
+        return cache(cacheKey, classify(agent, chatProvider, query, candidates, decision), startedAt);
     }
+
+    private SkillRouteDecision cache(String cacheKey, SkillRouteDecision decision, long startedAt) {
+        if (!"ROUTER_UNAVAILABLE".equals(decision.getReason())) {
+            evictRouteCache();
+            routeCache.put(cacheKey, new CachedRoute(copy(decision), System.currentTimeMillis() + ROUTE_CACHE_TTL_MS));
+        }
+        ChatLatencyMetrics.record("chat.skill_route", System.currentTimeMillis() - startedAt);
+        return decision;
+    }
+
+    private String routeCacheKey(AgentDefinition agent, String query, List<AgentDefinitionSkillBinding> bindings) {
+        String installedVersions = bindings.stream().map(binding -> StringUtils.defaultString(binding.getSkillVersionId()) + ':'
+                        + StringUtils.defaultString(binding.getSkillId()) + ':' + StringUtils.defaultString(binding.getPriority() == null ? null : binding.getPriority().toString())
+                        + ':' + StringUtils.defaultString(binding.getStatus() == null ? null : binding.getStatus().toString()))
+                .sorted().collect(Collectors.joining("|"));
+        return StringUtils.defaultString(agent == null ? null : agent.getId()) + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + installedVersions;
+    }
+
+    private void evictRouteCache() {
+        if (routeCache.size() < ROUTE_CACHE_MAX_SIZE) return;
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, CachedRoute> entry : routeCache.entrySet()) if (entry.getValue().expiresAt <= now) routeCache.remove(entry.getKey(), entry.getValue());
+        if (routeCache.size() >= ROUTE_CACHE_MAX_SIZE) routeCache.clear();
+    }
+
+    private SkillRouteDecision copy(SkillRouteDecision source) {
+        SkillRouteDecision copy = new SkillRouteDecision();
+        copy.setSkillVersionId(source.getSkillVersionId());
+        copy.setReason(source.getReason());
+        copy.setConfidence(source.getConfidence());
+        for (Map<String, Object> candidate : source.getCandidates()) copy.getCandidates().add(new LinkedHashMap<>(candidate));
+        return copy;
+    }
+
+    private String currentRequestId() { return StringUtils.defaultIfBlank(MDC.get("chatRequestId"), "n/a"); }
 
     private Candidate candidate(AgentDefinitionSkillBinding binding) {
         AgentSkill skill = skillService.getById(binding.getSkillId()); AgentSkillVersion version = versionService.getById(binding.getSkillVersionId());
@@ -90,5 +143,6 @@ public class SkillRouterService {
     private String prompt(String query, List<Candidate> candidates) { StringBuilder out = new StringBuilder("Select exactly one relevant Skill or NONE. Return JSON only: {\"skillVersionId\":\"id|NONE\",\"confidence\":0..1,\"reason\":\"short\"}. Do not answer the user.\nUser task:\n").append(query).append("\nCandidates:\n"); for (Candidate c : candidates) out.append(JSON.toJSONString(c.metadata())).append('\n'); return out.toString(); }
     private boolean matchesAny(String query, List<String> terms) { String source = query.toLowerCase(); for (String term : terms) if (StringUtils.isNotBlank(term) && source.contains(term.toLowerCase())) return true; return false; }
     private List<String> parse(String text) { try { List<String> result = JSON.parseArray(StringUtils.defaultIfBlank(text, "[]"), String.class); return result == null ? Collections.<String>emptyList() : result; } catch (Exception e) { return Collections.emptyList(); } }
+    private static class CachedRoute { final SkillRouteDecision decision; final long expiresAt; CachedRoute(SkillRouteDecision decision, long expiresAt) { this.decision = decision; this.expiresAt = expiresAt; } }
     private static class Candidate { final AgentSkill skill; final AgentSkillVersion version; final List<String> triggerTerms, excludeTerms, examples; final Integer priority; boolean ruleMatched; Double vectorScore; Candidate(AgentSkill s, AgentSkillVersion v, List<String> t, List<String> e, List<String> x, Integer p) { skill=s;version=v;triggerTerms=t;excludeTerms=e;examples=x;priority=p; } Map<String,Object> metadata(){ Map<String,Object> r=new LinkedHashMap<>();r.put("skillVersionId",version.getId());r.put("name",skill.getName());r.put("summary",version.getRoutingSummary());r.put("category",skill.getCategory());r.put("tags",skill.getTags());r.put("examples",examples);return r;} Map<String,Object> audit(){Map<String,Object> r=metadata();r.put("ruleMatched",ruleMatched);r.put("vectorScore",vectorScore);r.put("priority",priority);return r;} }
 }
