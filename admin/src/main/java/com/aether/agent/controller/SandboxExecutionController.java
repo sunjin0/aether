@@ -49,4 +49,15 @@ public class SandboxExecutionController {
         executionService.fail(token, executionToken, executionId, reason, logSummary);
         return WebResponse.OK("Execution marked failed");
     }
+
+    @PostMapping("/runner/executions/{executionId}/heartbeat")
+    public WebResponse<Boolean> heartbeat(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId,
+                                          @RequestParam(value = "logSummary", required = false) String logSummary) {
+        return WebResponse.OK(executionService.heartbeat(token, executionToken, executionId, logSummary));
+    }
+
+    @GetMapping("/runner/executions/{executionId}/cancel")
+    public WebResponse<Boolean> cancelRequested(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId) {
+        return WebResponse.OK(executionService.cancelRequested(token, executionToken, executionId));
+    }
 }

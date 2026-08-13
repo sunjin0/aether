@@ -73,7 +73,7 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
                 .eq(AgentArtifact::getId, id).eq(AgentArtifact::getUserId, userId)
                 .isNotNull(recycled, AgentArtifact::getRecycledAt)
                 .isNull(!recycled, AgentArtifact::getRecycledAt));
-        if (artifact == null) throw new ServerException(404, I18nUtils.getMessage("agent.artifact.not-found"));
+        if (artifact == null || (artifact.getExpiresAt() != null && artifact.getExpiresAt() <= System.currentTimeMillis())) throw new ServerException(404, I18nUtils.getMessage("agent.artifact.not-found"));
         return artifact;
     }
 
@@ -103,6 +103,21 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
             } catch (Exception e) {
                 // Leave the record recoverable until storage cleanup succeeds on a subsequent run.
                 log.warn("生成文件回收站清理失败: artifactId={}", artifact.getId(), e);
+            }
+        }
+    }
+
+    @Override
+    public void purgeExpiredArtifacts() {
+        long now = System.currentTimeMillis();
+        List<AgentArtifact> artifacts = list(Wrappers.lambdaQuery(AgentArtifact.class)
+                .isNotNull(AgentArtifact::getExpiresAt).le(AgentArtifact::getExpiresAt, now));
+        for (AgentArtifact artifact : artifacts) {
+            try {
+                objectStorageService.removeObject(artifactBucket, artifact.getObjectKey());
+                removeById(artifact.getId());
+            } catch (Exception e) {
+                log.warn("生成文件到期清理失败: artifactId={}", artifact.getId(), e);
             }
         }
     }

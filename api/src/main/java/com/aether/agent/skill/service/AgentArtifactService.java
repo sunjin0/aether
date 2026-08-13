@@ -12,4 +12,5 @@ public interface AgentArtifactService extends IService<AgentArtifact> {
     void recycle(String id, String userId);
     void restore(String id, String userId);
     void purgeExpiredRecycled();
+    void purgeExpiredArtifacts();
 }

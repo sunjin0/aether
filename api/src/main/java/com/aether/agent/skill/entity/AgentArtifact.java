@@ -21,6 +21,8 @@ public class AgentArtifact extends BaseEntity {
     private String fileName;
     private String objectKey;
     private String contentSha256;
+    /** Unique idempotency key used only by new sandbox callback uploads. */
+    private String callbackKey;
     private String contentType;
     private Long size;
     private Long expiresAt;

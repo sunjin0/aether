@@ -16,5 +16,6 @@ public class AgentArtifactCleanupScheduler {
     @Scheduled(cron = "${aether.agent.artifact.recycle-cleanup-cron:0 20 3 * * ?}")
     public void cleanup() {
         artifactService.purgeExpiredRecycled();
+        artifactService.purgeExpiredArtifacts();
     }
 }

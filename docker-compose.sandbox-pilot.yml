@@ -1,0 +1,137 @@
+# Minimal offline Sandbox pilot. Deploy this only on a dedicated Linux Runner host:
+# the sandbox-runner is the sole service allowed to access Docker's socket.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aether}
+      POSTGRES_USER: ${POSTGRES_USER:-aether}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [pilot]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [pilot]
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-19000}:9000"
+      - "${MINIO_CONSOLE_PORT:-19001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [pilot]
+
+  admin:
+    image: ${AETHER_ADMIN_IMAGE:-aether-admin:sandbox-pilot}
+    build:
+      context: ${AETHER_ADMIN_SOURCE:-.}
+      dockerfile: admin/Dockerfile
+    restart: unless-stopped
+    ports: ["${ADMIN_PORT:-18080}:8080"]
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_REDIS_HOST: redis
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-aether}
+      DB_USERNAME: ${POSTGRES_USER:-aether}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:19000}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      MINIO_KNOWLEDGE_BUCKET: ${MINIO_KNOWLEDGE_BUCKET:-aether-knowledge}
+      MINIO_FILE_BUCKET: ${MINIO_FILE_BUCKET:-aether}
+      AETHER_SANDBOX_RUNNER_TOKEN: ${AETHER_SANDBOX_RUNNER_TOKEN:?set AETHER_SANDBOX_RUNNER_TOKEN}
+      AETHER_DEEP_AGENT_BASE_URL: ${AETHER_DEEP_AGENT_BASE_URL:-http://disabled-deep-agent:8010}
+      AETHER_DEEP_AGENT_SHARED_SECRET: ${AETHER_DEEP_AGENT_SHARED_SECRET:?set AETHER_DEEP_AGENT_SHARED_SECRET}
+      AETHER_DEEP_AGENT_MCP_DELEGATION_SECRET: ${AETHER_MCP_DELEGATION_SECRET:?set AETHER_MCP_DELEGATION_SECRET}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    networks: [pilot]
+
+  dashboard:
+    image: ${AETHER_DASHBOARD_IMAGE:-aether-dashboard:sandbox-pilot}
+    build:
+      context: ${AETHER_DASHBOARD_SOURCE:?set AETHER_DASHBOARD_SOURCE}
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports: ["${DASHBOARD_PORT:-18001}:80"]
+    environment:
+      AETHER_ADMIN_UPSTREAM: http://admin:8080
+    depends_on: [admin]
+    networks: [pilot]
+
+  sandbox-runtime-python:
+    image: ${AETHER_SANDBOX_PYTHON_IMAGE:-aether-sandbox-python:pilot}
+    build:
+      context: ${AETHER_MCP_SOURCE:?set AETHER_MCP_SOURCE}
+      dockerfile: sandbox-runtime/python.Dockerfile
+    command: ["true"]
+    networks: [pilot]
+
+  sandbox-runtime-node:
+    image: ${AETHER_SANDBOX_NODE_IMAGE:-aether-sandbox-node:pilot}
+    build:
+      context: ${AETHER_MCP_SOURCE:?set AETHER_MCP_SOURCE}
+      dockerfile: sandbox-runtime/node.Dockerfile
+    command: ["true"]
+    networks: [pilot]
+
+  sandbox-runner:
+    image: ${AETHER_SANDBOX_RUNNER_IMAGE:-aether-sandbox-runner:pilot}
+    build:
+      context: ${AETHER_MCP_SOURCE:?set AETHER_MCP_SOURCE}
+      dockerfile: sandbox-runner/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    environment:
+      AETHER_ADMIN_INTERNAL_URL: http://admin:8080
+      AETHER_SANDBOX_RUNNER_TOKEN: ${AETHER_SANDBOX_RUNNER_TOKEN:?set AETHER_SANDBOX_RUNNER_TOKEN}
+      AETHER_SANDBOX_RUNNER_ID: ${AETHER_SANDBOX_RUNNER_ID:-sandbox-pilot-1}
+      AETHER_SANDBOX_PYTHON_IMAGE: ${AETHER_SANDBOX_PYTHON_IMAGE:-aether-sandbox-python:pilot}
+      AETHER_SANDBOX_NODE_IMAGE: ${AETHER_SANDBOX_NODE_IMAGE:-aether-sandbox-node:pilot}
+      AETHER_SANDBOX_ALLOWED_IMAGE_DIGESTS: ${AETHER_SANDBOX_ALLOWED_IMAGE_DIGESTS:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      admin: { condition: service_started }
+      sandbox-runtime-python: { condition: service_completed_successfully }
+      sandbox-runtime-node: { condition: service_completed_successfully }
+    networks: [pilot]
+
+networks:
+  pilot:
+    name: ${AETHER_SANDBOX_NETWORK:-aether-sandbox-pilot}
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
