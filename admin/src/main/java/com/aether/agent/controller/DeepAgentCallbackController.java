@@ -8,6 +8,7 @@ import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.DeepAgentRunService;
+import com.aether.agent.service.AgentRunPlanService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import org.slf4j.Logger;
@@ -39,13 +40,15 @@ public class DeepAgentCallbackController {
     private final DeepAgentRunService deepAgentRunService;
     private final AgentMessageService agentMessageService;
     private final DeepAgentConfig config;
+    private final AgentRunPlanService planService;
     private final Map<String, AgentStreamCallback> activeCallbacks = new ConcurrentHashMap<>();
 
     public DeepAgentCallbackController(DeepAgentRunService deepAgentRunService, AgentMessageService agentMessageService,
-                                       DeepAgentConfig config) {
+                                       DeepAgentConfig config, AgentRunPlanService planService) {
         this.deepAgentRunService = deepAgentRunService;
         this.agentMessageService = agentMessageService;
         this.config = config;
+        this.planService = planService;
     }
 
     public void registerCallback(String runId, AgentStreamCallback callback) {
@@ -152,6 +155,12 @@ public class DeepAgentCallbackController {
                 switch (eventType) {
                     case "run.started":
                         deepAgentRunService.markRunning(runId);
+                        break;
+                    case "plan.updated":
+                        planService.recordPlan(runId, "OBSERVATION", eventData == null ? null : eventData.getString("summary"), dataJson);
+                        break;
+                    case "run.paused":
+                        planService.markPaused(runId, "用户暂停或服务中断");
                         break;
                     case "tool.approval.required":
                         AgentMessage approval = deepAgentRunService.createToolApproval(runId, dataJson);

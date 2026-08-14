@@ -378,6 +378,23 @@ public class DeepAgentRunService {
         return runId;
     }
 
+    public void pause(String runId, String userId) {
+        AgentRun run = getDeepRun(runId);
+        if (!userId.equals(run.getUserId())) throw new IllegalArgumentException("Deep run does not belong to the current user");
+        ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/pause", Collections.emptyMap());
+        if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 暂停请求失败");
+        AgentRun update = new AgentRun(); update.setId(runId); update.setStatus(6); agentRunService.updateById(update);
+    }
+
+    public void resume(String runId, String userId) {
+        AgentRun run = getDeepRun(runId);
+        if (!userId.equals(run.getUserId())) throw new IllegalArgumentException("Deep run does not belong to the current user");
+        if (!Integer.valueOf(6).equals(run.getStatus())) throw new IllegalArgumentException("Deep run is not paused");
+        ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/resume", Collections.emptyMap());
+        if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 继续请求失败");
+        AgentRun update = new AgentRun(); update.setId(runId); update.setStatus(3); agentRunService.updateById(update);
+    }
+
     /** Re-check live binding and the immutable run scope before resuming a paused external tool call. */
     private void validateActionsInRunScope(AgentRun run, JSONArray actions) {
         Set<String> toolIds;

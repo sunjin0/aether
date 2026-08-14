@@ -6,6 +6,7 @@ import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.DeepAgentRunService;
+import com.aether.agent.service.AgentRunPlanService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -44,13 +45,16 @@ class DeepAgentCallbackControllerTest {
     @Mock
     private AgentStreamCallback streamCallback;
 
+    @Mock
+    private AgentRunPlanService planService;
+
     @Test
     void completedCallbackSendsStructuredDoneResponseAndRemovesCallback() {
         when(deepAgentRunService.completeRun("run-1", "final answer", "deep-model", 12, 8, 20,
                 null, null, "[{\"name\":\"search\"}]", "[{\"title\":\"Reference\",\"url\":\"https://example.test\"}]")
         ).thenReturn(new DeepAgentRunService.CompletedRun("conversation-1", "message-1"));
         when(streamCallback.isClosed()).thenReturn(false);
-        DeepAgentCallbackController controller = new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config);
+        DeepAgentCallbackController controller = controller();
         controller.registerCallback("run-1", streamCallback);
 
         ReflectionTestUtils.invokeMethod(controller, "handleCompleted", "run-1",
@@ -86,7 +90,7 @@ class DeepAgentCallbackControllerTest {
         when(deepAgentRunService.completeRun("run-1", "final answer", "deep-model", 12, 8, 20,
                 null, null, null, null)).thenReturn(new DeepAgentRunService.CompletedRun("conversation-actual", "message-actual"));
         when(streamCallback.isClosed()).thenReturn(false);
-        DeepAgentCallbackController controller = new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config);
+        DeepAgentCallbackController controller = controller();
         controller.registerCallback("run-1", streamCallback);
 
         ReflectionTestUtils.invokeMethod(controller, "handleCompleted", "run-1",
@@ -101,7 +105,7 @@ class DeepAgentCallbackControllerTest {
     void staleCompletedCallbackDoesNotSendDoneOrRemoveActiveCallback() {
         when(deepAgentRunService.completeRun("run-1", "late answer", "deep-model", null, null, null,
                 null, null, null, null)).thenReturn(null);
-        DeepAgentCallbackController controller = new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config);
+        DeepAgentCallbackController controller = controller();
         controller.registerCallback("run-1", streamCallback);
 
         ReflectionTestUtils.invokeMethod(controller, "handleCompleted", "run-1",
@@ -122,7 +126,7 @@ class DeepAgentCallbackControllerTest {
         when(deepAgentRunService.handleCallback("run-1", "event-1", "run.failed", 1000L,
                 "{\"error\":\"late failure\"}")).thenReturn(true);
         when(deepAgentRunService.markFailed("run-1", "late failure")).thenReturn(false);
-        DeepAgentCallbackController controller = new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config);
+        DeepAgentCallbackController controller = controller();
         controller.registerCallback("run-1", streamCallback);
 
         String body = "{\"run_id\":\"run-1\",\"event_id\":\"event-1\",\"event_type\":\"run.failed\","
@@ -147,7 +151,7 @@ class DeepAgentCallbackControllerTest {
     @Test
     void malformedSignatureIsRejectedBeforeCallbackProcessing() {
         when(config.getKeyId()).thenReturn("key-1");
-        DeepAgentCallbackController controller = new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config);
+        DeepAgentCallbackController controller = controller();
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setContent("{}".getBytes(StandardCharsets.UTF_8));
         request.addHeader("X-Aether-Key-Id", "key-1");
@@ -170,5 +174,9 @@ class DeepAgentCallbackControllerTest {
         StringBuilder hex = new StringBuilder();
         for (byte b : hash) hex.append(String.format("%02x", b));
         return hex.toString();
+    }
+
+    private DeepAgentCallbackController controller() {
+        return new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config, planService);
     }
 }

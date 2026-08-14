@@ -8,6 +8,10 @@ import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.vo.AgentRunStatisticsVo;
 import com.aether.agent.vo.AgentRunStepVo;
 import com.aether.agent.vo.AgentRunVo;
+import com.aether.agent.vo.AgentRunPlanVo;
+import com.aether.agent.service.AgentRunPlanService;
+import com.aether.agent.service.DeepAgentRunService;
+import com.aether.local.CurrentUser;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -49,16 +53,20 @@ public class AgentRunController {
     private final AgentRunStepService agentRunStepService;
     private final DeepAgentSigningClient signingClient;
     private final DeepAgentConfig deepAgentConfig;
+    private final AgentRunPlanService planService;
+    private final DeepAgentRunService deepAgentRunService;
 
     @Autowired
     public AgentRunController(AgentRunService agentRunService,
                               AgentRunStepService agentRunStepService,
                               DeepAgentSigningClient signingClient,
-                              DeepAgentConfig deepAgentConfig) {
+                              DeepAgentConfig deepAgentConfig, AgentRunPlanService planService, DeepAgentRunService deepAgentRunService) {
         this.agentRunService = agentRunService;
         this.agentRunStepService = agentRunStepService;
         this.signingClient = signingClient;
         this.deepAgentConfig = deepAgentConfig;
+        this.planService = planService;
+        this.deepAgentRunService = deepAgentRunService;
     }
 
     @ApiOperation("运行记录列表")
@@ -155,5 +163,36 @@ public class AgentRunController {
             throw new ServerException(502, I18nUtils.getMessage("agent.deep.run.cancel.failed"));
         }
         return WebResponse.OK(I18nUtils.getMessage("agent.deep.run.cancel.success"));
+    }
+
+    @GetMapping("/{id}/plan")
+    public WebResponse<AgentRunPlanVo> plan(@PathVariable @NotBlank String id) {
+        AgentRun run = agentRunService.getById(id);
+        if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
+        }
+        AgentRunPlanVo plan = planService.detail(id);
+        // Deep Agent 已受理但尚未完成首次规划时，前端应保持等待状态而不是展示 404。
+        if (plan == null) {
+            plan = new AgentRunPlanVo();
+            plan.setRunId(id);
+            plan.setStatus("PENDING");
+            plan.setVersions(java.util.Collections.emptyList());
+        }
+        return WebResponse.OK(plan);
+    }
+
+    @PostMapping("/{id}/pause")
+    public WebResponse<Void> pause(@PathVariable @NotBlank String id) {
+        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        if (StringUtils.isBlank(userId)) throw new ServerException(401, "未登录");
+        deepAgentRunService.pause(id, userId); planService.markPaused(id, "用户暂停"); return WebResponse.OK("运行已暂停");
+    }
+
+    @PostMapping("/{id}/resume")
+    public WebResponse<Void> resume(@PathVariable @NotBlank String id) {
+        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        if (StringUtils.isBlank(userId)) throw new ServerException(401, "未登录");
+        deepAgentRunService.resume(id, userId); planService.markRunning(id); return WebResponse.OK("运行已继续");
     }
 }

@@ -3,6 +3,8 @@ package com.aether.agent.controller;
 import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentRunStepService;
 import com.aether.agent.service.DeepAgentSigningClient;
+import com.aether.agent.service.AgentRunPlanService;
+import com.aether.agent.service.DeepAgentRunService;
 import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.vo.AgentRunStatisticsVo;
@@ -45,6 +47,12 @@ class AgentRunControllerTest {
     @Mock
     private DeepAgentConfig deepAgentConfig;
 
+    @Mock
+    private AgentRunPlanService planService;
+
+    @Mock
+    private DeepAgentRunService deepAgentRunService;
+
     @Test
     void statisticsBindsAndForwardsAgentDefinitionId() throws Exception {
         when(agentRunService.statistics("agent-definition-1", 100L, 200L))
@@ -72,6 +80,6 @@ class AgentRunControllerTest {
     }
 
     private AgentRunController controller() {
-        return new AgentRunController(agentRunService, agentRunStepService, signingClient, deepAgentConfig);
+        return new AgentRunController(agentRunService, agentRunStepService, signingClient, deepAgentConfig, planService, deepAgentRunService);
     }
 }

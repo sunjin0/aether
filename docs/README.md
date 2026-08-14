@@ -19,6 +19,7 @@
 | [架构设计](agent-platform/00-项目文档/03-架构设计/README.md) | 分层、认证授权、RAG、Deep Agent、工作流和 Redis 设计。 |
 | [数据库设计](agent-platform/00-项目文档/04-数据库设计/README.md) | 业务表、索引、状态字典及 Flyway V1-V32 演进。 |
 | [Agent 平台架构设计](agent-platform/02-架构设计/README.md) | 前端平台视角的模块、SSE、权限和基础数据模型。 |
+| [Deep Agent 动态规划与可恢复执行](agent/动态任务规划与可恢复执行方案.md) | PostgreSQL 检查点、动态计划、暂停和继续执行方案。 |
 
 ## 接口与集成
 
