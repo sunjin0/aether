@@ -5,6 +5,6 @@ import lombok.Data;
 /** Audit-safe approval projection; reasons are already length-bounded and redacted by the service. */
 @Data
 public class SandboxApprovalVo {
-    private String decision, approverUserId, reason;
+    private String decision, approverUserId, approverName, reason;
     private Long decidedAt;
 }

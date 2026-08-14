@@ -14,6 +14,8 @@ import com.aether.agent.skill.entity.AgentArtifact;
 import com.aether.storage.service.ObjectStorageService;
 import com.aether.agent.sandbox.service.ArtifactContentScanner;
 import com.aether.agent.sandbox.service.WebCollectionTargetValidator;
+import com.aether.sys.entity.User;
+import com.aether.sys.service.UserService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -48,13 +50,14 @@ class SandboxTaskServiceImplTest {
     @Mock ObjectStorageService storage;
     @Mock ArtifactContentScanner contentScanner;
     @Mock WebCollectionTargetValidator webTargetValidator;
+    @Mock UserService userService;
     SandboxTaskServiceImpl service;
 
     @BeforeEach void setUp() {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SandboxExecutionTask.class);
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SandboxExecutionResourceUsage.class);
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SandboxRunnerNode.class);
-        service = new SandboxTaskServiceImpl(templates, versions, tasks, approvals, events, resourceUsage, runnerNodes, legacyExecutions, artifactService, storage, contentScanner, webTargetValidator, "aether-chat", "runner-secret");
+        service = new SandboxTaskServiceImpl(templates, versions, tasks, approvals, events, resourceUsage, runnerNodes, legacyExecutions, artifactService, storage, contentScanner, webTargetValidator, userService, "aether-chat", "runner-secret");
         lenient().when(events.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
         lenient().when(contentScanner.scan(anyString(), anyString(), any(byte[].class))).thenReturn(ArtifactContentScanner.ScanResult.allowed());
         lenient().doAnswer(invocation -> { SandboxExecutionTask value = invocation.getArgument(0); if (value.getId() == null) value.setId("task-1"); return 1; }).when(tasks).insert(any(SandboxExecutionTask.class));
@@ -243,6 +246,27 @@ class SandboxTaskServiceImplTest {
         SandboxExecutionTemplateVersion published = service.publishTemplateVersion("template-1", "admin-1", request);
         assertEquals(2, published.getVersion()); assertEquals("version-2", template.getCurrentVersionId()); assertEquals("MEDIUM", template.getRiskLevel()); assertEquals("version-1", old.getId());
         verify(templates).updateById(template);
+    }
+
+    @Test void approvalDetailUsesApproverUsernameInsteadOfOnlyUserId() {
+        SandboxExecutionTask task = task("task-1", SandboxTaskServiceImpl.QUEUED);
+        task.setConfigSnapshot("{}");
+        SandboxExecutionApproval approval = new SandboxExecutionApproval(); approval.setTaskId("task-1"); approval.setApproverUserId("user-1"); approval.setDecision("APPROVED"); approval.setDecidedAt(System.currentTimeMillis());
+        User approver = new User(); approver.setId("user-1"); approver.setUsername("审批管理员");
+        when(tasks.selectById("task-1")).thenReturn(task);
+        when(approvals.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(approval));
+        when(userService.listByIds(any())).thenReturn(Collections.singletonList(approver));
+        SandboxTaskVo detail = service.detail("task-1", "admin-1", true);
+        assertEquals("审批管理员", detail.getApprovals().get(0).getApproverName());
+    }
+
+    @Test void publishingTemplateDefaultsMissingExecutionModeToScript() {
+        SandboxExecutionTemplate template = new SandboxExecutionTemplate(); template.setId("template-1");
+        when(templates.selectOne(any(LambdaQueryWrapper.class))).thenReturn(template); when(versions.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+        doAnswer(invocation -> { ((SandboxExecutionTemplateVersion) invocation.getArgument(0)).setId("version-1"); return 1; }).when(versions).insert(any(SandboxExecutionTemplateVersion.class));
+        SandboxTemplateVersionPublishDto request = new SandboxTemplateVersionPublishDto(); request.setPolicyVersion("v1"); request.setConfigSnapshot("{\"runtime\":\"PYTHON\",\"network\":\"NONE\",\"timeoutSeconds\":60,\"maxOutputFiles\":1,\"maxOutputBytes\":1024,\"outputFormats\":[\"csv\"]}");
+        SandboxExecutionTemplateVersion published = service.publishTemplateVersion("template-1", "admin-1", request);
+        assertTrue(published.getConfigSnapshot().contains("\"executionMode\":\"SCRIPT\""));
     }
 
     @Test void refusesPolicyVersionThatWouldEnableUncontrolledNetwork() {
