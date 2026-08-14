@@ -236,7 +236,7 @@ class SkillContextServiceTest {
         when(skillService.getById("s1")).thenReturn(skill("s1", "s1c", "S1", 1));
         AgentSkillVersion version = version("v1", "s1", 1, 1);
         version.setInputSchema("{\"type\":\"object\",\"properties\":{\"apiToken\":{\"type\":\"string\"}}}");
-        version.setOutputSchema("{\"type\":\"object\"}");
+        version.setOutputSchema("{\"type\":\"object\",\"properties\":{\"riskLevel\":{\"type\":\"string\"}}}");
         when(versionService.getById("v1")).thenReturn(version);
         when(toolBindingService.list(any())).thenReturn(Collections.emptyList());
         when(knowledgeBindingService.list(any())).thenReturn(Collections.emptyList());
@@ -250,11 +250,33 @@ class SkillContextServiceTest {
         dto.setSkillInputs(Collections.singletonMap("s1c", Collections.<String, Object>singletonMap("apiToken", "secret-value")));
 
         SkillRuntimeContext context = service.resolve(agent, dto);
+        service.resolve(agent, dto);
 
         assertTrue(context.getSystemPrompt().contains("Do not disclose secrets."));
-        assertTrue(context.getSystemPrompt().contains("Output contract"));
+        assertTrue(context.getSystemPrompt().contains("Output mode: JSON"));
+        assertTrue(context.getSystemPrompt().contains("Structured output contract"));
         assertTrue(context.getSystemPrompt().contains("***"));
         assertFalse(context.getSnapshot().contains("secret-value"));
+        org.mockito.Mockito.verify(objectStorageService, org.mockito.Mockito.times(1)).getObject("aether-skill", resource.getObjectKey());
+    }
+
+    @Test
+    void omitsPlaceholderOrInvalidOutputSchema() {
+        AgentDefinition agent = agent("a1", "base");
+        when(skillService.listBindings("a1")).thenReturn(Collections.singletonList(binding("a1", "s1", "v1", 1, 1)));
+        when(skillService.getById("s1")).thenReturn(skill("s1", "s1c", "S1", 1));
+        AgentSkillVersion version = version("v1", "s1", 1, 1);
+        version.setOutputSchema("{\"type\":\"object\",\"properties\":{}}");
+        when(versionService.getById("v1")).thenReturn(version);
+        when(toolBindingService.list(any())).thenReturn(Collections.emptyList());
+        when(knowledgeBindingService.list(any())).thenReturn(Collections.emptyList());
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.emptyList());
+
+        assertTrue(service.resolve(agent, new AgentChatDto()).getSystemPrompt().contains("Output mode: Markdown"));
+        assertFalse(service.resolve(agent, new AgentChatDto()).getSystemPrompt().contains("output contract"));
+
+        version.setOutputSchema("not-json");
+        assertFalse(service.resolve(agent, new AgentChatDto()).getSystemPrompt().contains("output contract"));
     }
 
     private String sha256(byte[] value) throws Exception {

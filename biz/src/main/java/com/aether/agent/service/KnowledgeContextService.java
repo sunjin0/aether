@@ -41,6 +41,8 @@ import javax.annotation.PreDestroy;
 @Service
 public class KnowledgeContextService {
     private static final Pattern CITATION_PATTERN = Pattern.compile("【(\\d+)】");
+    private static final Pattern CASUAL_QUERY_PATTERN = Pattern.compile(
+            "(?i)^(hi|hello|hey|ok|okay|thanks|thank you|你好|您好|嗨|哈喽|谢谢|感谢|好的|行|明白|收到)[!！,.，。?？ ]*$");
 
     private final AdminPreferenceService preferenceService;
     private final KnowledgeRetrievalService retrievalService;
@@ -92,22 +94,11 @@ public class KnowledgeContextService {
         long preferenceStartedAt = System.currentTimeMillis();
         String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
         ChatLatencyMetrics.record("chat.preference_context", System.currentTimeMillis() - preferenceStartedAt);
-        if (StringUtils.isNotBlank(preferenceContext)) {
-            context.add(insertIndex++, new ModelChatMessage("system", preferenceContext));
-        }
+        // Preferences affect presentation only; do not send them to retrieval/history
+        // reformulation where they add tokens but cannot improve source selection.
         KnowledgeRetrievalResult retrieval = retrievalService.retrieveWithHistory(agentId, query, context);
         if (retrieval == null) {
             retrieval = new KnowledgeRetrievalResult();
-        }
-        if (StringUtils.isNotBlank(retrieval.getContext())) {
-            context.add(insertIndex++, new ModelChatMessage("system", retrieval.getContext()));
-        } else if (retrieval.isRetrievalAttempted()) {
-            context.add(insertIndex++, new ModelChatMessage("system",
-                    retrieval.isStrictGrounding()
-                            ? "本轮未检索到足以支撑回答的知识库片段。当前 Agent 只能基于知识库资料回答；"
-                            + "请明确说明资料不足，并请求用户补充资料或换一种表述，不得使用模型固有知识作答。"
-                            : "本轮未检索到足以支撑回答的知识库片段。不得将推测或模型固有知识表述为知识库结论；"
-                            + "如果用户要求依据知识库回答，请明确说明当前资料不足，并在必要时请求补充信息。"));
         }
         List<KnowledgeDocumentChunk> chunks = retrieval.getChunks() == null
                 ? Collections.<KnowledgeDocumentChunk>emptyList() : retrieval.getChunks();
@@ -131,9 +122,7 @@ public class KnowledgeContextService {
             source.put("content", truncate(chunk.getContent(), 500));
             sources.add(source);
         }
-        if (!sources.isEmpty()) {
-            context.add(insertIndex++, new ModelChatMessage("system", buildCitationInstruction(sources, retrieval.isStrictGrounding())));
-        }
+        appendRuntimeContext(context, insertIndex, preferenceContext, retrieval, sources);
         return sources;
     }
 
@@ -151,21 +140,47 @@ public class KnowledgeContextService {
         long preferenceStartedAt = System.currentTimeMillis();
         String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
         ChatLatencyMetrics.record("chat.preference_context", System.currentTimeMillis() - preferenceStartedAt);
-        if (StringUtils.isNotBlank(preferenceContext)) context.add(insertIndex++, new ModelChatMessage("system", preferenceContext));
-        KnowledgeRetrievalResult retrieval = retrievalService.retrieve(agentId, query, knowledgeBaseIds);
+        KnowledgeRetrievalResult retrieval = shouldSkipRetrieval(query, knowledgeBaseIds)
+                ? new KnowledgeRetrievalResult() : retrievalService.retrieve(agentId, query, knowledgeBaseIds);
         if (retrieval == null) retrieval = new KnowledgeRetrievalResult();
-        if (StringUtils.isNotBlank(retrieval.getContext())) {
-            context.add(insertIndex++, new ModelChatMessage("system", retrieval.getContext()));
-        } else if (retrieval.isRetrievalAttempted()) {
-            context.add(insertIndex++, new ModelChatMessage("system", retrieval.isStrictGrounding()
-                    ? "本轮未检索到足以支撑回答的知识库片段。当前 Agent 只能基于知识库资料回答；请明确说明资料不足，不得使用模型固有知识作答。"
-                    : "本轮未检索到足以支撑回答的知识库片段。不得将推测或模型固有知识表述为知识库结论。"));
-        }
         List<KnowledgeDocumentChunk> chunks = retrieval.getChunks() == null ? Collections.<KnowledgeDocumentChunk>emptyList() : retrieval.getChunks();
         Map<String, String> documentNames = resolveDocumentNames(chunks);
         for (KnowledgeDocumentChunk chunk : chunks) { Map<String, Object> source = new HashMap<>(); source.put("knowledgeBaseId", chunk.getKnowledgeBaseId()); source.put("documentId", chunk.getDocumentId()); source.put("documentVersionId", chunk.getDocumentVersionId()); source.put("documentName", StringUtils.defaultIfBlank(documentNames.get(chunk.getDocumentId()), "知识库文档 " + (sources.size() + 1))); source.put("citationIndex", sources.size() + 1); source.put("chunkId", chunk.getId()); source.put("chunkIndex", chunk.getChunkIndex()); source.put("sectionPath", chunk.getSectionPath()); source.put("similarity", chunk.getSimilarity()); source.put("retrievalScore", chunk.getRetrievalScore()); source.put("content", truncate(chunk.getContent(), 500)); sources.add(source); }
-        if (!sources.isEmpty()) context.add(insertIndex, new ModelChatMessage("system", buildCitationInstruction(sources, retrieval.isStrictGrounding())));
+        appendRuntimeContext(context, insertIndex, preferenceContext, retrieval, sources);
         return sources;
+    }
+
+    /** Keeps request-specific guidance together without merging it into protected Skill rules. */
+    private void appendRuntimeContext(List<ModelChatMessage> context, int insertIndex, String preferenceContext,
+                                      KnowledgeRetrievalResult retrieval, List<Map<String, Object>> sources) {
+        StringBuilder runtime = new StringBuilder();
+        appendSection(runtime, preferenceContext);
+        if (StringUtils.isNotBlank(retrieval.getContext())) {
+            appendSection(runtime, retrieval.getContext());
+        } else if (retrieval.isRetrievalAttempted()) {
+            appendSection(runtime, retrieval.isStrictGrounding()
+                    ? "本轮未检索到足以支撑回答的知识库片段。当前 Agent 只能基于知识库资料回答；"
+                    + "请明确说明资料不足，并请求用户补充资料或换一种表述，不得使用模型固有知识作答。"
+                    : "本轮未检索到足以支撑回答的知识库片段。不得将推测或模型固有知识表述为知识库结论；"
+                    + "如果用户要求依据知识库回答，请明确说明当前资料不足，并在必要时请求补充信息。");
+        }
+        if (sources != null && !sources.isEmpty()) {
+            appendSection(runtime, buildCitationInstruction(sources, retrieval.isStrictGrounding()));
+        }
+        if (runtime.length() == 0) return;
+        context.add(insertIndex, new ModelChatMessage("system", "【运行时上下文】\n" + runtime));
+    }
+
+    private void appendSection(StringBuilder target, String section) {
+        if (StringUtils.isBlank(section)) return;
+        if (target.length() > 0) target.append("\n\n");
+        target.append(section.trim());
+    }
+
+    /** Skip only unambiguous casual turns for non-Skill chats; scoped Skill knowledge is always retrieved. */
+    private boolean shouldSkipRetrieval(String query, Set<String> knowledgeBaseIds) {
+        return knowledgeBaseIds == null && StringUtils.isNotBlank(query)
+                && CASUAL_QUERY_PATTERN.matcher(query.trim()).matches();
     }
 
     /** Removes citations that do not belong to this retrieval before the answer reaches the client. */
@@ -353,15 +368,17 @@ public class KnowledgeContextService {
     }
 
     private String buildCitationInstruction(List<Map<String, Object>> sources, boolean strictGrounding) {
-        StringBuilder instruction = new StringBuilder("以下是可引用的知识库来源。仅当回答实际使用了某个片段时，"
+        StringBuilder instruction = new StringBuilder("【可引用来源】仅当回答实际使用了某个片段时，"
                 + "请在对应结论后标注其编号，例如【1】。不得编造编号，不使用知识库时不要添加引用。\n");
         if (strictGrounding) {
             instruction.append("当前回答必须完全由这些来源支持；无法从来源得到结论时，请直接说明资料不足。\n");
         }
         for (Map<String, Object> source : sources) {
             instruction.append("【").append(source.get("citationIndex")).append("】")
-                    .append(StringUtils.defaultIfBlank((String) source.get("documentName"), "未命名文档"))
-                    .append(" - ").append(StringUtils.defaultString((String) source.get("sectionPath"))).append('\n');
+                    .append(StringUtils.defaultIfBlank((String) source.get("documentName"), "未命名文档"));
+            String sectionPath = StringUtils.trimToNull((String) source.get("sectionPath"));
+            if (sectionPath != null) instruction.append(" - ").append(sectionPath);
+            instruction.append('\n');
         }
         return instruction.toString();
     }

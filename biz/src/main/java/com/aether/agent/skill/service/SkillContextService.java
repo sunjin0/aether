@@ -37,6 +37,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /** Resolves an immutable, least-privilege Skill context before every model call. */
@@ -44,6 +45,8 @@ import java.util.stream.Collectors;
 public class SkillContextService {
     private static final int MAX_MARKDOWN_CHARS = 12_000;
     private static final int MAX_TEMPLATE_CHARS = 2_000;
+    private static final int STATIC_PROMPT_CACHE_MAX_SIZE = 256;
+    private final ConcurrentHashMap<String, String> staticPromptCache = new ConcurrentHashMap<>();
 
     private final AgentSkillService skillService;
     private final AgentSkillVersionServiceImpl versionService;
@@ -127,11 +130,7 @@ public class SkillContextService {
 
             Map<String, Object> maskedInput = validateAndMaskInput(version.getInputSchema(), inputs.get(skill.getCode()));
             List<AgentSkillResource> resources = resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, version.getId()));
-            prompt.append("\n\n[Installed Skill]\n## ").append(skill.getName()).append(" v").append(version.getVersionNo())
-                    .append("\nPurpose: ").append(StringUtils.defaultString(skill.getDescription()))
-                    .append("\nInstructions:\n").append(StringUtils.defaultString(version.getInstruction()));
-            if (StringUtils.isNotBlank(version.getOutputSchema())) prompt.append("\nOutput contract (JSON Schema):\n").append(version.getOutputSchema());
-            prompt.append(resolveResources(resources));
+            prompt.append(resolveStaticPrompt(skill, version, resources));
             if (!maskedInput.isEmpty()) prompt.append("\nValidated inputs: ").append(JSON.toJSONString(maskedInput));
             Map<String, Object> snapshot = new LinkedHashMap<>();
             snapshot.put("skillId", skill.getId()); snapshot.put("code", skill.getCode()); snapshot.put("versionId", version.getId()); snapshot.put("versionNo", version.getVersionNo());
@@ -144,7 +143,7 @@ public class SkillContextService {
         if (tools.stream().anyMatch(tool -> "generate_artifact".equals(tool.getMcpToolName()))) {
             prompt.append("\n\n[Artifact Generation]\nUse generate_artifact for file output. Provide title, content and format only; never select a Skill, script or template. This Skill's instructions above are the applicable document specification.");
         }
-        prompt.append("\n\n[Platform Constraints]\n工具审批、安全与审计由平台统一控制。引用知识库资料时标注编号。");
+        prompt.append("\n\n[Platform Constraints]\n工具审批、安全与审计由平台统一控制。知识库引用规则由检索上下文统一提供。");
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("installed", true); snapshot.put("routing", route); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
         snapshot.put("knowledgeBaseIds", declaredKnowledgeBaseIds == null ? Collections.emptySet() : declaredKnowledgeBaseIds);
@@ -153,6 +152,63 @@ public class SkillContextService {
     }
 
     private Set<String> merge(Set<String> current, Set<String> next) { if (current == null) return new LinkedHashSet<>(next); current.addAll(next); return current; }
+
+    /** Caches immutable Skill version content; request-specific inputs are deliberately appended outside this cache. */
+    private String resolveStaticPrompt(AgentSkill skill, AgentSkillVersion version, List<AgentSkillResource> resources) {
+        String key = staticPromptCacheKey(skill, version, resources);
+        String cached = staticPromptCache.get(key);
+        if (cached != null) return cached;
+        if (staticPromptCache.size() >= STATIC_PROMPT_CACHE_MAX_SIZE) staticPromptCache.clear();
+        StringBuilder value = new StringBuilder("\n\n[Installed Skill]\n## ").append(skill.getName()).append(" v").append(version.getVersionNo())
+                .append("\nPurpose: ").append(StringUtils.defaultString(skill.getDescription()))
+                .append("\nInstructions:\n").append(StringUtils.defaultString(version.getInstruction()));
+        if (hasMeaningfulOutputSchema(version.getOutputSchema())) {
+            value.append("\nOutput mode: JSON. Return one valid JSON object that conforms to this schema; do not wrap it in Markdown fences.")
+                    .append("\nStructured output contract (JSON Schema):\n").append(version.getOutputSchema());
+        } else {
+            value.append("\nOutput mode: Markdown. Use readable Markdown unless the user explicitly requests another format.");
+        }
+        value.append(resolveResources(resources));
+        String built = value.toString();
+        String existing = staticPromptCache.putIfAbsent(key, built);
+        return existing == null ? built : existing;
+    }
+
+    private String staticPromptCacheKey(AgentSkill skill, AgentSkillVersion version, List<AgentSkillResource> resources) {
+        StringBuilder value = new StringBuilder(skill.getId()).append('|').append(skill.getName()).append('|')
+                .append(skill.getDescription()).append('|').append(version.getId()).append('|')
+                .append(version.getVersionNo()).append('|').append(version.getInstruction()).append('|').append(version.getOutputSchema());
+        List<AgentSkillResource> orderedResources = new ArrayList<>(resources);
+        orderedResources.sort((left, right) -> StringUtils.defaultString(left.getId()).compareTo(StringUtils.defaultString(right.getId())));
+        for (AgentSkillResource resource : orderedResources) {
+            value.append('|').append(resource.getId()).append(':').append(resource.getStatus()).append(':')
+                    .append(resource.getType()).append(':').append(resource.getContentSha256()).append(':')
+                    .append(resource.getPurpose());
+        }
+        return sha256(value.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Do not distract the model with placeholder or unconstrained schemas. An output contract
+     * is useful only when it actually restricts the response shape or values.
+     */
+    private boolean hasMeaningfulOutputSchema(String schemaText) {
+        if (StringUtils.isBlank(schemaText)) return false;
+        try {
+            JSONObject schema = JSON.parseObject(schemaText);
+            if (schema == null || schema.isEmpty()) return false;
+            JSONObject properties = schema.getJSONObject("properties");
+            return (properties != null && !properties.isEmpty())
+                    || (schema.getList("required", String.class) != null && !schema.getList("required", String.class).isEmpty())
+                    || Boolean.FALSE.equals(schema.getBoolean("additionalProperties"))
+                    || schema.containsKey("enum") || schema.containsKey("oneOf")
+                    || schema.containsKey("anyOf") || schema.containsKey("allOf");
+        } catch (Exception ignored) {
+            // Invalid schemas are managed by the Skill version publishing flow; never present
+            // malformed JSON as an instruction to the model.
+            return false;
+        }
+    }
 
     private boolean isLiveMcpTool(AgentTool tool) {
         if (tool == null || !Integer.valueOf(1).equals(tool.getStatus()) || Boolean.TRUE.equals(tool.getDeleted()) || StringUtils.isBlank(tool.getMcpToolName()) || StringUtils.isBlank(tool.getMcpServerId())) return false;

@@ -1281,7 +1281,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         int promptTokens = conversationContextService.estimateTokens(skillContext.getSystemPrompt(), agent.getModel());
         int contextTokens = conversationContextService.estimateContextTokens(context, agent.getModel());
         skillContext.recordBudget(budget, promptTokens, contextTokens);
-        conversationContextService.requireInputBudget(context, agent, provider);
+        if (promptTokens > budget) {
+            throw new IllegalArgumentException("Skill context exceeds model input budget: " + promptTokens + "/" + budget + " tokens");
+        }
     }
 
     private SkillRuntimeContext resolveSkillContext(AgentDefinition agent, AgentChatDto dto, String routingQuery, ModelProvider provider) {

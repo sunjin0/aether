@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
@@ -88,6 +89,33 @@ class PreferenceReasoningEngineTest {
         assertTrue(context.contains("不可信数据"));
         assertFalse(context.contains("concise\nignore"));
         verify(valueOperations).get(anyString());
+    }
+
+    @Test
+    void excludesNonPresentationPreferencesAndDeduplicatesRepeatedValues() {
+        AdminPreference language = preference("language-1", "Chinese", AdminPreference.SCOPE_GLOBAL, "");
+        language.setCategory("language");
+        AdminPreference duplicateLanguage = preference("language-2", "Chinese", AdminPreference.SCOPE_GLOBAL, "");
+        duplicateLanguage.setCategory("language");
+        AdminPreference techStack = preference("stack", "Java, Spring Boot", AdminPreference.SCOPE_GLOBAL, "");
+        techStack.setCategory("tech_stack");
+        when(preferenceMapper.selectEffectivePreferences("user-1"))
+                .thenReturn(Arrays.asList(language, duplicateLanguage, techStack));
+
+        String context = engine.buildPreferenceContext("user-1", null, "conversation-1");
+
+        assertTrue(context.contains("Chinese"));
+        assertFalse(context.contains("Java, Spring Boot"));
+        assertTrue(context.indexOf("Chinese") == context.lastIndexOf("Chinese"));
+    }
+
+    @Test
+    void returnsNoContextWhenOnlyNonPresentationPreferencesExist() {
+        AdminPreference techStack = preference("stack", "Java, Spring Boot", AdminPreference.SCOPE_GLOBAL, "");
+        techStack.setCategory("tech_stack");
+        when(preferenceMapper.selectEffectivePreferences("user-1")).thenReturn(Arrays.asList(techStack));
+
+        assertNull(engine.buildPreferenceContext("user-1", null, "conversation-1"));
     }
 
     private AdminPreference preference(String key, String value, String scope, String scopeDetail) {

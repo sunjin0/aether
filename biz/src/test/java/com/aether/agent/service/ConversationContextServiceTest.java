@@ -69,6 +69,19 @@ class ConversationContextServiceTest {
     }
 
     @Test
+    void trimsRuntimeRetrievalBeforeProtectedSkillPrompt() {
+        List<ModelChatMessage> context = new ArrayList<>();
+        context.add(new ModelChatMessage("system", "版本化 Skill 指令必须保留"));
+        context.add(new ModelChatMessage("system", "【运行时上下文】\n" + String.join("", Collections.nCopies(500, "检索片段"))));
+        context.add(new ModelChatMessage("user", "请继续"));
+
+        service.enforceTokenBudget(context, 120);
+
+        assertEquals("版本化 Skill 指令必须保留", context.get(0).getContent());
+        assertTrue(service.estimateContextTokens(context) <= 120);
+    }
+
+    @Test
     void longConversationWithoutSummaryAlwaysContainsLatestUserMessage() {
         when(messageService.count(any())).thenReturn(36L);
         when(summaryService.get("conversation-1")).thenReturn(null);

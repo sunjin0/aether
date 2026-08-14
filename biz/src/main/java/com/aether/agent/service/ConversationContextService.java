@@ -375,6 +375,7 @@ public class ConversationContextService {
         if (context == null || context.isEmpty() || maxTokens <= 0) {
             return;
         }
+        trimRuntimeContextsToTokenBudget(context, maxTokens);
         while (estimateContextTokens(context) > maxTokens) {
             int candidate = oldestRemovableHistoryIndex(context);
             if (candidate < 0) {
@@ -476,7 +477,7 @@ public class ConversationContextService {
             int excess = currentTotal - maxTokens;
             int target = Math.max(MIN_OPTIONAL_SYSTEM_TOKENS, longestTokens - excess);
             ModelChatMessage message = context.get(longestIndex);
-            message.setContent(abbreviateToTokenBudget(message.getContent(), target));
+            replaceContent(message, abbreviateToTokenBudget(message.getContent(), target));
         }
     }
 
@@ -501,8 +502,39 @@ public class ConversationContextService {
             int excess = currentTotal - maxTokens;
             int target = Math.max(0, longestTokens - excess);
             ModelChatMessage message = context.get(longestIndex);
-            message.setContent(abbreviateToTokenBudget(message.getContent(), target));
+            replaceContent(message, abbreviateToTokenBudget(message.getContent(), target));
         }
+    }
+
+    /** Runtime retrieval is lowest-priority context; preserve versioned Skill instructions. */
+    private void trimRuntimeContextsToTokenBudget(List<ModelChatMessage> context, int maxTokens) {
+        while (estimateContextTokens(context) > maxTokens) {
+            int runtimeIndex = -1;
+            int runtimeTokens = 0;
+            for (int i = 0; i < context.size(); i++) {
+                ModelChatMessage message = context.get(i);
+                if ("system".equals(message.getRole())
+                        && StringUtils.defaultString(message.getContent()).startsWith("【运行时上下文】")) {
+                    runtimeIndex = i;
+                    runtimeTokens = estimateTokens(message.getContent());
+                    break;
+                }
+            }
+            if (runtimeIndex < 0) return;
+            int excess = estimateContextTokens(context) - maxTokens;
+            if (runtimeTokens <= excess + MIN_OPTIONAL_SYSTEM_TOKENS) {
+                context.remove(runtimeIndex);
+                continue;
+            }
+            ModelChatMessage runtime = context.get(runtimeIndex);
+            replaceContent(runtime, abbreviateToTokenBudget(runtime.getContent(),
+                    Math.max(MIN_OPTIONAL_SYSTEM_TOKENS, runtimeTokens - excess)));
+        }
+    }
+
+    private void replaceContent(ModelChatMessage message, String content) {
+        message.setContent(content);
+        message.setCachedTokens(null);
     }
 
     private String abbreviateToTokenBudget(String value, int maxTokens) {
@@ -569,7 +601,7 @@ public class ConversationContextService {
             int excess = contextChars(context) - maxChars;
             int target = Math.max(MIN_OPTIONAL_SYSTEM_CHARS, longestLength - excess);
             ModelChatMessage message = context.get(longestIndex);
-            message.setContent(abbreviate(message.getContent(), target));
+            replaceContent(message, abbreviate(message.getContent(), target));
         }
     }
 
@@ -582,7 +614,7 @@ public class ConversationContextService {
             ModelChatMessage message = context.get(candidate);
             int length = StringUtils.length(message.getContent());
             int target = Math.max(0, length - (contextChars(context) - maxChars));
-            message.setContent(abbreviate(message.getContent(), target));
+            replaceContent(message, abbreviate(message.getContent(), target));
         }
     }
 

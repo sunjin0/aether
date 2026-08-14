@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -84,6 +85,50 @@ class KnowledgeContextServiceTest {
         service.enhance(context, "user-1", "conversation-1", "agent-1", "question");
 
         org.junit.jupiter.api.Assertions.assertTrue(context.get(0).getContent().contains("只能基于知识库资料回答"));
+    }
+
+    @Test
+    void combinesRuntimeSectionsIntoOneOrderedSystemPrompt() {
+        AdminPreferenceService preferences = mock(AdminPreferenceService.class);
+        when(preferences.buildPreferenceContext("user-1", null, "conversation-1"))
+                .thenReturn("【表达偏好】使用中文");
+        KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
+        KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
+        result.setContext("【知识库检索结果】\n片段 1：续费健康检查");
+        final boolean[] retrievalReceivedPreference = new boolean[1];
+        when(retrievalService.retrieveWithHistory(org.mockito.ArgumentMatchers.eq("agent-1"),
+                org.mockito.ArgumentMatchers.eq("question"), org.mockito.ArgumentMatchers.anyList())).thenAnswer(invocation -> {
+                    java.util.List<ModelChatMessage> retrievalContext = invocation.getArgument(2);
+                    retrievalReceivedPreference[0] = retrievalContext.toString().contains("【表达偏好】");
+                    return result;
+                });
+        KnowledgeContextService service = new KnowledgeContextService(preferences, retrievalService,
+                mock(KnowledgeDocumentService.class));
+        ArrayList<ModelChatMessage> context = new ArrayList<>();
+        context.add(new ModelChatMessage("system", "基础规则"));
+
+        service.enhance(context, "user-1", "conversation-1", "agent-1", "question");
+
+        assertEquals(2, context.size());
+        assertEquals("基础规则", context.get(0).getContent());
+        String prompt = context.get(1).getContent();
+        assertTrue(prompt.startsWith("【运行时上下文】"));
+        assertTrue(prompt.indexOf("【表达偏好】") < prompt.indexOf("【知识库检索结果】"));
+        verify(retrievalService).retrieveWithHistory(org.mockito.ArgumentMatchers.eq("agent-1"),
+                org.mockito.ArgumentMatchers.eq("question"), org.mockito.ArgumentMatchers.anyList());
+        org.junit.jupiter.api.Assertions.assertFalse(retrievalReceivedPreference[0]);
+    }
+
+    @Test
+    void skipsRetrievalForCasualUnscopedTurn() {
+        KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
+        KnowledgeContextService service = new KnowledgeContextService(mock(AdminPreferenceService.class), retrievalService,
+                mock(KnowledgeDocumentService.class));
+
+        service.enhance(new ArrayList<ModelChatMessage>(), "user-1", "conversation-1", "agent-1", "你好", null);
+
+        verify(retrievalService, org.mockito.Mockito.never()).retrieve(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anySet());
     }
 
     @Test
