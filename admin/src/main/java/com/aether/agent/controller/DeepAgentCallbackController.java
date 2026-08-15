@@ -1,16 +1,23 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.DeepAgentConfig;
+import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
+import com.aether.agent.entity.ModelProvider;
+import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.DeepAgentRunService;
 import com.aether.agent.service.AgentRunPlanService;
+import com.aether.agent.service.ModelCatalogService;
+import com.aether.agent.service.ModelProviderService;
+import com.aether.utils.AesUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -41,14 +48,22 @@ public class DeepAgentCallbackController {
     private final AgentMessageService agentMessageService;
     private final DeepAgentConfig config;
     private final AgentRunPlanService planService;
+    private final AgentDefinitionService agentDefinitionService;
+    private final ModelProviderService modelProviderService;
+    private final ModelCatalogService modelCatalogService;
     private final Map<String, AgentStreamCallback> activeCallbacks = new ConcurrentHashMap<>();
 
     public DeepAgentCallbackController(DeepAgentRunService deepAgentRunService, AgentMessageService agentMessageService,
-                                       DeepAgentConfig config, AgentRunPlanService planService) {
+                                       DeepAgentConfig config, AgentRunPlanService planService,
+                                       AgentDefinitionService agentDefinitionService, ModelProviderService modelProviderService,
+                                       ModelCatalogService modelCatalogService) {
         this.deepAgentRunService = deepAgentRunService;
         this.agentMessageService = agentMessageService;
         this.config = config;
         this.planService = planService;
+        this.agentDefinitionService = agentDefinitionService;
+        this.modelProviderService = modelProviderService;
+        this.modelCatalogService = modelCatalogService;
     }
 
     public void registerCallback(String runId, AgentStreamCallback callback) {
@@ -231,6 +246,43 @@ public class DeepAgentCallbackController {
             return ResponseEntity.ok().build();
         } catch (Exception e) {
             log.error("回调处理失败: runId={}", runId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 供 Deep Agent 按 agentId 实时拉取模型配置（model/baseUrl/apiKey）。
+     * 接口受签名保护；apiKey 由 Deep Agent 仅在内存中使用，不写入其运行快照。
+     */
+    @GetMapping("/model-config/{agentId}")
+    public ResponseEntity<Map<String, Object>> modelConfig(@PathVariable String agentId, HttpServletRequest request) {
+        try {
+            if (!verifySignature(request, new byte[0])) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+            AgentDefinition agent = agentDefinitionService.getById(agentId);
+            if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            // 优先按直接绑定的 provider；否则按目录模型（modelId）解析，与标准 Agent 一致。
+            ModelProvider provider = null;
+            if (StringUtils.isNotBlank(agent.getModelProviderId())) {
+                provider = modelProviderService.getById(agent.getModelProviderId());
+            }
+            if ((provider == null || Boolean.TRUE.equals(provider.getDeleted()))
+                    && StringUtils.isNotBlank(agent.getModelId()) && modelCatalogService != null) {
+                provider = modelCatalogService.resolveProvider(agent.getModelId(), "CHAT,MULTIMODAL");
+            }
+            if (provider == null || Boolean.TRUE.equals(provider.getDeleted()) || StringUtils.isBlank(provider.getApiKey())) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("model", StringUtils.defaultIfBlank(agent.getModel(), provider.getDefaultModel()));
+            result.put("baseUrl", provider.getApiBaseUrl());
+            result.put("apiKey", AesUtil.decrypt(provider.getApiKey()));
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("解析 Deep Agent 模型配置失败: agentId={}", agentId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

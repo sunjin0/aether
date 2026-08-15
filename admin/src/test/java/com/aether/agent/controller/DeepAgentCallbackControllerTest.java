@@ -7,6 +7,9 @@ import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.DeepAgentRunService;
 import com.aether.agent.service.AgentRunPlanService;
+import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.service.ModelCatalogService;
+import com.aether.agent.service.ModelProviderService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -47,6 +50,15 @@ class DeepAgentCallbackControllerTest {
 
     @Mock
     private AgentRunPlanService planService;
+
+    @Mock
+    private AgentDefinitionService agentDefinitionService;
+
+    @Mock
+    private ModelProviderService modelProviderService;
+
+    @Mock
+    private ModelCatalogService modelCatalogService;
 
     @Test
     void completedCallbackSendsStructuredDoneResponseAndRemovesCallback() {
@@ -177,6 +189,7 @@ class DeepAgentCallbackControllerTest {
     }
 
     private DeepAgentCallbackController controller() {
-        return new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config, planService);
+        return new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config, planService,
+                agentDefinitionService, modelProviderService, modelCatalogService);
     }
 }
