@@ -102,6 +102,31 @@ public class ConversationContextService {
         return history;
     }
 
+    /**
+     * Builds durable history for a Deep Agent request. The current user message
+     * must not have been persisted yet when this method is called, otherwise it
+     * would be injected twice (as memory and as the current task).
+     *
+     * A previously generated conversation summary is preferred. When there is
+     * no summary yet, the latest bounded message window is returned. This keeps
+     * Deep sessions useful across requests without exposing the primary system
+     * prompt as user-controlled conversation memory.
+     */
+    public List<ModelChatMessage> buildDeepSessionMemory(String conversationId) {
+        List<ModelChatMessage> memory = new ArrayList<ModelChatMessage>();
+        SummarySnapshot summary = summaryService.get(conversationId);
+        if (summary != null && StringUtils.isNotBlank(summary.getSummary())) {
+            memory.add(new ModelChatMessage("system", "【对话历史摘要】" + summary.getSummary()));
+            addMessages(memory, queryMessagesAfter(conversationId, summary));
+        } else {
+            List<AgentMessage> messages = queryRecentMessages(conversationId, HISTORY_MESSAGE_LIMIT);
+            Collections.reverse(messages);
+            addMessages(memory, messages);
+        }
+        enforceBudget(memory, DEFAULT_CONTEXT_MAX_CHARS / 2);
+        return memory;
+    }
+
     /** 从持久化消息构建系统提示与最近 20 条用户/助手消息。 */
     public List<ModelChatMessage> buildFromHistory(AgentDefinition agent, String conversationId) {
         List<ModelChatMessage> context = createSystemContext(agent);

@@ -6,11 +6,16 @@ import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.AgentRunStep;
+import com.aether.agent.entity.AgentSession;
+import com.aether.agent.entity.AgentSessionMemory;
+import com.aether.agent.entity.AgentTask;
 import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.service.*;
 import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.skill.service.SkillArtifactExecutionService;
+import com.aether.sys.service.AdminPreferenceService;
+import com.aether.sys.entity.AdminPreference;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -44,6 +49,12 @@ class DeepAgentRunServiceTest {
     @Mock private DelegationTokenService delegationTokenService;
     @Mock private AgentToolCatalog toolCatalog;
     @Mock private KnowledgeContextService knowledgeContextService;
+    @Mock private ConversationContextService conversationContextService;
+    @Mock private AgentSessionService agentSessionService;
+    @Mock private AgentTaskService agentTaskService;
+    @Mock private AgentTaskEventService agentTaskEventService;
+    @Mock private AgentSessionMemoryService agentSessionMemoryService;
+    @Mock private AdminPreferenceService adminPreferenceService;
     @Mock private SkillArtifactExecutionService artifactExecutionService;
     @Mock private DeepAgentConfig config;
 
@@ -53,10 +64,11 @@ class DeepAgentRunServiceTest {
     void setUp() {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), AgentRun.class);
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), AgentConversation.class);
+        lenient().when(agentSessionService.claimTask(anyString(), anyString())).thenReturn(true);
         service = new DeepAgentRunService(agentRunService, agentRunStepService,
                 signingClient, agentConversationService, agentMessageService,
                 toolCallLogService,
-                delegationTokenService, toolCatalog, knowledgeContextService, artifactExecutionService, config);
+                delegationTokenService, toolCatalog, knowledgeContextService, conversationContextService, agentSessionService, agentTaskService, agentTaskEventService, agentSessionMemoryService, adminPreferenceService, artifactExecutionService, config);
     }
 
     @Test
@@ -86,6 +98,16 @@ class DeepAgentRunServiceTest {
             msg.setId("message-1");
             return true;
         });
+        when(conversationContextService.buildDeepSessionMemory("conversation-1"))
+                .thenReturn(Collections.singletonList(new com.aether.agent.model.ModelChatMessage("assistant", "前序结论")));
+        AgentSession session = new AgentSession(); session.setId("session-1");
+        when(agentSessionService.getOrCreate("conversation-1", "user-1", "agent-1")).thenReturn(session);
+        AgentTask taskRecord = new AgentTask(); taskRecord.setId("task-1");
+        when(agentTaskService.create("session-1", "user-1", "agent-1", "你好")).thenReturn(taskRecord);
+        AgentSessionMemory durableMemory = new AgentSessionMemory(); durableMemory.setContent("上次已确认合同存在付款风险");
+        when(agentSessionMemoryService.listInjectable("session-1", 12)).thenReturn(Collections.singletonList(durableMemory));
+        AdminPreference preference = new AdminPreference(); preference.setCategory("format"); preference.setKeyName("output_format"); preference.setValue("优先使用表格输出");
+        when(adminPreferenceService.list(any())).thenReturn(Collections.singletonList(preference));
 
         String runId = service.startRun(agent, "user-1", "conversation-1", "你好", Collections.emptyList());
 
@@ -93,11 +115,93 @@ class DeepAgentRunServiceTest {
         ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
         verify(agentRunService).save(runCaptor.capture());
         assertEquals(3, runCaptor.getValue().getStatus());
+        assertEquals("task-1", runCaptor.getValue().getTaskId());
+        ArgumentCaptor<Map<String, Object>> requestCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(signingClient).signedPost(eq("/v1/runs"), requestCaptor.capture());
+        assertEquals("session-1", requestCaptor.getValue().get("session_id"));
+        assertEquals("task-1", requestCaptor.getValue().get("task_id"));
+        assertEquals("RUNNING", ((Map<String, Object>) requestCaptor.getValue().get("task_state")).get("status"));
+        List<Map<String, String>> memory = (List<Map<String, String>>) requestCaptor.getValue().get("conversation_memory");
+        assertTrue(memory.get(0).get("content").contains("【用户已确认偏好】"));
+        assertEquals("【已完成任务结论】上次已确认合同存在付款风险", memory.get(1).get("content"));
+        assertEquals("前序结论", memory.get(2).get("content"));
         assertEquals("DEEP", runCaptor.getValue().getExecutionMode());
         assertEquals("你好", runCaptor.getValue().getInputContent());
         assertEquals("run-1", runCaptor.getValue().getExternalRunId());
         assertEquals("[]", runCaptor.getValue().getRetrievalSources());
         verify(agentConversationService).update(isNull(), any());
+    }
+
+    @Test
+    void startRunQueuesWhenSessionAlreadyOwnsAnotherTask() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-queue"); agent.setSystemPrompt("你是助手");
+        AgentConversation conversation = new AgentConversation(); conversation.setId("conversation-queue");
+        AgentSession session = new AgentSession(); session.setId("session-queue");
+        AgentTask queuedTask = new AgentTask(); queuedTask.setId("task-queue");
+        when(agentConversationService.getById("conversation-queue")).thenReturn(conversation);
+        when(agentSessionService.getOrCreate("conversation-queue", "user-queue", "agent-queue")).thenReturn(session);
+        when(agentSessionService.claimTask("session-queue", "task-queue")).thenReturn(false);
+        when(agentTaskService.create("session-queue", "user-queue", "agent-queue", "稍后处理")).thenReturn(queuedTask);
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> { invocation.<AgentMessage>getArgument(0).setId("message-queue"); return true; });
+        when(agentRunService.save(any(AgentRun.class))).thenAnswer(invocation -> { invocation.<AgentRun>getArgument(0).setId("run-queue"); return true; });
+        when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
+        when(toolCatalog.getBoundTools("agent-queue")).thenReturn(Collections.emptyList());
+
+        assertEquals("run-queue", service.startRun(agent, "user-queue", "conversation-queue", "稍后处理", Collections.emptyList()));
+
+        verify(agentTaskService).updateStatus("task-queue", "QUEUED", "run-queue", "等待当前任务完成");
+        verifyNoInteractions(signingClient);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void prioritizesSessionMemoryRelevantToCurrentTask() {
+        AgentSessionMemory unrelated = new AgentSessionMemory();
+        unrelated.setImportance(80); unrelated.setContent("上次已生成市场报表");
+        AgentSessionMemory relevant = new AgentSessionMemory();
+        relevant.setImportance(80); relevant.setContent("合同风险已完成初步核查");
+        when(agentSessionMemoryService.listInjectable("session-memory", 12))
+                .thenReturn(Arrays.asList(unrelated, relevant));
+
+        List<Map<String, String>> memory = (List<Map<String, String>>) ReflectionTestUtils.invokeMethod(
+                service, "buildConversationMemory", "", "session-memory", "", "继续处理合同风险");
+
+        assertEquals("【已完成任务结论】合同风险已完成初步核查", memory.get(0).get("content"));
+    }
+
+    @Test
+    void startRunReusesPausedTaskForExplicitContinuation() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-continue"); agent.setSystemPrompt("你是助手");
+        AgentConversation conversation = new AgentConversation(); conversation.setId("conversation-continue");
+        AgentSession session = new AgentSession(); session.setId("session-continue");
+        AgentTask pausedTask = new AgentTask();
+        pausedTask.setId("task-paused"); pausedTask.setStatus("PAUSED"); pausedTask.setTitle("分析合同风险");
+        AgentRun previousRun = new AgentRun(); previousRun.setAttemptNo(2);
+        when(agentConversationService.getById("conversation-continue")).thenReturn(conversation);
+        when(agentSessionService.getOrCreate("conversation-continue", "user-continue", "agent-continue")).thenReturn(session);
+        when(agentTaskService.findActive("session-continue")).thenReturn(pausedTask);
+        when(agentRunService.getOne(any(), eq(false))).thenReturn(previousRun);
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> { invocation.<AgentMessage>getArgument(0).setId("message-continue"); return true; });
+        when(agentRunService.save(any(AgentRun.class))).thenAnswer(invocation -> { invocation.<AgentRun>getArgument(0).setId("run-continue"); return true; });
+        when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
+        when(toolCatalog.getBoundTools("agent-continue")).thenReturn(Collections.emptyList());
+        when(delegationTokenService.create(eq("run-continue"), eq("user-continue"), eq("agent-continue"), anyList())).thenReturn("token");
+        when(signingClient.signedPost(eq("/v1/runs"), anyMap())).thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
+
+        assertEquals("run-continue", service.startRun(agent, "user-continue", "conversation-continue", "继续分析刚才的高风险条款", Collections.emptyList()));
+
+        ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
+        verify(agentRunService).save(runCaptor.capture());
+        assertEquals("task-paused", runCaptor.getValue().getTaskId());
+        assertEquals(3, runCaptor.getValue().getAttemptNo());
+        verify(agentTaskService, never()).create(anyString(), anyString(), anyString(), anyString());
+        verify(agentSessionService, never()).claimTask(anyString(), anyString());
+        ArgumentCaptor<Map<String, Object>> requestCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(signingClient).signedPost(eq("/v1/runs"), requestCaptor.capture());
+        assertEquals("CONTINUE", ((Map<String, Object>) requestCaptor.getValue().get("task_state")).get("routing"));
+        verify(agentTaskEventService).record("task-paused", "run-continue", "task.routed", "识别为对暂停任务的明确补充或继续");
     }
 
     @Test
@@ -216,6 +320,19 @@ class DeepAgentRunServiceTest {
         assertTrue(first);
         assertFalse(second);
         verify(agentRunStepService, times(2)).saveIfAbsent(any(AgentRunStep.class));
+    }
+
+    @Test
+    void pausedCallbackProjectsTaskAndSessionState() {
+        AgentRun run = deepRun("run-paused", "conversation-1", 4);
+        run.setSessionId("session-1"); run.setTaskId("task-1");
+        when(agentRunService.getById("run-paused")).thenReturn(run);
+        when(agentRunService.update(isNull(), any())).thenReturn(true);
+
+        assertTrue(service.markPausedFromCallback("run-paused", "服务重启"));
+
+        verify(agentTaskService).updateStatus("task-1", "PAUSED", "run-paused", "服务重启");
+        verify(agentSessionService).updateTaskState("session-1", "task-1", "PAUSED");
     }
 
     @Test

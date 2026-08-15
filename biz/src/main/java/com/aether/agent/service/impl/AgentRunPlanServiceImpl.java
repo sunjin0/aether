@@ -1,9 +1,131 @@
 package com.aether.agent.service.impl;
-import com.aether.agent.entity.*; import com.aether.agent.mapper.*; import com.aether.agent.service.AgentRunPlanService; import com.aether.agent.vo.AgentRunPlanVo; import com.alibaba.fastjson2.JSON; import com.alibaba.fastjson2.JSONArray; import com.alibaba.fastjson2.JSONObject; import com.baomidou.mybatisplus.core.toolkit.Wrappers; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional; import java.util.*; import java.util.stream.Collectors;
-@Service public class AgentRunPlanServiceImpl implements AgentRunPlanService {
- private final AgentRunPlanMapper plans; private final AgentRunPlanVersionMapper versions; private final AgentRunPlanStepMapper steps;
- public AgentRunPlanServiceImpl(AgentRunPlanMapper plans, AgentRunPlanVersionMapper versions, AgentRunPlanStepMapper steps){this.plans=plans;this.versions=versions;this.steps=steps;}
- @Override @Transactional(rollbackFor=Exception.class) public void recordPlan(String runId,String reason,String summary,String snapshot){ long now=System.currentTimeMillis(); AgentRunPlan plan=plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId,runId)); if(plan==null){plan=new AgentRunPlan();plan.setRunId(runId);plan.setCurrentVersion(0);plans.insert(plan);} int version=(plan.getCurrentVersion()==null?0:plan.getCurrentVersion())+1; AgentRunPlanVersion item=new AgentRunPlanVersion();item.setPlanId(plan.getId());item.setVersion(version);item.setReason(reason);item.setSummary(summary);item.setSnapshot(snapshot);versions.insert(item); JSONArray tasks=JSON.parseObject(snapshot).getJSONArray("tasks"); if(tasks!=null) for(int i=0;i<tasks.size();i++){JSONObject task=tasks.getJSONObject(i);AgentRunPlanStep step=new AgentRunPlanStep();step.setPlanVersionId(item.getId());step.setStepKey(task.getString("id"));step.setSequence(i+1);step.setTitle(task.getString("title"));step.setStatus(task.getString("status"));steps.insert(step);} plan.setCurrentVersion(version);plan.setStatus("RUNNING");plan.setLastActiveAt(now);plans.updateById(plan); }
- @Override public void markPaused(String runId,String reason){ updateStatus(runId,"PAUSED",reason); } @Override public void markRunning(String runId){updateStatus(runId,"RUNNING",null);} private void updateStatus(String runId,String status,String reason){AgentRunPlan p=plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId,runId));if(p!=null){p.setStatus(status);p.setPauseReason(reason);p.setLastActiveAt(System.currentTimeMillis());plans.updateById(p);}}
- @Override public AgentRunPlanVo detail(String runId){AgentRunPlan p=plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId,runId));if(p==null)return null;AgentRunPlanVo vo=new AgentRunPlanVo();vo.setRunId(runId);vo.setStatus(p.getStatus());vo.setPauseReason(p.getPauseReason());vo.setCurrentVersion(p.getCurrentVersion());vo.setCurrentStepId(p.getCurrentStepId());vo.setLastActiveAt(p.getLastActiveAt());vo.setVersions(versions.selectList(Wrappers.lambdaQuery(AgentRunPlanVersion.class).eq(AgentRunPlanVersion::getPlanId,p.getId()).orderByAsc(AgentRunPlanVersion::getVersion)).stream().map(v->{AgentRunPlanVo.Version x=new AgentRunPlanVo.Version();x.setVersion(v.getVersion());x.setReason(v.getReason());x.setSummary(v.getSummary());x.setSteps(steps.selectList(Wrappers.lambdaQuery(AgentRunPlanStep.class).eq(AgentRunPlanStep::getPlanVersionId,v.getId()).orderByAsc(AgentRunPlanStep::getSequence)).stream().map(s->{AgentRunPlanVo.Step y=new AgentRunPlanVo.Step();y.setId(s.getId());y.setStepKey(s.getStepKey());y.setSequence(s.getSequence());y.setTitle(s.getTitle());y.setStatus(s.getStatus());y.setResultSummary(s.getResultSummary());y.setAttemptCount(s.getAttemptCount());y.setStartedAt(s.getStartedAt());y.setCompletedAt(s.getCompletedAt());return y;}).collect(Collectors.toList()));return x;}).collect(Collectors.toList()));return vo;}
+
+import com.aether.agent.entity.*;
+import com.aether.agent.mapper.*;
+import com.aether.agent.service.AgentRunPlanService;
+import com.aether.agent.vo.AgentRunPlanVo;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONObject;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+/** 将公开计划投影为可审计、可恢复的版本化步骤。 */
+@Service
+public class AgentRunPlanServiceImpl implements AgentRunPlanService {
+    private final AgentRunPlanMapper plans;
+    private final AgentRunPlanVersionMapper versions;
+    private final AgentRunPlanStepMapper steps;
+
+    public AgentRunPlanServiceImpl(AgentRunPlanMapper plans, AgentRunPlanVersionMapper versions,
+                                   AgentRunPlanStepMapper steps) {
+        this.plans = plans; this.versions = versions; this.steps = steps;
+    }
+
+    @Override public void recordPlan(String runId, String reason, String summary, String snapshot) {
+        recordPlan(runId, null, reason, summary, snapshot);
+    }
+
+    @Override @Transactional(rollbackFor = Exception.class)
+    public void recordPlan(String runId, String taskId, String reason, String summary, String snapshot) {
+        long now = System.currentTimeMillis();
+        // Task 是长期工作单元，Run 只是其中一次尝试；继续/目标变更必须沿用同一计划历史。
+        AgentRunPlan plan = StringUtils.isBlank(taskId) ? null : plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class)
+                .eq(AgentRunPlan::getTaskId, taskId).eq(AgentRunPlan::getDeleted, false)
+                .orderByDesc(AgentRunPlan::getUpdatedAt).last("LIMIT 1"));
+        if (plan == null) {
+            plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
+        }
+        if (plan == null) {
+            plan = new AgentRunPlan(); plan.setRunId(runId); plan.setTaskId(taskId); plan.setCurrentVersion(0); plans.insert(plan);
+        } else {
+            boolean changed = false;
+            if (taskId != null && plan.getTaskId() == null) { plan.setTaskId(taskId); changed = true; }
+            if (!runId.equals(plan.getRunId())) { plan.setRunId(runId); changed = true; }
+            if (changed) plans.updateById(plan);
+        }
+        List<AgentRunPlanVersion> history = versions.selectList(Wrappers.lambdaQuery(AgentRunPlanVersion.class)
+                .eq(AgentRunPlanVersion::getPlanId, plan.getId()).orderByAsc(AgentRunPlanVersion::getVersion));
+        AgentRunPlanVersion priorVersion = history.isEmpty() ? null : history.get(history.size() - 1);
+        List<AgentRunPlanStep> priorSteps = priorVersion == null ? Collections.emptyList() : steps.selectList(
+                Wrappers.lambdaQuery(AgentRunPlanStep.class).eq(AgentRunPlanStep::getPlanVersionId, priorVersion.getId())
+                        .orderByAsc(AgentRunPlanStep::getSequence));
+        Map<String, AgentRunPlanStep> priorByKey = priorSteps.stream().filter(step -> StringUtils.isNotBlank(step.getStepKey()))
+                .collect(Collectors.toMap(AgentRunPlanStep::getStepKey, step -> step, (left, right) -> left));
+        JSONObject parsed = parseSnapshot(snapshot);
+        JSONArray tasks = parsed.getJSONArray("tasks");
+        int versionNo = (plan.getCurrentVersion() == null ? 0 : plan.getCurrentVersion()) + 1;
+        AgentRunPlanVersion version = new AgentRunPlanVersion();
+        version.setPlanId(plan.getId()); version.setVersion(versionNo); version.setReason(normalizeReason(reason));
+        version.setSummary(StringUtils.abbreviate(StringUtils.defaultString(summary), 500)); version.setSnapshot(parsed.toJSONString());
+        versions.insert(version);
+
+        List<AgentRunPlanStep> currentSteps = new ArrayList<AgentRunPlanStep>();
+        if (tasks != null) for (int index = 0; index < tasks.size(); index++) {
+            JSONObject task = tasks.getJSONObject(index);
+            String key = StringUtils.defaultIfBlank(task.getString("id"), "step-" + (index + 1));
+            AgentRunPlanStep prior = priorByKey.get(key);
+            AgentRunPlanStep step = new AgentRunPlanStep();
+            step.setPlanVersionId(version.getId()); step.setStepKey(key); step.setSequence(index + 1);
+            step.setTitle(StringUtils.abbreviate(StringUtils.defaultIfBlank(task.getString("title"), "步骤 " + (index + 1)), 500));
+            step.setStatus(resolveStatus(task.getString("status"), prior));
+            step.setResultSummary(StringUtils.abbreviate(StringUtils.defaultIfBlank(task.getString("resultSummary"), prior == null ? null : prior.getResultSummary()), 2000));
+            step.setIdempotencyKey(StringUtils.defaultIfBlank(task.getString("idempotencyKey"), stableStepKey(taskId, runId, key)));
+            step.setAttemptCount(task.getInteger("attemptCount") == null ? (prior == null || prior.getAttemptCount() == null ? 0 : prior.getAttemptCount()) : task.getInteger("attemptCount"));
+            step.setStartedAt(task.getLong("startedAt"));
+            step.setCompletedAt("COMPLETED".equals(step.getStatus()) ? (task.getLong("completedAt") == null ? now : task.getLong("completedAt")) : null);
+            steps.insert(step); currentSteps.add(step);
+        }
+        // 旧版本中未完成的步骤明确失效，恢复时不会重放过时副作用。
+        for (AgentRunPlanStep prior : priorSteps) if (!"COMPLETED".equals(prior.getStatus())) {
+            prior.setStatus("SUPERSEDED"); steps.updateById(prior);
+        }
+        plan.setCurrentVersion(versionNo); plan.setStatus("RUNNING"); plan.setLastActiveAt(now);
+        AgentRunPlanStep current = currentSteps.stream().filter(step -> !"COMPLETED".equals(step.getStatus()))
+                .min(Comparator.comparing(AgentRunPlanStep::getSequence)).orElse(null);
+        plan.setCurrentStepId(current == null ? null : current.getId()); plans.updateById(plan);
+    }
+
+    private JSONObject parseSnapshot(String snapshot) {
+        try { JSONObject result = JSON.parseObject(snapshot); return result == null ? new JSONObject() : result; }
+        catch (Exception ignored) { return new JSONObject(); }
+    }
+    private String normalizeReason(String reason) {
+        return Arrays.asList("INITIAL", "TOOL_RESULT", "USER_INPUT", "GOAL_CHANGED", "STEP_FAILED", "RESUME", "COMPLETED").contains(reason) ? reason : "OBSERVATION";
+    }
+    private String resolveStatus(String incoming, AgentRunPlanStep prior) {
+        return prior != null && "COMPLETED".equals(prior.getStatus()) ? "COMPLETED" : StringUtils.defaultIfBlank(incoming, "PENDING");
+    }
+    private String stableStepKey(String taskId, String runId, String stepKey) { return StringUtils.defaultIfBlank(taskId, runId) + ":" + stepKey; }
+
+    @Override public void markPaused(String runId, String reason) { updateStatus(runId, "PAUSED", reason); }
+    @Override public void markRunning(String runId) { updateStatus(runId, "RUNNING", null); }
+    private void updateStatus(String runId, String status, String reason) {
+        AgentRunPlan plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
+        if (plan != null) { plan.setStatus(status); plan.setPauseReason(reason); plan.setLastActiveAt(System.currentTimeMillis()); plans.updateById(plan); }
+    }
+
+    @Override public AgentRunPlanVo detail(String runId) {
+        AgentRunPlan plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
+        if (plan == null) return null;
+        AgentRunPlanVo view = new AgentRunPlanVo(); view.setRunId(runId); view.setStatus(plan.getStatus()); view.setPauseReason(plan.getPauseReason());
+        view.setCurrentVersion(plan.getCurrentVersion()); view.setCurrentStepId(plan.getCurrentStepId()); view.setLastActiveAt(plan.getLastActiveAt());
+        view.setVersions(versions.selectList(Wrappers.lambdaQuery(AgentRunPlanVersion.class).eq(AgentRunPlanVersion::getPlanId, plan.getId()).orderByAsc(AgentRunPlanVersion::getVersion))
+                .stream().map(this::toView).collect(Collectors.toList())); return view;
+    }
+    private AgentRunPlanVo.Version toView(AgentRunPlanVersion version) {
+        AgentRunPlanVo.Version view = new AgentRunPlanVo.Version(); view.setVersion(version.getVersion()); view.setReason(version.getReason()); view.setSummary(version.getSummary());
+        view.setSteps(steps.selectList(Wrappers.lambdaQuery(AgentRunPlanStep.class).eq(AgentRunPlanStep::getPlanVersionId, version.getId()).orderByAsc(AgentRunPlanStep::getSequence)).stream().map(step -> {
+            AgentRunPlanVo.Step item = new AgentRunPlanVo.Step(); item.setId(step.getId()); item.setStepKey(step.getStepKey()); item.setSequence(step.getSequence()); item.setTitle(step.getTitle()); item.setStatus(step.getStatus()); item.setResultSummary(step.getResultSummary()); item.setAttemptCount(step.getAttemptCount()); item.setStartedAt(step.getStartedAt()); item.setCompletedAt(step.getCompletedAt()); return item;
+        }).collect(Collectors.toList())); return view;
+    }
+    @Override public AgentRunPlanVo detailByTaskId(String taskId) {
+        AgentRunPlan plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getTaskId, taskId).eq(AgentRunPlan::getDeleted, false).orderByDesc(AgentRunPlan::getUpdatedAt).last("LIMIT 1"));
+        return plan == null ? null : detail(plan.getRunId());
+    }
 }

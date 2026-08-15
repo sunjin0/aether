@@ -3,10 +3,13 @@ package com.aether.agent.service;
 import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.entity.*;
 import com.aether.agent.model.ModelStreamResponse;
+import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.skill.service.SkillRuntimeContext;
 import com.aether.agent.skill.service.SkillArtifactExecutionService;
+import com.aether.sys.entity.AdminPreference;
+import com.aether.sys.service.AdminPreferenceService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -44,6 +47,12 @@ public class DeepAgentRunService {
     private final DelegationTokenService delegationTokenService;
     private final AgentToolCatalog toolCatalog;
     private final KnowledgeContextService knowledgeContextService;
+    private final ConversationContextService conversationContextService;
+    private final AgentSessionService agentSessionService;
+    private final AgentTaskService agentTaskService;
+    private final AgentTaskEventService agentTaskEventService;
+    private final AgentSessionMemoryService agentSessionMemoryService;
+    private final AdminPreferenceService adminPreferenceService;
     private final SkillArtifactExecutionService artifactExecutionService;
     private final DeepAgentConfig config;
 
@@ -56,6 +65,12 @@ public class DeepAgentRunService {
                                DelegationTokenService delegationTokenService,
                                AgentToolCatalog toolCatalog,
                                KnowledgeContextService knowledgeContextService,
+                               ConversationContextService conversationContextService,
+                               AgentSessionService agentSessionService,
+                               AgentTaskService agentTaskService,
+                               AgentTaskEventService agentTaskEventService,
+                               AgentSessionMemoryService agentSessionMemoryService,
+                               AdminPreferenceService adminPreferenceService,
                                SkillArtifactExecutionService artifactExecutionService,
                                DeepAgentConfig config) {
         this.agentRunService = agentRunService;
@@ -67,6 +82,12 @@ public class DeepAgentRunService {
         this.delegationTokenService = delegationTokenService;
         this.toolCatalog = toolCatalog;
         this.knowledgeContextService = knowledgeContextService;
+        this.conversationContextService = conversationContextService;
+        this.agentSessionService = agentSessionService;
+        this.agentTaskService = agentTaskService;
+        this.agentTaskEventService = agentTaskEventService;
+        this.agentSessionMemoryService = agentSessionMemoryService;
+        this.adminPreferenceService = adminPreferenceService;
         this.artifactExecutionService = artifactExecutionService;
         this.config = config;
     }
@@ -101,6 +122,15 @@ public class DeepAgentRunService {
                                     Consumer<String> registerCallback) {
         AgentConversation conversation = agentConversationService.getById(conversationId);
         initializeConversationTitle(conversation, task);
+        AgentSession session = agentSessionService == null ? null
+                : agentSessionService.getOrCreate(conversationId, userId, agent.getId());
+        String sessionId = session == null ? conversationId : session.getId();
+        TaskRoute route = resolveTaskRoute(sessionId, task);
+        AgentTask taskRecord = route.reuseTask || agentTaskService == null ? route.activeTask
+                : agentTaskService.create(sessionId, userId, agent.getId(), task);
+        // Read durable history before saving this request's user message so that
+        // the current task is supplied only once to the Deep Agent.
+        List<Map<String, String>> conversationMemory = buildConversationMemory(conversationId, sessionId, userId, task);
 
         AgentMessage userMsg = new AgentMessage();
         userMsg.setConversationId(conversationId);
@@ -115,6 +145,9 @@ public class DeepAgentRunService {
         run.setAgentDefinitionId(agent.getId());
         run.setUserId(userId);
         run.setConversationId(conversationId);
+        run.setSessionId(sessionId);
+        run.setTaskId(taskRecord == null ? null : taskRecord.getId());
+        run.setAttemptNo(taskRecord == null ? 1 : nextAttemptNo(taskRecord.getId()));
         run.setMessageId(userMsg.getId());
         // Replaced with the outbound Deep Agent request snapshot before dispatch.
         run.setInputContent(task);
@@ -124,6 +157,19 @@ public class DeepAgentRunService {
         run.setSkillSnapshot(snapshotWithToolApprovalPolicy(skillContext, conversation));
         agentRunService.save(run);
         String runId = run.getId();
+        boolean dispatchImmediately = taskRecord == null || agentSessionService == null || route.reuseTask
+                || agentSessionService.claimTask(sessionId, taskRecord.getId());
+        if (taskRecord != null) {
+            agentTaskService.updateStatus(taskRecord.getId(), dispatchImmediately ? "RUNNING" : "QUEUED", runId,
+                    dispatchImmediately ? null : "等待当前任务完成");
+            if (dispatchImmediately && agentSessionService != null) {
+                agentSessionService.updateTaskState(sessionId, taskRecord.getId(), "RUNNING");
+            }
+            if (agentTaskEventService != null) {
+                agentTaskEventService.record(taskRecord.getId(), runId, "task.routed",
+                        route.eventSummary());
+            }
+        }
         run.setExternalRunId(runId);
         run.setRetrievalSources(JSON.toJSONString(sources == null ? Collections.emptyList() : sources));
         if (!agentRunService.updateById(run)) {
@@ -150,7 +196,16 @@ public class DeepAgentRunService {
             request.put("user_id", userId);
             request.put("agent_id", agent.getId());
             request.put("conversation_id", conversationId);
+            request.put("session_id", sessionId);
+            request.put("task_id", run.getTaskId());
             request.put("task", buildTaskContext(task, attachmentContent));
+            Map<String, Object> taskState = new LinkedHashMap<>();
+            taskState.put("status", "RUNNING");
+            taskState.put("title", taskRecord == null ? task : taskRecord.getTitle());
+            taskState.put("attempt", run.getAttemptNo());
+            taskState.put("routing", route.name());
+            request.put("task_state", taskState);
+            request.put("conversation_memory", conversationMemory);
             request.put("system_prompt", skillContext == null ? (agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "") : skillContext.getSystemPrompt());
             request.put("knowledge_sources", knowledgeSources);
             request.put("allowed_tools", allowedTools);
@@ -166,6 +221,13 @@ public class DeepAgentRunService {
                 throw new IllegalStateException("保存 Deep Agent 输入快照失败");
             }
 
+            if (!dispatchImmediately) {
+                if (agentTaskEventService != null) {
+                    agentTaskEventService.record(run.getTaskId(), runId, "task.queued", "当前会话已有任务正在处理");
+                }
+                return runId;
+            }
+
             ResponseEntity<String> response = signingClient.signedPost("/v1/runs", request);
             if (response.getStatusCode() != HttpStatus.ACCEPTED) {
                 throw new RuntimeException("外部服务返回非 202: " + response.getStatusCodeValue());
@@ -176,6 +238,79 @@ public class DeepAgentRunService {
             log.error("创建 Deep Agent 运行失败: runId={}", runId, e);
             markFailed(runId, e.getMessage());
             throw new RuntimeException("创建 Deep Agent 运行失败: " + e.getMessage(), e);
+        }
+    }
+
+    private List<Map<String, String>> buildConversationMemory(String conversationId, String sessionId, String userId, String currentTask) {
+        List<Map<String, String>> result = new ArrayList<Map<String, String>>();
+        addConfirmedPreferences(result, userId);
+        if (agentSessionMemoryService != null && StringUtils.isNotBlank(sessionId)) {
+            List<AgentSessionMemory> memories = agentSessionMemoryService.listInjectable(sessionId, 12);
+            if (memories != null) {
+                memories = new ArrayList<AgentSessionMemory>(memories);
+                memories.sort((left, right) -> Integer.compare(memoryRelevance(right, currentTask), memoryRelevance(left, currentTask)));
+            }
+            if (memories != null) for (AgentSessionMemory memory : memories.subList(0, Math.min(4, memories.size()))) {
+                if (StringUtils.isBlank(memory.getContent())) continue;
+                Map<String, String> item = new LinkedHashMap<String, String>();
+                item.put("role", "system");
+                item.put("content", "【已完成任务结论】" + memory.getContent());
+                result.add(item);
+            }
+        }
+        if (conversationContextService != null && StringUtils.isNotBlank(conversationId)) {
+            List<ModelChatMessage> messages = conversationContextService.buildDeepSessionMemory(conversationId);
+            if (messages != null) for (ModelChatMessage message : messages) {
+                if (message == null || StringUtils.isBlank(message.getContent())) continue;
+                String role = message.getRole();
+                if (!"user".equals(role) && !"assistant".equals(role) && !"system".equals(role)) continue;
+                Map<String, String> item = new LinkedHashMap<String, String>();
+                item.put("role", role);
+                item.put("content", message.getContent());
+                result.add(item);
+            }
+        }
+        return result;
+    }
+
+    /** 不跨越 Session 权限边界，仅在已允许注入的记忆集合中按当前任务做轻量相关性排序。 */
+    private int memoryRelevance(AgentSessionMemory memory, String currentTask) {
+        if (memory == null) return Integer.MIN_VALUE;
+        String content = StringUtils.defaultString(memory.getContent()).toLowerCase(Locale.ROOT);
+        int score = memory.getImportance() == null ? 0 : memory.getImportance();
+        if (StringUtils.isBlank(currentTask) || StringUtils.isBlank(content)) return score;
+        String normalized = currentTask.toLowerCase(Locale.ROOT).replaceAll("[^\\p{IsHan}a-z0-9]+", " ").trim();
+        for (String word : normalized.split("\\s+")) {
+            if (word.length() >= 2 && content.contains(word)) score += 30;
+        }
+        String han = normalized.replaceAll("[^\\p{IsHan}]", "");
+        for (int index = 0; index + 1 < han.length(); index++) {
+            if (content.contains(han.substring(index, index + 2))) score += 8;
+        }
+        return score;
+    }
+
+    private void addConfirmedPreferences(List<Map<String, String>> target, String userId) {
+        if (adminPreferenceService == null || StringUtils.isBlank(userId)) return;
+        List<AdminPreference> preferences = adminPreferenceService.list(Wrappers.lambdaQuery(AdminPreference.class)
+                .eq(AdminPreference::getAdminId, userId)
+                .eq(AdminPreference::getSource, AdminPreference.SOURCE_EXPLICIT)
+                .eq(AdminPreference::getStatus, AdminPreference.STATUS_ENABLED)
+                .eq(AdminPreference::getDeleted, false)
+                .orderByDesc(AdminPreference::getEffectiveScore)
+                .last("limit 8"));
+        if (preferences == null || preferences.isEmpty()) return;
+        StringBuilder content = new StringBuilder("【用户已确认偏好】");
+        for (AdminPreference preference : preferences) {
+            if (StringUtils.isBlank(preference.getValue())) continue;
+            content.append("\n- ").append(StringUtils.defaultIfBlank(preference.getKeyName(), preference.getCategory()))
+                    .append("：").append(StringUtils.abbreviate(preference.getValue(), 300));
+        }
+        if (content.length() > "【用户已确认偏好】".length()) {
+            Map<String, String> item = new LinkedHashMap<String, String>();
+            item.put("role", "system");
+            item.put("content", content.toString());
+            target.add(item);
         }
     }
 
@@ -282,6 +417,7 @@ public class DeepAgentRunService {
         if (!agentMessageService.save(message)) {
             throw new IllegalStateException("保存 Deep 工具确认消息失败");
         }
+        updateTaskStatus(run, "WAITING_APPROVAL", "等待工具调用审批");
         return message;
     }
 
@@ -324,6 +460,7 @@ public class DeepAgentRunService {
         message.setInteractionStatus("pending"); message.setContent(config.getString("question"));
         message.setQuestionConfig(config.toJSONString());
         if (!agentMessageService.save(message)) throw new IllegalStateException("保存 Deep 提问消息失败");
+        updateTaskStatus(run, "WAITING_USER", "等待用户补充信息");
         return message;
     }
 
@@ -350,6 +487,7 @@ public class DeepAgentRunService {
             Map<String, Object> payload = new LinkedHashMap<>(); payload.put("run_id", runId); payload.put("answers", answer == null ? Collections.emptyMap() : answer.get("answers"));
             ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/resume", payload);
             if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 提问恢复失败");
+            updateTaskStatus(run, "RUNNING", null);
             return runId;
         }
         Object rawAnswers = answer == null ? null : answer.get("answers");
@@ -375,6 +513,7 @@ public class DeepAgentRunService {
         payload.put("decisions", decisions);
         ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/resume", payload);
         if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 恢复请求失败");
+        updateTaskStatus(run, "RUNNING", null);
         return runId;
     }
 
@@ -384,6 +523,18 @@ public class DeepAgentRunService {
         ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/pause", Collections.emptyMap());
         if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 暂停请求失败");
         AgentRun update = new AgentRun(); update.setId(runId); update.setStatus(6); agentRunService.updateById(update);
+        updateTaskStatus(run, "PAUSED", "用户暂停");
+    }
+
+    /** Deep Runtime 重启或连接中断时的回调投影，不再向外部重复发送暂停请求。 */
+    public boolean markPausedFromCallback(String runId, String reason) {
+        AgentRun run = getDeepRun(runId);
+        boolean updated = agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
+                .set(AgentRun::getStatus, 6)
+                .eq(AgentRun::getId, runId)
+                .in(AgentRun::getStatus, STATUS_QUEUED, STATUS_RUNNING));
+        if (updated) updateTaskStatus(run, "PAUSED", reason);
+        return updated;
     }
 
     public void resume(String runId, String userId) {
@@ -393,6 +544,7 @@ public class DeepAgentRunService {
         ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/resume", Collections.emptyMap());
         if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 继续请求失败");
         AgentRun update = new AgentRun(); update.setId(runId); update.setStatus(3); agentRunService.updateById(update);
+        updateTaskStatus(run, "RUNNING", null);
     }
 
     /** Re-check live binding and the immutable run scope before resuming a paused external tool call. */
@@ -529,14 +681,20 @@ public class DeepAgentRunService {
                 .eq(AgentConversation::getId, run.getConversationId())
                 .setSql("message_count = message_count + 1"));
         recordKnowledgeOutcomeAfterCommit(run, message);
+        if (agentSessionMemoryService != null) {
+            agentSessionMemoryService.recordTaskConclusion(run.getSessionId(), run.getTaskId(), runId, content);
+        }
+        updateTaskStatus(run, "COMPLETED", null);
         return new CompletedRun(run.getConversationId(), message.getId());
     }
 
     public boolean markRunning(String runId) {
-        return agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
+        boolean updated = agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
                 .set(AgentRun::getStatus, STATUS_RUNNING)
                 .eq(AgentRun::getId, runId)
                 .eq(AgentRun::getStatus, STATUS_QUEUED));
+        if (updated) updateTaskStatus(getDeepRun(runId), "RUNNING", null);
+        return updated;
     }
 
     public boolean markSucceeded(String runId, String content, String model,
@@ -553,18 +711,92 @@ public class DeepAgentRunService {
     }
 
     public boolean markFailed(String runId, String errorMsg) {
-        return agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
+        // 外部创建请求失败时，刚写入的运行记录可能尚不可重新读取；失败状态
+        // 仍必须优先落库，Task 投影则在能取得运行记录时再同步。
+        // error_msg 列为 varchar(1024)，超长错误会触发 "value too long"。
+        String safeError = StringUtils.abbreviate(errorMsg, 1024);
+        AgentRun run = null;
+        try {
+            run = getDeepRun(runId);
+        } catch (IllegalArgumentException ignored) {
+            log.warn("无法读取失败的 Deep Agent 运行记录: runId={}", runId);
+        }
+        boolean updated = agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
                 .set(AgentRun::getStatus, STATUS_FAILED)
-                .set(AgentRun::getErrorMsg, errorMsg)
+                .set(AgentRun::getErrorMsg, safeError)
                 .eq(AgentRun::getId, runId)
                 .in(AgentRun::getStatus, STATUS_QUEUED, STATUS_RUNNING));
+        if (updated) updateTaskStatus(run, "FAILED", safeError);
+        return updated;
     }
 
     public boolean markCancelled(String runId) {
-        return agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
+        AgentRun run = getDeepRun(runId);
+        boolean updated = agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
                 .set(AgentRun::getStatus, STATUS_CANCELLED)
                 .eq(AgentRun::getId, runId)
                 .in(AgentRun::getStatus, STATUS_QUEUED, STATUS_RUNNING));
+        if (updated) updateTaskStatus(run, "CANCELLED", "用户取消");
+        return updated;
+    }
+
+    private void updateTaskStatus(AgentRun run, String status, String reason) {
+        if (run != null && agentTaskService != null) {
+            agentTaskService.updateStatus(run.getTaskId(), status, run.getId(), reason);
+            if (agentSessionService != null) agentSessionService.updateTaskState(run.getSessionId(), run.getTaskId(), status);
+            if (agentTaskEventService != null) agentTaskEventService.record(run.getTaskId(), run.getId(), "task.status_changed", status + (StringUtils.isBlank(reason) ? "" : "：" + reason));
+            if ("COMPLETED".equals(status) || "FAILED".equals(status) || "CANCELLED".equals(status)) {
+                dispatchNextQueuedAfterCommit(run.getSessionId());
+            }
+        }
+    }
+
+    /** Start exactly one queued task after the active task has durably released the Session. */
+    private void dispatchNextQueuedAfterCommit(String sessionId) {
+        if (StringUtils.isBlank(sessionId) || agentTaskService == null || agentSessionService == null) return;
+        Runnable dispatch = () -> {
+            AgentTask next = agentTaskService.nextQueued(sessionId);
+            if (next == null || !agentSessionService.claimTask(sessionId, next.getId())) return;
+            AgentRun nextRun = agentRunService.getOne(Wrappers.lambdaQuery(AgentRun.class)
+                    .eq(AgentRun::getTaskId, next.getId())
+                    .eq(AgentRun::getExecutionMode, "DEEP")
+                    .eq(AgentRun::getStatus, STATUS_QUEUED)
+                    .eq(AgentRun::getDeleted, false)
+                    .orderByAsc(AgentRun::getCreatedAt).last("limit 1"));
+            if (nextRun == null) {
+                agentTaskService.updateStatus(next.getId(), "FAILED", null, "缺少排队运行快照");
+                agentSessionService.updateTaskState(sessionId, next.getId(), "FAILED");
+                return;
+            }
+            try {
+                JSONObject request = JSON.parseObject(nextRun.getInputContent());
+                if (request == null) throw new IllegalStateException("排队运行输入快照无效");
+                JSONArray allowedTools = request.getJSONArray("allowed_tools");
+                List<String> toolNames = allowedTools == null ? Collections.<String>emptyList()
+                        : allowedTools.toJavaList(String.class);
+                request.put("delegation_token", delegationTokenService.create(nextRun.getId(), nextRun.getUserId(),
+                        nextRun.getAgentDefinitionId(), toolNames));
+                agentTaskService.updateStatus(next.getId(), "RUNNING", nextRun.getId(), null);
+                agentSessionService.updateTaskState(sessionId, next.getId(), "RUNNING");
+                ResponseEntity<String> response = signingClient.signedPost("/v1/runs", request);
+                if (response.getStatusCode() != HttpStatus.ACCEPTED) {
+                    throw new IllegalStateException("排队 Deep Agent 请求失败: " + response.getStatusCodeValue());
+                }
+                if (agentTaskEventService != null) {
+                    agentTaskEventService.record(next.getId(), nextRun.getId(), "task.dispatched", "已从会话队列开始执行");
+                }
+            } catch (Exception error) {
+                log.error("派发排队 Deep Agent 任务失败: taskId={}", next.getId(), error);
+                markFailed(nextRun.getId(), error.getMessage());
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { dispatch.run(); }
+            });
+        } else {
+            dispatch.run();
+        }
     }
 
     public AgentRun getDeepRunForReconciliation(String runId) {
@@ -595,6 +827,60 @@ public class DeepAgentRunService {
             result.add(ks);
         }
         return result;
+    }
+
+    /**
+     * 将后续消息先归入当前 Session，而不是机械地把每句话都当成独立任务。
+     * 仅在当前任务已暂停且用户给出明确延续或改目标指令时复用 Task；运行中、排队中
+     * 的任务仍按串行队列处理，避免两次 Deep 调用并发修改同一图线程。
+     */
+    private TaskRoute resolveTaskRoute(String sessionId, String input) {
+        if (agentTaskService == null) return TaskRoute.NEW_TASK;
+        AgentTask active = agentTaskService.findActive(sessionId);
+        if (active == null || !"PAUSED".equals(active.getStatus())) return TaskRoute.NEW_TASK;
+        String normalized = StringUtils.defaultString(input).trim().toLowerCase(Locale.ROOT);
+        if (containsAny(normalized, "改为", "改成", "换成", "调整为", "不再", "取消原", "变更目标")) {
+            return TaskRoute.goalChanged(active);
+        }
+        if (containsAny(normalized, "继续", "接着", "按刚才", "基于刚才", "根据刚才", "补充", "上一步", "上述", "刚才的", "之前的")) {
+            return TaskRoute.continueTask(active);
+        }
+        return TaskRoute.NEW_TASK;
+    }
+
+    private boolean containsAny(String value, String... candidates) {
+        for (String candidate : candidates) {
+            if (value.contains(candidate)) return true;
+        }
+        return false;
+    }
+
+    private int nextAttemptNo(String taskId) {
+        if (StringUtils.isBlank(taskId)) return 1;
+        AgentRun latestRun = agentRunService.getOne(Wrappers.lambdaQuery(AgentRun.class)
+                .eq(AgentRun::getTaskId, taskId).eq(AgentRun::getExecutionMode, "DEEP")
+                .eq(AgentRun::getDeleted, false).orderByDesc(AgentRun::getAttemptNo).last("limit 1"), false);
+        return latestRun == null || latestRun.getAttemptNo() == null ? 1 : latestRun.getAttemptNo() + 1;
+    }
+
+    private static final class TaskRoute {
+        private static final TaskRoute NEW_TASK = new TaskRoute("NEW_TASK", null, false, "创建新的会话任务");
+        private final String type;
+        private final AgentTask activeTask;
+        private final boolean reuseTask;
+        private final String summary;
+
+        private TaskRoute(String type, AgentTask activeTask, boolean reuseTask, String summary) {
+            this.type = type; this.activeTask = activeTask; this.reuseTask = reuseTask; this.summary = summary;
+        }
+        private static TaskRoute continueTask(AgentTask task) {
+            return new TaskRoute("CONTINUE", task, true, "识别为对暂停任务的明确补充或继续");
+        }
+        private static TaskRoute goalChanged(AgentTask task) {
+            return new TaskRoute("GOAL_CHANGED", task, true, "识别为对暂停任务的目标变更");
+        }
+        private String name() { return type; }
+        private String eventSummary() { return summary; }
     }
 
     private String truncate(String value, int maxLength) {

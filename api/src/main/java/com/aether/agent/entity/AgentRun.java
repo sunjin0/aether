@@ -27,6 +27,16 @@ public class AgentRun extends BaseEntity {
     @ApiModelProperty(value = "关联会话ID")
     private String conversationId;
 
+    @ApiModelProperty(value = "持续 Agent 会话 ID")
+    private String sessionId;
+
+    @ApiModelProperty(value = "持续 Agent 任务 ID")
+    private String taskId;
+
+    /** 同一 Task 的第几次执行尝试；恢复/补充输入创建新 Run 时递增。 */
+    @ApiModelProperty(value = "Task execution attempt number")
+    private Integer attemptNo;
+
     @ApiModelProperty(value = "关联输出消息ID")
     private String messageId;
 

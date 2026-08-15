@@ -157,10 +157,14 @@ public class DeepAgentCallbackController {
                         deepAgentRunService.markRunning(runId);
                         break;
                     case "plan.updated":
-                        planService.recordPlan(runId, "OBSERVATION", eventData == null ? null : eventData.getString("summary"), dataJson);
+                        AgentRun plannedRun = deepAgentRunService.getDeepRunForReconciliation(runId);
+                        planService.recordPlan(runId, plannedRun.getTaskId(), planReason(eventData),
+                                eventData == null ? null : eventData.getString("summary"), dataJson);
                         break;
                     case "run.paused":
-                        planService.markPaused(runId, "用户暂停或服务中断");
+                        String pauseReason = "用户暂停或服务中断";
+                        deepAgentRunService.markPausedFromCallback(runId, pauseReason);
+                        planService.markPaused(runId, pauseReason);
                         break;
                     case "tool.approval.required":
                         AgentMessage approval = deepAgentRunService.createToolApproval(runId, dataJson);
@@ -375,5 +379,15 @@ public class DeepAgentCallbackController {
         Mac mac = Mac.getInstance(HMAC_ALGORITHM);
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM));
         return mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String planReason(JSONObject data) {
+        String reason = data == null ? null : data.getString("reason");
+        if ("INITIAL".equals(reason) || "TOOL_RESULT".equals(reason) || "USER_INPUT".equals(reason)
+                || "GOAL_CHANGED".equals(reason) || "STEP_FAILED".equals(reason)
+                || "RESUME".equals(reason) || "COMPLETED".equals(reason)) {
+            return reason;
+        }
+        return "OBSERVATION";
     }
 }

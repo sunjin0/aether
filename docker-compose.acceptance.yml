@@ -1,4 +1,7 @@
-# 一键部署：PostgreSQL、Redis、MinIO、Admin、Dashboard、Deep Agent 与 MCP。
+# 持续智能体发布前验收的本地构建 Compose。
+# 与 docker-compose.all.yml 的区别：四个应用服务全部从本地工作区构建，
+# 从而纳入未推送的 Session/Task 工作区改动，而不是从 GitHub 远端拉取。
+# 用法：docker compose -f docker-compose.acceptance.yml up -d
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -57,8 +60,7 @@ services:
 
   admin:
     build:
-      # 直接由 BuildKit 从 Git 仓库拉取源码，部署机无需预先检出项目。
-      context: "${AETHER_ADMIN_GIT_URL:-https://github.com/sunjin0/aether.git}#${AETHER_ADMIN_GIT_REF:-master}"
+      context: "C:/Users/23672/Desktop/Project/aether"
       dockerfile: admin/Dockerfile
     container_name: aether-admin
     restart: unless-stopped
@@ -93,7 +95,7 @@ services:
 
   deep-agent:
     build:
-      context: "${AETHER_DEEP_AGENT_GIT_URL:-https://github.com/sunjin0/aether-deep-agent-service.git}#${AETHER_DEEP_AGENT_GIT_REF:-master}"
+      context: "C:/Users/23672/PycharmProjects/aether-deep-agent-service"
     container_name: aether-deep-agent
     restart: unless-stopped
     ports:
@@ -119,14 +121,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      admin:
-        condition: service_started
-      mcp:
-        condition: service_started
 
   mcp:
     build:
-      context: "${AETHER_MCP_GIT_URL:-https://github.com/sunjin0/aether-mcp-server.git}#${AETHER_MCP_GIT_REF:-master}"
+      context: "C:/Users/23672/PycharmProjects/aether-mcp-server"
     container_name: aether-mcp
     restart: unless-stopped
     command: ["http", "--auth", "--host", "0.0.0.0", "--port", "8000"]
@@ -135,6 +133,7 @@ services:
     environment:
       HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
       AETHER_MCP_DELEGATION_SECRET: ${AETHER_MCP_DELEGATION_SECRET:-aether-mcp-delegation-dev-secret-change-me}
+      AETHER_ADMIN_INTERNAL_URL: ${AETHER_ADMIN_INTERNAL_URL:-http://aether-admin:8080}
     volumes:
       - mcp-huggingface-cache:/root/.cache/huggingface
       - mcp-docling-cache:/root/.cache/docling
@@ -142,46 +141,9 @@ services:
       aether-services:
         aliases: [aether-mcp]
 
-  # The only control-plane service with Docker-socket access.  It polls Admin,
-  # then starts a separate no-network, unprivileged job container per task.
-  sandbox-runner:
-    build:
-      context: "${AETHER_MCP_GIT_URL:-https://github.com/sunjin0/aether-mcp-server.git}#${AETHER_MCP_GIT_REF:-master}"
-      dockerfile: sandbox-runner/Dockerfile
-    container_name: aether-sandbox-runner
-    restart: unless-stopped
-    environment:
-      AETHER_ADMIN_INTERNAL_URL: ${AETHER_SANDBOX_ADMIN_URL:-http://aether-admin:8080}
-      AETHER_SANDBOX_RUNNER_TOKEN: ${AETHER_SANDBOX_RUNNER_TOKEN:-aether-sandbox-runner-dev-secret-change-me}
-      AETHER_SANDBOX_PYTHON_IMAGE: ${AETHER_SANDBOX_PYTHON_IMAGE:-aether-sandbox-python:1}
-      AETHER_SANDBOX_NODE_IMAGE: ${AETHER_SANDBOX_NODE_IMAGE:-aether-sandbox-node:1}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks: [aether-services]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      admin:
-        condition: service_started
-
-  sandbox-runtime-python:
-    image: aether-sandbox-python:1
-    build:
-      context: "${AETHER_MCP_GIT_URL:-https://github.com/sunjin0/aether-mcp-server.git}#${AETHER_MCP_GIT_REF:-master}"
-      dockerfile: sandbox-runtime/python.Dockerfile
-    command: ["true"]
-
-  sandbox-runtime-node:
-    image: aether-sandbox-node:1
-    build:
-      context: "${AETHER_MCP_GIT_URL:-https://github.com/sunjin0/aether-mcp-server.git}#${AETHER_MCP_GIT_REF:-master}"
-      dockerfile: sandbox-runtime/node.Dockerfile
-    command: ["true"]
-
   dashboard:
     build:
-      context: "${AETHER_DASHBOARD_GIT_URL:-https://github.com/sunjin0/aether-dashboard.git}#${AETHER_DASHBOARD_GIT_REF:-master}"
-      dockerfile: Dockerfile
+      context: "C:/Users/23672/WebstormProjects/aether-dashboard"
     container_name: aether-dashboard
     restart: unless-stopped
     ports:
@@ -195,18 +157,12 @@ services:
         aliases: [aether-dashboard]
 
 networks:
-  # 本 Compose 自动创建的内部共享网络。
   aether-services:
     name: ${AETHER_SHARED_NETWORK:-aether-services}
 
 volumes:
-  # PostgreSQL 数据持久化卷。
   postgres-data:
-  # Redis AOF 持久化卷。
   redis-data:
-  # MinIO 对象存储数据持久化卷。
   minio-data:
-  # MCP 下载的 Hugging Face 模型缓存，避免镜像重建后重复下载。
   mcp-huggingface-cache:
-  # MCP 文档解析器缓存，避免镜像重建后重复下载。
   mcp-docling-cache:

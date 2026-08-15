@@ -172,6 +172,9 @@ public class AgentRunController {
             throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
         }
         AgentRunPlanVo plan = planService.detail(id);
+        if (plan == null && StringUtils.isNotBlank(run.getTaskId())) {
+            plan = planService.detailByTaskId(run.getTaskId());
+        }
         // Deep Agent 已受理但尚未完成首次规划时，前端应保持等待状态而不是展示 404。
         if (plan == null) {
             plan = new AgentRunPlanVo();

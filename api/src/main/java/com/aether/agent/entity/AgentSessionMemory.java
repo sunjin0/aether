@@ -1,0 +1,22 @@
+package com.aether.agent.entity;
+
+import com.aether.entity.BaseEntity;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+@TableName("agent_session_memory")
+public class AgentSessionMemory extends BaseEntity {
+    private String sessionId;
+    private String memoryType;
+    private String content;
+    private String summary;
+    private String sourceTaskId;
+    private String sourceRunId;
+    private Integer importance;
+    private String sensitivityLevel;
+    private Long expiresAt;
+    private Integer memoryVersion;
+}
