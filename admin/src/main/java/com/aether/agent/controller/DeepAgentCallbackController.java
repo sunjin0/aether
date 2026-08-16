@@ -258,7 +258,7 @@ public class DeepAgentCallbackController {
                         DeepRunEventHub.publish(runId, "question", planQuestion.toJSONString(), false);
                         break;
                     case "run.completed":
-                        handleCompleted(runId, dataJson, activeCallbacks.get(runId));
+                        handleCompleted(runId, dataJson, activeCallbacks.get(runId), occurredAt);
                         break;
                     case "run.failed":
                         JSONObject errorData = JSON.parseObject(dataJson);
@@ -321,17 +321,22 @@ public class DeepAgentCallbackController {
         }
     }
 
-    private void handleCompleted(String runId, String dataJson, AgentStreamCallback callback) {
+    /**
+     * 完成回调除最终内容与用量外，还携带请求耗时（latencyMs，缺失时按步骤时间差估算）
+     * 与请求时间（requestTime），保证 Deep 模式的审计信息与标准模式一致。
+     */
+    private void handleCompleted(String runId, String dataJson, AgentStreamCallback callback, long occurredAt) {
         JSONObject data = JSON.parseObject(dataJson);
         String content = data.getString("content");
         String model = data.getString("model");
         Integer promptTokens = integerValue(data, "prompt_tokens", "promptTokens");
         Integer completionTokens = integerValue(data, "completion_tokens", "completionTokens");
         Integer totalTokens = integerValue(data, "total_tokens", "totalTokens");
+        Integer latencyMs = integerValue(data, "latency_ms", "latencyMs");
         DeepAgentRunService.CompletedRun completed = deepAgentRunService.completeRun(runId, content, model,
                 promptTokens, completionTokens, totalTokens, stringValue(data, "reasoning_content", "reasoningContent"),
                 integerValue(data, "reasoning_tokens", "reasoningTokens"), jsonField(data, "tool_calls", "toolCalls"),
-                jsonField(data, "sources", "citations"));
+                jsonField(data, "sources", "citations"), latencyMs, occurredAt);
         if (completed == null) {
             return;
         }
@@ -344,6 +349,8 @@ public class DeepAgentCallbackController {
             done.put("promptTokens", promptTokens);
             done.put("completionTokens", completionTokens);
             done.put("totalTokens", totalTokens);
+            done.put("latencyMs", completed.getLatencyMs());
+            done.put("requestTime", completed.getRequestTime());
             done.put("sources", sourceList(data, "sources"));
             DeepRunEventHub.publish(runId, "done", done.toJSONString(), true);
             removeCallback(runId);
@@ -371,6 +378,8 @@ public class DeepAgentCallbackController {
             done.put("promptTokens", promptTokens);
             done.put("completionTokens", completionTokens);
             done.put("totalTokens", totalTokens);
+            done.put("latencyMs", completed.getLatencyMs());
+            done.put("requestTime", completed.getRequestTime());
             done.put("sources", response.getSources());
             DeepRunEventHub.publish(runId, "done", done.toJSONString(), true);
         } finally {

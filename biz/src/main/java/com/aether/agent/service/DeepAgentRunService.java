@@ -698,10 +698,24 @@ public class DeepAgentRunService {
         return StringUtils.defaultString(task) + "\n\n附件内容：\n" + attachmentContent;
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    /** 兼容旧调用：未携带耗时信息时由 12 参实现按步骤时间差估算。 */
     public CompletedRun completeRun(String runId, String content, String model,
                                      Integer promptTokens, Integer completionTokens, Integer totalTokens,
                                      String reasoningContent, Integer reasoningTokens, String toolCalls, String citations) {
+        return completeRun(runId, content, model, promptTokens, completionTokens, totalTokens,
+                reasoningContent, reasoningTokens, toolCalls, citations, null, null);
+    }
+
+    /**
+     * Deep Agent 完成回调：持久化最终回答与用量，并把请求耗时写入消息与运行审计。
+     * latencyMs 优先取完成事件载荷（latency_ms/latencyMs）；缺失时用已持久化的
+     * run.started 与 run.completed 步骤 occurred_at 差值兜底，保证审计不缺耗时。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public CompletedRun completeRun(String runId, String content, String model,
+                                     Integer promptTokens, Integer completionTokens, Integer totalTokens,
+                                     String reasoningContent, Integer reasoningTokens, String toolCalls, String citations,
+                                     Integer latencyMs, Long completedOccurredAt) {
         AgentRun run = getDeepRun(runId);
         boolean claimed = agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class)
                 .set(AgentRun::getStatus, STATUS_SUCCEEDED)
@@ -710,6 +724,7 @@ public class DeepAgentRunService {
         if (!claimed) {
             return null;
         }
+        Integer effectiveLatencyMs = resolveLatencyMs(runId, latencyMs, completedOccurredAt);
         AgentMessage message = new AgentMessage();
         message.setConversationId(run.getConversationId());
         message.setRole("assistant");
@@ -723,6 +738,7 @@ public class DeepAgentRunService {
         message.setPromptTokens(promptTokens);
         message.setCompletionTokens(completionTokens);
         message.setTotalTokens(totalTokens);
+        message.setLatencyMs(effectiveLatencyMs);
         if (!agentMessageService.save(message)) {
             throw new IllegalStateException("保存 Deep Agent 最终消息失败");
         }
@@ -734,6 +750,7 @@ public class DeepAgentRunService {
                 .set(AgentRun::getPromptTokens, promptTokens)
                 .set(AgentRun::getCompletionTokens, completionTokens)
                 .set(AgentRun::getTotalTokens, totalTokens)
+                .set(AgentRun::getLatencyMs, effectiveLatencyMs)
                 .eq(AgentRun::getId, runId)
                 .eq(AgentRun::getStatus, STATUS_SUCCEEDED));
         if (!updated) {
@@ -748,7 +765,27 @@ public class DeepAgentRunService {
             agentSessionMemoryService.recordTaskConclusion(run.getSessionId(), run.getTaskId(), runId, content);
         }
         updateTaskStatus(run, "COMPLETED", null);
-        return new CompletedRun(run.getConversationId(), message.getId());
+        return new CompletedRun(run.getConversationId(), message.getId(), message.getCreatedAt(), effectiveLatencyMs);
+    }
+
+    /** 载荷缺失时按已落库的 run.started / run.completed 步骤时间差估算请求耗时。 */
+    private Integer resolveLatencyMs(String runId, Integer payloadLatencyMs, Long completedOccurredAt) {
+        if (payloadLatencyMs != null && payloadLatencyMs >= 0) {
+            return payloadLatencyMs;
+        }
+        if (completedOccurredAt == null || completedOccurredAt <= 0) {
+            return null;
+        }
+        AgentRunStep started = agentRunStepService.getOne(Wrappers.lambdaQuery(AgentRunStep.class)
+                .eq(AgentRunStep::getRunId, runId)
+                .eq(AgentRunStep::getEventType, "run.started")
+                .eq(AgentRunStep::getDeleted, false)
+                .last("LIMIT 1"), false);
+        if (started == null || started.getOccurredAt() == null || started.getOccurredAt() <= 0) {
+            return null;
+        }
+        long diff = completedOccurredAt - started.getOccurredAt();
+        return diff >= 0 && diff <= Integer.MAX_VALUE ? (int) diff : null;
     }
 
     public boolean markRunning(String runId) {
@@ -1025,13 +1062,29 @@ public class DeepAgentRunService {
     public static class CompletedRun {
         private final String conversationId;
         private final String messageId;
+        /** 完成消息的创建时间，即请求时间；供 done 事件与前端审计展示。 */
+        private final Long requestTime;
+        /** 实际落库的请求耗时（含步骤时间差兜底结果）；供 done 事件展示。 */
+        private final Integer latencyMs;
 
         public CompletedRun(String conversationId, String messageId) {
+            this(conversationId, messageId, null, null);
+        }
+
+        public CompletedRun(String conversationId, String messageId, Long requestTime) {
+            this(conversationId, messageId, requestTime, null);
+        }
+
+        public CompletedRun(String conversationId, String messageId, Long requestTime, Integer latencyMs) {
             this.conversationId = conversationId;
             this.messageId = messageId;
+            this.requestTime = requestTime;
+            this.latencyMs = latencyMs;
         }
 
         public String getConversationId() { return conversationId; }
         public String getMessageId() { return messageId; }
+        public Long getRequestTime() { return requestTime; }
+        public Integer getLatencyMs() { return latencyMs; }
     }
 }

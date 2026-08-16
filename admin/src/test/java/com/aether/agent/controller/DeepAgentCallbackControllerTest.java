@@ -64,8 +64,8 @@ class DeepAgentCallbackControllerTest {
     @Test
     void completedCallbackSendsStructuredDoneResponseAndRemovesCallback() {
         when(deepAgentRunService.completeRun("run-1", "final answer", "deep-model", 12, 8, 20,
-                null, null, "[{\"name\":\"search\"}]", "[{\"title\":\"Reference\",\"url\":\"https://example.test\"}]")
-        ).thenReturn(new DeepAgentRunService.CompletedRun("conversation-1", "message-1"));
+                null, null, "[{\"name\":\"search\"}]", "[{\"title\":\"Reference\",\"url\":\"https://example.test\"}]",
+                1500, 2000L)).thenReturn(new DeepAgentRunService.CompletedRun("conversation-1", "message-1", 1000L));
         when(streamCallback.isClosed()).thenReturn(false);
         DeepAgentCallbackController controller = controller();
         controller.registerCallback("run-1", streamCallback);
@@ -74,12 +74,14 @@ class DeepAgentCallbackControllerTest {
                 "{\"conversation_id\":\"conversation-1\",\"message_id\":\"message-1\","
                         + "\"content\":\"final answer\",\"model\":\"deep-model\","
                         + "\"prompt_tokens\":12,\"completion_tokens\":8,\"total_tokens\":20,"
+                        + "\"latency_ms\":1500,"
                         + "\"tool_calls\":[{\"name\":\"search\"}],"
                         + "\"sources\":[{\"title\":\"Reference\",\"url\":\"https://example.test\"}]}",
-                streamCallback);
+                streamCallback, 2000L);
 
         verify(deepAgentRunService).completeRun("run-1", "final answer", "deep-model", 12, 8, 20,
-                null, null, "[{\"name\":\"search\"}]", "[{\"title\":\"Reference\",\"url\":\"https://example.test\"}]");
+                null, null, "[{\"name\":\"search\"}]", "[{\"title\":\"Reference\",\"url\":\"https://example.test\"}]",
+                1500, 2000L);
         ArgumentCaptor<ModelStreamResponse> responseCaptor = ArgumentCaptor.forClass(ModelStreamResponse.class);
         verify(streamCallback).onDone(eq("conversation-1"), eq("message-1"), responseCaptor.capture());
         ModelStreamResponse response = responseCaptor.getValue();
@@ -101,14 +103,15 @@ class DeepAgentCallbackControllerTest {
     @Test
     void completedCallbackSendsPersistedRunConversationAndMessageIds() {
         when(deepAgentRunService.completeRun("run-1", "final answer", "deep-model", 12, 8, 20,
-                null, null, null, null)).thenReturn(new DeepAgentRunService.CompletedRun("conversation-actual", "message-actual"));
+                null, null, null, null, null, 2000L)).thenReturn(new DeepAgentRunService.CompletedRun("conversation-actual", "message-actual"));
         when(streamCallback.isClosed()).thenReturn(false);
         DeepAgentCallbackController controller = controller();
         controller.registerCallback("run-1", streamCallback);
 
         ReflectionTestUtils.invokeMethod(controller, "handleCompleted", "run-1",
                 "{\"conversation_id\":\"untrusted\",\"message_id\":\"untrusted\",\"content\":\"final answer\","
-                        + "\"model\":\"deep-model\",\"prompt_tokens\":12,\"completion_tokens\":8,\"total_tokens\":20}", streamCallback);
+                        + "\"model\":\"deep-model\",\"prompt_tokens\":12,\"completion_tokens\":8,\"total_tokens\":20}",
+                streamCallback, 2000L);
 
         verify(streamCallback).onDone(eq("conversation-actual"), eq("message-actual"),
                 org.mockito.ArgumentMatchers.any(ModelStreamResponse.class));
@@ -117,12 +120,12 @@ class DeepAgentCallbackControllerTest {
     @Test
     void staleCompletedCallbackDoesNotSendDoneOrRemoveActiveCallback() {
         when(deepAgentRunService.completeRun("run-1", "late answer", "deep-model", null, null, null,
-                null, null, null, null)).thenReturn(null);
+                null, null, null, null, null, 0L)).thenReturn(null);
         DeepAgentCallbackController controller = controller();
         controller.registerCallback("run-1", streamCallback);
 
         ReflectionTestUtils.invokeMethod(controller, "handleCompleted", "run-1",
-                "{\"content\":\"late answer\",\"model\":\"deep-model\"}", streamCallback);
+                "{\"content\":\"late answer\",\"model\":\"deep-model\"}", streamCallback, 0L);
 
         verify(streamCallback, never()).onDone(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(ModelStreamResponse.class));
