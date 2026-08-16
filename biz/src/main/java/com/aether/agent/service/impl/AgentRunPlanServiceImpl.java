@@ -105,6 +105,27 @@ public class AgentRunPlanServiceImpl implements AgentRunPlanService {
 
     @Override public void markPaused(String runId, String reason) { updateStatus(runId, "PAUSED", reason); }
     @Override public void markRunning(String runId) { updateStatus(runId, "RUNNING", null); }
+
+    /** 将 step.verified 回调的验证结论写入当前计划版本的对应步骤。 */
+    @Override @Transactional(rollbackFor = Exception.class)
+    public void markStepVerified(String runId, Integer stepIndex, String verification) {
+        if (stepIndex == null || stepIndex < 1) return;
+        AgentRunPlan plan = StringUtils.isBlank(runId) ? null : plans.selectOne(
+                Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
+        if (plan == null || plan.getCurrentVersion() == null) return;
+        AgentRunPlanVersion version = versions.selectOne(Wrappers.lambdaQuery(AgentRunPlanVersion.class)
+                .eq(AgentRunPlanVersion::getPlanId, plan.getId())
+                .eq(AgentRunPlanVersion::getVersion, plan.getCurrentVersion()));
+        if (version == null) return;
+        List<AgentRunPlanStep> rows = steps.selectList(Wrappers.lambdaQuery(AgentRunPlanStep.class)
+                .eq(AgentRunPlanStep::getPlanVersionId, version.getId()).orderByAsc(AgentRunPlanStep::getSequence));
+        if (stepIndex > rows.size()) return;
+        AgentRunPlanStep update = new AgentRunPlanStep();
+        update.setId(rows.get(stepIndex - 1).getId());
+        update.setResultSummary(StringUtils.abbreviate(StringUtils.defaultString(verification), 2000));
+        update.setStatus("COMPLETED");
+        steps.updateById(update);
+    }
     private void updateStatus(String runId, String status, String reason) {
         AgentRunPlan plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
         if (plan != null) { plan.setStatus(status); plan.setPauseReason(reason); plan.setLastActiveAt(System.currentTimeMillis()); plans.updateById(plan); }

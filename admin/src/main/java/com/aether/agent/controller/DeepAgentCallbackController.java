@@ -176,6 +176,12 @@ public class DeepAgentCallbackController {
                         planService.recordPlan(runId, plannedRun.getTaskId(), planReason(eventData),
                                 eventData == null ? null : eventData.getString("summary"), dataJson);
                         break;
+                    case "step.verified":
+                        if (eventData != null) {
+                            planService.markStepVerified(runId, eventData.getInteger("stepIndex"),
+                                    eventData.getString("verification"));
+                        }
+                        break;
                     case "run.paused":
                         String pauseReason = "用户暂停或服务中断";
                         deepAgentRunService.markPausedFromCallback(runId, pauseReason);
