@@ -458,6 +458,53 @@ class DeepAgentRunServiceTest {
     }
 
     @Test
+    void completeRunPersistsLatencyAndRequestTimeAudit() {
+        AgentRun run = deepRun("run-1", "conversation-1", 4);
+        when(agentRunService.getById("run-1")).thenReturn(run);
+        when(agentRunService.update(isNull(), any())).thenReturn(true, true);
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            invocation.getArgument(0, AgentMessage.class).setId("message-1");
+            invocation.getArgument(0, AgentMessage.class).setCreatedAt(1000L);
+            return true;
+        });
+
+        DeepAgentRunService.CompletedRun completed = service.completeRun("run-1", "final answer", "deep-model",
+                12, 8, 20, null, null, null, null, 1500, 2000L);
+
+        assertNotNull(completed);
+        assertEquals(Long.valueOf(1000L), completed.getRequestTime());
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService).save(messageCaptor.capture());
+        assertEquals(Integer.valueOf(1500), messageCaptor.getValue().getLatencyMs());
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper> runUpdateCaptor =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
+        verify(agentRunService, times(2)).update(isNull(), runUpdateCaptor.capture());
+        assertTrue(runUpdateCaptor.getAllValues().get(1).getSqlSet().contains("latency_ms"));
+    }
+
+    @Test
+    void completeRunFallsBackToStartedCompletedStepDurationForLatency() {
+        AgentRun run = deepRun("run-1", "conversation-1", 4);
+        when(agentRunService.getById("run-1")).thenReturn(run);
+        when(agentRunService.update(isNull(), any())).thenReturn(true, true);
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            invocation.getArgument(0, AgentMessage.class).setId("message-1");
+            return true;
+        });
+        AgentRunStep started = new AgentRunStep();
+        started.setOccurredAt(500L);
+        when(agentRunStepService.getOne(any(), eq(false))).thenReturn(started);
+
+        service.completeRun("run-1", "final answer", "deep-model", 12, 8, 20,
+                null, null, null, null, null, 2000L);
+
+        ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
+        verify(agentMessageService).save(messageCaptor.capture());
+        assertEquals(Integer.valueOf(1500), messageCaptor.getValue().getLatencyMs());
+        verify(agentRunStepService).getOne(any(), eq(false));
+    }
+
+    @Test
     void completeRunRecordsCitationsAndRetrievalOutcomeFromPersistedSources() {
         AgentRun run = deepRun("run-1", "conversation-1", 4);
         run.setAgentDefinitionId("agent-1");
