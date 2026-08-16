@@ -481,6 +481,9 @@ public class DeepAgentRunService {
         config.put("approvalType", "deep_plan_approval");
         config.put("runId", runId);
         config.put("plan", plan);
+        if (StringUtils.isNotBlank(data.getString("document"))) {
+            config.put("document", data.getString("document"));
+        }
         AgentMessage message = new AgentMessage();
         message.setConversationId(run.getConversationId());
         message.setRole("assistant");
@@ -884,15 +887,13 @@ public class DeepAgentRunService {
     private TaskRoute resolveTaskRoute(String sessionId, String input) {
         if (agentTaskService == null) return TaskRoute.NEW_TASK;
         AgentTask active = agentTaskService.findActive(sessionId);
-        if (active == null || !"PAUSED".equals(active.getStatus())) return TaskRoute.NEW_TASK;
+        if (active == null) return TaskRoute.NEW_TASK;
         String normalized = StringUtils.defaultString(input).trim().toLowerCase(Locale.ROOT);
-        if (containsAny(normalized, "改为", "改成", "换成", "调整为", "不再", "取消原", "变更目标")) {
+        if (containsAny(normalized, "改为", "改成", "换成", "调整为", "不再", "取消原", "变更目标", "重新", "重做")) {
             return TaskRoute.goalChanged(active);
         }
-        if (containsAny(normalized, "继续", "接着", "按刚才", "基于刚才", "根据刚才", "补充", "上一步", "上述", "刚才的", "之前的", "重新", "重做")) {
-            return TaskRoute.continueTask(active);
-        }
-        return TaskRoute.NEW_TASK;
+        // 会话内只有一个任务：其余消息都视为对其计划的继续/补充（含暂停后继续）。
+        return TaskRoute.continueTask(active);
     }
 
     private boolean containsAny(String value, String... candidates) {
