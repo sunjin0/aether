@@ -36,6 +36,7 @@ public class DeepAgentRunService {
     private static final int STATUS_FAILED = 1;
     private static final int STATUS_SUCCEEDED = 0;
     private static final int STATUS_CANCELLED = 5;
+    private static final int STATUS_PAUSED = 6;
     private final ToolCallRiskAnalyzer riskAnalyzer = new ToolCallRiskAnalyzer();
 
     private final AgentRunService agentRunService;
@@ -131,6 +132,10 @@ public class DeepAgentRunService {
         // Read durable history before saving this request's user message so that
         // the current task is supplied only once to the Deep Agent.
         List<Map<String, String>> conversationMemory = buildConversationMemory(conversationId, sessionId, userId, task);
+        if (route.reuseTask && taskRecord != null) {
+            // 延续同一任务：注入任务身份提示，避免 Deep Agent 当作全新任务重新开始而丢失目标上下文。
+            conversationMemory.add(continuationContextHint(taskRecord));
+        }
 
         AgentMessage userMsg = new AgentMessage();
         userMsg.setConversationId(conversationId);
@@ -228,6 +233,13 @@ public class DeepAgentRunService {
                     agentTaskEventService.record(run.getTaskId(), runId, "task.queued", "当前会话已有任务正在处理");
                 }
                 return runId;
+            }
+
+            // 延续同一任务时，若其前序 run 仍在执行（中断聊天流并不会取消运行），先让 Deep Agent
+            // 暂停该图线程，避免本次延续与旧 run 并发改写同一会话上下文导致信息丢失。
+            if (route.reuseTask && taskRecord != null && StringUtils.isNotBlank(taskRecord.getCurrentRunId())
+                    && !taskRecord.getCurrentRunId().equals(runId)) {
+                settleActiveRunBeforeContinuation(taskRecord.getCurrentRunId());
             }
 
             ResponseEntity<String> response = signingClient.signedPost("/v1/runs", request);
@@ -927,6 +939,43 @@ public class DeepAgentRunService {
             result.add(ks);
         }
         return result;
+    }
+
+    /**
+     * 延续同一任务前，若其前序 run 仍在 QUEUED/RUNNING（例如用户中断聊天流但运行未被取消），
+     * 先通知 Deep Agent 暂停该 LangGraph 线程并落库暂停态。检查点保留计划与已执行步骤，
+     * 后续延续 run 恢复同一线程时上下文不丢失。暂停失败不阻断延续——若运行实际已结束则无并发。
+     */
+    private void settleActiveRunBeforeContinuation(String previousRunId) {
+        try {
+            AgentRun previous = agentRunService.getById(previousRunId);
+            if (previous == null || Boolean.TRUE.equals(previous.getDeleted()) || !"DEEP".equals(previous.getExecutionMode())
+                    || !(Integer.valueOf(STATUS_QUEUED).equals(previous.getStatus())
+                    || Integer.valueOf(STATUS_RUNNING).equals(previous.getStatus()))) {
+                return;
+            }
+            ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + previousRunId + "/pause", Collections.emptyMap());
+            if (response.getStatusCode() != HttpStatus.ACCEPTED) {
+                log.warn("延续前暂停前序运行未获受理: runId={}, status={}", previousRunId, response.getStatusCodeValue());
+                return;
+            }
+            AgentRun update = new AgentRun();
+            update.setId(previousRunId);
+            update.setStatus(STATUS_PAUSED);
+            agentRunService.updateById(update);
+        } catch (Exception e) {
+            log.warn("延续任务前暂停前序运行失败: runId={}", previousRunId, e);
+        }
+    }
+
+    /** 延续同一任务时注入的身份提示，帮助 Deep Agent 沿用任务目标而非重新规划。 */
+    private Map<String, String> continuationContextHint(AgentTask taskRecord) {
+        Map<String, String> item = new LinkedHashMap<String, String>();
+        item.put("role", "system");
+        item.put("content", "【当前任务继续】你正在继续会话中的任务「"
+                + StringUtils.defaultString(taskRecord.getTitle(), "当前任务")
+                + "」。请结合该任务已完成的步骤与已有上下文继续推进；如需调整目标，请依据用户最新指示修订计划，不要当作全新任务重新开始。");
+        return item;
     }
 
     /**

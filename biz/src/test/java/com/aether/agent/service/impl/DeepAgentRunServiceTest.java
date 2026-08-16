@@ -205,6 +205,45 @@ class DeepAgentRunServiceTest {
     }
 
     @Test
+    void startRunPausesStillRunningPredecessorBeforeContinuation() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-cont"); agent.setSystemPrompt("你是助手");
+        AgentConversation conversation = new AgentConversation(); conversation.setId("conversation-cont");
+        AgentSession session = new AgentSession(); session.setId("session-cont");
+        AgentTask runningTask = new AgentTask();
+        runningTask.setId("task-cont"); runningTask.setStatus("RUNNING"); runningTask.setTitle("分析合同风险");
+        runningTask.setCurrentRunId("run-prev");
+        AgentRun previousRun = new AgentRun();
+        previousRun.setId("run-prev"); previousRun.setExecutionMode("DEEP"); previousRun.setStatus(4);
+        when(agentConversationService.getById("conversation-cont")).thenReturn(conversation);
+        when(agentSessionService.getOrCreate("conversation-cont", "user-1", "agent-cont")).thenReturn(session);
+        when(agentTaskService.findActive("session-cont")).thenReturn(runningTask);
+        when(agentRunService.getById("run-prev")).thenReturn(previousRun);
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            invocation.getArgument(0, AgentMessage.class).setId("message-cont"); return true;
+        });
+        when(agentRunService.save(any(AgentRun.class))).thenAnswer(invocation -> {
+            invocation.getArgument(0, AgentRun.class).setId("run-new"); return true;
+        });
+        when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
+        when(toolCatalog.getBoundTools("agent-cont")).thenReturn(Collections.emptyList());
+        when(delegationTokenService.create(eq("run-new"), eq("user-1"), eq("agent-cont"), anyList())).thenReturn("token");
+        when(signingClient.signedPost(eq("/v1/runs"), anyMap())).thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
+        when(signingClient.signedPost(eq("/v1/runs/run-prev/pause"), anyMap())).thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
+
+        String runId = service.startRun(agent, "user-1", "conversation-cont", "继续分析刚才的高风险条款", Collections.emptyList());
+
+        assertEquals("run-new", runId);
+        // 前序 run 仍活跃：派发延续前先暂停旧线程，避免并发改写同一会话上下文。
+        verify(signingClient).signedPost(eq("/v1/runs/run-prev/pause"), anyMap());
+        ArgumentCaptor<AgentRun> pauseCaptor = ArgumentCaptor.forClass(AgentRun.class);
+        verify(agentRunService, atLeastOnce()).updateById(pauseCaptor.capture());
+        boolean paused = pauseCaptor.getAllValues().stream()
+                .anyMatch(u -> "run-prev".equals(u.getId()) && Integer.valueOf(6).equals(u.getStatus()));
+        assertTrue(paused, "前序运行应被标记为暂停");
+    }
+
+    @Test
     void keepsSimilarityInKnowledgeSourcesSentToDeepAgent() {
         Map<String, Object> source = new LinkedHashMap<>();
         source.put("documentName", "运维手册");
