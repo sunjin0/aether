@@ -523,12 +523,25 @@ public class DeepAgentRunService {
             update.setInteractionStatus("answered");
             update.setAnsweredAt(System.currentTimeMillis());
             agentMessageService.updateById(update);
+            Object rawAnswers = answer == null ? null : answer.get("answers");
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("run_id", runId);
-            payload.put("plan_approved", true);
+            String planFeedback = rawAnswers instanceof Map
+                    ? stringValue(((Map<?, ?>) rawAnswers).get("plan_feedback")) : null;
+            if (StringUtils.isNotBlank(planFeedback)) {
+                // 用户反馈方案：转发反馈让 Deep 服务按反馈重规划并重新提交审批，任务保持 WAITING_APPROVAL。
+                payload.put("plan_approved", false);
+                payload.put("plan_feedback", planFeedback);
+            } else {
+                payload.put("plan_approved", true);
+                // 步骤多选框随答案整体转发（与 deep_ask_user 同约定），由 Deep 服务自行解释所选步骤。
+                payload.put("answers", rawAnswers == null ? Collections.emptyMap() : rawAnswers);
+            }
             ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/resume", payload);
             if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 计划确认恢复失败");
-            updateTaskStatus(run, "RUNNING", null);
+            if (StringUtils.isBlank(planFeedback)) {
+                updateTaskStatus(run, "RUNNING", null);
+            }
             return runId;
         }
         if ("deep_ask_user".equals(approvalType)) {

@@ -6,6 +6,7 @@ import com.aether.agent.entity.AgentRunPlanVersion;
 import com.aether.agent.mapper.AgentRunPlanMapper;
 import com.aether.agent.mapper.AgentRunPlanStepMapper;
 import com.aether.agent.mapper.AgentRunPlanVersionMapper;
+import com.aether.agent.vo.AgentRunPlanVo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -18,6 +19,7 @@ import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -56,6 +58,64 @@ class AgentRunPlanServiceImplTest {
         verify(steps).updateById(obsolete);
         assertEquals("SUPERSEDED", obsolete.getStatus());
         verify(plans).updateById(argThat(updated -> "new-2".equals(updated.getCurrentStepId())));
+    }
+
+    @Test
+    void markStepRunningTransitionsPendingStepToRunning() {
+        AgentRunPlan plan = new AgentRunPlan();
+        plan.setId("plan-1"); plan.setRunId("run-1"); plan.setCurrentVersion(2);
+        when(plans.selectOne(any())).thenReturn(plan);
+        AgentRunPlanVersion version = new AgentRunPlanVersion();
+        version.setId("version-2"); version.setVersion(2);
+        when(versions.selectOne(any())).thenReturn(version);
+        AgentRunPlanStep step1 = new AgentRunPlanStep();
+        step1.setId("step-1"); step1.setSequence(1); step1.setStatus("PENDING");
+        AgentRunPlanStep step2 = new AgentRunPlanStep();
+        step2.setId("step-2"); step2.setSequence(2); step2.setStatus("PENDING");
+        when(steps.selectList(any())).thenReturn(Arrays.asList(step1, step2));
+
+        service.markStepRunning("run-1", 2);
+
+        ArgumentCaptor<AgentRunPlanStep> updateCaptor = ArgumentCaptor.forClass(AgentRunPlanStep.class);
+        verify(steps).updateById(updateCaptor.capture());
+        assertEquals("step-2", updateCaptor.getValue().getId());
+        assertEquals("RUNNING", updateCaptor.getValue().getStatus());
+        assertNotNull(updateCaptor.getValue().getStartedAt());
+    }
+
+    @Test
+    void markStepRunningDoesNotRewriteCompletedStep() {
+        AgentRunPlan plan = new AgentRunPlan();
+        plan.setId("plan-1"); plan.setRunId("run-1"); plan.setCurrentVersion(1);
+        when(plans.selectOne(any())).thenReturn(plan);
+        AgentRunPlanVersion version = new AgentRunPlanVersion();
+        version.setId("version-1"); version.setVersion(1);
+        when(versions.selectOne(any())).thenReturn(version);
+        AgentRunPlanStep completed = new AgentRunPlanStep();
+        completed.setId("step-1"); completed.setSequence(1); completed.setStatus("COMPLETED");
+        when(steps.selectList(any())).thenReturn(Collections.singletonList(completed));
+
+        service.markStepRunning("run-1", 1);
+
+        verify(steps, never()).updateById(any(AgentRunPlanStep.class));
+    }
+
+    @Test
+    void detailExposesDocumentAndComplexFromSnapshot() {
+        AgentRunPlan plan = new AgentRunPlan();
+        plan.setId("plan-1"); plan.setRunId("run-1"); plan.setCurrentVersion(1);
+        when(plans.selectOne(any())).thenReturn(plan);
+        AgentRunPlanVersion version = new AgentRunPlanVersion();
+        version.setId("version-1"); version.setVersion(1); version.setReason("INITIAL");
+        version.setSnapshot("{\"complex\":true,\"document\":\"# 合同风险分析\\n## 目标\\n输出整改清单\"}");
+        when(versions.selectList(any())).thenReturn(Collections.singletonList(version));
+        when(steps.selectList(any())).thenReturn(Collections.emptyList());
+
+        AgentRunPlanVo vo = service.detail("run-1");
+
+        assertEquals(1, vo.getVersions().size());
+        assertEquals(Boolean.TRUE, vo.getVersions().get(0).getComplex());
+        assertEquals("# 合同风险分析\n## 目标\n输出整改清单", vo.getVersions().get(0).getDocument());
     }
 
     @Test

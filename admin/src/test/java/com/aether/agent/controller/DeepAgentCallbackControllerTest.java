@@ -195,6 +195,29 @@ class DeepAgentCallbackControllerTest {
     }
 
     @Test
+    void stepStartedCallbackMarksStepRunning() throws Exception {
+        when(config.getKeyId()).thenReturn("key-1");
+        when(config.getSharedSecret()).thenReturn("test-secret");
+        when(deepAgentRunService.handleCallback(eq("run-1"), eq("event-1"), eq("step.started"),
+                eq(1000L), org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        DeepAgentCallbackController controller = controller();
+
+        String body = "{\"run_id\":\"run-1\",\"event_id\":\"event-1\",\"event_type\":\"step.started\","
+                + "\"occurred_at\":1000,\"data\":{\"stepIndex\":3}}";
+        String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setContent(body.getBytes(StandardCharsets.UTF_8));
+        request.addHeader("X-Aether-Key-Id", "key-1");
+        request.addHeader("X-Aether-Timestamp", timestamp);
+        request.addHeader("X-Aether-Signature", signature("test-secret", timestamp + "." + body));
+
+        ResponseEntity<Void> response = controller.callback("run-1", request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(planService).markStepRunning("run-1", 3);
+    }
+
+    @Test
     void malformedSignatureIsRejectedBeforeCallbackProcessing() {
         when(config.getKeyId()).thenReturn("key-1");
         DeepAgentCallbackController controller = controller();

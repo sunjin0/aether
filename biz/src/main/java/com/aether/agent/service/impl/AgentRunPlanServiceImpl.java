@@ -126,6 +126,29 @@ public class AgentRunPlanServiceImpl implements AgentRunPlanService {
         update.setStatus("COMPLETED");
         steps.updateById(update);
     }
+    /** 将 step.started 回调标记的步骤置为执行中（PENDING→RUNNING）；已完成步骤不改写。 */
+    @Override @Transactional(rollbackFor = Exception.class)
+    public void markStepRunning(String runId, Integer stepIndex) {
+        if (stepIndex == null || stepIndex < 1) return;
+        AgentRunPlan plan = StringUtils.isBlank(runId) ? null : plans.selectOne(
+                Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
+        if (plan == null || plan.getCurrentVersion() == null) return;
+        AgentRunPlanVersion version = versions.selectOne(Wrappers.lambdaQuery(AgentRunPlanVersion.class)
+                .eq(AgentRunPlanVersion::getPlanId, plan.getId())
+                .eq(AgentRunPlanVersion::getVersion, plan.getCurrentVersion()));
+        if (version == null) return;
+        List<AgentRunPlanStep> rows = steps.selectList(Wrappers.lambdaQuery(AgentRunPlanStep.class)
+                .eq(AgentRunPlanStep::getPlanVersionId, version.getId()).orderByAsc(AgentRunPlanStep::getSequence));
+        if (stepIndex > rows.size()) return;
+        AgentRunPlanStep target = rows.get(stepIndex - 1);
+        if ("COMPLETED".equals(target.getStatus()) || "FAILED".equals(target.getStatus())
+                || "SUPERSEDED".equals(target.getStatus())) return;
+        AgentRunPlanStep update = new AgentRunPlanStep();
+        update.setId(target.getId());
+        update.setStatus("RUNNING");
+        update.setStartedAt(System.currentTimeMillis());
+        steps.updateById(update);
+    }
     private void updateStatus(String runId, String status, String reason) {
         AgentRunPlan plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
         if (plan != null) { plan.setStatus(status); plan.setPauseReason(reason); plan.setLastActiveAt(System.currentTimeMillis()); plans.updateById(plan); }
@@ -141,6 +164,10 @@ public class AgentRunPlanServiceImpl implements AgentRunPlanService {
     }
     private AgentRunPlanVo.Version toView(AgentRunPlanVersion version) {
         AgentRunPlanVo.Version view = new AgentRunPlanVo.Version(); view.setVersion(version.getVersion()); view.setReason(version.getReason()); view.setSummary(version.getSummary());
+        // snapshot 保留 plan.updated 的完整 {complex, document, tasks}，供 Dashboard 刷新后恢复方案文档渲染。
+        JSONObject snapshot = parseSnapshot(version.getSnapshot());
+        if (snapshot.getBoolean("complex") != null) view.setComplex(snapshot.getBoolean("complex"));
+        if (StringUtils.isNotBlank(snapshot.getString("document"))) view.setDocument(snapshot.getString("document"));
         view.setSteps(steps.selectList(Wrappers.lambdaQuery(AgentRunPlanStep.class).eq(AgentRunPlanStep::getPlanVersionId, version.getId()).orderByAsc(AgentRunPlanStep::getSequence)).stream().map(step -> {
             AgentRunPlanVo.Step item = new AgentRunPlanVo.Step(); item.setId(step.getId()); item.setStepKey(step.getStepKey()); item.setSequence(step.getSequence()); item.setTitle(step.getTitle()); item.setStatus(step.getStatus()); item.setResultSummary(step.getResultSummary()); item.setAttemptCount(step.getAttemptCount()); item.setStartedAt(step.getStartedAt()); item.setCompletedAt(step.getCompletedAt()); return item;
         }).collect(Collectors.toList())); return view;

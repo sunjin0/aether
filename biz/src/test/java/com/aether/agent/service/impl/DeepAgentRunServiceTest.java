@@ -509,6 +509,70 @@ class DeepAgentRunServiceTest {
         verifyNoInteractions(knowledgeContextService);
     }
 
+    @Test
+    void resumePlanApprovalForwardsSelectedStepsToDeepAgent() {
+        AgentMessage message = new AgentMessage();
+        message.setId("msg-plan");
+        message.setConversationId("conversation-1");
+        message.setInteractionStatus("pending");
+        message.setQuestionConfig("{\"approvalType\":\"deep_plan_approval\",\"runId\":\"run-1\"}");
+        when(agentMessageService.getById("msg-plan")).thenReturn(message);
+        AgentRun run = deepRun("run-1", "conversation-1", 6);
+        run.setUserId("user-1");
+        when(agentRunService.getById("run-1")).thenReturn(run);
+        when(agentMessageService.updateById(any(AgentMessage.class))).thenReturn(true);
+        when(signingClient.signedPost(eq("/v1/runs/run-1/resume"), anyMap()))
+                .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
+
+        Map<String, Object> answers = new LinkedHashMap<>();
+        answers.put("selected_steps", Arrays.asList(1, 3));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("messageId", "msg-plan");
+        payload.put("answers", answers);
+
+        String resumedRunId = service.resumeToolApproval("conversation-1", "msg-plan", "user-1", payload);
+
+        assertEquals("run-1", resumedRunId);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> requestCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(signingClient).signedPost(eq("/v1/runs/run-1/resume"), requestCaptor.capture());
+        assertEquals(Boolean.TRUE, requestCaptor.getValue().get("plan_approved"));
+        assertEquals(answers, requestCaptor.getValue().get("answers"));
+    }
+
+    @Test
+    void resumePlanApprovalForwardsFeedbackWithoutRunningTransition() {
+        AgentMessage message = new AgentMessage();
+        message.setId("msg-plan");
+        message.setConversationId("conversation-1");
+        message.setInteractionStatus("pending");
+        message.setQuestionConfig("{\"approvalType\":\"deep_plan_approval\",\"runId\":\"run-1\"}");
+        when(agentMessageService.getById("msg-plan")).thenReturn(message);
+        AgentRun run = deepRun("run-1", "conversation-1", 6);
+        run.setUserId("user-1");
+        when(agentRunService.getById("run-1")).thenReturn(run);
+        when(agentMessageService.updateById(any(AgentMessage.class))).thenReturn(true);
+        when(signingClient.signedPost(eq("/v1/runs/run-1/resume"), anyMap()))
+                .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
+
+        Map<String, Object> answers = new LinkedHashMap<>();
+        answers.put("plan_feedback", "简化步骤，合并为3步");
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("messageId", "msg-plan");
+        payload.put("answers", answers);
+
+        String resumedRunId = service.resumeToolApproval("conversation-1", "msg-plan", "user-1", payload);
+
+        assertEquals("run-1", resumedRunId);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> requestCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(signingClient).signedPost(eq("/v1/runs/run-1/resume"), requestCaptor.capture());
+        assertEquals(Boolean.FALSE, requestCaptor.getValue().get("plan_approved"));
+        assertEquals("简化步骤，合并为3步", requestCaptor.getValue().get("plan_feedback"));
+        // 反馈路径不置 RUNNING：任务保持 WAITING_APPROVAL，等待重规划后的新审批卡片。
+        verify(agentTaskService, never()).updateStatus(anyString(), anyString(), anyString(), anyString());
+    }
+
     private AgentRun deepRun(String runId, String conversationId, int status) {
         AgentRun run = new AgentRun();
         run.setId(runId);

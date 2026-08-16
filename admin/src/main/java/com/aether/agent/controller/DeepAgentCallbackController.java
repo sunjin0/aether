@@ -176,6 +176,11 @@ public class DeepAgentCallbackController {
                         planService.recordPlan(runId, plannedRun.getTaskId(), planReason(eventData),
                                 eventData == null ? null : eventData.getString("summary"), dataJson);
                         break;
+                    case "step.started":
+                        if (eventData != null) {
+                            planService.markStepRunning(runId, eventData.getInteger("stepIndex"));
+                        }
+                        break;
                     case "step.verified":
                         if (eventData != null) {
                             planService.markStepVerified(runId, eventData.getInteger("stepIndex"),
