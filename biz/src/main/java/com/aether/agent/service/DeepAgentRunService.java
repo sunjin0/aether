@@ -4,6 +4,8 @@ import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.entity.*;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.model.ModelChatMessage;
+import com.aether.agent.service.AgentRunPlanService;
+import com.aether.agent.vo.AgentRunPlanVo;
 import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.skill.service.SkillRuntimeContext;
@@ -55,6 +57,7 @@ public class DeepAgentRunService {
     private final AgentSessionMemoryService agentSessionMemoryService;
     private final AdminPreferenceService adminPreferenceService;
     private final SkillArtifactExecutionService artifactExecutionService;
+    private final AgentRunPlanService planService;
     private final DeepAgentConfig config;
 
     public DeepAgentRunService(AgentRunService agentRunService,
@@ -73,6 +76,7 @@ public class DeepAgentRunService {
                                AgentSessionMemoryService agentSessionMemoryService,
                                AdminPreferenceService adminPreferenceService,
                                SkillArtifactExecutionService artifactExecutionService,
+                               AgentRunPlanService planService,
                                DeepAgentConfig config) {
         this.agentRunService = agentRunService;
         this.agentRunStepService = agentRunStepService;
@@ -90,6 +94,7 @@ public class DeepAgentRunService {
         this.agentSessionMemoryService = agentSessionMemoryService;
         this.adminPreferenceService = adminPreferenceService;
         this.artifactExecutionService = artifactExecutionService;
+        this.planService = planService;
         this.config = config;
     }
 
@@ -737,6 +742,9 @@ public class DeepAgentRunService {
             return null;
         }
         Integer effectiveLatencyMs = resolveLatencyMs(runId, latencyMs, completedOccurredAt);
+        // 拆分人工等待：审计里的 latencyMs 是含审批/提问等待的 wall-clock，
+        // waitingMs 单独记录等待时长，执行耗时 = latencyMs - waitingMs。
+        Long waitingMs = computeWaitingMs(run.getConversationId());
         AgentMessage message = new AgentMessage();
         message.setConversationId(run.getConversationId());
         message.setRole("assistant");
@@ -763,6 +771,7 @@ public class DeepAgentRunService {
                 .set(AgentRun::getCompletionTokens, completionTokens)
                 .set(AgentRun::getTotalTokens, totalTokens)
                 .set(AgentRun::getLatencyMs, effectiveLatencyMs)
+                .set(AgentRun::getWaitingMs, waitingMs)
                 .eq(AgentRun::getId, runId)
                 .eq(AgentRun::getStatus, STATUS_SUCCEEDED));
         if (!updated) {
@@ -798,6 +807,29 @@ public class DeepAgentRunService {
         }
         long diff = completedOccurredAt - started.getOccurredAt();
         return diff >= 0 && diff <= Integer.MAX_VALUE ? (int) diff : null;
+    }
+
+    /** 汇总会话内已答复的交互消息(计划/工具审批、提问)的人工等待时长(毫秒)。 */
+    private Long computeWaitingMs(String conversationId) {
+        if (agentMessageService == null || StringUtils.isBlank(conversationId)) {
+            return 0L;
+        }
+        List<AgentMessage> interactions = agentMessageService.list(Wrappers.lambdaQuery(AgentMessage.class)
+                .eq(AgentMessage::getConversationId, conversationId)
+                .eq(AgentMessage::getMessageType, "interaction")
+                .eq(AgentMessage::getInteractionStatus, "answered")
+                .eq(AgentMessage::getDeleted, false));
+        if (interactions == null || interactions.isEmpty()) {
+            return 0L;
+        }
+        long waiting = 0L;
+        for (AgentMessage message : interactions) {
+            if (message.getCreatedAt() != null && message.getAnsweredAt() != null
+                    && message.getAnsweredAt() >= message.getCreatedAt()) {
+                waiting += message.getAnsweredAt() - message.getCreatedAt();
+            }
+        }
+        return waiting;
     }
 
     public boolean markRunning(String runId) {
@@ -968,14 +1000,52 @@ public class DeepAgentRunService {
         }
     }
 
-    /** 延续同一任务时注入的身份提示，帮助 Deep Agent 沿用任务目标而非重新规划。 */
+    /** 延续同一任务时注入的身份提示与最新计划摘要，帮助 Deep Agent 沿用任务目标而非重新规划。 */
     private Map<String, String> continuationContextHint(AgentTask taskRecord) {
+        StringBuilder content = new StringBuilder("【当前任务继续】你正在继续会话中的任务「")
+                .append(StringUtils.defaultString(taskRecord.getTitle(), "当前任务"))
+                .append("」。请结合该任务已完成的步骤与已有上下文继续推进；如需调整目标，请依据用户最新指示修订计划，不要当作全新任务重新开始。");
+        String planSummary = latestPlanSummary(taskRecord == null ? null : taskRecord.getId());
+        if (StringUtils.isNotBlank(planSummary)) {
+            content.append("\n\n【任务当前计划】\n").append(planSummary);
+        }
         Map<String, String> item = new LinkedHashMap<String, String>();
         item.put("role", "system");
-        item.put("content", "【当前任务继续】你正在继续会话中的任务「"
-                + StringUtils.defaultString(taskRecord.getTitle(), "当前任务")
-                + "」。请结合该任务已完成的步骤与已有上下文继续推进；如需调整目标，请依据用户最新指示修订计划，不要当作全新任务重新开始。");
+        item.put("content", content.toString());
         return item;
+    }
+
+    /**
+     * 从持久化的计划投影取最新版本步骤作为延续上下文，使 Deep Agent 在无法从
+     * 检查点恢复时仍能沿用已批准/已执行的计划，避免当作全新任务重新开始。
+     */
+    private String latestPlanSummary(String taskId) {
+        if (planService == null || StringUtils.isBlank(taskId)) {
+            return "";
+        }
+        try {
+            AgentRunPlanVo plan = planService.detailByTaskId(taskId);
+            if (plan == null || plan.getVersions() == null || plan.getVersions().isEmpty()) {
+                return "";
+            }
+            AgentRunPlanVo.Version version = plan.getVersions().get(plan.getVersions().size() - 1);
+            if (version == null || version.getSteps() == null || version.getSteps().isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            int index = 1;
+            for (AgentRunPlanVo.Step step : version.getSteps()) {
+                String status = StringUtils.defaultIfBlank(step.getStatus(), "PENDING");
+                String marker = "COMPLETED".equals(status) ? "[完成]"
+                        : ("RUNNING".equals(status) ? "[进行中]" : "[待办]");
+                sb.append(index++).append(". ").append(marker).append(" ")
+                        .append(StringUtils.defaultString(step.getTitle())).append('\n');
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            log.warn("读取任务计划摘要失败: taskId={}", taskId, e);
+            return "";
+        }
     }
 
     /**
@@ -987,12 +1057,23 @@ public class DeepAgentRunService {
         if (agentTaskService == null) return TaskRoute.NEW_TASK;
         AgentTask active = agentTaskService.findActive(sessionId);
         if (active == null) return TaskRoute.NEW_TASK;
-        String normalized = StringUtils.defaultString(input).trim().toLowerCase(Locale.ROOT);
-        if (containsAny(normalized, "改为", "改成", "换成", "调整为", "不再", "取消原", "变更目标", "重新", "重做")) {
+        String normalized = normalizeRouteInput(input);
+        // 目标变更信号：覆盖更多自然措辞，减少"换种方式/换个思路/推翻重来"等被误判为继续。
+        if (containsAny(normalized,
+                "改为", "改成", "换成", "换种", "换个", "换一个", "换成做",
+                "调整为", "调整成", "调整一下",
+                "不再", "取消原", "取消之前", "取消当前", "变更目标",
+                "重新", "重做", "重来", "推翻", "换个方向", "换个思路")) {
             return TaskRoute.goalChanged(active);
         }
         // 会话内只有一个任务：其余消息都视为对其计划的继续/补充（含暂停后继续）。
         return TaskRoute.continueTask(active);
+    }
+
+    /** 规范化路由输入：去除首尾空白并折叠连续空白，避免换行/多空格影响关键词匹配。 */
+    private String normalizeRouteInput(String input) {
+        String trimmed = StringUtils.defaultString(input).trim().toLowerCase(Locale.ROOT);
+        return trimmed.replaceAll("\\s+", " ");
     }
 
     private boolean containsAny(String value, String... candidates) {

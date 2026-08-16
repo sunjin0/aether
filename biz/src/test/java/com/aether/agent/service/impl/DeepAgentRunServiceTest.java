@@ -12,6 +12,7 @@ import com.aether.agent.entity.AgentTask;
 import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.service.*;
+import com.aether.agent.vo.AgentRunPlanVo;
 import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.skill.service.SkillArtifactExecutionService;
 import com.aether.sys.service.AdminPreferenceService;
@@ -56,6 +57,7 @@ class DeepAgentRunServiceTest {
     @Mock private AgentSessionMemoryService agentSessionMemoryService;
     @Mock private AdminPreferenceService adminPreferenceService;
     @Mock private SkillArtifactExecutionService artifactExecutionService;
+    @Mock private AgentRunPlanService planService;
     @Mock private DeepAgentConfig config;
 
     private DeepAgentRunService service;
@@ -68,7 +70,7 @@ class DeepAgentRunServiceTest {
         service = new DeepAgentRunService(agentRunService, agentRunStepService,
                 signingClient, agentConversationService, agentMessageService,
                 toolCallLogService,
-                delegationTokenService, toolCatalog, knowledgeContextService, conversationContextService, agentSessionService, agentTaskService, agentTaskEventService, agentSessionMemoryService, adminPreferenceService, artifactExecutionService, config);
+                delegationTokenService, toolCatalog, knowledgeContextService, conversationContextService, agentSessionService, agentTaskService, agentTaskEventService, agentSessionMemoryService, adminPreferenceService, artifactExecutionService, planService, config);
     }
 
     @Test
@@ -657,6 +659,84 @@ class DeepAgentRunServiceTest {
         assertEquals("简化步骤，合并为3步", requestCaptor.getValue().get("plan_feedback"));
         // 反馈路径不置 RUNNING：任务保持 WAITING_APPROVAL，等待重规划后的新审批卡片。
         verify(agentTaskService, never()).updateStatus(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void resolveTaskRouteDetectsGoalChangeFromNaturalPhrasing() {
+        AgentTask active = new AgentTask();
+        active.setId("task-route"); active.setStatus("PAUSED");
+        when(agentTaskService.findActive("session-route")).thenReturn(active);
+
+        Object route = ReflectionTestUtils.invokeMethod(service, "resolveTaskRoute", "session-route", "换个思路，重新规划一遍");
+        assertNotNull(route);
+        assertEquals("GOAL_CHANGED", ReflectionTestUtils.invokeMethod(route, "name"));
+    }
+
+    @Test
+    void resolveTaskRouteContinuesForOrdinaryContinuationWithWhitespace() {
+        AgentTask active = new AgentTask();
+        active.setId("task-route2"); active.setStatus("PAUSED");
+        when(agentTaskService.findActive("session-route2")).thenReturn(active);
+
+        Object route = ReflectionTestUtils.invokeMethod(service, "resolveTaskRoute", "session-route2", "继续\n分析  刚才的内容");
+        assertNotNull(route);
+        assertEquals("CONTINUE", ReflectionTestUtils.invokeMethod(route, "name"));
+    }
+
+    @Test
+    void continuationHintIncludesLatestPlanSteps() {
+        AgentTask task = new AgentTask();
+        task.setId("task-plan"); task.setTitle("分析合同风险");
+        AgentRunPlanVo planVo = new AgentRunPlanVo();
+        AgentRunPlanVo.Version version = new AgentRunPlanVo.Version();
+        AgentRunPlanVo.Step done = new AgentRunPlanVo.Step();
+        done.setStatus("COMPLETED"); done.setTitle("步骤一");
+        AgentRunPlanVo.Step pending = new AgentRunPlanVo.Step();
+        pending.setStatus("PENDING"); pending.setTitle("步骤二");
+        version.setSteps(Arrays.asList(done, pending));
+        planVo.setVersions(Collections.singletonList(version));
+        when(planService.detailByTaskId("task-plan")).thenReturn(planVo);
+
+        @SuppressWarnings("unchecked")
+        Map<String, String> hint = (Map<String, String>) ReflectionTestUtils.invokeMethod(
+                service, "continuationContextHint", task);
+        assertNotNull(hint);
+        assertTrue(hint.get("content").contains("【任务当前计划】"));
+        assertTrue(hint.get("content").contains("[完成] 步骤一"));
+        assertTrue(hint.get("content").contains("[待办] 步骤二"));
+    }
+
+    @Test
+    void computeWaitingMsSumsAnsweredInteractions() {
+        AgentMessage a = new AgentMessage();
+        a.setCreatedAt(1000L); a.setAnsweredAt(5000L);
+        AgentMessage b = new AgentMessage();
+        b.setCreatedAt(2000L); b.setAnsweredAt(3000L);
+        when(agentMessageService.list(any())).thenReturn(Arrays.asList(a, b));
+
+        Long waiting = (Long) ReflectionTestUtils.invokeMethod(service, "computeWaitingMs", "conversation-w");
+        assertEquals(5000L, waiting);
+    }
+
+    @Test
+    void completeRunWritesWaitingMsToRun() {
+        AgentRun run = deepRun("run-w", "conversation-w", 4);
+        when(agentRunService.getById("run-w")).thenReturn(run);
+        when(agentRunService.update(isNull(), any())).thenReturn(true, true);
+        when(agentMessageService.save(any(AgentMessage.class))).thenAnswer(invocation -> {
+            invocation.getArgument(0, AgentMessage.class).setId("message-w"); return true;
+        });
+        AgentMessage interaction = new AgentMessage();
+        interaction.setCreatedAt(1000L); interaction.setAnsweredAt(6000L);
+        when(agentMessageService.list(any())).thenReturn(Collections.singletonList(interaction));
+
+        service.completeRun("run-w", "final", "deep-model", 1, 1, 2,
+                null, null, null, null, 1500, 2000L);
+
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper> runUpdateCaptor =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
+        verify(agentRunService, times(2)).update(isNull(), runUpdateCaptor.capture());
+        assertTrue(runUpdateCaptor.getAllValues().get(1).getSqlSet().contains("waiting_ms"));
     }
 
     private AgentRun deepRun(String runId, String conversationId, int status) {

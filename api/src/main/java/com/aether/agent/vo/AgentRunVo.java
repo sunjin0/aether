@@ -51,6 +51,9 @@ public class AgentRunVo extends BaseEntity {
     @ApiModelProperty(value = "总耗时（毫秒）")
     private Integer latencyMs;
 
+    @ApiModelProperty(value = "等待用户输入/审批的耗时（毫秒）；执行耗时 = latencyMs - waitingMs")
+    private Long waitingMs;
+
     @ApiModelProperty(value = "状态：0-成功，1-失败，2-超时")
     private Integer status;
 
