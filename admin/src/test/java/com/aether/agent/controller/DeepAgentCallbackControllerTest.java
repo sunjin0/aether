@@ -1,6 +1,7 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.DeepAgentConfig;
+import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.service.AgentStreamCallback;
@@ -158,6 +159,39 @@ class DeepAgentCallbackControllerTest {
         Map<String, AgentStreamCallback> activeCallbacks =
                 (Map<String, AgentStreamCallback>) ReflectionTestUtils.getField(controller, "activeCallbacks");
         assertEquals(streamCallback, activeCallbacks.get("run-1"));
+    }
+
+    @Test
+    void planApprovalRequiredCreatesPlanApprovalInteraction() throws Exception {
+        when(config.getKeyId()).thenReturn("key-1");
+        when(config.getSharedSecret()).thenReturn("test-secret");
+        when(deepAgentRunService.handleCallback(eq("run-1"), eq("event-1"), eq("plan.approval.required"),
+                eq(1000L), org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        AgentMessage planMsg = new AgentMessage();
+        planMsg.setId("msg-plan");
+        planMsg.setConversationId("conversation-1");
+        planMsg.setMessageType("interaction");
+        planMsg.setInteractionStatus("pending");
+        when(deepAgentRunService.createPlanApproval(eq("run-1"), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(planMsg);
+        DeepAgentCallbackController controller = controller();
+        controller.registerCallback("run-1", streamCallback);
+        when(streamCallback.isClosed()).thenReturn(false);
+
+        String body = "{\"run_id\":\"run-1\",\"event_id\":\"event-1\",\"event_type\":\"plan.approval.required\","
+                + "\"occurred_at\":1000,\"data\":{\"plan\":[{\"title\":\"步骤一\"}]}}";
+        String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setContent(body.getBytes(StandardCharsets.UTF_8));
+        request.addHeader("X-Aether-Key-Id", "key-1");
+        request.addHeader("X-Aether-Timestamp", timestamp);
+        request.addHeader("X-Aether-Signature", signature("test-secret", timestamp + "." + body));
+
+        ResponseEntity<Void> response = controller.callback("run-1", request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(deepAgentRunService).createPlanApproval(eq("run-1"), org.mockito.ArgumentMatchers.anyString());
+        verify(streamCallback).onQuestion(eq("conversation-1"), eq("run-1"), org.mockito.ArgumentMatchers.any());
     }
 
     @Test

@@ -211,6 +211,8 @@ public class DeepAgentRunService {
             request.put("allowed_tools", allowedTools);
             request.put("tool_approval_policy", readToolApprovalPolicy(run.getSkillSnapshot()));
             request.put("delegation_token", delegationToken);
+            // 计划先行：生成初始计划后等待用户确认再执行（Codex/Claude 风格）。
+            request.put("plan_approval_required", true);
             if (agent.getMaxToolRounds() != null) {
                 request.put("max_steps", agent.getMaxToolRounds());
             }
@@ -464,6 +466,36 @@ public class DeepAgentRunService {
         return message;
     }
 
+    /** 将 Deep 服务的计划确认请求转换成交互卡片，等待用户批准后再执行。 */
+    public AgentMessage createPlanApproval(String runId, String dataJson) {
+        AgentRun run = getDeepRun(runId);
+        JSONObject data = JSON.parseObject(dataJson);
+        JSONArray plan = data.getJSONArray("plan");
+        if (plan == null || plan.isEmpty()) {
+            throw new IllegalArgumentException("Deep plan approval has no plan");
+        }
+        JSONObject config = new JSONObject();
+        config.put("type", "group");
+        config.put("layout", "confirm");
+        config.put("question", "请确认执行计划，批准后将按计划执行。");
+        config.put("approvalType", "deep_plan_approval");
+        config.put("runId", runId);
+        config.put("plan", plan);
+        AgentMessage message = new AgentMessage();
+        message.setConversationId(run.getConversationId());
+        message.setRole("assistant");
+        message.setMessageType("interaction");
+        message.setInteractionType("group");
+        message.setInteractionStatus("pending");
+        message.setContent(config.getString("question"));
+        message.setQuestionConfig(config.toJSONString());
+        if (!agentMessageService.save(message)) {
+            throw new IllegalStateException("保存 Deep 计划确认消息失败");
+        }
+        updateTaskStatus(run, "WAITING_APPROVAL", "等待计划确认");
+        return message;
+    }
+
     /** 验证会话归属，保存确认结果并让 Deep 服务恢复同一运行。 */
     public String resumeToolApproval(String conversationId, String messageId, String userId, Map<String, Object> answer) {
         AgentMessage message = agentMessageService.getById(messageId);
@@ -473,13 +505,28 @@ public class DeepAgentRunService {
         }
         JSONObject config = JSON.parseObject(message.getQuestionConfig());
         String approvalType = config.getString("approvalType");
-        if (!"deep_mcp_tool_approval".equals(approvalType) && !"deep_ask_user".equals(approvalType)) {
+        if (!"deep_mcp_tool_approval".equals(approvalType) && !"deep_ask_user".equals(approvalType)
+                && !"deep_plan_approval".equals(approvalType)) {
             throw new IllegalArgumentException("Not a Deep tool approval message");
         }
         String runId = config.getString("runId");
         AgentRun run = getDeepRun(runId);
         if (!userId.equals(run.getUserId())) {
             throw new IllegalArgumentException("Deep tool approval does not belong to the current user");
+        }
+        if ("deep_plan_approval".equals(approvalType)) {
+            AgentMessage update = new AgentMessage();
+            update.setId(messageId);
+            update.setInteractionStatus("answered");
+            update.setAnsweredAt(System.currentTimeMillis());
+            agentMessageService.updateById(update);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("run_id", runId);
+            payload.put("plan_approved", true);
+            ResponseEntity<String> response = signingClient.signedPost("/v1/runs/" + runId + "/resume", payload);
+            if (response.getStatusCode() != HttpStatus.ACCEPTED) throw new IllegalStateException("Deep Agent 计划确认恢复失败");
+            updateTaskStatus(run, "RUNNING", null);
+            return runId;
         }
         if ("deep_ask_user".equals(approvalType)) {
             AgentMessage update = new AgentMessage(); update.setId(messageId); update.setInteractionStatus("answered"); update.setAnsweredAt(System.currentTimeMillis());

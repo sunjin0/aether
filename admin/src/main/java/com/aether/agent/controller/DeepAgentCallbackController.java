@@ -223,6 +223,29 @@ public class DeepAgentCallbackController {
                         askQuestion.put("questionConfig", JSON.parseObject(askUser.getQuestionConfig()));
                         DeepRunEventHub.publish(runId, "question", askQuestion.toJSONString(), false);
                         break;
+                    case "plan.approval.required":
+                        AgentMessage planApproval = deepAgentRunService.createPlanApproval(runId, dataJson);
+                        if (planApproval == null) {
+                            break;
+                        }
+                        AgentMessageVo planApprovalVo = new AgentMessageVo();
+                        org.springframework.beans.BeanUtils.copyProperties(planApproval, planApprovalVo);
+                        AgentStreamCallback planApprovalCallback = activeCallbacks.get(runId);
+                        if (planApprovalCallback != null && !planApprovalCallback.isClosed()) {
+                            planApprovalCallback.onQuestion(planApproval.getConversationId(), runId, planApprovalVo);
+                            break;
+                        }
+                        JSONObject planQuestion = new JSONObject();
+                        planQuestion.put("conversationId", planApproval.getConversationId());
+                        planQuestion.put("runId", runId);
+                        planQuestion.put("messageId", planApproval.getId());
+                        planQuestion.put("content", planApproval.getContent());
+                        planQuestion.put("messageType", planApproval.getMessageType());
+                        planQuestion.put("interactionType", planApproval.getInteractionType());
+                        planQuestion.put("interactionStatus", planApproval.getInteractionStatus());
+                        planQuestion.put("questionConfig", JSON.parseObject(planApproval.getQuestionConfig()));
+                        DeepRunEventHub.publish(runId, "question", planQuestion.toJSONString(), false);
+                        break;
                     case "run.completed":
                         handleCompleted(runId, dataJson, activeCallbacks.get(runId));
                         break;
