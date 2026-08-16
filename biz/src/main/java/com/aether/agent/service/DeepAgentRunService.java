@@ -889,7 +889,7 @@ public class DeepAgentRunService {
         if (containsAny(normalized, "改为", "改成", "换成", "调整为", "不再", "取消原", "变更目标")) {
             return TaskRoute.goalChanged(active);
         }
-        if (containsAny(normalized, "继续", "接着", "按刚才", "基于刚才", "根据刚才", "补充", "上一步", "上述", "刚才的", "之前的")) {
+        if (containsAny(normalized, "继续", "接着", "按刚才", "基于刚才", "根据刚才", "补充", "上一步", "上述", "刚才的", "之前的", "重新", "重做")) {
             return TaskRoute.continueTask(active);
         }
         return TaskRoute.NEW_TASK;
