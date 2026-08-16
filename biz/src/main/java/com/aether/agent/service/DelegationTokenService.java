@@ -15,7 +15,6 @@ import java.util.List;
 @Component
 public class DelegationTokenService {
 
-    private static final long TOKEN_TTL_MINUTES = 5;
     private final DeepAgentConfig config;
 
     public DelegationTokenService(DeepAgentConfig config) {
@@ -27,13 +26,14 @@ public class DelegationTokenService {
             throw new ServerException(500, I18nUtils.getMessage("agent.mcp.delegation-secret.missing"));
         }
         long now = System.currentTimeMillis();
+        long ttlMillis = Math.max(config.getDelegationTokenTtlSeconds(), 60L) * 1000;
         return JWT.create()
                 .withClaim("runId", runId)
                 .withClaim("userId", userId)
                 .withClaim("agentId", agentId)
                 .withClaim("allowedTools", allowedTools)
                 .withIssuedAt(new Date(now))
-                .withExpiresAt(new Date(now + TOKEN_TTL_MINUTES * 60 * 1000))
+                .withExpiresAt(new Date(now + ttlMillis))
                 .sign(Algorithm.HMAC256(config.getMcpDelegationSecret()));
     }
 
