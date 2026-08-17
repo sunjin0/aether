@@ -1,6 +1,7 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.entity.AgentConversation;
+import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.AgentToolCallLog;
@@ -48,6 +49,8 @@ class AgentConversationControllerTest {
     @Mock
     private AgentConversationService conversationService;
     @Mock
+    private AgentDefinitionService agentDefinitionService;
+    @Mock
     private AgentMessageService messageService;
     @Mock
     private AgentRunService runService;
@@ -85,7 +88,7 @@ class AgentConversationControllerTest {
         user.put("userId", "user-1");
         CurrentUser.set(user);
         controller = new AgentConversationController(
-                conversationService, messageService, runService, toolCallLogService,
+                conversationService, agentDefinitionService, messageService, runService, toolCallLogService,
                 preferenceEventService, preferenceService, cacheService, summaryService, agentToolWorkflow);
     }
 

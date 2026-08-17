@@ -1,10 +1,12 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.entity.AgentConversation;
+import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.service.AgentConversationService;
+import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentToolCallLogService;
@@ -46,6 +48,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -59,6 +62,7 @@ import java.util.stream.Collectors;
 public class AgentConversationController {
 
     private final AgentConversationService agentConversationService;
+    private final AgentDefinitionService agentDefinitionService;
     private final AgentMessageService agentMessageService;
     private final AgentRunService agentRunService;
     private final AgentToolCallLogService agentToolCallLogService;
@@ -73,6 +77,7 @@ public class AgentConversationController {
      */
     @Autowired
     public AgentConversationController(AgentConversationService agentConversationService,
+                                       AgentDefinitionService agentDefinitionService,
                                        AgentMessageService agentMessageService,
                                        AgentRunService agentRunService,
                                        AgentToolCallLogService agentToolCallLogService,
@@ -82,6 +87,7 @@ public class AgentConversationController {
                                        ConversationSummaryService conversationSummaryService,
                                        AgentToolWorkflow agentToolWorkflow) {
         this.agentConversationService = agentConversationService;
+        this.agentDefinitionService = agentDefinitionService;
         this.agentMessageService = agentMessageService;
         this.agentRunService = agentRunService;
         this.agentToolCallLogService = agentToolCallLogService;
@@ -109,9 +115,19 @@ public class AgentConversationController {
                 .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId"))
                 .orderByDesc(AgentConversation::getCreatedAt);
         Page<AgentConversation> result = agentConversationService.page(page, wrapper);
+        Set<String> agentIds = result.getRecords().stream().map(AgentConversation::getAgentDefinitionId)
+                .filter(StringUtils::isNotBlank).collect(Collectors.toSet());
+        Map<String, AgentDefinition> agentsById = agentIds.isEmpty() ? Collections.emptyMap()
+                : agentDefinitionService.listByIds(agentIds).stream()
+                .collect(Collectors.toMap(AgentDefinition::getId, item -> item));
         List<AgentConversationVo> list = result.getRecords().stream().map(item -> {
             AgentConversationVo itemVo = new AgentConversationVo();
             BeanUtils.copyProperties(item, itemVo);
+            AgentDefinition agent = agentsById.get(item.getAgentDefinitionId());
+            if (agent != null) {
+                itemVo.setAgentDefinitionName(agent.getName());
+                itemVo.setExecutionMode(agent.getExecutionMode());
+            }
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());

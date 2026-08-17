@@ -378,6 +378,10 @@ public class AgentToolWorkflow {
         config.put("toolCallId", call.getId());
         config.put("toolName", call.getName());
         config.put("arguments", call.getArguments());
+        // DeepSeek thinking mode requires this exact assistant tool-call message when continuing.
+        config.put("modelContent", response.getContent());
+        config.put("modelReasoningContent", response.getReasoningContent());
+        config.put("modelToolCalls", response.getToolCalls());
         config.put("riskLevel", risk.getLevel());
         config.put("riskReason", risk.getReason());
         config.put("riskEvidence", risk.getEvidence());
@@ -480,7 +484,7 @@ public class AgentToolWorkflow {
             saveGrant(userId, agent.getId(), tool.getId(), question.getConversationId());
         }
         updateApprovalAudit(config.getString("auditLogId"), result, confirmed);
-        return new ApprovalExecution(runId, buildToolCallResponse(toolCallId, toolName, arguments), result);
+        return new ApprovalExecution(runId, buildToolCallResponse(config, toolCallId, toolName, arguments), result);
     }
 
     /**
@@ -594,7 +598,9 @@ public class AgentToolWorkflow {
     /**
      * 构建ToolCallResponse。
      */
-    private ModelChatResponse buildToolCallResponse(String toolCallId, String toolName, Map<String, Object> arguments) {
+    private ModelChatResponse buildToolCallResponse(JSONObject config, String toolCallId, String toolName,
+                                                    Map<String, Object> arguments) {
+        String toolCalls = config.getString("modelToolCalls");
         JSONObject function = new JSONObject();
         function.put("name", toolName);
         function.put("arguments", JSON.toJSONString(arguments));
@@ -603,7 +609,9 @@ public class AgentToolWorkflow {
         call.put("type", "function");
         call.put("function", function);
         ModelChatResponse response = new ModelChatResponse();
-        response.setToolCalls(new JSONArray().fluentAdd(call).toJSONString());
+        response.setContent(config.getString("modelContent"));
+        response.setReasoningContent(config.getString("modelReasoningContent"));
+        response.setToolCalls(StringUtils.defaultIfBlank(toolCalls, new JSONArray().fluentAdd(call).toJSONString()));
         return response;
     }
 

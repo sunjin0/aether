@@ -21,6 +21,9 @@ public class AgentConversationVo extends BaseEntity {
     @ApiModelProperty(value = "Agent名称")
     private String agentDefinitionName;
 
+    @ApiModelProperty(value = "关联Agent执行模式：STANDARD或DEEP")
+    private String executionMode;
+
     @ApiModelProperty(value = "会话标题")
     private String title;
 
