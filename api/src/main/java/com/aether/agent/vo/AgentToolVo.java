@@ -21,6 +21,9 @@ public class AgentToolVo extends BaseEntity {
     @ApiModelProperty(value = "描述")
     private String description;
 
+    @ApiModelProperty(value = "是否仅查询未绑定工具")
+    private Boolean unboundOnly;
+
     @ApiModelProperty(value = "系统图标库名称")
     private String icon;
 

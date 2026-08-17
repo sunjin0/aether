@@ -162,6 +162,65 @@ public class AgentToolController {
     }
 
     /**
+     * Refreshes selected MCP-imported tools in one request. Each MCP server is
+     * queried once so the client receives one consolidated operation result.
+     */
+    @ApiOperation("批量更新MCP工具定义")
+    @Permission(path = "/agent/tool", type = Permission.Type.Write)
+    @PostMapping("/batch-refresh-definition")
+    public WebResponse<Map<String, Integer>> batchRefreshDefinition(@RequestBody Map<String, List<String>> body) {
+        List<String> ids = body == null ? Collections.emptyList() : body.get("toolIds");
+        if (ids == null || ids.isEmpty()) {
+            throw new ServerException(400, I18nUtils.getMessage("agent.tool.refresh-definition.unsupported"));
+        }
+        List<AgentTool> tools = agentToolService.listByIds(ids).stream()
+                .filter(tool -> !Boolean.TRUE.equals(tool.getDeleted()) && StringUtils.isNotBlank(tool.getMcpServerId())
+                        && StringUtils.isNotBlank(tool.getMcpToolName()))
+                .collect(Collectors.toList());
+        Map<String, List<AgentTool>> toolsByServer = tools.stream()
+                .collect(Collectors.groupingBy(AgentTool::getMcpServerId));
+        int succeeded = 0;
+        int failed = ids.size() - tools.size();
+        for (Map.Entry<String, List<AgentTool>> entry : toolsByServer.entrySet()) {
+            try {
+                AgentMcpServer server = agentMcpServerService.getById(entry.getKey());
+                if (server == null || Boolean.TRUE.equals(server.getDeleted()) || !Integer.valueOf(1).equals(server.getStatus())
+                        || StringUtils.isBlank(server.getBaseUrl()) || mcpClient == null || !mcpClient.supportsTransport(server.getTransport())) {
+                    failed += entry.getValue().size();
+                    continue;
+                }
+                mcpClient.ping(server);
+                Map<String, McpToolDefinition> definitions = mcpClient.listTools(server).stream()
+                        .filter(item -> item != null && StringUtils.isNotBlank(item.getName()))
+                        .collect(Collectors.toMap(McpToolDefinition::getName, item -> item, (left, right) -> left));
+                for (AgentTool tool : entry.getValue()) {
+                    McpToolDefinition remote = definitions.get(tool.getMcpToolName());
+                    if (remote == null) {
+                        failed++;
+                        continue;
+                    }
+                    AgentTool update = new AgentTool();
+                    update.setId(tool.getId());
+                    if (tool.getMcpToolName().equals(tool.getName())) update.setName(remote.getName());
+                    update.setDescription(remote.getDescription());
+                    update.setMcpInputSchema(remote.getInputSchema());
+                    update.setTimeoutMs(server.getTimeoutMs());
+                    agentToolService.updateById(update);
+                    if (agentToolCatalog != null) agentToolCatalog.evictByToolId(tool.getId());
+                    succeeded++;
+                }
+            } catch (Exception ignored) {
+                failed += entry.getValue().size();
+            }
+        }
+        Map<String, Integer> result = new LinkedHashMap<>();
+        result.put("total", ids.size());
+        result.put("succeeded", succeeded);
+        result.put("failed", failed);
+        return WebResponse.OK(result);
+    }
+
+    /**
      * 汇总工具中心的来源、类型和状态筛选项。
      */
     @ApiOperation("工具中心筛选聚合")
