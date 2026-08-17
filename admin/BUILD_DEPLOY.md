@@ -1,6 +1,7 @@
 # admin 服务构建与发布命令
 
-每次修改代码后，按以下命令构建并发布（基于 docker-compose，`docker-compose.yml` 只构建/运行 `admin` 服务，配置来自环境变量，默认 `SPRING_PROFILES_ACTIVE=prod`）。
+每次修改代码后，按以下命令构建并发布（基于 docker-compose，`docker-compose.yml` 只构建/运行 `admin` 服务，配置来自环境变量，默认
+`SPRING_PROFILES_ACTIVE=prod`）。
 
 ## 1. 构建镜像（构建并重新打包 jar）
 
@@ -18,7 +19,8 @@ docker compose -f docker-compose.yml build admin
 docker compose -f docker-compose.yml up -d admin
 ```
 
-> 注意：compose 使用 `container_name: aether-admin` 且加入外部网络 `aether-mcp-server_default`。若存在同名的旧容器（未由 compose 管理），先删除再执行：`docker rm -f aether-admin`。
+> 注意：compose 使用 `container_name: aether-admin` 且加入外部网络 `aether-mcp-server_default`。若存在同名的旧容器（未由
+> compose 管理），先删除再执行：`docker rm -f aether-admin`。
 
 查看日志与状态：
 

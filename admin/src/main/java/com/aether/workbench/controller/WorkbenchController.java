@@ -37,6 +37,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 提供Workbench相关的 REST 接口。
+ */
 @Api(tags = "工作台 API")
 @RestController
 @RequestMapping("/api/workbench")
@@ -51,9 +54,12 @@ public class WorkbenchController {
     private final AgentWorkflowOperationsService operationsService;
     private final KnowledgeReviewTaskQueryService reviewTaskQueryService;
 
+    /**
+     * 创建 {@code WorkbenchController} 实例。
+     */
     public WorkbenchController(AgentWorkflowService workflowService,
-                                AgentWorkflowInstanceService instanceService,
-                                AgentWorkflowNodeInstanceService nodeInstanceService,
+                               AgentWorkflowInstanceService instanceService,
+                               AgentWorkflowNodeInstanceService nodeInstanceService,
                                AgentWorkflowExecutionService executionService,
                                AgentWorkflowOperationsService operationsService,
                                KnowledgeReviewTaskQueryService reviewTaskQueryService) {
@@ -65,6 +71,9 @@ public class WorkbenchController {
         this.reviewTaskQueryService = reviewTaskQueryService;
     }
 
+    /**
+     * 工作台聚合概览。
+     */
     @ApiOperation("工作台聚合概览")
     @GetMapping("/overview")
     public WebResponse<WorkbenchOverviewVo> overview() {
@@ -139,13 +148,20 @@ public class WorkbenchController {
         return WebResponse.OK(result);
     }
 
+    /**
+     * 当前用户Id。
+     */
     private String currentUserId() {
         Map<String, String> user = CurrentUser.getUser();
         String userId = user == null ? null : user.get("userId");
-        if (StringUtils.isBlank(userId)) throw new ServerException(401, I18nUtils.getMessage("auth.error.no.permission"));
+        if (StringUtils.isBlank(userId))
+            throw new ServerException(401, I18nUtils.getMessage("auth.error.no.permission"));
         return userId;
     }
 
+    /**
+     * 工作流Item。
+     */
     private WorkbenchItemVo workflowItem(AgentWorkflowInstance instance, String workflowName,
                                          List<AgentWorkflowNodeInstance> nodes) {
         WorkbenchItemVo item = new WorkbenchItemVo();
@@ -166,6 +182,9 @@ public class WorkbenchController {
         return item;
     }
 
+    /**
+     * 审核Item。
+     */
     private WorkbenchItemVo reviewItem(KnowledgeReviewTaskVo task) {
         WorkbenchItemVo item = new WorkbenchItemVo();
         item.setType("knowledge-review");
@@ -177,6 +196,9 @@ public class WorkbenchController {
         return item;
     }
 
+    /**
+     * 处理deadLetterItem。
+     */
     private WorkbenchItemVo deadLetterItem(AgentWorkflowDeadLetterVo letter) {
         WorkbenchItemVo item = new WorkbenchItemVo();
         item.setType("workflow-dead-letter");

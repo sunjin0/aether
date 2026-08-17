@@ -1,6 +1,7 @@
 # Agent 平台 — 前端版本变更日志
 
-> 合并来源：FRONTEND_INTEGRATION_CHANGES_V0.6.md、FRONTEND_INTEGRATION_CHANGES_V0.6_AUDIT.md、FRONTEND_INTEGRATION_CHANGES_V0.7.md、FRONTEND_INTEGRATION_CHANGES_V0.8_TOOL_CALL_DISPLAY.md
+>
+合并来源：FRONTEND_INTEGRATION_CHANGES_V0.6.md、FRONTEND_INTEGRATION_CHANGES_V0.6_AUDIT.md、FRONTEND_INTEGRATION_CHANGES_V0.7.md、FRONTEND_INTEGRATION_CHANGES_V0.8_TOOL_CALL_DISPLAY.md
 > 更新日期：2026-08-05
 
 ---
@@ -14,13 +15,13 @@
 
 ### 受影响接口
 
-| 接口 | 变更 |
-|------|------|
-| `POST /api/agent/chat` | 响应新增 `reasoningContent`、`reasoningTokens` |
-| `POST /api/agent/chat/stream` | `done` 事件新增推理字段 |
-| `GET /api/agent/conversation/{id}/messages` | 历史消息新增推理字段 |
-| `GET /api/agent/run/list` | 请求体支持 `startTime`、`endTime` |
-| `GET /api/agent/run/statistics` | 改为真实统计 |
+| 接口                                          | 变更                                        |
+|---------------------------------------------|-------------------------------------------|
+| `POST /api/agent/chat`                      | 响应新增 `reasoningContent`、`reasoningTokens` |
+| `POST /api/agent/chat/stream`               | `done` 事件新增推理字段                           |
+| `GET /api/agent/conversation/{id}/messages` | 历史消息新增推理字段                                |
+| `GET /api/agent/run/list`                   | 请求体支持 `startTime`、`endTime`               |
+| `GET /api/agent/run/statistics`             | 改为真实统计                                    |
 
 ### 前端规则
 
@@ -34,9 +35,9 @@
 
 ### 新增接口
 
-| 功能 | 方法 | 路径 |
-|------|------|------|
-| 会话生命周期 | GET | `/api/agent/conversation/{id}/lifecycle` |
+| 功能     | 方法  | 路径                                        |
+|--------|-----|-------------------------------------------|
+| 会话生命周期 | GET | `/api/agent/conversation/{id}/lifecycle`  |
 | 会话消息统计 | GET | `/api/agent/conversation/{id}/statistics` |
 
 ### 生命周期响应
@@ -87,10 +88,10 @@
 
 ### 参数说明
 
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `thinking` | Boolean | 是否启用深度思考 |
-| `reasoningEffort` | String | 推理力度：`low` / `medium` / `high` |
+| 参数                | 类型      | 说明                             |
+|-------------------|---------|--------------------------------|
+| `thinking`        | Boolean | 是否启用深度思考                       |
+| `reasoningEffort` | String  | 推理力度：`low` / `medium` / `high` |
 
 ### reasoning 事件
 
@@ -126,6 +127,7 @@ SSE 连接超时从 30 秒改为 5 分钟。
 当前实现会始终聚合工具调用日志，`includeToolCalls` 参数不会改变返回结果。
 
 assistant 消息新增返回 `toolCallLogs` 数组，包含：
+
 - 工具名称、参数、执行结果、状态、耗时
 
 ### 详细对接

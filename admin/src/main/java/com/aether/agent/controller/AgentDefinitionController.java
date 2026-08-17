@@ -48,6 +48,9 @@ public class AgentDefinitionController {
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
 
+    /**
+     * 创建 {@code AgentDefinitionController} 实例。
+     */
     @Autowired
     public AgentDefinitionController(AgentDefinitionService agentDefinitionService,
                                      AgentToolBindingService agentToolBindingService,
@@ -59,7 +62,9 @@ public class AgentDefinitionController {
         this.modelCatalogService = modelCatalogService;
     }
 
-    /** 分页查询 Agent 定义，支持名称、编码、状态和模型供应商筛选。 */
+    /**
+     * 分页查询 Agent 定义，支持名称、编码、状态和模型供应商筛选。
+     */
     @ApiOperation("Agent定义列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -99,7 +104,9 @@ public class AgentDefinitionController {
         return WebResponse.OK(options);
     }
 
-    /** 查询 Agent 详情，并补充当前已绑定的工具 ID。 */
+    /**
+     * 查询 Agent 详情，并补充当前已绑定的工具 ID。
+     */
     @ApiOperation("Agent定义详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "Agent定义ID", required = true),
@@ -122,7 +129,9 @@ public class AgentDefinitionController {
         return WebResponse.OK(vo);
     }
 
-    /** 创建 Agent 定义，并保存其工具绑定关系。 */
+    /**
+     * 创建 Agent 定义，并保存其工具绑定关系。
+     */
     @ApiOperation("新增Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -148,7 +157,9 @@ public class AgentDefinitionController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("agent.definition.create.success") : I18nUtils.getMessage("agent.definition.create.fail"), definition.getId());
     }
 
-    /** 更新 Agent 定义及工具绑定关系。 */
+    /**
+     * 更新 Agent 定义及工具绑定关系。
+     */
     @ApiOperation("编辑Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -177,7 +188,9 @@ public class AgentDefinitionController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.definition.update.success") : I18nUtils.getMessage("agent.definition.update.fail"));
     }
 
-    /** 软删除 Agent 定义。 */
+    /**
+     * 软删除 Agent 定义。
+     */
     @ApiOperation("删除Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "Agent定义ID", required = true),
@@ -190,7 +203,9 @@ public class AgentDefinitionController {
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.definition.delete.success") : I18nUtils.getMessage("agent.definition.delete.fail"));
     }
 
-    /** 修改 Agent 启用状态。 */
+    /**
+     * 修改 Agent 启用状态。
+     */
     @ApiOperation("启用/禁用Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -205,7 +220,9 @@ public class AgentDefinitionController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.definition.status.update.success") : I18nUtils.getMessage("agent.definition.status.update.fail"));
     }
 
-    /** 复制 Agent 基础配置和工具绑定，生成新的草稿 Agent。 */
+    /**
+     * 复制 Agent 基础配置和工具绑定，生成新的草稿 Agent。
+     */
     @ApiOperation("复制Agent定义")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -239,8 +256,10 @@ public class AgentDefinitionController {
         }
         return WebResponse.OK(I18nUtils.getMessage("agent.definition.copy.success"), copy.getId());
     }
+
     /**
      * 模型供应商列表
+     *
      * @return 模型供应商列表
      */
     @GetMapping("/model/providers")
@@ -248,7 +267,9 @@ public class AgentDefinitionController {
         return WebResponse.OK(modelCatalogService.getOptions("CHAT,MULTIMODAL"));
     }
 
-    /** New catalog selections are normalized to the legacy fields for compatible callers. */
+    /**
+     * New catalog selections are normalized to the legacy fields for compatible callers.
+     */
     private void applyModelCatalog(AgentDefinitionDto dto) {
         // Deep Agent 的推理模型由 Deep Agent 运行服务独立管理，不使用 Agent 级模型目录。
         if ("DEEP".equalsIgnoreCase(StringUtils.trim(dto.getExecutionMode()))) {

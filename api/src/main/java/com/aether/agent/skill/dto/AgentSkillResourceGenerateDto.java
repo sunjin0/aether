@@ -2,7 +2,9 @@ package com.aether.agent.skill.dto;
 
 import lombok.Data;
 
-/** Request for an AI-generated, not-yet-persisted Skill resource draft. */
+/**
+ * Request for an AI-generated, not-yet-persisted Skill resource draft.
+ */
 @Data
 public class AgentSkillResourceGenerateDto {
     private String modelId;

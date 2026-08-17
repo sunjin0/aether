@@ -59,6 +59,9 @@ public class AgentSkillController {
     private final SkillRoutingConfigService routingConfigService;
     private final SkillRoutingIndexService routingIndexService;
 
+    /**
+     * 创建 {@code AgentSkillController} 实例。
+     */
     @Autowired
     public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService, SkillRouterService skillRouterService, AgentDefinitionService agentDefinitionService, ModelProviderService modelProviderService, ModelCatalogService modelCatalogService, SkillRoutingConfigService routingConfigService, SkillRoutingIndexService routingIndexService) {
         this.skillService = skillService;
@@ -78,6 +81,9 @@ public class AgentSkillController {
         this(skillService, resourceWorkbenchService, null, null, null, null, null, null);
     }
 
+    /**
+     * 查询当前请求。
+     */
     @PostMapping("/list")
     public WebResponse<List<AgentSkillVo>> list(@RequestBody AgentSkillVo query) {
         Page<AgentSkill> page = skillService.page(new Page<>(query.getCurrent(), query.getPageSize()), Wrappers.lambdaQuery(AgentSkill.class)
@@ -97,6 +103,9 @@ public class AgentSkillController {
         return WebResponse.Page(records, page.getTotal());
     }
 
+    /**
+     * 处理options。
+     */
     @GetMapping("/options")
     @Permission(required = false)
     public WebResponse<List<Option>> options() {
@@ -112,22 +121,34 @@ public class AgentSkillController {
         return WebResponse.OK(os);
     }
 
+    /**
+     * 处理statistics。
+     */
     @GetMapping("/statistics")
     public WebResponse<AgentSkillStatisticsVo> statistics() {
         return WebResponse.OK(skillService.statistics());
     }
 
+    /**
+     * 详情当前请求。
+     */
     @GetMapping("/{id}")
     public WebResponse<AgentSkillDetailVo> detail(@PathVariable @NotBlank String id) {
         return WebResponse.OK(skillService.detail(id));
     }
 
+    /**
+     * 创建当前请求。
+     */
     @PostMapping
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<String> create(@RequestBody AgentSkillDraftDto dto) {
         return WebResponse.OK(I18nUtils.getMessage("skill.draft.create.success"), skillService.createDraft(dto));
     }
 
+    /**
+     * 更新Draft。
+     */
     @PutMapping("/{id}")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<Void> updateDraft(@PathVariable @NotBlank String id, @RequestBody AgentSkillDraftDto dto) {
@@ -135,12 +156,18 @@ public class AgentSkillController {
         return WebResponse.OK(I18nUtils.getMessage("skill.draft.update.success"));
     }
 
+    /**
+     * 创建下一个Draft。
+     */
     @PostMapping("/{id}/draft")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<String> createNextDraft(@PathVariable @NotBlank String id) {
         return WebResponse.OK(I18nUtils.getMessage("skill.draft.create.success"), skillService.createNextDraft(id));
     }
 
+    /**
+     * 发布当前请求。
+     */
     @PostMapping("/{id}/versions/{versionId}/publish")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<AgentSkillVersion> publish(@PathVariable @NotBlank String id, @PathVariable @NotBlank String versionId) {
@@ -151,16 +178,25 @@ public class AgentSkillController {
         return WebResponse.OK(skillService.publish(id, userId));
     }
 
+    /**
+     * 发布检查。
+     */
     @GetMapping("/{id}/publish-check")
     public WebResponse<AgentSkillPublishCheckVo> publishCheck(@PathVariable @NotBlank String id) {
         return WebResponse.OK(skillService.publishCheck(id));
     }
 
+    /**
+     * 处理versions。
+     */
     @GetMapping("/{id}/versions")
     public WebResponse<List<AgentSkillVersion>> versions(@PathVariable @NotBlank String id) {
         return WebResponse.OK(skillService.listVersions(id));
     }
 
+    /**
+     * 状态当前请求。
+     */
     @PutMapping("/{id}/status")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<Void> status(@PathVariable @NotBlank String id, @RequestBody AgentSkillVo dto) {
@@ -171,6 +207,9 @@ public class AgentSkillController {
         return WebResponse.OK(I18nUtils.getMessage("skill.status.update.success"));
     }
 
+    /**
+     * 上传资源。
+     */
     @PostMapping("/{id}/resources")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<AgentSkillResource> uploadResource(@PathVariable @NotBlank String id,
@@ -180,6 +219,9 @@ public class AgentSkillController {
         return WebResponse.OK(skillService.uploadResource(id, file.getOriginalFilename(), file.getContentType(), file.getBytes(), purpose, type));
     }
 
+    /**
+     * 更新资源。
+     */
     @PutMapping("/{id}/resources/{resourceId}")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<AgentSkillResource> updateResource(@PathVariable @NotBlank String id, @PathVariable @NotBlank String resourceId,
@@ -189,11 +231,17 @@ public class AgentSkillController {
         return WebResponse.OK(skillService.updateDraftResource(id, resourceId, file.getOriginalFilename(), file.getContentType(), file.getBytes(), purpose, type));
     }
 
+    /**
+     * 处理resources。
+     */
     @GetMapping("/{id}/resources")
     public WebResponse<List<AgentSkillResource>> resources(@PathVariable @NotBlank String id) {
         return WebResponse.OK(skillService.listResources(id));
     }
 
+    /**
+     * 资源Content。
+     */
     @GetMapping("/{id}/resources/{resourceId}/content")
     public WebResponse<String> resourceContent(@PathVariable @NotBlank String id, @PathVariable @NotBlank String resourceId) {
         // Keep the file body in data.  Passing a String to the single-argument
@@ -201,6 +249,9 @@ public class AgentSkillController {
         return WebResponse.OK(null, resourceWorkbenchService.content(id, resourceId));
     }
 
+    /**
+     * 生成资源。
+     */
     @PostMapping("/{id}/resources/generate")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<AgentSkillResourceGenerateVo> generateResource(@PathVariable @NotBlank String id,
@@ -208,6 +259,9 @@ public class AgentSkillController {
         return WebResponse.OK(resourceWorkbenchService.generate(id, dto));
     }
 
+    /**
+     * 移除资源。
+     */
     @DeleteMapping("/{id}/resources/{resourceId}")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<Void> removeResource(@PathVariable @NotBlank String id, @PathVariable @NotBlank String resourceId) {
@@ -215,6 +269,9 @@ public class AgentSkillController {
         return WebResponse.OK(I18nUtils.getMessage("skill.resource.remove.success"));
     }
 
+    /**
+     * 预览当前请求。
+     */
     @PostMapping("/{id}/preview")
     public WebResponse<AgentSkillPreviewVo> preview(@PathVariable @NotBlank String id, @RequestBody AgentSkillPreviewDto dto) {
         return WebResponse.OK(skillService.preview(id, dto));
@@ -232,11 +289,17 @@ public class AgentSkillController {
         return WebResponse.OK(skillRouterService.route(agent, provider, query, skillService.listBindings(agentId).stream().filter(binding -> Integer.valueOf(1).equals(binding.getStatus())).collect(Collectors.toList())));
     }
 
+    /**
+     * 处理routing配置。
+     */
     @GetMapping("/routing-config")
     public WebResponse<SkillRoutingConfigDto> routingConfig() {
         return WebResponse.OK(routingConfigService.get());
     }
 
+    /**
+     * 更新Routing配置。
+     */
     @PutMapping("/routing-config")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
     public WebResponse<Void> updateRoutingConfig(@RequestBody SkillRoutingConfigDto dto) {

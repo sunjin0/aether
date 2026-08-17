@@ -5,9 +5,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * 验证Sms控制器的行为。
+ */
 @SpringBootTest
 class SmsControllerTest {
 
+    /**
+     * 统计当前请求。
+     */
     @Test
     void count() {
         System.out.println("count");
@@ -15,6 +21,9 @@ class SmsControllerTest {
         assertTrue(true, "Count test executed");
     }
 
+    /**
+     * 查询当前请求。
+     */
     @Test
     void list() {
         System.out.println("list");
@@ -22,6 +31,9 @@ class SmsControllerTest {
         assertNotNull("list test executed");
     }
 
+    /**
+     * 处理info。
+     */
     @Test
     void info() {
         System.out.println("info");
@@ -29,6 +41,9 @@ class SmsControllerTest {
         assertTrue(true, "Info test executed");
     }
 
+    /**
+     * 保存当前请求。
+     */
     @Test
     void save() {
         System.out.println("save");
@@ -36,6 +51,9 @@ class SmsControllerTest {
         assertTrue(true, "Save test executed");
     }
 
+    /**
+     * 删除当前请求。
+     */
     @Test
     void delete() {
         System.out.println("delete");

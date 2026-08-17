@@ -1,7 +1,7 @@
 package com.aether.msg.mapper;
 
-import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.aether.msg.entity.Email;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

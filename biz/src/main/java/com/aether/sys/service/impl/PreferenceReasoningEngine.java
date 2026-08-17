@@ -10,12 +10,17 @@ import org.springframework.stereotype.Component;
 
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+
+/**
+ * 表示偏好ReasoningEngine。
+ */
 @Log4j2
 @Component
 public class PreferenceReasoningEngine {
@@ -34,10 +39,16 @@ public class PreferenceReasoningEngine {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
+    /**
+     * 解析EffectivePreferences。
+     */
     public List<AdminPreference> resolveEffectivePreferences(String adminId, String taskType) {
         return resolveEffectivePreferences(adminId, taskType, null);
     }
 
+    /**
+     * 解析EffectivePreferences。
+     */
     public List<AdminPreference> resolveEffectivePreferences(String adminId, String taskType,
                                                              String conversationId) {
         List<AdminPreference> allPreferences = preferenceMapper.selectEffectivePreferences(adminId);
@@ -78,10 +89,16 @@ public class PreferenceReasoningEngine {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 构建偏好Context。
+     */
     public String buildPreferenceContext(String adminId, String taskType) {
         return buildPreferenceContext(adminId, taskType, null);
     }
 
+    /**
+     * 构建偏好Context。
+     */
     public String buildPreferenceContext(String adminId, String taskType, String conversationId) {
         String cacheKey = CACHE_PREFIX + adminId
                 + ":" + (taskType != null ? taskType : "default")
@@ -130,15 +147,24 @@ public class PreferenceReasoningEngine {
         return context;
     }
 
+    /**
+     * 判断是否为Presentation偏好。
+     */
     private boolean isPresentationPreference(AdminPreference preference) {
         return PRESENTATION_CATEGORIES.contains(StringUtils.defaultString(preference.getCategory())
                 .trim().toLowerCase(Locale.ROOT));
     }
 
+    /**
+     * 判断是否为Expired。
+     */
     private boolean isExpired(AdminPreference pref, long now) {
         return pref.getExpiresAt() != null && pref.getExpiresAt() < now;
     }
 
+    /**
+     * 处理matchesScope。
+     */
     private boolean matchesScope(AdminPreference pref, String taskType, String conversationId) {
         if (AdminPreference.SCOPE_GLOBAL.equals(pref.getScope())) {
             return true;
@@ -153,6 +179,9 @@ public class PreferenceReasoningEngine {
         return false;
     }
 
+    /**
+     * 处理scopePriority。
+     */
     private int scopePriority(String scope) {
         if (AdminPreference.SCOPE_TASK_TYPE.equals(scope)) {
             return 3;
@@ -163,6 +192,9 @@ public class PreferenceReasoningEngine {
         return 1;
     }
 
+    /**
+     * 处理calculateEffectiveScore。
+     */
     private BigDecimal calculateEffectiveScore(AdminPreference pref, long now) {
         BigDecimal priority = BigDecimal.valueOf(pref.getPriority() != null ? pref.getPriority() : 50);
         BigDecimal confidence = pref.getConfidence() != null ? pref.getConfidence() : BigDecimal.ONE;
@@ -172,6 +204,9 @@ public class PreferenceReasoningEngine {
         return priority.multiply(decayFactor).multiply(confidence).add(usageBoost).setScale(2, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 处理calculateDecayFactor。
+     */
     private BigDecimal calculateDecayFactor(AdminPreference pref, long now) {
         if (pref.getDecayRate() == null || pref.getDecayRate().compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ONE;
@@ -184,6 +219,9 @@ public class PreferenceReasoningEngine {
         return BigDecimal.valueOf(factor).setScale(2, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 清理敏感信息当前请求。
+     */
     private String sanitize(String value) {
         return StringUtils.defaultString(value)
                 .replace("\\", "\\\\")
@@ -192,6 +230,9 @@ public class PreferenceReasoningEngine {
                 .replace('\n', ' ');
     }
 
+    /**
+     * 处理clear用户缓存。
+     */
     public void clearUserCache(String adminId) {
         try {
             String pattern = adminId == null

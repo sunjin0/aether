@@ -1,12 +1,20 @@
 package com.aether.knowledge.evaluation;
 
 import org.junit.jupiter.api.Test;
+
 import java.util.Arrays;
 import java.util.HashSet;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * 验证知识库RetrievalMetrics的行为。
+ */
 class KnowledgeRetrievalMetricsTest {
+    /**
+     * 处理calculatesRetrievalAndCitationMetricsAgainstLabelledChunks。
+     */
     @Test
     void calculatesRetrievalAndCitationMetricsAgainstLabelledChunks() {
         KnowledgeRetrievalMetrics.Result result = KnowledgeRetrievalMetrics.evaluate(
@@ -20,6 +28,9 @@ class KnowledgeRetrievalMetricsTest {
         assertTrue(result.isGrounded());
     }
 
+    /**
+     * 处理treatsAnyChunkFrom文档TargetAsAHit。
+     */
     @Test
     void treatsAnyChunkFromDocumentTargetAsAHit() {
         KnowledgeRetrievalMetrics.Result result = KnowledgeRetrievalMetrics.evaluate(
@@ -29,6 +40,9 @@ class KnowledgeRetrievalMetricsTest {
         assertEquals(0.5D, result.getMrr());
     }
 
+    /**
+     * 处理doesNot统计RepeatedChunksMoreThanOnce。
+     */
     @Test
     void doesNotCountRepeatedChunksMoreThanOnce() {
         KnowledgeRetrievalMetrics.Result result = KnowledgeRetrievalMetrics.evaluate(

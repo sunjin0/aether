@@ -13,7 +13,13 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * 验证FlywayMigrationSmoke的行为。
+ */
 class FlywayMigrationSmokeTest {
+    /**
+     * 处理migratesAnEmptyPostgresDatabaseToLatestVersion。
+     */
     @Test
     @EnabledIfEnvironmentVariable(named = "FLYWAY_TEST_URL", matches = ".+")
     void migratesAnEmptyPostgresDatabaseToLatestVersion() throws Exception {
@@ -53,6 +59,9 @@ class FlywayMigrationSmokeTest {
         }
     }
 
+    /**
+     * 处理baselinesAnExistingSchemaWithoutReplayingHistoricalMigrations。
+     */
     @Test
     @EnabledIfEnvironmentVariable(named = "FLYWAY_TEST_URL", matches = ".+")
     void baselinesAnExistingSchemaWithoutReplayingHistoricalMigrations() throws Exception {
@@ -79,7 +88,7 @@ class FlywayMigrationSmokeTest {
                  Statement statement = connection.createStatement();
                  ResultSet history = statement.executeQuery(
                          "SELECT COUNT(*) FROM " + schema
-                                  + ".flyway_schema_history WHERE type = 'BASELINE' AND success")) {
+                                 + ".flyway_schema_history WHERE type = 'BASELINE' AND success")) {
                 assertTrue(history.next());
                 assertEquals(1, history.getInt(1));
             }
@@ -88,10 +97,16 @@ class FlywayMigrationSmokeTest {
         }
     }
 
+    /**
+     * 处理uniqueSchema。
+     */
     private static String uniqueSchema(String prefix) {
         return prefix + UUID.randomUUID().toString().replace("-", "");
     }
 
+    /**
+     * 创建Schema。
+     */
     private static void createSchema(String url, String user, String password,
                                      String schema, boolean withLegacyMarker) throws Exception {
         try (Connection connection = DriverManager.getConnection(url, user, password);
@@ -104,6 +119,9 @@ class FlywayMigrationSmokeTest {
         }
     }
 
+    /**
+     * 处理dropSchema。
+     */
     private static void dropSchema(String url, String user, String password,
                                    String schema) throws Exception {
         try (Connection connection = DriverManager.getConnection(url, user, password);

@@ -5,6 +5,9 @@ import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+/**
+ * 表示智能体知识库BaseBindingVO。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AgentKnowledgeBaseBindingVo extends BaseEntity {

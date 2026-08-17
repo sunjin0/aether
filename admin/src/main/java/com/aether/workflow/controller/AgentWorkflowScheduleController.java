@@ -22,7 +22,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** 工作流定时任务的独立管理 API。 */
+/**
+ * 工作流定时任务的独立管理 API。
+ */
 @Api(tags = "工作流定时任务 API")
 @RestController
 @Permission(path = "/workflow/schedule")
@@ -30,10 +32,16 @@ import java.util.List;
 public class AgentWorkflowScheduleController {
     private final AgentWorkflowScheduleTriggerService scheduleTriggerService;
 
+    /**
+     * 创建 {@code AgentWorkflowScheduleController} 实例。
+     */
     public AgentWorkflowScheduleController(AgentWorkflowScheduleTriggerService scheduleTriggerService) {
         this.scheduleTriggerService = scheduleTriggerService;
     }
 
+    /**
+     * 创建当前请求。
+     */
     @ApiOperation("创建工作流定时任务")
     @Permission(path = "/workflow/schedule", type = Permission.Type.Write)
     @PostMapping
@@ -41,7 +49,11 @@ public class AgentWorkflowScheduleController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.create.success"), scheduleTriggerService.create(dto));
     }
 
+    /**
+     * 工作流定时任务列表。
+     */
     @ApiOperation("工作流定时任务列表")
+
     @Permission(path = "/workflow/schedule")
     @PostMapping("/list")
     public WebResponse<List<AgentWorkflowScheduleTrigger>> list(@RequestBody(required = false) AgentWorkflowScheduleTrigger query) {
@@ -57,6 +69,9 @@ public class AgentWorkflowScheduleController {
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
 
+    /**
+     * 更新当前请求。
+     */
     @ApiOperation("编辑工作流定时任务")
     @Permission(path = "/workflow/schedule", type = Permission.Type.Write)
     @PutMapping("/{id}")
@@ -65,6 +80,9 @@ public class AgentWorkflowScheduleController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.status.update.success"));
     }
 
+    /**
+     * 启用或停用工作流定时任务。
+     */
     @ApiOperation("启用或停用工作流定时任务")
     @Permission(path = "/workflow/schedule", type = Permission.Type.Write)
     @PostMapping("/{id}/enabled")
@@ -73,6 +91,9 @@ public class AgentWorkflowScheduleController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.status.update.success"));
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("删除工作流定时任务")
     @Permission(path = "/workflow/schedule", type = Permission.Type.Write)
     @DeleteMapping("/{id}")

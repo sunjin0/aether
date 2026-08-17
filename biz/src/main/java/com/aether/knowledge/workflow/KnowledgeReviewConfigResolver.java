@@ -6,13 +6,22 @@ import com.aether.i18n.I18nUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
+/**
+ * 表示知识库审核配置Resolver。
+ */
 @Component
 public class KnowledgeReviewConfigResolver {
 
+    /**
+     * 判断是否为Ai审核Required。
+     */
     public boolean isAiReviewRequired(String reviewConfig) {
         return booleanValue(reviewConfig, "aiReviewRequired", true);
     }
 
+    /**
+     * 判断是否为DifferentApproverRequired。
+     */
     public boolean isDifferentApproverRequired(String reviewConfig) {
         return booleanValue(reviewConfig, "requireDifferentApprover", true);
     }
@@ -35,6 +44,9 @@ public class KnowledgeReviewConfigResolver {
         }
     }
 
+    /**
+     * 处理booleanValue。
+     */
     private boolean booleanValue(String value, String key, boolean defaultValue) {
         if (StringUtils.isBlank(value)) {
             throw new ServerException(500,

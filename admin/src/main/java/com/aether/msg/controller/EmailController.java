@@ -1,4 +1,5 @@
 package com.aether.msg.controller;
+
 import com.aether.permission.Permission;
 import com.aether.entity.WebResponse;
 import com.aether.msg.entity.Email;
@@ -17,6 +18,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * 提供Email相关的 REST 接口。
+ */
 @Api(value = "邮件服务 API")
 @RestController
 @Permission(path = "/msg/email")
@@ -24,10 +28,16 @@ import java.util.List;
 public class EmailController {
     private final EmailMessageService emailService;
 
+    /**
+     * 创建 {@code EmailController} 实例。
+     */
     public EmailController(EmailMessageService emailService) {
         this.emailService = emailService;
     }
 
+    /**
+     * 邮件记录列表。
+     */
     @ApiOperation("邮件记录列表")
     @ApiImplicitParams(
             {
@@ -40,6 +50,9 @@ public class EmailController {
         return WebResponse.Page(list.getRecords(), list.getTotal());
     }
 
+    /**
+     * 邮件信息。
+     */
     @ApiOperation("邮件信息")
     @ApiImplicitParams(
             {
@@ -53,6 +66,9 @@ public class EmailController {
         return WebResponse.OK(Email);
     }
 
+    /**
+     * 保存当前请求。
+     */
     @ApiOperation("修改或保存")
     @Permission(path = "/msg/email", type = Permission.Type.Write)
     @ApiImplicitParams(
@@ -73,6 +89,9 @@ public class EmailController {
         }
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("删除")
     @Permission(path = "/msg/email", type = Permission.Type.Write)
     @ApiImplicitParams(

@@ -8,6 +8,9 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.util.Base64;
 
+/**
+ * 表示AesUtil。
+ */
 public class AesUtil {
 
     private static final String ALGORITHM = "AES/CBC/PKCS5Padding";

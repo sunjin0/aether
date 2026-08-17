@@ -5,11 +5,23 @@ package com.aether.agent.model;
  */
 public interface ModelStreamCallback {
 
+    /**
+     * 处理on消息。
+     */
     void onMessage(String chunk);
 
+    /**
+     * 处理onReasoning。
+     */
     void onReasoning(String chunk);
 
+    /**
+     * 处理onToolCall。
+     */
     void onToolCall(String toolCallJson);
 
+    /**
+     * 判断是否为Closed。
+     */
     boolean isClosed();
 }

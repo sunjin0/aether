@@ -26,7 +26,9 @@ import java.time.ZonedDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** 定时触发器由数据库的 next_fire_at 和短租约协调，进程重启后可继续扫描。 */
+/**
+ * 定时触发器由数据库的 next_fire_at 和短租约协调，进程重启后可继续扫描。
+ */
 @Service
 public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWorkflowScheduleTriggerMapper, AgentWorkflowScheduleTrigger>
         implements AgentWorkflowScheduleTriggerService {
@@ -35,25 +37,41 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
     private final ServiceAccountService serviceAccountService;
     private final AgentWorkflowExecutionService executionService;
 
+    /**
+     * 创建 {@code AgentWorkflowScheduleTriggerServiceImpl} 实例。
+     */
     public AgentWorkflowScheduleTriggerServiceImpl(AgentWorkflowService workflowService, ServiceAccountService serviceAccountService,
-                                                    AgentWorkflowExecutionService executionService) {
+                                                   AgentWorkflowExecutionService executionService) {
         this.workflowService = workflowService;
         this.serviceAccountService = serviceAccountService;
         this.executionService = executionService;
     }
 
-    @Override @Transactional(rollbackFor = Exception.class)
+    /**
+     * 创建当前请求。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public AgentWorkflowScheduleTrigger create(AgentWorkflowScheduleTriggerDto dto) {
         validate(dto);
         long now = System.currentTimeMillis();
         AgentWorkflowScheduleTrigger trigger = new AgentWorkflowScheduleTrigger();
-        trigger.setWorkflowId(dto.getWorkflowId()); trigger.setServiceAccountId(dto.getServiceAccountId()); trigger.setName(dto.getName());
-        trigger.setCronExpression(dto.getCronExpression()); trigger.setBusinessType(dto.getBusinessType()); trigger.setBusinessIdTemplate(dto.getBusinessIdTemplate());
+        trigger.setWorkflowId(dto.getWorkflowId());
+        trigger.setServiceAccountId(dto.getServiceAccountId());
+        trigger.setName(dto.getName());
+        trigger.setCronExpression(dto.getCronExpression());
+        trigger.setBusinessType(dto.getBusinessType());
+        trigger.setBusinessIdTemplate(dto.getBusinessIdTemplate());
         trigger.setVariables(JSON.toJSONString(dto.getVariables() == null ? new LinkedHashMap<String, Object>() : dto.getVariables()));
-        trigger.setEnabled(true); trigger.setNextFireAt(nextFireAt(dto.getCronExpression(), now));
-        save(trigger); return trigger;
+        trigger.setEnabled(true);
+        trigger.setNextFireAt(nextFireAt(dto.getCronExpression(), now));
+        save(trigger);
+        return trigger;
     }
 
+    /**
+     * 更新当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean update(String id, AgentWorkflowScheduleTriggerDto dto) {
@@ -72,6 +90,9 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
         return updateById(trigger);
     }
 
+    /**
+     * 处理setEnabled。
+     */
     @Override
     public boolean setEnabled(String id, boolean enabled) {
         AgentWorkflowScheduleTrigger trigger = required(id);
@@ -82,6 +103,9 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
         return updateById(trigger);
     }
 
+    /**
+     * 删除当前请求。
+     */
     @Override
     public boolean delete(String id) {
         AgentWorkflowScheduleTrigger trigger = required(id);
@@ -90,6 +114,9 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
         return removeById(trigger);
     }
 
+    /**
+     * 处理triggerDue。
+     */
     @Override
     @SuppressWarnings("unchecked")
     public boolean triggerDue(String id, long scheduledAt) {
@@ -103,13 +130,16 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
         AgentWorkflowScheduleTrigger trigger = required(id);
         try {
             ServiceAccount account = serviceAccountService.getById(trigger.getServiceAccountId());
-            if (account == null || Boolean.TRUE.equals(account.getDeleted())) throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.service-account-binding.not-found"));
+            if (account == null || Boolean.TRUE.equals(account.getDeleted()))
+                throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.service-account-binding.not-found"));
             serviceAccountService.assertWorkflowStartAllowed(account.getId(), trigger.getWorkflowId());
             Map<String, Object> variables = StringUtils.isBlank(trigger.getVariables()) ? new LinkedHashMap<String, Object>()
                     : JSON.parseObject(trigger.getVariables(), Map.class);
             AgentWorkflowBusinessStartDto start = new AgentWorkflowBusinessStartDto();
-            start.setBusinessType(trigger.getBusinessType()); start.setBusinessId(render(trigger.getBusinessIdTemplate(), trigger, scheduledAt));
-            start.setIdempotencyKey("schedule:" + trigger.getId() + ":" + scheduledAt); start.setVariables(variables);
+            start.setBusinessType(trigger.getBusinessType());
+            start.setBusinessId(render(trigger.getBusinessIdTemplate(), trigger, scheduledAt));
+            start.setIdempotencyKey("schedule:" + trigger.getId() + ":" + scheduledAt);
+            start.setVariables(variables);
             executionService.startBusiness(trigger.getWorkflowId(), start, account.getUserId());
             update(new LambdaUpdateWrapper<AgentWorkflowScheduleTrigger>().set(AgentWorkflowScheduleTrigger::getLastTriggeredAt, now)
                     .set(AgentWorkflowScheduleTrigger::getLastErrorMessage, null).set(AgentWorkflowScheduleTrigger::getLockedUntil, null)
@@ -123,25 +153,48 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
         }
     }
 
+    /**
+     * 校验当前请求。
+     */
     private void validate(AgentWorkflowScheduleTriggerDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getWorkflowId()) || StringUtils.isBlank(dto.getServiceAccountId()) || StringUtils.isBlank(dto.getName())
                 || StringUtils.isBlank(dto.getCronExpression()) || StringUtils.isBlank(dto.getBusinessType()) || StringUtils.isBlank(dto.getBusinessIdTemplate()))
             throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.configuration.required"));
-        try { CronExpression.parse(dto.getCronExpression()); } catch (Exception ex) { throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.cron.invalid")); }
+        try {
+            CronExpression.parse(dto.getCronExpression());
+        } catch (Exception ex) {
+            throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.cron.invalid"));
+        }
         AgentWorkflow workflow = workflowService.getById(dto.getWorkflowId());
-        if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted())) throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.workflow.not-found"));
-        if (serviceAccountService.getById(dto.getServiceAccountId()) == null) throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.service-account.not-found"));
+        if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted()))
+            throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.workflow.not-found"));
+        if (serviceAccountService.getById(dto.getServiceAccountId()) == null)
+            throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.service-account.not-found"));
     }
+
+    /**
+     * 处理required。
+     */
     private AgentWorkflowScheduleTrigger required(String id) {
         AgentWorkflowScheduleTrigger trigger = getById(id);
-        if (trigger == null || Boolean.TRUE.equals(trigger.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("workflow.schedule-trigger.not-found"));
+        if (trigger == null || Boolean.TRUE.equals(trigger.getDeleted()))
+            throw new ServerException(404, I18nUtils.getMessage("workflow.schedule-trigger.not-found"));
         return trigger;
     }
+
+    /**
+     * 下一个FireAt。
+     */
     private long nextFireAt(String cron, long after) {
         ZonedDateTime next = CronExpression.parse(cron).next(ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(after), ZoneId.systemDefault()));
-        if (next == null) throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.cron.next-execution.unavailable"));
+        if (next == null)
+            throw new ServerException(422, I18nUtils.getMessage("workflow.schedule-trigger.cron.next-execution.unavailable"));
         return next.toInstant().toEpochMilli();
     }
+
+    /**
+     * 处理render。
+     */
     private String render(String source, AgentWorkflowScheduleTrigger trigger, long scheduledAt) {
         return StringUtils.defaultString(source).replace("${scheduledAt}", String.valueOf(scheduledAt)).replace("${triggerId}", trigger.getId());
     }

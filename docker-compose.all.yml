@@ -13,11 +13,11 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
       interval: 5s
       timeout: 5s
       retries: 20
-    networks: [aether-services]
+    networks: [ aether-services ]
 
   redis:
     image: redis:7-alpine
@@ -25,15 +25,15 @@ services:
     restart: unless-stopped
     ports:
       - "${REDIS_PORT:-16379}:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+    command: [ "redis-server", "--appendonly", "yes" ]
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [aether-services]
+    networks: [ aether-services ]
 
   minio:
     image: minio/minio:latest
@@ -49,11 +49,11 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live" ]
       interval: 10s
       timeout: 5s
       retries: 20
-    networks: [aether-services]
+    networks: [ aether-services ]
 
   admin:
     build:
@@ -82,7 +82,7 @@ services:
       AETHER_SANDBOX_RUNNER_TOKEN: ${AETHER_SANDBOX_RUNNER_TOKEN:-aether-sandbox-runner-dev-secret-change-me}
     networks:
       aether-services:
-        aliases: [aether-admin]
+        aliases: [ aether-admin ]
     depends_on:
       postgres:
         condition: service_healthy
@@ -109,13 +109,13 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health')"]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health')" ]
       interval: 10s
       timeout: 5s
       retries: 12
     networks:
       aether-services:
-        aliases: [aether-deep-agent]
+        aliases: [ aether-deep-agent ]
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,18 +129,22 @@ services:
       context: "${AETHER_MCP_GIT_URL:-https://github.com/sunjin0/aether-mcp-server.git}#${AETHER_MCP_GIT_REF:-master}"
     container_name: aether-mcp
     restart: unless-stopped
-    command: ["http", "--auth", "--host", "0.0.0.0", "--port", "8000"]
+    command: [ "http", "--auth", "--host", "0.0.0.0", "--port", "8000" ]
     ports:
       - "${MCP_PORT:-8000}:8000"
     environment:
       HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
       AETHER_MCP_DELEGATION_SECRET: ${AETHER_MCP_DELEGATION_SECRET:-aether-mcp-delegation-dev-secret-change-me}
+      AETHER_ADMIN_INTERNAL_URL: ${AETHER_ADMIN_INTERNAL_URL:-http://aether-admin:8080}
+      AETHER_VISION_API_BASE_URL: ${AETHER_VISION_API_BASE_URL:-}
+      AETHER_VISION_MODEL: ${AETHER_VISION_MODEL:-}
+      AETHER_VISION_API_KEY: ${AETHER_VISION_API_KEY:-}
     volumes:
       - mcp-huggingface-cache:/root/.cache/huggingface
       - mcp-docling-cache:/root/.cache/docling
     networks:
       aether-services:
-        aliases: [aether-mcp]
+        aliases: [ aether-mcp ]
 
   # The only control-plane service with Docker-socket access.  It polls Admin,
   # then starts a separate no-network, unprivileged job container per task.
@@ -157,7 +161,7 @@ services:
       AETHER_SANDBOX_NODE_IMAGE: ${AETHER_SANDBOX_NODE_IMAGE:-aether-sandbox-node:1}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    networks: [aether-services]
+    networks: [ aether-services ]
     depends_on:
       postgres:
         condition: service_healthy
@@ -169,14 +173,14 @@ services:
     build:
       context: "${AETHER_MCP_GIT_URL:-https://github.com/sunjin0/aether-mcp-server.git}#${AETHER_MCP_GIT_REF:-master}"
       dockerfile: sandbox-runtime/python.Dockerfile
-    command: ["true"]
+    command: [ "true" ]
 
   sandbox-runtime-node:
     image: aether-sandbox-node:1
     build:
       context: "${AETHER_MCP_GIT_URL:-https://github.com/sunjin0/aether-mcp-server.git}#${AETHER_MCP_GIT_REF:-master}"
       dockerfile: sandbox-runtime/node.Dockerfile
-    command: ["true"]
+    command: [ "true" ]
 
   dashboard:
     build:
@@ -192,7 +196,7 @@ services:
       - admin
     networks:
       aether-services:
-        aliases: [aether-dashboard]
+        aliases: [ aether-dashboard ]
 
 networks:
   # 本 Compose 自动创建的内部共享网络。

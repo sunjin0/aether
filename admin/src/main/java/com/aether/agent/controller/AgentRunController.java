@@ -56,6 +56,9 @@ public class AgentRunController {
     private final AgentRunPlanService planService;
     private final DeepAgentRunService deepAgentRunService;
 
+    /**
+     * 创建 {@code AgentRunController} 实例。
+     */
     @Autowired
     public AgentRunController(AgentRunService agentRunService,
                               AgentRunStepService agentRunStepService,
@@ -69,6 +72,9 @@ public class AgentRunController {
         this.deepAgentRunService = deepAgentRunService;
     }
 
+    /**
+     * 运行记录列表。
+     */
     @ApiOperation("运行记录列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -93,6 +99,9 @@ public class AgentRunController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 详情当前请求。
+     */
     @ApiOperation("运行记录详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "运行记录ID", required = true),
@@ -109,17 +118,23 @@ public class AgentRunController {
         return WebResponse.OK(vo);
     }
 
+    /**
+     * 运行统计。
+     */
     @ApiOperation("运行统计")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @GetMapping("/statistics")
     public WebResponse<AgentRunStatisticsVo> statistics(@RequestParam(value = "agentDefinitionId", required = false) String agentDefinitionId,
-                                                         @RequestParam(required = false) Long startTime,
-                                                         @RequestParam(required = false) Long endTime) {
+                                                        @RequestParam(required = false) Long startTime,
+                                                        @RequestParam(required = false) Long endTime) {
         return WebResponse.OK(agentRunService.statistics(agentDefinitionId, startTime, endTime));
     }
 
+    /**
+     * 运行步骤列表。
+     */
     @ApiOperation("运行步骤列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -133,13 +148,16 @@ public class AgentRunController {
         List<AgentRunStepVo> steps = agentRunStepService.listByRunId(id).stream()
                 // 兼容历史记录：聊天文本分片不是执行步骤，不在执行记录中展示。
                 .filter(item -> !"message.delta".equals(item.getEventType())).map(item -> {
-            AgentRunStepVo vo = new AgentRunStepVo();
-            BeanUtils.copyProperties(item, vo);
-            return vo;
-        }).collect(Collectors.toList());
+                    AgentRunStepVo vo = new AgentRunStepVo();
+                    BeanUtils.copyProperties(item, vo);
+                    return vo;
+                }).collect(Collectors.toList());
         return WebResponse.OK(steps);
     }
 
+    /**
+     * 取消当前请求。
+     */
     @ApiOperation("取消 Deep Agent 运行")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -165,6 +183,9 @@ public class AgentRunController {
         return WebResponse.OK(I18nUtils.getMessage("agent.deep.run.cancel.success"));
     }
 
+    /**
+     * 处理plan。
+     */
     @GetMapping("/{id}/plan")
     public WebResponse<AgentRunPlanVo> plan(@PathVariable @NotBlank String id) {
         AgentRun run = agentRunService.getById(id);
@@ -185,17 +206,27 @@ public class AgentRunController {
         return WebResponse.OK(plan);
     }
 
+    /**
+     * 处理pause。
+     */
     @PostMapping("/{id}/pause")
     public WebResponse<Void> pause(@PathVariable @NotBlank String id) {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         if (StringUtils.isBlank(userId)) throw new ServerException(401, "未登录");
-        deepAgentRunService.pause(id, userId); planService.markPaused(id, "用户暂停"); return WebResponse.OK("运行已暂停");
+        deepAgentRunService.pause(id, userId);
+        planService.markPaused(id, "用户暂停");
+        return WebResponse.OK("运行已暂停");
     }
 
+    /**
+     * 处理resume。
+     */
     @PostMapping("/{id}/resume")
     public WebResponse<Void> resume(@PathVariable @NotBlank String id) {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         if (StringUtils.isBlank(userId)) throw new ServerException(401, "未登录");
-        deepAgentRunService.resume(id, userId); planService.markRunning(id); return WebResponse.OK("运行已继续");
+        deepAgentRunService.resume(id, userId);
+        planService.markRunning(id);
+        return WebResponse.OK("运行已继续");
     }
 }

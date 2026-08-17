@@ -23,6 +23,9 @@ import java.util.stream.Collectors;
 @Service
 public class RoleResourceServiceImpl extends ServiceImpl<RoleResourceMapper, RoleResource> implements RoleResourceService {
 
+    /**
+     * 获取权限按角色Id。
+     */
     @Override
     public List<String> getPermissionByRoleId(String roleId) {
         LambdaQueryWrapper<RoleResource> query = Wrappers.lambdaQuery(RoleResource.class);

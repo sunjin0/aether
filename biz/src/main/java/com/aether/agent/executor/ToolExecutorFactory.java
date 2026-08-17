@@ -12,6 +12,9 @@ public class ToolExecutorFactory {
 
     private final List<ToolExecutor> executors;
 
+    /**
+     * 创建 {@code ToolExecutorFactory} 实例。
+     */
     public ToolExecutorFactory(List<ToolExecutor> executors) {
         this.executors = executors;
     }

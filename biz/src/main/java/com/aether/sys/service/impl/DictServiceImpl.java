@@ -27,6 +27,9 @@ import java.util.stream.Collectors;
  */
 @Service
 public class DictServiceImpl extends ServiceImpl<DictMapper, Dict> implements DictService {
+    /**
+     * 获取按Code。
+     */
     @Override
     public Dict getByCode(String code, String lng) {
         Dict dist = this.getOne(Wrappers.lambdaQuery(Dict.class)
@@ -38,6 +41,9 @@ public class DictServiceImpl extends ServiceImpl<DictMapper, Dict> implements Di
         return null;
     }
 
+    /**
+     * 处理SwitchLang。
+     */
     private void SwitchLang(Dict dist, String lng) {
         lng = lng == null ? I18nUtils.getMessage("lng") : lng;
         switch (lng) {
@@ -52,6 +58,9 @@ public class DictServiceImpl extends ServiceImpl<DictMapper, Dict> implements Di
         }
     }
 
+    /**
+     * 查询当前请求。
+     */
     @Override
     public Page<DictVo> list(DictVo dict) {
         //分页
@@ -115,11 +124,17 @@ public class DictServiceImpl extends ServiceImpl<DictMapper, Dict> implements Di
         return voPage;
     }
 
+    /**
+     * 处理info。
+     */
     @Override
     public Dict info(String id) {
         return getById(id);
     }
 
+    /**
+     * 删除当前请求。
+     */
     @Override
     public boolean delete(String id) {
         DictVo vo = new DictVo();
@@ -142,6 +157,9 @@ public class DictServiceImpl extends ServiceImpl<DictMapper, Dict> implements Di
         return super.removeByIds(ids);
     }
 
+    /**
+     * 获取Options。
+     */
     @Override
     public List<Option> getOptions(String parentCode, Boolean useValue) {
         List<Dict> list = getByParentCode(parentCode);
@@ -149,21 +167,30 @@ public class DictServiceImpl extends ServiceImpl<DictMapper, Dict> implements Di
             return Collections.emptyList();
         }
         list.forEach(Dict -> SwitchLang(Dict, null));
-        return list.stream().map(item -> new Option(item.getName(), useValue ?item.getVal() : item.getCode())).collect(Collectors.toList());
+        return list.stream().map(item -> new Option(item.getName(), useValue ? item.getVal() : item.getCode())).collect(Collectors.toList());
     }
 
+    /**
+     * 处理select。
+     */
     @Override
     public List<Dict> select() {
         return this.list(Wrappers.lambdaQuery(Dict.class)
                 .orderByAsc(Dict::getSortNum));
     }
 
+    /**
+     * 获取Value。
+     */
     @Override
     public String getValue(String code) {
         Dict dict = getByCode(code, null);
         return dict == null ? null : dict.getVal();
     }
 
+    /**
+     * 获取按ParentCode。
+     */
     private List<Dict> getByParentCode(String parentCode) {
         return this.list(Wrappers.lambdaQuery(Dict.class)
                 .eq(Dict::getParent, parentCode));

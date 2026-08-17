@@ -41,6 +41,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -72,13 +73,16 @@ public class AgentWorkflowController {
     private final AgentWorkflowOperationsService operationsService;
     private final AgentWorkflowTemplateService templateService;
 
+    /**
+     * 创建 {@code AgentWorkflowController} 实例。
+     */
     public AgentWorkflowController(AgentWorkflowService workflowService, AgentWorkflowVersionService versionService,
                                    AgentWorkflowInstanceService instanceService, AgentWorkflowExecutionService executionService, WorkflowSseHub sseHub,
                                    AgentDefinitionService agentDefinitionService, AgentToolService agentToolService,
-                                    AgentWorkflowCallbackDeliveryService callbackDeliveryService,
-                                    WorkflowCallbackService workflowCallbackService, ServiceAccountService serviceAccountService,
-                                    AgentWorkflowWebhookTriggerService webhookTriggerService, AgentWorkflowOperationsService operationsService,
-                                    AgentWorkflowTemplateService templateService) {
+                                   AgentWorkflowCallbackDeliveryService callbackDeliveryService,
+                                   WorkflowCallbackService workflowCallbackService, ServiceAccountService serviceAccountService,
+                                   AgentWorkflowWebhookTriggerService webhookTriggerService, AgentWorkflowOperationsService operationsService,
+                                   AgentWorkflowTemplateService templateService) {
         this.workflowService = workflowService;
         this.versionService = versionService;
         this.instanceService = instanceService;
@@ -94,7 +98,12 @@ public class AgentWorkflowController {
         this.templateService = templateService;
     }
 
-    @ApiOperation("工作流列表")
+    /**
+     * 工作流列表。
+     *
+     * @param query 查询参数
+     * @return 工作流列表
+     */
     @PostMapping("/list")
     public WebResponse<List<AgentWorkflowVo>> list(@RequestBody AgentWorkflowVo query) {
         Page<AgentWorkflow> page = workflowService.page(new Page<AgentWorkflow>(query.getCurrent(), query.getPageSize()), Wrappers.lambdaQuery(AgentWorkflow.class)
@@ -107,6 +116,9 @@ public class AgentWorkflowController {
         }).collect(Collectors.toList()), page.getTotal());
     }
 
+    /**
+     * 详情当前请求。
+     */
     @ApiOperation("工作流详情")
     @GetMapping("/{id}")
     public WebResponse<AgentWorkflowVo> detail(@PathVariable String id) {
@@ -125,6 +137,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(vo);
     }
 
+    /**
+     * 创建当前请求。
+     */
     @ApiOperation("创建工作流草稿")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping
@@ -142,6 +157,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.draft.create.success"), entity.getId());
     }
 
+    /**
+     * 更新当前请求。
+     */
     @ApiOperation("保存工作流画布草稿")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PutMapping("/{id}")
@@ -153,6 +171,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.draft.save.success"));
     }
 
+    /**
+     * 发布当前请求。
+     */
     @ApiOperation("发布工作流版本")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/{id}/publish")
@@ -179,6 +200,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.publish.success"), number);
     }
 
+    /**
+     * 下线工作流。
+     */
     @ApiOperation("下线工作流")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/{id}/offline")
@@ -189,7 +213,11 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.offline.success"));
     }
 
+    /**
+     * 工作流已发布版本列表。
+     */
     @ApiOperation("工作流已发布版本列表")
+
     @Permission(path = "/workflow/workflow")
     @GetMapping("/{id}/versions")
     public WebResponse<List<AgentWorkflowVersionVo>> versions(@PathVariable String id) {
@@ -204,6 +232,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(result);
     }
 
+    /**
+     * 对比两个工作流发布版本。
+     */
     @ApiOperation("对比两个工作流发布版本")
     @Permission(path = "/workflow/workflow")
     @GetMapping("/{id}/versions/diff")
@@ -212,7 +243,8 @@ public class AgentWorkflowController {
         AgentWorkflowVersion before = requiredVersion(id, from);
         AgentWorkflowVersion after = requiredVersion(id, to);
         AgentWorkflowVersionDiffVo diff = new AgentWorkflowVersionDiffVo();
-        diff.setFromVersion(from); diff.setToVersion(to);
+        diff.setFromVersion(from);
+        diff.setToVersion(to);
         Map<String, String> beforeNodes = jsonItems(before.getNodes(), false), afterNodes = jsonItems(after.getNodes(), false);
         Map<String, String> beforeEdges = jsonItems(before.getEdges(), true), afterEdges = jsonItems(after.getEdges(), true);
         diff.setAddedNodeIds(difference(afterNodes.keySet(), beforeNodes.keySet()));
@@ -225,7 +257,11 @@ public class AgentWorkflowController {
         return WebResponse.OK(diff);
     }
 
+    /**
+     * 导出工作流草稿。
+     */
     @ApiOperation("导出工作流草稿")
+
     @Permission(path = "/workflow/workflow")
     @GetMapping("/{id}/export")
     public WebResponse<AgentWorkflowDto> exportWorkflow(@PathVariable String id) {
@@ -235,7 +271,11 @@ public class AgentWorkflowController {
         return WebResponse.OK(dto);
     }
 
+    /**
+     * 导入工作流为新草稿。
+     */
     @ApiOperation("导入工作流为新草稿")
+
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/import")
     public WebResponse<String> importWorkflow(@RequestBody AgentWorkflowDto dto) {
@@ -247,11 +287,15 @@ public class AgentWorkflowController {
         validateResources(dto.getNodes());
         AgentWorkflow workflow = new AgentWorkflow();
         BeanUtils.copyProperties(dto, workflow);
-        workflow.setStatus(0); workflow.setPublishedVersion(null);
+        workflow.setStatus(0);
+        workflow.setPublishedVersion(null);
         workflowService.save(workflow);
         return WebResponse.OK(I18nUtils.getMessage("workflow.import.success"), workflow.getId());
     }
 
+    /**
+     * 创建Template。
+     */
     @ApiOperation("从工作流创建模板")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/{id}/templates")
@@ -260,7 +304,11 @@ public class AgentWorkflowController {
         return WebResponse.OK(templateService.createFromWorkflow(workflow, dto == null ? null : dto.getName(), dto == null ? null : dto.getDescription()));
     }
 
+    /**
+     * 工作流模板列表。
+     */
     @ApiOperation("工作流模板列表")
+
     @Permission(path = "/workflow/workflow")
     @PostMapping("/templates/list")
     public WebResponse<List<com.aether.workflow.entity.AgentWorkflowTemplate>> templates(@RequestBody(required = false) AgentWorkflowTemplateDto query) {
@@ -269,7 +317,11 @@ public class AgentWorkflowController {
                 .eq(com.aether.workflow.entity.AgentWorkflowTemplate::getDeleted, false).orderByDesc(com.aether.workflow.entity.AgentWorkflowTemplate::getCreatedAt)));
     }
 
+    /**
+     * 从模板创建草稿工作流。
+     */
     @ApiOperation("从模板创建草稿工作流")
+
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/templates/{id}/instantiate")
     public WebResponse<String> instantiateTemplate(@PathVariable String id, @RequestBody AgentWorkflowTemplateDto dto) {
@@ -277,6 +329,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.template.instantiate.success"), workflow.getId());
     }
 
+    /**
+     * 校验Draft。
+     */
     @ApiOperation("校验草稿工作流")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/{id}/draft/validate")
@@ -289,6 +344,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.draft.validate.success"));
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("删除工作流")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
@@ -298,6 +356,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.delete.success"));
     }
 
+    /**
+     * 启动处理流程。
+     */
     @ApiOperation("启动已发布工作流")
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/{id}/instances")
@@ -306,7 +367,11 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.instance.start.success"), instance.getId());
     }
 
+    /**
+     * 由业务系统启动已发布工作流（支持幂等和终态回调）。
+     */
     @ApiOperation("由业务系统启动已发布工作流（支持幂等和终态回调）")
+
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/{id}/business-instances")
     public WebResponse<String> startBusiness(@PathVariable String id, @RequestBody AgentWorkflowBusinessStartDto dto) {
@@ -318,16 +383,23 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.business-instance.start.success"), instance.getId());
     }
 
+    /**
+     * 创建Webhook。
+     */
     @ApiOperation("创建工作流 Webhook；签名密钥仅本次返回")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/webhooks")
     public WebResponse<AgentWorkflowWebhookTriggerSecretVo> createWebhook(@RequestBody AgentWorkflowWebhookTriggerDto dto,
-                                                                             HttpServletResponse response) {
+                                                                          HttpServletResponse response) {
         noStore(response);
         return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.create.success"), webhookTriggerService.create(dto));
     }
 
+    /**
+     * Webhook 列表。
+     */
     @ApiOperation("Webhook 列表")
+
     @Permission(path = "/workflow/workflow")
     @PostMapping("/webhooks/list")
     public WebResponse<List<AgentWorkflowWebhookTriggerVo>> webhooks(@RequestBody AgentWorkflowWebhookTriggerVo query) {
@@ -338,12 +410,19 @@ public class AgentWorkflowController {
                         .eq(com.aether.workflow.entity.AgentWorkflowWebhookTrigger::getDeleted, false)
                         .orderByDesc(com.aether.workflow.entity.AgentWorkflowWebhookTrigger::getCreatedAt));
         List<AgentWorkflowWebhookTriggerVo> result = page.getRecords().stream().map(item -> {
-            AgentWorkflowWebhookTriggerVo vo = new AgentWorkflowWebhookTriggerVo(); BeanUtils.copyProperties(item, vo); vo.setSigningSecret(null); return vo;
+            AgentWorkflowWebhookTriggerVo vo = new AgentWorkflowWebhookTriggerVo();
+            BeanUtils.copyProperties(item, vo);
+            vo.setSigningSecret(null);
+            return vo;
         }).collect(Collectors.toList());
         return WebResponse.Page(result, page.getTotal());
     }
 
+    /**
+     * 轮换 Webhook 签名密钥。
+     */
     @ApiOperation("轮换 Webhook 签名密钥")
+
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/webhooks/{id}/rotate-secret")
     public WebResponse<AgentWorkflowWebhookTriggerSecretVo> rotateWebhookSecret(@PathVariable String id, HttpServletResponse response) {
@@ -351,7 +430,11 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.secret.rotate.success"), webhookTriggerService.rotateSecret(id));
     }
 
+    /**
+     * 启用或停用 Webhook。
+     */
     @ApiOperation("启用或停用 Webhook")
+
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/webhooks/{id}/enabled")
     public WebResponse<Void> setWebhookEnabled(@PathVariable String id, @RequestParam boolean enabled) {
@@ -359,34 +442,52 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.status.update.success"));
     }
 
+    /**
+     * 工作流运营指标。
+     */
     @ApiOperation("工作流运营指标")
+
     @Permission(path = "/workflow/operations")
     @GetMapping("/operations/metrics")
     public WebResponse<AgentWorkflowOperationsMetricsVo> operationsMetrics() {
         return WebResponse.OK(operationsService.metrics());
     }
 
+    /**
+     * 工作流死信列表。
+     */
     @ApiOperation("工作流死信列表")
+
     @Permission(path = "/workflow/operations")
     @GetMapping("/operations/dead-letters")
     public WebResponse<List<AgentWorkflowDeadLetterVo>> deadLetters(@RequestParam(defaultValue = "50") int limit) {
         return WebResponse.OK(operationsService.deadLetters(limit));
     }
 
+    /**
+     * 接收Webhook。
+     */
     @ApiOperation("接收外部 Webhook 事件")
     @Permission(required = false)
     @PostMapping("/webhook/{id}")
     public WebResponse<String> receiveWebhook(@PathVariable String id, @RequestHeader("X-Aether-Webhook-Timestamp") String timestamp,
-                                               @RequestHeader("X-Aether-Webhook-Signature") String signature,
-                                               @RequestBody String rawBody, HttpServletRequest request) {
+                                              @RequestHeader("X-Aether-Webhook-Signature") String signature,
+                                              @RequestBody String rawBody, HttpServletRequest request) {
         Map<String, String> headers = new LinkedHashMap<String, String>();
         Enumeration<String> names = request.getHeaderNames();
-        while (names != null && names.hasMoreElements()) { String name = names.nextElement(); headers.put(name, request.getHeader(name)); }
+        while (names != null && names.hasMoreElements()) {
+            String name = names.nextElement();
+            headers.put(name, request.getHeader(name));
+        }
         AgentWorkflowInstance instance = webhookTriggerService.trigger(id, timestamp, signature, rawBody, headers);
         return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.event.accepted"), instance.getId());
     }
 
+    /**
+     * 流程实例列表。
+     */
     @ApiOperation("流程实例列表")
+
     @Permission(path = "/workflow/run")
     @PostMapping("/instances/list")
     public WebResponse<List<AgentWorkflowInstanceVo>> instances(@RequestBody AgentWorkflowInstanceVo query) {
@@ -400,14 +501,22 @@ public class AgentWorkflowController {
         return WebResponse.Page(records, page.getTotal());
     }
 
+    /**
+     * 流程实例详情。
+     */
     @ApiOperation("流程实例详情")
+
     @Permission(path = "/workflow/run")
     @GetMapping("/instances/{id}")
     public WebResponse<AgentWorkflowInstanceVo> instance(@PathVariable String id) {
         return WebResponse.OK(executionService.detail(id, userId()));
     }
 
+    /**
+     * 查询流程实例的业务回调投递记录。
+     */
     @ApiOperation("查询流程实例的业务回调投递记录")
+
     @Permission(path = "/workflow/run")
     @GetMapping("/instances/{id}/callbacks")
     public WebResponse<List<AgentWorkflowCallbackDelivery>> callbacks(@PathVariable String id) {
@@ -416,18 +525,27 @@ public class AgentWorkflowController {
                 .eq(AgentWorkflowCallbackDelivery::getInstanceId, id).orderByAsc(AgentWorkflowCallbackDelivery::getCreatedAt)));
     }
 
+    /**
+     * 重试回调。
+     */
     @ApiOperation("人工重投失败的业务回调")
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/instances/{id}/callbacks/{deliveryId}/retry")
     public WebResponse<Void> retryCallback(@PathVariable String id, @PathVariable String deliveryId) {
         executionService.detail(id, userId());
         AgentWorkflowCallbackDelivery delivery = callbackDeliveryService.getById(deliveryId);
-        if (delivery == null || !StringUtils.equals(id, delivery.getInstanceId())) throw new ServerException(404, I18nUtils.getMessage("workflow.callback-delivery.not-found"));
-        if (!workflowCallbackService.retryFailed(deliveryId)) throw new ServerException(409, I18nUtils.getMessage("workflow.callback-delivery.retry.failed-only"));
+        if (delivery == null || !StringUtils.equals(id, delivery.getInstanceId()))
+            throw new ServerException(404, I18nUtils.getMessage("workflow.callback-delivery.not-found"));
+        if (!workflowCallbackService.retryFailed(deliveryId))
+            throw new ServerException(409, I18nUtils.getMessage("workflow.callback-delivery.retry.failed-only"));
         return WebResponse.OK(I18nUtils.getMessage("workflow.callback-delivery.retry.success"));
     }
 
+    /**
+     * 流程实例实时事件。
+     */
     @ApiOperation("流程实例实时事件")
+
     @Permission(path = "/workflow/run")
     @GetMapping(value = "/instances/{id}/events", produces = "text/event-stream")
     public SseEmitter events(@PathVariable String id) {
@@ -437,7 +555,11 @@ public class AgentWorkflowController {
         return emitter;
     }
 
+    /**
+     * 提交人工节点回答或 MCP 确认。
+     */
     @ApiOperation("提交人工节点回答或 MCP 确认")
+
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/instances/{id}/answer")
     public WebResponse<Void> answer(@PathVariable String id, @RequestBody AgentWorkflowInteractionDto dto) {
@@ -445,6 +567,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.instance.answer.success"));
     }
 
+    /**
+     * 重试当前请求。
+     */
     @ApiOperation("重试失败节点")
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/instances/{id}/retry")
@@ -453,7 +578,11 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.instance.retry.success"));
     }
 
+    /**
+     * 回放手动启动的流程实例。
+     */
     @ApiOperation("回放手动启动的流程实例")
+
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/instances/{id}/replay")
     public WebResponse<String> replay(@PathVariable String id) {
@@ -461,7 +590,11 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.instance.replay.success"), instance.getId());
     }
 
+    /**
+     * 终止流程实例。
+     */
     @ApiOperation("终止流程实例")
+
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/instances/{id}/terminate")
     public WebResponse<Void> terminate(@PathVariable String id) {
@@ -469,6 +602,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.instance.terminate.success"));
     }
 
+    /**
+     * 更新Variables。
+     */
     @ApiOperation("运行中修改开始变量")
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PutMapping("/instances/{id}/variables")
@@ -477,6 +613,9 @@ public class AgentWorkflowController {
         return WebResponse.OK(I18nUtils.getMessage("workflow.instance.variables.update.success"));
     }
 
+    /**
+     * 处理requiredVersion。
+     */
     private AgentWorkflowVersion requiredVersion(String workflowId, int versionNo) {
         AgentWorkflowVersion version = versionService.getOne(Wrappers.lambdaQuery(AgentWorkflowVersion.class)
                 .eq(AgentWorkflowVersion::getWorkflowId, workflowId).eq(AgentWorkflowVersion::getVersionNo, versionNo)
@@ -485,11 +624,17 @@ public class AgentWorkflowController {
         return version;
     }
 
+    /**
+     * 校验ConcurrencyLimit。
+     */
     private void validateConcurrencyLimit(AgentWorkflowDto dto) {
         if (dto != null && dto.getMaxConcurrentInstances() != null && dto.getMaxConcurrentInstances() < 0)
             throw new ServerException(422, I18nUtils.getMessage("workflow.max-concurrent-instances.invalid"));
     }
 
+    /**
+     * 处理jsonItems。
+     */
     private Map<String, String> jsonItems(String source, boolean edge) {
         Map<String, String> result = new TreeMap<String, String>();
         JSONArray values = JSONArray.parseArray(StringUtils.defaultIfBlank(source, "[]"));
@@ -505,26 +650,46 @@ public class AgentWorkflowController {
         return result;
     }
 
+    /**
+     * 处理difference。
+     */
     private List<String> difference(Set<String> left, Set<String> right) {
         return left.stream().filter(item -> !right.contains(item)).sorted().collect(Collectors.toList());
     }
 
+    /**
+     * 处理intersectionChanged。
+     */
     private List<String> intersectionChanged(Map<String, String> before, Map<String, String> after) {
         return before.keySet().stream().filter(after::containsKey).filter(key -> !StringUtils.equals(before.get(key), after.get(key)))
                 .sorted().collect(Collectors.toList());
     }
 
+    /**
+     * 规范化Json。
+     */
     private String normalizeJson(String source) {
         if (StringUtils.isBlank(source)) return "";
-        try { return JSONObject.parse(source).toJSONString(); } catch (Exception ignored) { return source; }
+        try {
+            return JSONObject.parse(source).toJSONString();
+        } catch (Exception ignored) {
+            return source;
+        }
     }
 
+    /**
+     * 处理required。
+     */
     private AgentWorkflow required(String id) {
         AgentWorkflow value = workflowService.getById(id);
-        if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("workflow.not-found"));
+        if (value == null || Boolean.TRUE.equals(value.getDeleted()))
+            throw new ServerException(404, I18nUtils.getMessage("workflow.not-found"));
         return value;
     }
 
+    /**
+     * 校验Resources。
+     */
     private void validateResources(String nodes) {
         for (Object value : JSONArray.parseArray(nodes)) {
             JSONObject node = (JSONObject) value;
@@ -542,12 +707,19 @@ public class AgentWorkflowController {
         }
     }
 
+    /**
+     * 用户Id。
+     */
     private String userId() {
         Map<String, String> user = CurrentUser.getUser();
-        if (user == null || StringUtils.isBlank(user.get("userId"))) throw new ServerException(401, I18nUtils.getMessage("auth.session.expired"));
+        if (user == null || StringUtils.isBlank(user.get("userId")))
+            throw new ServerException(401, I18nUtils.getMessage("auth.session.expired"));
         return user.get("userId");
     }
 
+    /**
+     * 处理noStore。
+     */
     private void noStore(HttpServletResponse response) {
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("Pragma", "no-cache");

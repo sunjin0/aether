@@ -20,6 +20,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证配置服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class ConfigServiceImplTest {
 
@@ -28,6 +31,9 @@ class ConfigServiceImplTest {
 
     private ConfigServiceImpl service;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() throws Exception {
         service = new ConfigServiceImpl();
@@ -36,6 +42,9 @@ class ConfigServiceImplTest {
         baseMapperField.set(service, configMapper);
     }
 
+    /**
+     * 处理treeBuildsSortedNestedConfigurationNodes。
+     */
     @Test
     void treeBuildsSortedNestedConfigurationNodes() {
         Config root = config("root", null, "Root", 2);
@@ -53,6 +62,9 @@ class ConfigServiceImplTest {
         assertTrue(tree.get(0).getChildren().isEmpty());
     }
 
+    /**
+     * 配置当前请求。
+     */
     private Config config(String code, String parent, String name, int sortNum) {
         Config config = new Config();
         config.setId(code + "-id");

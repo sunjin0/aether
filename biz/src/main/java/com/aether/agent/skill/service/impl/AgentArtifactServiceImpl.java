@@ -26,6 +26,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * 实现智能体Artifact业务服务。
+ */
 @Service
 public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, AgentArtifact> implements AgentArtifactService {
     private static final long RECYCLE_RETENTION_MILLIS = 30L * 24 * 60 * 60 * 1000;
@@ -35,6 +38,9 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
     private final ObjectStorageService objectStorageService;
     private final String artifactBucket;
 
+    /**
+     * 创建 {@code AgentArtifactServiceImpl} 实例。
+     */
     public AgentArtifactServiceImpl(AgentDefinitionService agentDefinitionService,
                                     ObjectStorageService objectStorageService,
                                     @Value("${artifact.storage.bucket:${MINIO_CHAT_ATTACHMENT_BUCKET:aether-chat}}") String artifactBucket) {
@@ -43,6 +49,9 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
         this.artifactBucket = artifactBucket;
     }
 
+    /**
+     * 分页查询Owned。
+     */
     @Override
     public Page<AgentArtifactVo> pageOwned(String userId, AgentArtifactQueryDto query) {
         long current = query.getCurrent() == null || query.getCurrent() < 1 ? 1 : query.getCurrent();
@@ -67,16 +76,23 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
         return result;
     }
 
+    /**
+     * 处理requireOwned。
+     */
     @Override
     public AgentArtifact requireOwned(String id, String userId, boolean recycled) {
         AgentArtifact artifact = getOne(Wrappers.lambdaQuery(AgentArtifact.class)
                 .eq(AgentArtifact::getId, id).eq(AgentArtifact::getUserId, userId)
                 .isNotNull(recycled, AgentArtifact::getRecycledAt)
                 .isNull(!recycled, AgentArtifact::getRecycledAt));
-        if (artifact == null || (artifact.getExpiresAt() != null && artifact.getExpiresAt() <= System.currentTimeMillis())) throw new ServerException(404, I18nUtils.getMessage("agent.artifact.not-found"));
+        if (artifact == null || (artifact.getExpiresAt() != null && artifact.getExpiresAt() <= System.currentTimeMillis()))
+            throw new ServerException(404, I18nUtils.getMessage("agent.artifact.not-found"));
         return artifact;
     }
 
+    /**
+     * 处理recycle。
+     */
     @Override
     public void recycle(String id, String userId) {
         AgentArtifact artifact = requireOwned(id, userId, false);
@@ -84,6 +100,9 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
         updateById(artifact);
     }
 
+    /**
+     * 处理restore。
+     */
     @Override
     public void restore(String id, String userId) {
         AgentArtifact artifact = requireOwned(id, userId, true);
@@ -91,6 +110,9 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
         updateById(artifact);
     }
 
+    /**
+     * 处理purgeExpiredRecycled。
+     */
     @Override
     public void purgeExpiredRecycled() {
         long cutoff = System.currentTimeMillis() - RECYCLE_RETENTION_MILLIS;
@@ -107,6 +129,9 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
         }
     }
 
+    /**
+     * 处理purgeExpiredArtifacts。
+     */
     @Override
     public void purgeExpiredArtifacts() {
         long now = System.currentTimeMillis();
@@ -122,12 +147,18 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
         }
     }
 
+    /**
+     * 处理normalizedExtension。
+     */
     private String normalizedExtension(String extension) {
         String normalized = StringUtils.lowerCase(StringUtils.trim(extension));
         if (!normalized.startsWith(".")) normalized = "." + normalized;
         return normalized;
     }
 
+    /**
+     * 智能体Names。
+     */
     private Map<String, String> agentNames(List<AgentArtifact> artifacts) {
         Set<String> ids = artifacts.stream().map(AgentArtifact::getAgentDefinitionId)
                 .filter(StringUtils::isNotBlank).collect(Collectors.toSet());
@@ -136,11 +167,15 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
                 .collect(Collectors.toMap(AgentDefinition::getId, AgentDefinition::getName, (left, right) -> left));
     }
 
+    /**
+     * 处理toVO。
+     */
     private AgentArtifactVo toVo(AgentArtifact artifact, String agentName) {
         AgentArtifactVo vo = new AgentArtifactVo();
         BeanUtils.copyProperties(artifact, vo);
         vo.setAgentDefinitionName(agentName);
-        if (artifact.getRecycledAt() != null) vo.setRecycleExpiresAt(artifact.getRecycledAt() + RECYCLE_RETENTION_MILLIS);
+        if (artifact.getRecycledAt() != null)
+            vo.setRecycleExpiresAt(artifact.getRecycledAt() + RECYCLE_RETENTION_MILLIS);
         return vo;
     }
 }

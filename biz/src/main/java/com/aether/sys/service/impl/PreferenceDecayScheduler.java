@@ -11,6 +11,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 
+/**
+ * 表示偏好DecayScheduler。
+ */
 @Component
 public class PreferenceDecayScheduler {
 
@@ -24,6 +27,9 @@ public class PreferenceDecayScheduler {
 
     private static final BigDecimal MIN_EFFECTIVE_SCORE = BigDecimal.valueOf(10);
 
+    /**
+     * 处理recalculateEffectiveScores。
+     */
     @Scheduled(cron = "0 0 2 * * ?")
     public void recalculateEffectiveScores() {
         List<AdminPreference> allPreferences = preferenceMapper.selectList(
@@ -42,6 +48,9 @@ public class PreferenceDecayScheduler {
         reasoningEngine.clearUserCache(null);
     }
 
+    /**
+     * 处理calculateEffectiveScore。
+     */
     private BigDecimal calculateEffectiveScore(AdminPreference pref, long now) {
         BigDecimal priority = BigDecimal.valueOf(pref.getPriority() != null ? pref.getPriority() : 50);
         BigDecimal confidence = pref.getConfidence() != null ? pref.getConfidence() : BigDecimal.ONE;
@@ -51,6 +60,9 @@ public class PreferenceDecayScheduler {
         return priority.multiply(decayFactor).multiply(confidence).add(usageBoost).setScale(2, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 处理calculateDecayFactor。
+     */
     private BigDecimal calculateDecayFactor(AdminPreference pref, long now) {
         if (pref.getDecayRate() == null || pref.getDecayRate().compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ONE;

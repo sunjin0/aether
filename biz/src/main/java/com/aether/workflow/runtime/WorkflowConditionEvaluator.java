@@ -27,10 +27,15 @@ public final class WorkflowConditionEvaluator {
     private static final Pattern EXPR_PATTERN = Pattern.compile(
             "\\$\\{([a-zA-Z_][a-zA-Z0-9_]*)}\\s*(==|!=|>=|<=|>|<|contains)\\s*(?:\"([^\"]*)\"|(\\S+))");
 
-    private WorkflowConditionEvaluator() { }
+    /**
+     * 创建 {@code WorkflowConditionEvaluator} 实例。
+     */
+    private WorkflowConditionEvaluator() {
+    }
 
     /**
      * 求值条件表达式，支持 && 与 || 复合。
+     *
      * @param expression 条件表达式
      * @param variables  工作流变量上下文
      * @return 表达式是否为真
@@ -45,14 +50,19 @@ public final class WorkflowConditionEvaluator {
             List<String> andParts = splitTopLevel(group, "&&");
             boolean groupResult = true;
             for (String part : andParts) {
-                if (!evaluateSingle(part.trim(), variables)) { groupResult = false; break; }
+                if (!evaluateSingle(part.trim(), variables)) {
+                    groupResult = false;
+                    break;
+                }
             }
             if (groupResult) return true;
         }
         return false;
     }
 
-    /** 求值单条比较表达式或真值判断。 */
+    /**
+     * 求值单条比较表达式或真值判断。
+     */
     private static boolean evaluateSingle(String expr, Map<String, Object> variables) {
         Matcher m = EXPR_PATTERN.matcher(expr);
         if (m.matches()) {
@@ -89,7 +99,10 @@ public final class WorkflowConditionEvaluator {
         while (i < expr.length()) {
             char c = expr.charAt(i);
             if (c == '"') {
-                if (i > 0 && expr.charAt(i - 1) == '\\') { i++; continue; }
+                if (i > 0 && expr.charAt(i - 1) == '\\') {
+                    i++;
+                    continue;
+                }
                 inQuote = !inQuote;
             } else if (!inQuote && c == op.charAt(0) && expr.startsWith(op, i)) {
                 parts.add(expr.substring(start, i));
@@ -103,6 +116,9 @@ public final class WorkflowConditionEvaluator {
         return parts;
     }
 
+    /**
+     * 处理applyOperator。
+     */
     private static boolean applyOperator(Object left, String operator, String rightStr) {
         switch (operator) {
             case "==":
@@ -124,32 +140,53 @@ public final class WorkflowConditionEvaluator {
         }
     }
 
+    /**
+     * 处理compareNumeric。
+     */
     private static boolean compareNumeric(Object left, String operator, String rightStr) {
         Double leftNum = toDouble(left);
         Double rightNum = toDouble(rightStr);
         if (leftNum == null || rightNum == null) return false;
         int cmp = leftNum.compareTo(rightNum);
         switch (operator) {
-            case ">":  return cmp > 0;
-            case ">=": return cmp >= 0;
-            case "<":  return cmp < 0;
-            case "<=": return cmp <= 0;
-            default:   return false;
+            case ">":
+                return cmp > 0;
+            case ">=":
+                return cmp >= 0;
+            case "<":
+                return cmp < 0;
+            case "<=":
+                return cmp <= 0;
+            default:
+                return false;
         }
     }
 
+    /**
+     * 处理toDouble。
+     */
     private static Double toDouble(Object value) {
         if (value instanceof Number) return ((Number) value).doubleValue();
         if (value instanceof String) {
-            try { return Double.parseDouble((String) value); } catch (NumberFormatException e) { return null; }
+            try {
+                return Double.parseDouble((String) value);
+            } catch (NumberFormatException e) {
+                return null;
+            }
         }
         return null;
     }
 
+    /**
+     * 处理compareAsString。
+     */
     private static String compareAsString(Object value) {
         return value == null ? "null" : String.valueOf(value);
     }
 
+    /**
+     * 判断是否为Truthy。
+     */
     private static boolean isTruthy(Object value) {
         if (value == null) return false;
         if (value instanceof Boolean) return (Boolean) value;

@@ -1,9 +1,10 @@
 package com.aether.sys.mapper;
 
 
+import com.aether.sys.entity.Resource;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import  com.aether.sys.entity.Resource;
 import org.apache.ibatis.annotations.Mapper;
+
 /**
  * <p>
  * 资源表 Mapper 接口

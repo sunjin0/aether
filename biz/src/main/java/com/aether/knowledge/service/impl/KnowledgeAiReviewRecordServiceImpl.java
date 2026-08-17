@@ -6,6 +6,10 @@ import com.aether.knowledge.service.KnowledgeAiReviewRecordService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 
+/**
+ * 实现知识库Ai审核Record业务服务。
+ */
 @Service
 public class KnowledgeAiReviewRecordServiceImpl extends ServiceImpl<KnowledgeAiReviewMapper, KnowledgeAiReview>
-        implements KnowledgeAiReviewRecordService { }
+        implements KnowledgeAiReviewRecordService {
+}

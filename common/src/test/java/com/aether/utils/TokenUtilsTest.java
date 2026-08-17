@@ -7,7 +7,13 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * 验证令牌Utils的行为。
+ */
 class TokenUtilsTest {
+    /**
+     * 处理createsEncrypted服务Access令牌WithCustomClaims。
+     */
     @Test
     void createsEncryptedServiceAccessTokenWithCustomClaims() {
         Map<String, String> claims = new HashMap<String, String>();

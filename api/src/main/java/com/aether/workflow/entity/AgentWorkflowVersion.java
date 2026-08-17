@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** 已发布工作流的不可变快照。 */
+/**
+ * 已发布工作流的不可变快照。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_version")

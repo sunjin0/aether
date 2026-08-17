@@ -1,5 +1,8 @@
 package com.aether.knowledge.model;
 
+/**
+ * 表示知识库审核Action。
+ */
 public final class KnowledgeReviewAction {
     public static final String SUBMITTED = "SUBMITTED";
     public static final String CLAIMED = "CLAIMED";
@@ -7,5 +10,9 @@ public final class KnowledgeReviewAction {
     public static final String APPROVED = "APPROVED";
     public static final String REJECTED = "REJECTED";
 
-    private KnowledgeReviewAction() { }
+    /**
+     * 创建 {@code KnowledgeReviewAction} 实例。
+     */
+    private KnowledgeReviewAction() {
+    }
 }

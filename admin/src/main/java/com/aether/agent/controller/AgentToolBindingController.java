@@ -37,12 +37,18 @@ public class AgentToolBindingController {
     private final AgentToolBindingService agentToolBindingService;
     private final AgentToolService agentToolService;
 
+    /**
+     * 创建 {@code AgentToolBindingController} 实例。
+     */
     @Autowired
     public AgentToolBindingController(AgentToolBindingService agentToolBindingService, AgentToolService agentToolService) {
         this.agentToolBindingService = agentToolBindingService;
         this.agentToolService = agentToolService;
     }
 
+    /**
+     * 查询按智能体。
+     */
     @ApiOperation("查询Agent的工具绑定")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -58,7 +64,7 @@ public class AgentToolBindingController {
             AgentToolBindingVo vo = new AgentToolBindingVo();
             AgentTool tool = agentToolService.getById(item.getToolId());
             BeanUtils.copyProperties(item, vo);
-            if (tool != null){
+            if (tool != null) {
                 vo.setToolName(tool.getName());
                 vo.setToolCode(tool.getCode());
                 vo.setStatus(tool.getStatus());
@@ -68,6 +74,9 @@ public class AgentToolBindingController {
         return WebResponse.OK(vos);
     }
 
+    /**
+     * 绑定工具。
+     */
     @ApiOperation("绑定工具")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -93,6 +102,9 @@ public class AgentToolBindingController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("agent.tool-binding.create.success") : I18nUtils.getMessage("agent.tool-binding.create.fail"));
     }
 
+    /**
+     * 解绑工具。
+     */
     @ApiOperation("解绑工具")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -108,6 +120,9 @@ public class AgentToolBindingController {
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.tool-binding.delete.success") : I18nUtils.getMessage("agent.tool-binding.delete.fail"));
     }
 
+    /**
+     * 更新Priority。
+     */
     @ApiOperation("调整优先级")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")

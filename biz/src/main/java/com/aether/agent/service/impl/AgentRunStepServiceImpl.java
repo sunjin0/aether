@@ -12,10 +12,16 @@ import org.springframework.dao.DuplicateKeyException;
 
 import java.util.List;
 
+/**
+ * 实现智能体运行Step业务服务。
+ */
 @Service
 public class AgentRunStepServiceImpl extends ServiceImpl<AgentRunStepMapper, AgentRunStep> implements AgentRunStepService {
     private static final Logger log = LoggerFactory.getLogger(AgentRunStepServiceImpl.class);
 
+    /**
+     * 保存IfAbsent。
+     */
     @Override
     public boolean saveIfAbsent(AgentRunStep step) {
         try {
@@ -26,6 +32,9 @@ public class AgentRunStepServiceImpl extends ServiceImpl<AgentRunStepMapper, Age
         }
     }
 
+    /**
+     * 查询按运行Id。
+     */
     @Override
     public List<AgentRunStep> listByRunId(String runId) {
         return list(Wrappers.lambdaQuery(AgentRunStep.class)

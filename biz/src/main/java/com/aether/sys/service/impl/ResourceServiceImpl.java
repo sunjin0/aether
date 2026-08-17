@@ -30,6 +30,9 @@ import java.util.stream.Collectors;
 @Service
 public class ResourceServiceImpl extends ServiceImpl<ResourceMapper, Resource> implements ResourceService {
 
+    /**
+     * 查询当前请求。
+     */
     @Override
     public Page<ResourceVo> list(ResourceVo resource) {
         // 获取国际化语言
@@ -72,7 +75,7 @@ public class ResourceServiceImpl extends ServiceImpl<ResourceMapper, Resource> i
             resourceVo.setTitle("en_US".equals(lng) ? record.getName() : record.getNameCn());
             return resourceVo;
         }).collect(Collectors.toList());
-        resourceVos .addAll(list);
+        resourceVos.addAll(list);
         // 处理父子级关系
         LinkedHashMap<String, ResourceVo> map = new LinkedHashMap<>();
         resourceVos.forEach(v -> {
@@ -102,6 +105,9 @@ public class ResourceServiceImpl extends ServiceImpl<ResourceMapper, Resource> i
         return voPage;
     }
 
+    /**
+     * 保存当前请求。
+     */
     @Override
     public boolean save(Resource resource, Boolean createNodes) {
         boolean save = super.save(resource);

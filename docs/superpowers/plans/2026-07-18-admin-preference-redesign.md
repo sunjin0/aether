@@ -1,10 +1,14 @@
 # Admin Preference System Redesign Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:
+> executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Redesign the admin preference system to support structured preferences with dynamic reasoning, implicit learning with decay, and user feedback capabilities.
+**Goal:** Redesign the admin preference system to support structured preferences with dynamic reasoning, implicit
+learning with decay, and user feedback capabilities.
 
-**Architecture:** Two-table design (preference + event log) with a preference reasoning engine that computes effective scores based on priority, decay, and confidence. Implicit learning extracts preferences from conversations and logs events. Redis caching for performance.
+**Architecture:** Two-table design (preference + event log) with a preference reasoning engine that computes effective
+scores based on priority, decay, and confidence. Implicit learning extracts preferences from conversations and logs
+events. Redis caching for performance.
 
 **Tech Stack:** Java 8, Spring Boot 2.7.18, MyBatis-Plus, MySQL/PostgreSQL, Redis
 
@@ -12,35 +16,36 @@
 
 ## File Structure
 
-| File | Action | Responsibility |
-|------|--------|----------------|
-| `api/src/main/resources/sql/mysql/001-schema.sql` | Modify | Add new tables, remove old table |
-| `api/src/main/resources/sql/postgresql/001-schema.sql` | Modify | Add new tables, remove old table |
-| `api/src/main/resources/sql/mysql/002-data.sql` | Modify | Remove Admin_Preference_Category dict |
-| `api/src/main/resources/sql/postgresql/002-data.sql` | Modify | Remove Admin_Preference_Category dict |
-| `api/src/main/java/com/aether/sys/entity/AdminPreference.java` | Rewrite | New field mappings |
-| `api/src/main/java/com/aether/sys/entity/AdminPreferenceEvent.java` | Create | Event log entity |
-| `api/src/main/java/com/aether/sys/vo/AdminPreferenceVo.java` | Rewrite | Match new entity |
-| `api/src/main/java/com/aether/sys/vo/AdminPreferenceEventVo.java` | Create | Event log VO |
-| `api/src/main/java/com/aether/sys/mapper/AdminPreferenceMapper.java` | Modify | Add custom queries |
-| `api/src/main/java/com/aether/sys/mapper/AdminPreferenceEventMapper.java` | Create | Event log mapper |
-| `api/src/main/java/com/aether/sys/service/AdminPreferenceService.java` | Modify | Add new methods |
-| `api/src/main/java/com/aether/sys/service/AdminPreferenceEventService.java` | Create | Event log service interface |
-| `biz/src/main/java/com/aether/sys/service/impl/AdminPreferenceServiceImpl.java` | Rewrite | Reasoning engine + decay |
-| `biz/src/main/java/com/aether/sys/service/impl/AdminPreferenceEventServiceImpl.java` | Create | Event log service impl |
-| `biz/src/main/java/com/aether/sys/service/impl/PreferenceReasoningEngine.java` | Create | Core reasoning logic |
-| `biz/src/main/java/com/aether/sys/service/impl/PreferenceDecayScheduler.java` | Create | Daily decay scheduler |
-| `api/src/main/java/com/aether/agent/service/AdminPreferenceExtractionService.java` | Modify | Update interface |
-| `biz/src/main/java/com/aether/agent/service/impl/AdminPreferenceExtractionServiceImpl.java` | Rewrite | New learning logic |
-| `admin/src/main/java/com/aether/sys/controller/AdminPreferenceController.java` | Rewrite | Add feedback endpoints |
-| `admin/src/main/java/com/aether/sys/controller/AdminPreferenceEventController.java` | Create | Event log controller |
-| `biz/src/main/java/com/aether/agent/service/KnowledgeContextService.java` | Modify | Use new reasoning engine |
+| File                                                                                        | Action  | Responsibility                        |
+|---------------------------------------------------------------------------------------------|---------|---------------------------------------|
+| `api/src/main/resources/sql/mysql/001-schema.sql`                                           | Modify  | Add new tables, remove old table      |
+| `api/src/main/resources/sql/postgresql/001-schema.sql`                                      | Modify  | Add new tables, remove old table      |
+| `api/src/main/resources/sql/mysql/002-data.sql`                                             | Modify  | Remove Admin_Preference_Category dict |
+| `api/src/main/resources/sql/postgresql/002-data.sql`                                        | Modify  | Remove Admin_Preference_Category dict |
+| `api/src/main/java/com/aether/sys/entity/AdminPreference.java`                              | Rewrite | New field mappings                    |
+| `api/src/main/java/com/aether/sys/entity/AdminPreferenceEvent.java`                         | Create  | Event log entity                      |
+| `api/src/main/java/com/aether/sys/vo/AdminPreferenceVo.java`                                | Rewrite | Match new entity                      |
+| `api/src/main/java/com/aether/sys/vo/AdminPreferenceEventVo.java`                           | Create  | Event log VO                          |
+| `api/src/main/java/com/aether/sys/mapper/AdminPreferenceMapper.java`                        | Modify  | Add custom queries                    |
+| `api/src/main/java/com/aether/sys/mapper/AdminPreferenceEventMapper.java`                   | Create  | Event log mapper                      |
+| `api/src/main/java/com/aether/sys/service/AdminPreferenceService.java`                      | Modify  | Add new methods                       |
+| `api/src/main/java/com/aether/sys/service/AdminPreferenceEventService.java`                 | Create  | Event log service interface           |
+| `biz/src/main/java/com/aether/sys/service/impl/AdminPreferenceServiceImpl.java`             | Rewrite | Reasoning engine + decay              |
+| `biz/src/main/java/com/aether/sys/service/impl/AdminPreferenceEventServiceImpl.java`        | Create  | Event log service impl                |
+| `biz/src/main/java/com/aether/sys/service/impl/PreferenceReasoningEngine.java`              | Create  | Core reasoning logic                  |
+| `biz/src/main/java/com/aether/sys/service/impl/PreferenceDecayScheduler.java`               | Create  | Daily decay scheduler                 |
+| `api/src/main/java/com/aether/agent/service/AdminPreferenceExtractionService.java`          | Modify  | Update interface                      |
+| `biz/src/main/java/com/aether/agent/service/impl/AdminPreferenceExtractionServiceImpl.java` | Rewrite | New learning logic                    |
+| `admin/src/main/java/com/aether/sys/controller/AdminPreferenceController.java`              | Rewrite | Add feedback endpoints                |
+| `admin/src/main/java/com/aether/sys/controller/AdminPreferenceEventController.java`         | Create  | Event log controller                  |
+| `biz/src/main/java/com/aether/agent/service/KnowledgeContextService.java`                   | Modify  | Use new reasoning engine              |
 
 ---
 
 ## Task 1: DDL Scripts - Create New Tables
 
 **Files:**
+
 - Modify: `api/src/main/resources/sql/mysql/001-schema.sql`
 - Modify: `api/src/main/resources/sql/postgresql/001-schema.sql`
 
@@ -162,11 +167,13 @@ CREATE INDEX idx_created ON sys_admin_preference_event(created_at);
 
 - [ ] **Step 3: Remove old sys_admin_preference table from MySQL DDL**
 
-Find and remove the old `sys_admin_preference` table definition (lines ~624-643) from `api/src/main/resources/sql/mysql/001-schema.sql`.
+Find and remove the old `sys_admin_preference` table definition (lines ~624-643) from
+`api/src/main/resources/sql/mysql/001-schema.sql`.
 
 - [ ] **Step 4: Remove old sys_admin_preference table from PostgreSQL DDL**
 
-Find and remove the old `sys_admin_preference` table definition (lines ~294-314) from `api/src/main/resources/sql/postgresql/001-schema.sql`.
+Find and remove the old `sys_admin_preference` table definition (lines ~294-314) from
+`api/src/main/resources/sql/postgresql/001-schema.sql`.
 
 - [ ] **Step 5: Commit DDL changes**
 
@@ -180,16 +187,19 @@ git commit -m "feat(preference): add new DDL for redesigned preference tables"
 ## Task 2: DDL Scripts - Remove Dictionary Dependency
 
 **Files:**
+
 - Modify: `api/src/main/resources/sql/mysql/002-data.sql`
 - Modify: `api/src/main/resources/sql/postgresql/002-data.sql`
 
 - [ ] **Step 1: Remove Admin_Preference_Category from MySQL seed data**
 
-Find and remove the Admin_Preference_Category dictionary entries (lines ~353-372) from `api/src/main/resources/sql/mysql/002-data.sql`.
+Find and remove the Admin_Preference_Category dictionary entries (lines ~353-372) from
+`api/src/main/resources/sql/mysql/002-data.sql`.
 
 - [ ] **Step 2: Remove Admin_Preference_Category from PostgreSQL seed data**
 
-Find and remove the Admin_Preference_Category dictionary entries (lines ~363-382) from `api/src/main/resources/sql/postgresql/002-data.sql`.
+Find and remove the Admin_Preference_Category dictionary entries (lines ~363-382) from
+`api/src/main/resources/sql/postgresql/002-data.sql`.
 
 - [ ] **Step 3: Commit seed data changes**
 
@@ -203,6 +213,7 @@ git commit -m "refactor(preference): remove Admin_Preference_Category dictionary
 ## Task 3: Entity Layer - AdminPreference
 
 **Files:**
+
 - Rewrite: `api/src/main/java/com/aether/sys/entity/AdminPreference.java`
 
 - [ ] **Step 1: Rewrite AdminPreference entity**
@@ -287,6 +298,7 @@ git commit -m "feat(preference): rewrite AdminPreference entity with new fields"
 ## Task 4: Entity Layer - AdminPreferenceEvent
 
 **Files:**
+
 - Create: `api/src/main/java/com/aether/sys/entity/AdminPreferenceEvent.java`
 
 - [ ] **Step 1: Create AdminPreferenceEvent entity**
@@ -346,6 +358,7 @@ git commit -m "feat(preference): create AdminPreferenceEvent entity"
 ## Task 5: VO Layer
 
 **Files:**
+
 - Rewrite: `api/src/main/java/com/aether/sys/vo/AdminPreferenceVo.java`
 - Create: `api/src/main/java/com/aether/sys/vo/AdminPreferenceEventVo.java`
 
@@ -463,6 +476,7 @@ git commit -m "feat(preference): rewrite VOs for new preference structure"
 ## Task 6: Mapper Layer
 
 **Files:**
+
 - Modify: `api/src/main/java/com/aether/sys/mapper/AdminPreferenceMapper.java`
 - Create: `api/src/main/java/com/aether/sys/mapper/AdminPreferenceEventMapper.java`
 
@@ -527,6 +541,7 @@ git commit -m "feat(preference): add mapper methods for preference queries"
 ## Task 7: Service Interface - AdminPreferenceService
 
 **Files:**
+
 - Modify: `api/src/main/java/com/aether/sys/service/AdminPreferenceService.java`
 
 - [ ] **Step 1: Rewrite AdminPreferenceService interface**
@@ -571,6 +586,7 @@ git commit -m "feat(preference): update AdminPreferenceService interface"
 ## Task 8: Service Interface - AdminPreferenceEventService
 
 **Files:**
+
 - Create: `api/src/main/java/com/aether/sys/service/AdminPreferenceEventService.java`
 
 - [ ] **Step 1: Create AdminPreferenceEventService interface**
@@ -601,6 +617,7 @@ git commit -m "feat(preference): create AdminPreferenceEventService interface"
 ## Task 9: PreferenceReasoningEngine
 
 **Files:**
+
 - Create: `biz/src/main/java/com/aether/sys/service/impl/PreferenceReasoningEngine.java`
 
 - [ ] **Step 1: Create PreferenceReasoningEngine**
@@ -780,6 +797,7 @@ git commit -m "feat(preference): create PreferenceReasoningEngine"
 ## Task 10: Service Implementation - AdminPreferenceEventServiceImpl
 
 **Files:**
+
 - Create: `biz/src/main/java/com/aether/sys/service/impl/AdminPreferenceEventServiceImpl.java`
 
 - [ ] **Step 1: Create AdminPreferenceEventServiceImpl**
@@ -821,6 +839,7 @@ git commit -m "feat(preference): create AdminPreferenceEventServiceImpl"
 ## Task 11: Service Implementation - AdminPreferenceServiceImpl
 
 **Files:**
+
 - Rewrite: `biz/src/main/java/com/aether/sys/service/impl/AdminPreferenceServiceImpl.java`
 
 - [ ] **Step 1: Rewrite AdminPreferenceServiceImpl**
@@ -931,6 +950,7 @@ git commit -m "feat(preference): rewrite AdminPreferenceServiceImpl with reasoni
 ## Task 12: PreferenceDecayScheduler
 
 **Files:**
+
 - Create: `biz/src/main/java/com/aether/sys/service/impl/PreferenceDecayScheduler.java`
 
 - [ ] **Step 1: Create PreferenceDecayScheduler**
@@ -1014,6 +1034,7 @@ git commit -m "feat(preference): create PreferenceDecayScheduler"
 ## Task 13: Extraction Service Interface
 
 **Files:**
+
 - Modify: `api/src/main/java/com/aether/agent/service/AdminPreferenceExtractionService.java`
 
 - [ ] **Step 1: Update AdminPreferenceExtractionService interface**
@@ -1047,6 +1068,7 @@ git commit -m "feat(preference): update AdminPreferenceExtractionService interfa
 ## Task 14: Extraction Service Implementation
 
 **Files:**
+
 - Rewrite: `biz/src/main/java/com/aether/agent/service/impl/AdminPreferenceExtractionServiceImpl.java`
 
 - [ ] **Step 1: Rewrite AdminPreferenceExtractionServiceImpl**
@@ -1224,6 +1246,7 @@ git commit -m "feat(preference): rewrite extraction service for new schema"
 ## Task 15: Controller Layer - AdminPreferenceController
 
 **Files:**
+
 - Rewrite: `admin/src/main/java/com/aether/sys/controller/AdminPreferenceController.java`
 
 - [ ] **Step 1: Rewrite AdminPreferenceController**
@@ -1455,6 +1478,7 @@ git commit -m "feat(preference): rewrite controller with feedback endpoints"
 ## Task 16: Context Injection - KnowledgeContextService
 
 **Files:**
+
 - Modify: `biz/src/main/java/com/aether/agent/service/KnowledgeContextService.java`
 
 - [ ] **Step 1: Update KnowledgeContextService to use new reasoning engine**
@@ -1462,11 +1486,13 @@ git commit -m "feat(preference): rewrite controller with feedback endpoints"
 Find the section where `buildPreferenceContext` is called and update it to pass taskType parameter.
 
 The current code should be something like:
+
 ```java
 String preferenceContext = preferenceService.buildPreferenceContext(userId);
 ```
 
 Update to:
+
 ```java
 String preferenceContext = preferenceService.buildPreferenceContext(userId, null);
 ```
@@ -1510,6 +1536,7 @@ git commit -m "fix(preference): resolve compilation and test issues"
 ## Task 18: Data Migration Script
 
 **Files:**
+
 - Create: `api/src/main/resources/sql/migration/preference-migration.sql`
 
 - [ ] **Step 1: Create migration script**

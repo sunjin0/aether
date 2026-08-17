@@ -12,6 +12,9 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocument> {
 
+    /**
+     * 处理selectActive用于更新。
+     */
     @Select("SELECT * FROM knowledge_document WHERE id = #{id} AND deleted = FALSE FOR UPDATE")
     KnowledgeDocument selectActiveForUpdate(@Param("id") String id);
 }

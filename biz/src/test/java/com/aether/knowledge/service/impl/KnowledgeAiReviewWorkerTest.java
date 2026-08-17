@@ -32,24 +32,40 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证知识库Ai审核Worker的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeAiReviewWorkerTest {
-    @Mock private KnowledgeAiReviewRecordService reviewService;
-    @Mock private KnowledgeAiReviewIssueService issueService;
-    @Mock private KnowledgeDocumentVersionService versionService;
-    @Mock private KnowledgeDocumentService documentService;
-    @Mock private KnowledgeBaseService baseService;
-    @Mock private ModelProviderService providerService;
-    @Mock private ModelCatalogService modelCatalogService;
-    @Mock private ModelClientFactory clientFactory;
-    @Mock private ObjectProvider<KnowledgeAiReviewWorker> selfProvider;
-    @Mock private TransactionTemplate transactionTemplate;
+    @Mock
+    private KnowledgeAiReviewRecordService reviewService;
+    @Mock
+    private KnowledgeAiReviewIssueService issueService;
+    @Mock
+    private KnowledgeDocumentVersionService versionService;
+    @Mock
+    private KnowledgeDocumentService documentService;
+    @Mock
+    private KnowledgeBaseService baseService;
+    @Mock
+    private ModelProviderService providerService;
+    @Mock
+    private ModelCatalogService modelCatalogService;
+    @Mock
+    private ModelClientFactory clientFactory;
+    @Mock
+    private ObjectProvider<KnowledgeAiReviewWorker> selfProvider;
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     private KnowledgeAiReviewWorker worker;
     private KnowledgeAiReview review;
     private KnowledgeDocumentVersion version;
     private KnowledgeDocument document;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         new I18nUtils(org.mockito.Mockito.mock(I18nService.class));
@@ -80,6 +96,9 @@ class KnowledgeAiReviewWorkerTest {
         document.setDraftVersionId("version-1");
     }
 
+    /**
+     * 处理expiredWorkerFailureDoesNotResetStateOwned按NewLease。
+     */
     @Test
     void expiredWorkerFailureDoesNotResetStateOwnedByNewLease() {
         KnowledgeBase base = new KnowledgeBase();
@@ -96,6 +115,9 @@ class KnowledgeAiReviewWorkerTest {
         verify(documentService, never()).update(any());
     }
 
+    /**
+     * 处理expiredWorkerStale结果DoesNotResetStateOwned按NewLease。
+     */
     @Test
     void expiredWorkerStaleResultDoesNotResetStateOwnedByNewLease() {
         version.setContentChecksum("new-checksum");

@@ -1,6 +1,7 @@
 package com.aether.workflow.dto;
 
 import lombok.Data;
+
 import java.util.Map;
 
 /**
@@ -14,6 +15,8 @@ public class AgentWorkflowBusinessStartDto {
     private String businessId;
     private String idempotencyKey;
     private String callbackUrl;
-    /** 人工等待 SLA 截止时间（Unix 毫秒）；为空表示不设置截止。 */
+    /**
+     * 人工等待 SLA 截止时间（Unix 毫秒）；为空表示不设置截止。
+     */
     private Long deadlineAt;
 }

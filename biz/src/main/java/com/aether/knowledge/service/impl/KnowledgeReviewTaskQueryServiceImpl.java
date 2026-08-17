@@ -34,6 +34,9 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * 实现知识库审核任务查询业务服务。
+ */
 @Service
 public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQueryService {
     private final KnowledgeReviewTaskService taskService;
@@ -44,6 +47,9 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
     private final KnowledgeAiReviewIssueService aiIssueService;
     private final KnowledgeReviewActionLogService actionLogService;
 
+    /**
+     * 创建 {@code KnowledgeReviewTaskQueryServiceImpl} 实例。
+     */
     public KnowledgeReviewTaskQueryServiceImpl(KnowledgeReviewTaskService taskService,
                                                KnowledgeAccessService accessService,
                                                KnowledgeDocumentService documentService,
@@ -60,6 +66,9 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
         this.actionLogService = actionLogService;
     }
 
+    /**
+     * 查询当前请求。
+     */
     @Override
     public IPage<KnowledgeReviewTaskVo> list(KnowledgeReviewTaskQueryVo request) {
         KnowledgeReviewTaskQueryVo query = request == null ? new KnowledgeReviewTaskQueryVo() : request;
@@ -104,6 +113,9 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
                 .setRecords(records);
     }
 
+    /**
+     * 详情当前请求。
+     */
     @Override
     public KnowledgeReviewTaskDetailVo detail(String taskId) {
         KnowledgeReviewTask task = taskService.getById(taskId);
@@ -124,9 +136,9 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
                 .last("LIMIT 1"), false);
         List<KnowledgeAiReviewIssue> issues = aiReview == null ? Collections.emptyList()
                 : aiIssueService.list(Wrappers.lambdaQuery(KnowledgeAiReviewIssue.class)
-                        .eq(KnowledgeAiReviewIssue::getAiReviewId, aiReview.getId())
-                        .eq(KnowledgeAiReviewIssue::getDeleted, false)
-                        .orderByAsc(KnowledgeAiReviewIssue::getCreatedAt));
+                .eq(KnowledgeAiReviewIssue::getAiReviewId, aiReview.getId())
+                .eq(KnowledgeAiReviewIssue::getDeleted, false)
+                .orderByAsc(KnowledgeAiReviewIssue::getCreatedAt));
         List<KnowledgeReviewActionLog> logs = actionLogService.list(
                 Wrappers.lambdaQuery(KnowledgeReviewActionLog.class)
                         .eq(KnowledgeReviewActionLog::getDocumentVersionId, version.getId())
@@ -144,6 +156,9 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
         return result;
     }
 
+    /**
+     * 规范化状态。
+     */
     private String normalizeStatus(String status) {
         String normalized = StringUtils.lowerCase(StringUtils.trimToEmpty(status));
         if (StringUtils.isNotBlank(normalized) && !KnowledgeReviewTaskStatus.isValid(normalized)) {
@@ -153,6 +168,9 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
         return normalized;
     }
 
+    /**
+     * 加载Documents。
+     */
     private Map<String, KnowledgeDocument> loadDocuments(List<KnowledgeReviewTask> tasks) {
         if (tasks.isEmpty()) return Collections.emptyMap();
         return documentService.listByIds(tasks.stream()
@@ -161,6 +179,9 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
                 .collect(Collectors.toMap(KnowledgeDocument::getId, Function.identity()));
     }
 
+    /**
+     * 加载Versions。
+     */
     private Map<String, KnowledgeDocumentVersion> loadVersions(List<KnowledgeReviewTask> tasks) {
         if (tasks.isEmpty()) return Collections.emptyMap();
         return versionService.listByIds(tasks.stream()
@@ -169,8 +190,11 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
                 .collect(Collectors.toMap(KnowledgeDocumentVersion::getId, Function.identity()));
     }
 
+    /**
+     * 处理to任务VO。
+     */
     private KnowledgeReviewTaskVo toTaskVo(KnowledgeReviewTask task, KnowledgeDocument document,
-                                            KnowledgeDocumentVersion version) {
+                                           KnowledgeDocumentVersion version) {
         KnowledgeReviewTaskVo vo = new KnowledgeReviewTaskVo();
         BeanUtils.copyProperties(task, vo);
         if (document != null) vo.setDocumentTitle(document.getTitle());

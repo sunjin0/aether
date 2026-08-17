@@ -25,6 +25,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class AsyncConfig implements AsyncConfigurer {
     private static final Logger log = LoggerFactory.getLogger(AsyncConfig.class);
 
+    /**
+     * 处理executor。
+     */
     @Bean(name = "asyncPoolTaskExecutor")
     public ThreadPoolTaskExecutor executor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -38,6 +41,9 @@ public class AsyncConfig implements AsyncConfigurer {
         return executor;
     }
 
+    /**
+     * 获取AsyncExecutor。
+     */
     @Override
     public Executor getAsyncExecutor() {
         return executor();

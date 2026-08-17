@@ -3,6 +3,9 @@ package com.aether.enums;
 
 import lombok.Getter;
 
+/**
+ * 表示EmailType。
+ */
 @Getter
 public enum EmailType {
     //    通知，验证码
@@ -11,6 +14,9 @@ public enum EmailType {
 
     private final String code;
 
+    /**
+     * 创建 {@code EmailType} 实例。
+     */
     EmailType(String value) {
         this.code = value;
     }

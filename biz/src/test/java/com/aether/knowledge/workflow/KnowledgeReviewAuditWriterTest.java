@@ -19,17 +19,27 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证知识库审核AuditWriter的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeReviewAuditWriterTest {
-    @Mock private KnowledgeReviewActionLogService actionLogService;
+    @Mock
+    private KnowledgeReviewActionLogService actionLogService;
     private KnowledgeReviewAuditWriter writer;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         new I18nUtils(mock(I18nService.class));
         writer = new KnowledgeReviewAuditWriter(actionLogService);
     }
 
+    /**
+     * 处理writes当前OperatorAndTransitionDetails。
+     */
     @Test
     void writesCurrentOperatorAndTransitionDetails() {
         when(actionLogService.save(any(KnowledgeReviewActionLog.class))).thenReturn(true);
@@ -46,6 +56,9 @@ class KnowledgeReviewAuditWriterTest {
         assertEquals("claimed", captor.getValue().getAfterStatus());
     }
 
+    /**
+     * 处理failsTheTransactionWhenAuditLogCannotBeSaved。
+     */
     @Test
     void failsTheTransactionWhenAuditLogCannotBeSaved() {
         when(actionLogService.save(any(KnowledgeReviewActionLog.class))).thenReturn(false);

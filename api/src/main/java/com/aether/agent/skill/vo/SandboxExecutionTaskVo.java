@@ -1,10 +1,13 @@
 package com.aether.agent.skill.vo;
 
 import lombok.Data;
+
 import java.util.List;
 import java.util.Map;
 
-/** Frozen task readable only by the platform Runner after it claims the queue item. */
+/**
+ * Frozen task readable only by the platform Runner after it claims the queue item.
+ */
 @Data
 public class SandboxExecutionTaskVo {
     private String executionId;
@@ -19,5 +22,17 @@ public class SandboxExecutionTaskVo {
     private Long maxOutputBytes;
     private Map<String, Object> input;
     private List<Resource> resources;
-    @Data public static class Resource { private String id; private String name; private String type; private String language; private String contentSha256; private Long size; }
+
+    /**
+     * 表示资源。
+     */
+    @Data
+    public static class Resource {
+        private String id;
+        private String name;
+        private String type;
+        private String language;
+        private String contentSha256;
+        private Long size;
+    }
 }

@@ -15,23 +15,38 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/** 将公开计划投影为可审计、可恢复的版本化步骤。 */
+/**
+ * 将公开计划投影为可审计、可恢复的版本化步骤。
+ */
 @Service
 public class AgentRunPlanServiceImpl implements AgentRunPlanService {
     private final AgentRunPlanMapper plans;
     private final AgentRunPlanVersionMapper versions;
     private final AgentRunPlanStepMapper steps;
 
+    /**
+     * 创建 {@code AgentRunPlanServiceImpl} 实例。
+     */
     public AgentRunPlanServiceImpl(AgentRunPlanMapper plans, AgentRunPlanVersionMapper versions,
                                    AgentRunPlanStepMapper steps) {
-        this.plans = plans; this.versions = versions; this.steps = steps;
+        this.plans = plans;
+        this.versions = versions;
+        this.steps = steps;
     }
 
-    @Override public void recordPlan(String runId, String reason, String summary, String snapshot) {
+    /**
+     * 处理recordPlan。
+     */
+    @Override
+    public void recordPlan(String runId, String reason, String summary, String snapshot) {
         recordPlan(runId, null, reason, summary, snapshot);
     }
 
-    @Override @Transactional(rollbackFor = Exception.class)
+    /**
+     * 处理recordPlan。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void recordPlan(String runId, String taskId, String reason, String summary, String snapshot) {
         long now = System.currentTimeMillis();
         // Task 是长期工作单元，Run 只是其中一次尝试；继续/目标变更必须沿用同一计划历史。
@@ -42,11 +57,21 @@ public class AgentRunPlanServiceImpl implements AgentRunPlanService {
             plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
         }
         if (plan == null) {
-            plan = new AgentRunPlan(); plan.setRunId(runId); plan.setTaskId(taskId); plan.setCurrentVersion(0); plans.insert(plan);
+            plan = new AgentRunPlan();
+            plan.setRunId(runId);
+            plan.setTaskId(taskId);
+            plan.setCurrentVersion(0);
+            plans.insert(plan);
         } else {
             boolean changed = false;
-            if (taskId != null && plan.getTaskId() == null) { plan.setTaskId(taskId); changed = true; }
-            if (!runId.equals(plan.getRunId())) { plan.setRunId(runId); changed = true; }
+            if (taskId != null && plan.getTaskId() == null) {
+                plan.setTaskId(taskId);
+                changed = true;
+            }
+            if (!runId.equals(plan.getRunId())) {
+                plan.setRunId(runId);
+                changed = true;
+            }
             if (changed) plans.updateById(plan);
         }
         List<AgentRunPlanVersion> history = versions.selectList(Wrappers.lambdaQuery(AgentRunPlanVersion.class)
@@ -61,8 +86,11 @@ public class AgentRunPlanServiceImpl implements AgentRunPlanService {
         JSONArray tasks = parsed.getJSONArray("tasks");
         int versionNo = (plan.getCurrentVersion() == null ? 0 : plan.getCurrentVersion()) + 1;
         AgentRunPlanVersion version = new AgentRunPlanVersion();
-        version.setPlanId(plan.getId()); version.setVersion(versionNo); version.setReason(normalizeReason(reason));
-        version.setSummary(StringUtils.abbreviate(StringUtils.defaultString(summary), 500)); version.setSnapshot(parsed.toJSONString());
+        version.setPlanId(plan.getId());
+        version.setVersion(versionNo);
+        version.setReason(normalizeReason(reason));
+        version.setSummary(StringUtils.abbreviate(StringUtils.defaultString(summary), 500));
+        version.setSnapshot(parsed.toJSONString());
         versions.insert(version);
 
         List<AgentRunPlanStep> currentSteps = new ArrayList<AgentRunPlanStep>();
@@ -71,7 +99,9 @@ public class AgentRunPlanServiceImpl implements AgentRunPlanService {
             String key = StringUtils.defaultIfBlank(task.getString("id"), "step-" + (index + 1));
             AgentRunPlanStep prior = priorByKey.get(key);
             AgentRunPlanStep step = new AgentRunPlanStep();
-            step.setPlanVersionId(version.getId()); step.setStepKey(key); step.setSequence(index + 1);
+            step.setPlanVersionId(version.getId());
+            step.setStepKey(key);
+            step.setSequence(index + 1);
             step.setTitle(StringUtils.abbreviate(StringUtils.defaultIfBlank(task.getString("title"), "步骤 " + (index + 1)), 500));
             step.setStatus(resolveStatus(task.getString("status"), prior));
             step.setResultSummary(StringUtils.abbreviate(StringUtils.defaultIfBlank(task.getString("resultSummary"), prior == null ? null : prior.getResultSummary()), 2000));
@@ -79,35 +109,78 @@ public class AgentRunPlanServiceImpl implements AgentRunPlanService {
             step.setAttemptCount(task.getInteger("attemptCount") == null ? (prior == null || prior.getAttemptCount() == null ? 0 : prior.getAttemptCount()) : task.getInteger("attemptCount"));
             step.setStartedAt(task.getLong("startedAt"));
             step.setCompletedAt("COMPLETED".equals(step.getStatus()) ? (task.getLong("completedAt") == null ? now : task.getLong("completedAt")) : null);
-            steps.insert(step); currentSteps.add(step);
+            steps.insert(step);
+            currentSteps.add(step);
         }
         // 旧版本中未完成的步骤明确失效，恢复时不会重放过时副作用。
-        for (AgentRunPlanStep prior : priorSteps) if (!"COMPLETED".equals(prior.getStatus())) {
-            prior.setStatus("SUPERSEDED"); steps.updateById(prior);
-        }
-        plan.setCurrentVersion(versionNo); plan.setStatus("RUNNING"); plan.setLastActiveAt(now);
+        for (AgentRunPlanStep prior : priorSteps)
+            if (!"COMPLETED".equals(prior.getStatus())) {
+                prior.setStatus("SUPERSEDED");
+                steps.updateById(prior);
+            }
+        plan.setCurrentVersion(versionNo);
+        plan.setStatus("RUNNING");
+        plan.setLastActiveAt(now);
         AgentRunPlanStep current = currentSteps.stream().filter(step -> !"COMPLETED".equals(step.getStatus()))
                 .min(Comparator.comparing(AgentRunPlanStep::getSequence)).orElse(null);
-        plan.setCurrentStepId(current == null ? null : current.getId()); plans.updateById(plan);
+        plan.setCurrentStepId(current == null ? null : current.getId());
+        plans.updateById(plan);
     }
 
+    /**
+     * 解析Snapshot。
+     */
     private JSONObject parseSnapshot(String snapshot) {
-        try { JSONObject result = JSON.parseObject(snapshot); return result == null ? new JSONObject() : result; }
-        catch (Exception ignored) { return new JSONObject(); }
+        try {
+            JSONObject result = JSON.parseObject(snapshot);
+            return result == null ? new JSONObject() : result;
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
     }
+
+    /**
+     * 规范化Reason。
+     */
     private String normalizeReason(String reason) {
         return Arrays.asList("INITIAL", "TOOL_RESULT", "USER_INPUT", "GOAL_CHANGED", "STEP_FAILED", "RESUME", "COMPLETED").contains(reason) ? reason : "OBSERVATION";
     }
+
+    /**
+     * 解析状态。
+     */
     private String resolveStatus(String incoming, AgentRunPlanStep prior) {
         return prior != null && "COMPLETED".equals(prior.getStatus()) ? "COMPLETED" : StringUtils.defaultIfBlank(incoming, "PENDING");
     }
-    private String stableStepKey(String taskId, String runId, String stepKey) { return StringUtils.defaultIfBlank(taskId, runId) + ":" + stepKey; }
 
-    @Override public void markPaused(String runId, String reason) { updateStatus(runId, "PAUSED", reason); }
-    @Override public void markRunning(String runId) { updateStatus(runId, "RUNNING", null); }
+    /**
+     * 处理stableStepKey。
+     */
+    private String stableStepKey(String taskId, String runId, String stepKey) {
+        return StringUtils.defaultIfBlank(taskId, runId) + ":" + stepKey;
+    }
 
-    /** 将 step.verified 回调的验证结论写入当前计划版本的对应步骤。 */
-    @Override @Transactional(rollbackFor = Exception.class)
+    /**
+     * 处理markPaused。
+     */
+    @Override
+    public void markPaused(String runId, String reason) {
+        updateStatus(runId, "PAUSED", reason);
+    }
+
+    /**
+     * 处理markRunning。
+     */
+    @Override
+    public void markRunning(String runId) {
+        updateStatus(runId, "RUNNING", null);
+    }
+
+    /**
+     * 将 step.verified 回调的验证结论写入当前计划版本的对应步骤。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void markStepVerified(String runId, Integer stepIndex, String verification) {
         if (stepIndex == null || stepIndex < 1) return;
         AgentRunPlan plan = StringUtils.isBlank(runId) ? null : plans.selectOne(
@@ -126,8 +199,12 @@ public class AgentRunPlanServiceImpl implements AgentRunPlanService {
         update.setStatus("COMPLETED");
         steps.updateById(update);
     }
-    /** 将 step.started 回调标记的步骤置为执行中（PENDING→RUNNING）；已完成步骤不改写。 */
-    @Override @Transactional(rollbackFor = Exception.class)
+
+    /**
+     * 将 step.started 回调标记的步骤置为执行中（PENDING→RUNNING）；已完成步骤不改写。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void markStepRunning(String runId, Integer stepIndex) {
         if (stepIndex == null || stepIndex < 1) return;
         AgentRunPlan plan = StringUtils.isBlank(runId) ? null : plans.selectOne(
@@ -149,30 +226,72 @@ public class AgentRunPlanServiceImpl implements AgentRunPlanService {
         update.setStartedAt(System.currentTimeMillis());
         steps.updateById(update);
     }
+
+    /**
+     * 更新状态。
+     */
     private void updateStatus(String runId, String status, String reason) {
         AgentRunPlan plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
-        if (plan != null) { plan.setStatus(status); plan.setPauseReason(reason); plan.setLastActiveAt(System.currentTimeMillis()); plans.updateById(plan); }
+        if (plan != null) {
+            plan.setStatus(status);
+            plan.setPauseReason(reason);
+            plan.setLastActiveAt(System.currentTimeMillis());
+            plans.updateById(plan);
+        }
     }
 
-    @Override public AgentRunPlanVo detail(String runId) {
+    /**
+     * 详情当前请求。
+     */
+    @Override
+    public AgentRunPlanVo detail(String runId) {
         AgentRunPlan plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getRunId, runId));
         if (plan == null) return null;
-        AgentRunPlanVo view = new AgentRunPlanVo(); view.setRunId(runId); view.setStatus(plan.getStatus()); view.setPauseReason(plan.getPauseReason());
-        view.setCurrentVersion(plan.getCurrentVersion()); view.setCurrentStepId(plan.getCurrentStepId()); view.setLastActiveAt(plan.getLastActiveAt());
+        AgentRunPlanVo view = new AgentRunPlanVo();
+        view.setRunId(runId);
+        view.setStatus(plan.getStatus());
+        view.setPauseReason(plan.getPauseReason());
+        view.setCurrentVersion(plan.getCurrentVersion());
+        view.setCurrentStepId(plan.getCurrentStepId());
+        view.setLastActiveAt(plan.getLastActiveAt());
         view.setVersions(versions.selectList(Wrappers.lambdaQuery(AgentRunPlanVersion.class).eq(AgentRunPlanVersion::getPlanId, plan.getId()).orderByAsc(AgentRunPlanVersion::getVersion))
-                .stream().map(this::toView).collect(Collectors.toList())); return view;
+                .stream().map(this::toView).collect(Collectors.toList()));
+        return view;
     }
+
+    /**
+     * 处理toView。
+     */
     private AgentRunPlanVo.Version toView(AgentRunPlanVersion version) {
-        AgentRunPlanVo.Version view = new AgentRunPlanVo.Version(); view.setVersion(version.getVersion()); view.setReason(version.getReason()); view.setSummary(version.getSummary());
+        AgentRunPlanVo.Version view = new AgentRunPlanVo.Version();
+        view.setVersion(version.getVersion());
+        view.setReason(version.getReason());
+        view.setSummary(version.getSummary());
         // snapshot 保留 plan.updated 的完整 {complex, document, tasks}，供 Dashboard 刷新后恢复方案文档渲染。
         JSONObject snapshot = parseSnapshot(version.getSnapshot());
         if (snapshot.getBoolean("complex") != null) view.setComplex(snapshot.getBoolean("complex"));
         if (StringUtils.isNotBlank(snapshot.getString("document"))) view.setDocument(snapshot.getString("document"));
         view.setSteps(steps.selectList(Wrappers.lambdaQuery(AgentRunPlanStep.class).eq(AgentRunPlanStep::getPlanVersionId, version.getId()).orderByAsc(AgentRunPlanStep::getSequence)).stream().map(step -> {
-            AgentRunPlanVo.Step item = new AgentRunPlanVo.Step(); item.setId(step.getId()); item.setStepKey(step.getStepKey()); item.setSequence(step.getSequence()); item.setTitle(step.getTitle()); item.setStatus(step.getStatus()); item.setResultSummary(step.getResultSummary()); item.setAttemptCount(step.getAttemptCount()); item.setStartedAt(step.getStartedAt()); item.setCompletedAt(step.getCompletedAt()); return item;
-        }).collect(Collectors.toList())); return view;
+            AgentRunPlanVo.Step item = new AgentRunPlanVo.Step();
+            item.setId(step.getId());
+            item.setStepKey(step.getStepKey());
+            item.setSequence(step.getSequence());
+            item.setTitle(step.getTitle());
+            item.setStatus(step.getStatus());
+            item.setResultSummary(step.getResultSummary());
+            item.setAttemptCount(step.getAttemptCount());
+            item.setStartedAt(step.getStartedAt());
+            item.setCompletedAt(step.getCompletedAt());
+            return item;
+        }).collect(Collectors.toList()));
+        return view;
     }
-    @Override public AgentRunPlanVo detailByTaskId(String taskId) {
+
+    /**
+     * 详情按任务Id。
+     */
+    @Override
+    public AgentRunPlanVo detailByTaskId(String taskId) {
         AgentRunPlan plan = plans.selectOne(Wrappers.lambdaQuery(AgentRunPlan.class).eq(AgentRunPlan::getTaskId, taskId).eq(AgentRunPlan::getDeleted, false).orderByDesc(AgentRunPlan::getUpdatedAt).last("LIMIT 1"));
         return plan == null ? null : detail(plan.getRunId());
     }

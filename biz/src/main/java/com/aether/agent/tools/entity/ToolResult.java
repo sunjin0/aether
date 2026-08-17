@@ -21,6 +21,9 @@ public class ToolResult {
     private AgentMessage message;
     private String contextContent;
 
+    /**
+     * 处理waiting用户。
+     */
     public static ToolResult waitingUser(AgentMessage message, String contextContent) {
         ToolResult result = new ToolResult();
         result.setWaitingUser(true);

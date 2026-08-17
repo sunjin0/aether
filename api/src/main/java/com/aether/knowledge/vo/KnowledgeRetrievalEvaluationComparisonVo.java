@@ -5,7 +5,9 @@ import lombok.Data;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Comparison of two persisted evaluation runs. */
+/**
+ * Comparison of two persisted evaluation runs.
+ */
 @Data
 public class KnowledgeRetrievalEvaluationComparisonVo {
     private String baselineRunId;
@@ -15,6 +17,9 @@ public class KnowledgeRetrievalEvaluationComparisonVo {
     private MetricDelta metrics = new MetricDelta();
     private List<CaseDelta> cases = new ArrayList<CaseDelta>();
 
+    /**
+     * 表示MetricDelta。
+     */
     @Data
     public static class MetricDelta {
         private Double baselineRecallAtK;
@@ -28,6 +33,9 @@ public class KnowledgeRetrievalEvaluationComparisonVo {
         private Double ndcgDelta;
     }
 
+    /**
+     * 表示CaseDelta。
+     */
     @Data
     public static class CaseDelta {
         private String evaluationCaseId;

@@ -19,9 +19,9 @@ agent_mcp_server (1) ──→ (N) agent_tool
 
 ### 前端菜单建议
 
-| 菜单 | 说明 |
-|------|------|
-| MCP 服务管理 | 管理 MCP 服务连接配置 |
+| 菜单       | 说明                |
+|----------|-------------------|
+| MCP 服务管理 | 管理 MCP 服务连接配置     |
 | MCP 工具管理 | 管理从 MCP 服务导入的具体工具 |
 
 ---
@@ -30,12 +30,12 @@ agent_mcp_server (1) ──→ (N) agent_tool
 
 通过 `GET /api/sys/dict/options?parentCode={parentCode}&useValue=true` 获取下拉选项。
 
-| 使用位置 | parentCode |
-|----------|------------|
-| MCP 服务传输类型 | `Agent_Mcp_Transport` |
-| MCP 服务认证类型 | `Agent_Mcp_Auth_Type` |
-| 工具业务类型 | `Agent_Tool_Business_Type` |
-| 状态 | `Agent_Status` |
+| 使用位置       | parentCode                 |
+|------------|----------------------------|
+| MCP 服务传输类型 | `Agent_Mcp_Transport`      |
+| MCP 服务认证类型 | `Agent_Mcp_Auth_Type`      |
+| 工具业务类型     | `Agent_Tool_Business_Type` |
+| 状态         | `Agent_Status`             |
 
 ---
 
@@ -43,25 +43,26 @@ agent_mcp_server (1) ──→ (N) agent_tool
 
 ### 接口
 
-| 功能 | 方法 | 路径 |
-|------|------|------|
-| 列表 | POST | `/api/agent/mcp-server/list` |
-| 创建 | POST | `/api/agent/mcp-server` |
-| 编辑 | PUT | `/api/agent/mcp-server/{id}` |
-| 详情 | GET | `/api/agent/mcp-server/{id}` |
+| 功能 | 方法     | 路径                           |
+|----|--------|------------------------------|
+| 列表 | POST   | `/api/agent/mcp-server/list` |
+| 创建 | POST   | `/api/agent/mcp-server`      |
+| 编辑 | PUT    | `/api/agent/mcp-server/{id}` |
+| 详情 | GET    | `/api/agent/mcp-server/{id}` |
 | 删除 | DELETE | `/api/agent/mcp-server/{id}` |
 
 ### 字段
 
-`name`、`code`、`transport`（http / sse / streamable_http）、`baseUrl`、`requestHeaders`、`authType`、`authToken`、`command`、`args`、`timeoutMs`（默认 30000）、`status`
+`name`、`code`、`transport`（http / sse / streamable_http）、`baseUrl`、`requestHeaders`、`authType`、`authToken`、`command`、
+`args`、`timeoutMs`（默认 30000）、`status`
 
 ---
 
 ## 四、工具发现与导入
 
-| 功能 | 方法 | 路径 |
-|------|------|------|
-| 发现服务工具 | POST | `/api/agent/mcp-server/{id}/tools` |
+| 功能     | 方法   | 路径                                        |
+|--------|------|-------------------------------------------|
+| 发现服务工具 | POST | `/api/agent/mcp-server/{id}/tools`        |
 | 批量导入工具 | POST | `/api/agent/mcp-server/{id}/import-tools` |
 
 ---
@@ -70,18 +71,19 @@ agent_mcp_server (1) ──→ (N) agent_tool
 
 ### 接口
 
-| 功能 | 方法 | 路径 |
-|------|------|------|
-| 列表 | POST | `/api/agent/tool/list` |
-| 创建 | POST | `/api/agent/tool` |
-| 编辑 | PUT | `/api/agent/tool/{id}` |
-| 详情 | GET | `/api/agent/tool/{id}` |
-| 删除 | DELETE | `/api/agent/tool/{id}` |
-| 测试 | POST | `/api/agent/tool/{id}/test` |
+| 功能 | 方法     | 路径                          |
+|----|--------|-----------------------------|
+| 列表 | POST   | `/api/agent/tool/list`      |
+| 创建 | POST   | `/api/agent/tool`           |
+| 编辑 | PUT    | `/api/agent/tool/{id}`      |
+| 详情 | GET    | `/api/agent/tool/{id}`      |
+| 删除 | DELETE | `/api/agent/tool/{id}`      |
+| 测试 | POST   | `/api/agent/tool/{id}/test` |
 
 ### 字段
 
-`name`、`code`、`description`、`toolType`（业务类型：knowledge / ops / dev / general）、`mcpServerId`、`mcpToolName`、`mcpInputSchema`、`timeoutMs`、`status`
+`name`、`code`、`description`、`toolType`（业务类型：knowledge / ops / dev / general）、`mcpServerId`、`mcpToolName`、
+`mcpInputSchema`、`timeoutMs`、`status`
 
 ### 列表新增字段
 
@@ -114,6 +116,7 @@ agent_mcp_server (1) ──→ (N) agent_tool
 ### 页面建议
 
 顶部展示 4 个统计卡片：
+
 1. 工具总数
 2. 启用工具数
 3. 调用次数
@@ -125,12 +128,12 @@ agent_mcp_server (1) ──→ (N) agent_tool
 
 绑定对象为 `agent_tool`，绑定关系在 `agent_tool_binding` 表。
 
-| 功能 | 方法 | 路径 |
-|------|------|------|
-| 查询 Agent 工具绑定 | GET | `/api/agent/definition/{agentId}/tools` |
-| 绑定工具 | POST | `/api/agent/definition/{agentId}/tools` |
-| 解绑工具 | DELETE | `/api/agent/definition/{agentId}/tools/{toolId}` |
-| 调整优先级 | PUT | `/api/agent/definition/{agentId}/tools/{toolId}/priority` |
+| 功能            | 方法     | 路径                                                        |
+|---------------|--------|-----------------------------------------------------------|
+| 查询 Agent 工具绑定 | GET    | `/api/agent/definition/{agentId}/tools`                   |
+| 绑定工具          | POST   | `/api/agent/definition/{agentId}/tools`                   |
+| 解绑工具          | DELETE | `/api/agent/definition/{agentId}/tools/{toolId}`          |
+| 调整优先级         | PUT    | `/api/agent/definition/{agentId}/tools/{toolId}/priority` |
 
 ---
 
@@ -140,17 +143,19 @@ agent_mcp_server (1) ──→ (N) agent_tool
 
 聊天页的“工具确认设置”属于会话级设置，而不是工具目录的静态属性。创建运行时，平台会把策略与工具作用域冻结到运行快照；后续修改只影响新运行。
 
-| 值 | 行为 |
-| --- | --- |
-| `ask` | 每次 MCP 调用请求确认（默认） |
-| `risky` | 仅高风险调用请求确认 |
-| `never` | 当前会话运行自动批准 |
+| 值       | 行为                |
+|---------|-------------------|
+| `ask`   | 每次 MCP 调用请求确认（默认） |
+| `risky` | 仅高风险调用请求确认        |
+| `never` | 当前会话运行自动批准        |
 
-更新接口：`PUT /api/agent/conversation/{id}/tool-approval-policy`，请求体为 `{"toolApprovalPolicy":"ask|risky|never"}`。十分钟临时批准按用户、Agent、会话与工具隔离；保存策略时会撤销当前会话的临时批准。
+更新接口：`PUT /api/agent/conversation/{id}/tool-approval-policy`，请求体为 `{"toolApprovalPolicy":"ask|risky|never"}`
+。十分钟临时批准按用户、Agent、会话与工具隔离；保存策略时会撤销当前会话的临时批准。
 
 ### 设计结论
 
-以 `agent_tool_call_log` 作为前端展示的事实来源，不新增持久化的 `tool` 角色消息。`successRate` 为百分数（范围 `0-100`），前端可直接追加 `%` 展示。
+以 `agent_tool_call_log` 作为前端展示的事实来源，不新增持久化的 `tool` 角色消息。`successRate` 为百分数（范围 `0-100`
+），前端可直接追加 `%` 展示。
 
 ### 接口
 
@@ -214,6 +219,7 @@ interface AgentMessage {
 ### 前端组件
 
 建议实现 `ToolCallCard` 组件，展示：
+
 - 工具名称（带状态徽章）
 - 参数（JSON 格式化、可展开/收起）
 - 响应体（JSON 格式化、可展开/收起）

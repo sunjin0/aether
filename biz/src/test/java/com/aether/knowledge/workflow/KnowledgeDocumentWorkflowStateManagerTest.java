@@ -28,13 +28,21 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证知识库文档工作流StateManager的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeDocumentWorkflowStateManagerTest {
-    @Mock private KnowledgeDocumentService documentService;
-    @Mock private KnowledgeDocumentVersionService versionService;
+    @Mock
+    private KnowledgeDocumentService documentService;
+    @Mock
+    private KnowledgeDocumentVersionService versionService;
 
     private KnowledgeDocumentWorkflowStateManager stateManager;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         new I18nUtils(mock(I18nService.class));
@@ -44,6 +52,9 @@ class KnowledgeDocumentWorkflowStateManagerTest {
         stateManager = new KnowledgeDocumentWorkflowStateManager(documentService, versionService);
     }
 
+    /**
+     * 处理returnsActiveSubmissionWhen文档VersionAndChecksumMatch。
+     */
     @Test
     void returnsActiveSubmissionWhenDocumentVersionAndChecksumMatch() {
         KnowledgeDocument document = submittedDocument();
@@ -59,6 +70,9 @@ class KnowledgeDocumentWorkflowStateManagerTest {
         assertEquals(version, result.getVersion());
     }
 
+    /**
+     * 处理rejectsSubmissionWhenChecksumNoLongerMatches。
+     */
     @Test
     void rejectsSubmissionWhenChecksumNoLongerMatches() {
         KnowledgeDocumentVersion version = submittedVersion();
@@ -70,6 +84,9 @@ class KnowledgeDocumentWorkflowStateManagerTest {
                 () -> stateManager.requireActiveSubmission(task()));
     }
 
+    /**
+     * 处理marksSubmissionUsingBoth文档PointersAsCompareAndSetConditions。
+     */
     @Test
     void marksSubmissionUsingBothDocumentPointersAsCompareAndSetConditions() {
         when(documentService.update(any())).thenReturn(true);
@@ -84,6 +101,9 @@ class KnowledgeDocumentWorkflowStateManagerTest {
         assertTrue(sql.contains("submitted_version_id"));
     }
 
+    /**
+     * 处理reportsConflictWhen文档CompareAndSetFails。
+     */
     @Test
     void reportsConflictWhenDocumentCompareAndSetFails() {
         when(documentService.update(any())).thenReturn(false);
@@ -93,6 +113,9 @@ class KnowledgeDocumentWorkflowStateManagerTest {
                         KnowledgeReviewStatus.APPROVED, 100L, 1));
     }
 
+    /**
+     * 处理submitted文档。
+     */
     private KnowledgeDocument submittedDocument() {
         KnowledgeDocument document = new KnowledgeDocument();
         document.setId("document-1");
@@ -102,6 +125,9 @@ class KnowledgeDocumentWorkflowStateManagerTest {
         return document;
     }
 
+    /**
+     * 处理submittedVersion。
+     */
     private KnowledgeDocumentVersion submittedVersion() {
         KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
         version.setId("version-1");
@@ -111,6 +137,9 @@ class KnowledgeDocumentWorkflowStateManagerTest {
         return version;
     }
 
+    /**
+     * 任务当前请求。
+     */
     private KnowledgeReviewTask task() {
         KnowledgeReviewTask task = new KnowledgeReviewTask();
         task.setKnowledgeBaseId("kb-1");

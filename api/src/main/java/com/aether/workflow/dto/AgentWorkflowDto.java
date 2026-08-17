@@ -2,7 +2,9 @@ package com.aether.workflow.dto;
 
 import lombok.Data;
 
-/** 工作流草稿编辑请求。 */
+/**
+ * 工作流草稿编辑请求。
+ */
 @Data
 public class AgentWorkflowDto {
     private String name;

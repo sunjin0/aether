@@ -28,12 +28,18 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证智能体Skill控制器的行为。
+ */
 class AgentSkillControllerTest {
 
     private final AgentSkillService skillService = mock(AgentSkillService.class);
     private final SkillResourceWorkbenchService resourceWorkbenchService = mock(SkillResourceWorkbenchService.class);
     private final AgentSkillController controller = new AgentSkillController(skillService, resourceWorkbenchService);
 
+    /**
+     * 查询Returns分页查询。
+     */
     @Test
     void listReturnsPage() {
         AgentSkill skill = skill("s1", "rule", "制度问答", 1);
@@ -50,6 +56,9 @@ class AgentSkillControllerTest {
         assertEquals("rule", response.getData().get(0).getCode());
     }
 
+    /**
+     * 详情ReturnsSkillWithDraft。
+     */
     @Test
     void detailReturnsSkillWithDraft() {
         AgentSkillDetailVo detail = new AgentSkillDetailVo();
@@ -63,6 +72,9 @@ class AgentSkillControllerTest {
         assertNotNull(response.getData().getDraft());
     }
 
+    /**
+     * 创建ReturnsSkillId。
+     */
     @Test
     void createReturnsSkillId() {
         when(skillService.createDraft(any())).thenReturn("s1");
@@ -73,6 +85,9 @@ class AgentSkillControllerTest {
         assertEquals(200, response.getCode());
     }
 
+    /**
+     * 更新DraftDelegates。
+     */
     @Test
     void updateDraftDelegates() {
         WebResponse<Void> response = controller.updateDraft("s1", new AgentSkillDraftDto());
@@ -81,6 +96,9 @@ class AgentSkillControllerTest {
         verify(skillService).updateDraft("s1", new AgentSkillDraftDto());
     }
 
+    /**
+     * 创建下一个DraftReturnsDraftId。
+     */
     @Test
     void createNextDraftReturnsDraftId() {
         when(skillService.createNextDraft("s1")).thenReturn("d2");
@@ -90,6 +108,9 @@ class AgentSkillControllerTest {
         assertEquals("d2", response.getData());
     }
 
+    /**
+     * 发布OnlyAllows当前Draft。
+     */
     @Test
     void publishOnlyAllowsCurrentDraft() {
         AgentSkillDetailVo detail = new AgentSkillDetailVo();
@@ -103,6 +124,9 @@ class AgentSkillControllerTest {
         assertEquals(1, response.getData().getVersionNo());
     }
 
+    /**
+     * 发布RejectsNon当前Draft。
+     */
     @Test
     void publishRejectsNonCurrentDraft() {
         AgentSkillDetailVo detail = new AgentSkillDetailVo();
@@ -117,6 +141,9 @@ class AgentSkillControllerTest {
         }
     }
 
+    /**
+     * 处理versionsReturns历史记录。
+     */
     @Test
     void versionsReturnsHistory() {
         when(skillService.listVersions("s1")).thenReturn(Arrays.asList(version("d1", "s1", null, 0), version("v1", "s1", 1, 1)));
@@ -126,6 +153,9 @@ class AgentSkillControllerTest {
         assertEquals(2, response.getData().size());
     }
 
+    /**
+     * 状态UpdatesSkill。
+     */
     @Test
     void statusUpdatesSkill() {
         AgentSkill skill = skill("s1", "rule", "制度问答", 1);
@@ -140,6 +170,9 @@ class AgentSkillControllerTest {
         assertEquals(2, skill.getStatus());
     }
 
+    /**
+     * 上传资源ReturnsMetadata。
+     */
     @Test
     void uploadResourceReturnsMetadata() throws Exception {
         AgentSkillResource resource = new AgentSkillResource();
@@ -156,6 +189,9 @@ class AgentSkillControllerTest {
         assertEquals("MARKDOWN", response.getData().getType());
     }
 
+    /**
+     * 处理resourcesReturnsDraftResources。
+     */
     @Test
     void resourcesReturnsDraftResources() {
         AgentSkillResource resource = new AgentSkillResource();
@@ -167,6 +203,9 @@ class AgentSkillControllerTest {
         assertEquals(1, response.getData().size());
     }
 
+    /**
+     * 移除资源Delegates。
+     */
     @Test
     void removeResourceDelegates() {
         WebResponse<Void> response = controller.removeResource("s1", "r1");
@@ -175,6 +214,9 @@ class AgentSkillControllerTest {
         verify(skillService).removeDraftResource("s1", "r1");
     }
 
+    /**
+     * 预览ReturnsPrompt。
+     */
     @Test
     void previewReturnsPrompt() {
         AgentSkillPreviewVo preview = new AgentSkillPreviewVo();
@@ -188,6 +230,9 @@ class AgentSkillControllerTest {
         assertNotNull(response.getData().getPrompt());
     }
 
+    /**
+     * 发布检查ReturnsBlockersAndWarnings。
+     */
     @Test
     void publishCheckReturnsBlockersAndWarnings() {
         AgentSkillPublishCheckVo check = new AgentSkillPublishCheckVo();
@@ -201,6 +246,9 @@ class AgentSkillControllerTest {
         assertEquals("请填写系统指令", response.getData().getBlockers().get(0));
     }
 
+    /**
+     * 处理skill。
+     */
     private AgentSkill skill(String id, String code, String name, int status) {
         AgentSkill skill = new AgentSkill();
         skill.setId(id);
@@ -210,6 +258,9 @@ class AgentSkillControllerTest {
         return skill;
     }
 
+    /**
+     * 处理version。
+     */
     private AgentSkillVersion version(String id, String skillId, Integer versionNo, int status) {
         AgentSkillVersion version = new AgentSkillVersion();
         version.setId(id);

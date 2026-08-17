@@ -32,6 +32,9 @@ public class PooledHttpClient {
     private CloseableHttpClient httpClient;
     private PoolingHttpClientConnectionManager connectionManager;
 
+    /**
+     * 初始化所需资源。
+     */
     @PostConstruct
     public void init() {
         connectionManager = new PoolingHttpClientConnectionManager();
@@ -57,6 +60,9 @@ public class PooledHttpClient {
         log.info("HTTP连接池初始化完成: maxTotal=64, maxPerRoute=32, validateAfterInactivity=5s, connTTL=60s");
     }
 
+    /**
+     * 释放所持有的资源。
+     */
     @PreDestroy
     public void destroy() {
         try {
@@ -112,15 +118,24 @@ public class PooledHttpClient {
         private final CloseableHttpResponse response;
         private final InputStream inputStream;
 
+        /**
+         * 创建 {@code HttpStreamResult} 实例。
+         */
         HttpStreamResult(CloseableHttpResponse response, InputStream inputStream) {
             this.response = response;
             this.inputStream = inputStream;
         }
 
+        /**
+         * 获取InputStream。
+         */
         public InputStream getInputStream() {
             return inputStream;
         }
 
+        /**
+         * 关闭当前资源。
+         */
         @Override
         public void close() {
             try {

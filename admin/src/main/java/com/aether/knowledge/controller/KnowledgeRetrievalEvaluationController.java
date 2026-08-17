@@ -57,6 +57,9 @@ import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.stream.Collectors;
 
+/**
+ * 提供知识库RetrievalEvaluation相关的 REST 接口。
+ */
 @Api(tags = "知识库检索评测 API")
 @RestController
 @Permission(path = "/knowledge/evaluation")
@@ -78,6 +81,9 @@ public class KnowledgeRetrievalEvaluationController {
     private final AgentKnowledgeBaseBindingService bindingService;
     private final ModelCatalogService modelCatalogService;
 
+    /**
+     * 创建 {@code KnowledgeRetrievalEvaluationController} 实例。
+     */
     public KnowledgeRetrievalEvaluationController(KnowledgeRetrievalEvaluationService evaluationService,
                                                   KnowledgeRetrievalEvaluationSetMapper setMapper,
                                                   KnowledgeRetrievalEvaluationCaseMapper caseMapper,
@@ -283,12 +289,18 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.run.failed-items.retried"));
     }
 
+    /**
+     * 处理labels。
+     */
     @GetMapping("/sets/{setId}/cases/{caseId}/labels")
     public WebResponse<List<KnowledgeRetrievalEvaluationLabel>> labels(@PathVariable String setId, @PathVariable String caseId) {
         requireCase(setId, caseId);
         return WebResponse.OK(labelMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationLabel.class).eq(KnowledgeRetrievalEvaluationLabel::getEvaluationCaseId, caseId).eq(KnowledgeRetrievalEvaluationLabel::getDeleted, false).orderByAsc(KnowledgeRetrievalEvaluationLabel::getCreatedAt)));
     }
 
+    /**
+     * 保存Label。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/cases/{caseId}/labels")
     public WebResponse<String> saveLabel(@PathVariable String setId, @PathVariable String caseId, @RequestBody KnowledgeRetrievalEvaluationLabel label) {
@@ -312,6 +324,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.label.create.success"), label.getId());
     }
 
+    /**
+     * 删除Label。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @DeleteMapping("/sets/{setId}/cases/{caseId}/labels/{labelId}")
     public WebResponse<Void> deleteLabel(@PathVariable String setId, @PathVariable String caseId, @PathVariable String labelId) {
@@ -324,6 +339,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.label.delete.success"));
     }
 
+    /**
+     * 处理batch删除Labels。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/cases/{caseId}/labels/batch-delete")
     @Transactional(rollbackFor = Exception.class)
@@ -337,6 +355,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.label.batch-delete.success"));
     }
 
+    /**
+     * 发布Version。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/versions")
     public WebResponse<String> publishVersion(@PathVariable String id) {
@@ -361,11 +382,17 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.version.publish.success"), version.getId());
     }
 
+    /**
+     * 处理versions。
+     */
     @GetMapping("/sets/{id}/versions")
     public WebResponse<List<KnowledgeRetrievalEvaluationSetVersion>> versions(@PathVariable String id) {
         return WebResponse.OK(setVersionMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSetVersion.class).eq(KnowledgeRetrievalEvaluationSetVersion::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationSetVersion::getDeleted, false).orderByDesc(KnowledgeRetrievalEvaluationSetVersion::getVersionNo)));
     }
 
+    /**
+     * 处理health。
+     */
     @GetMapping("/sets/{id}/health")
     public WebResponse<KnowledgeRetrievalEvaluationHealthVo> health(@PathVariable String id) {
         return WebResponse.OK(evaluationSetHealth(id));
@@ -408,6 +435,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
 
+    /**
+     * 处理set。
+     */
     @GetMapping("/sets/{id}")
     public WebResponse<KnowledgeRetrievalEvaluationSet> set(@PathVariable String id) {
         KnowledgeRetrievalEvaluationSet item = setMapper.selectById(id);
@@ -416,6 +446,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(item);
     }
 
+    /**
+     * 保存Set。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets")
     public WebResponse<String> saveSet(@RequestBody KnowledgeRetrievalEvaluationSet set) {
@@ -426,6 +459,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.set.create.success"), set.getId());
     }
 
+    /**
+     * 更新Set。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PutMapping("/sets/{id}")
     public WebResponse<Void> updateSet(@PathVariable String id, @RequestBody KnowledgeRetrievalEvaluationSet set) {
@@ -438,6 +474,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.set.update.success"));
     }
 
+    /**
+     * 删除Set。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @DeleteMapping("/sets/{id}")
     public WebResponse<Void> deleteSet(@PathVariable String id) {
@@ -457,6 +496,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false)));
     }
 
+    /**
+     * 保存Case。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases")
     public WebResponse<String> saveCase(@PathVariable String id, @RequestBody KnowledgeRetrievalEvaluationCaseEntity item) {
@@ -468,6 +510,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.case.create.success"), item.getId());
     }
 
+    /**
+     * 更新Case。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PutMapping("/sets/{setId}/cases/{caseId}")
     public WebResponse<Void> updateCase(@PathVariable String setId, @PathVariable String caseId, @RequestBody KnowledgeRetrievalEvaluationCaseEntity item) {
@@ -481,6 +526,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.case.update.success"));
     }
 
+    /**
+     * 删除Case。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @DeleteMapping("/sets/{setId}/cases/{caseId}")
     @Transactional(rollbackFor = Exception.class)
@@ -493,6 +541,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.case.delete.success"));
     }
 
+    /**
+     * 处理batch删除Cases。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/batch-delete")
     @Transactional(rollbackFor = Exception.class)
@@ -514,6 +565,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.case.batch-delete.success"));
     }
 
+    /**
+     * 处理batchCase状态。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/batch-status")
     public WebResponse<Void> batchCaseStatus(@PathVariable String id, @RequestBody CaseStatusRequest request) {
@@ -523,6 +577,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.case.status.update.success"));
     }
 
+    /**
+     * 处理exportCases。
+     */
     @GetMapping("/sets/{id}/cases/export")
     public WebResponse<List<KnowledgeRetrievalEvaluationCaseTransferVo>> exportCases(@PathVariable String id) {
         List<KnowledgeRetrievalEvaluationCaseEntity> cases = caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false));
@@ -536,12 +593,18 @@ public class KnowledgeRetrievalEvaluationController {
         }).collect(Collectors.toList()));
     }
 
+    /**
+     * 预览Import。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/import/preview")
     public WebResponse<KnowledgeRetrievalEvaluationImportPreviewVo> previewImport(@PathVariable String id, @RequestBody List<KnowledgeRetrievalEvaluationCaseTransferVo> items) {
         return WebResponse.OK(validateImport(requireSet(id), items));
     }
 
+    /**
+     * 处理importCases。
+     */
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/import")
     public WebResponse<Integer> importCases(@PathVariable String id, @RequestBody List<KnowledgeRetrievalEvaluationCaseTransferVo> items) {
@@ -781,6 +844,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(sections);
     }
 
+    /**
+     * 文档可标注分块。
+     */
     @ApiOperation("文档可标注分块")
     @Permission(required = false)
     @GetMapping("/documents/{id}/chunks")
@@ -804,11 +870,11 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("单次运行逐题结果")
     @GetMapping("/sets/{setId}/runs/{runId}/results")
     public WebResponse<List<KnowledgeRetrievalEvaluationResultVo>> results(@PathVariable String setId,
-                                                                            @PathVariable String runId,
-                                                                            @RequestParam(defaultValue = "1") Long current,
-                                                                            @RequestParam(defaultValue = "10") Long pageSize,
-                                                                            @RequestParam(required = false) String status,
-                                                                            @RequestParam(required = false, name = "question") String questionKeyword) {
+                                                                           @PathVariable String runId,
+                                                                           @RequestParam(defaultValue = "1") Long current,
+                                                                           @RequestParam(defaultValue = "10") Long pageSize,
+                                                                           @RequestParam(required = false) String status,
+                                                                           @RequestParam(required = false, name = "question") String questionKeyword) {
         KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
         if (run == null || Boolean.TRUE.equals(run.getDeleted()) || !setId.equals(run.getEvaluationSetId()))
             throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.run.not-found"));
@@ -899,6 +965,9 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.Page(response, page.getTotal());
     }
 
+    /**
+     * 执行当前任务。
+     */
     @ApiOperation("批量评测知识库检索命中率")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PostMapping("/run")
@@ -909,66 +978,111 @@ public class KnowledgeRetrievalEvaluationController {
         return WebResponse.OK(evaluationService.evaluate(request.getAgentDefinitionId(), request.getCases()));
     }
 
+    /**
+     * 表示Request。
+     */
     public static class Request {
         private String agentDefinitionId;
         private List<KnowledgeRetrievalEvaluationCase> cases;
 
+        /**
+         * 获取智能体DefinitionId。
+         */
         public String getAgentDefinitionId() {
             return agentDefinitionId;
         }
 
+        /**
+         * 处理set智能体DefinitionId。
+         */
         public void setAgentDefinitionId(String agentDefinitionId) {
             this.agentDefinitionId = agentDefinitionId;
         }
 
+        /**
+         * 获取Cases。
+         */
         public List<KnowledgeRetrievalEvaluationCase> getCases() {
             return cases;
         }
 
+        /**
+         * 处理setCases。
+         */
         public void setCases(List<KnowledgeRetrievalEvaluationCase> cases) {
             this.cases = cases;
         }
     }
 
+    /**
+     * 表示Case状态Request。
+     */
     public static class CaseStatusRequest {
         private List<String> caseIds;
         private Integer status;
 
+        /**
+         * 获取CaseIds。
+         */
         public List<String> getCaseIds() {
             return caseIds;
         }
 
+        /**
+         * 处理setCaseIds。
+         */
         public void setCaseIds(List<String> caseIds) {
             this.caseIds = caseIds;
         }
 
+        /**
+         * 获取状态。
+         */
         public Integer getStatus() {
             return status;
         }
 
+        /**
+         * 处理set状态。
+         */
         public void setStatus(Integer status) {
             this.status = status;
         }
     }
 
+    /**
+     * 表示IdsRequest。
+     */
     public static class IdsRequest {
         private List<String> ids;
 
+        /**
+         * 获取Ids。
+         */
         public List<String> getIds() {
             return ids;
         }
 
+        /**
+         * 处理setIds。
+         */
         public void setIds(List<String> ids) {
             this.ids = ids;
         }
     }
 
+    /**
+     * 处理requireIds。
+     */
     private void requireIds(IdsRequest request) {
         if (request == null || request.getIds() == null || request.getIds().isEmpty()
                 || request.getIds().stream().anyMatch(StringUtils::isBlank))
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.batch-delete.ids.required"));
     }
 
+    /**
+     * 处理requireCase。
+     */
     private KnowledgeRetrievalEvaluationCaseEntity requireCase(String setId, String caseId) {
         KnowledgeRetrievalEvaluationCaseEntity item = caseMapper.selectById(caseId);
         if (item == null || Boolean.TRUE.equals(item.getDeleted()) || !setId.equals(item.getEvaluationSetId()))
@@ -976,6 +1090,9 @@ public class KnowledgeRetrievalEvaluationController {
         return item;
     }
 
+    /**
+     * 处理requireSet。
+     */
     private KnowledgeRetrievalEvaluationSet requireSet(String setId) {
         KnowledgeRetrievalEvaluationSet set = setMapper.selectById(setId);
         if (set == null || Boolean.TRUE.equals(set.getDeleted()))
@@ -983,6 +1100,9 @@ public class KnowledgeRetrievalEvaluationController {
         return set;
     }
 
+    /**
+     * 校验Import。
+     */
     private KnowledgeRetrievalEvaluationImportPreviewVo validateImport(KnowledgeRetrievalEvaluationSet set, List<KnowledgeRetrievalEvaluationCaseTransferVo> items) {
         KnowledgeRetrievalEvaluationImportPreviewVo response = new KnowledgeRetrievalEvaluationImportPreviewVo();
         if (items == null || items.isEmpty()) {
@@ -1031,6 +1151,9 @@ public class KnowledgeRetrievalEvaluationController {
         return response;
     }
 
+    /**
+     * 新增ImportIssue。
+     */
     private void addImportIssue(KnowledgeRetrievalEvaluationImportPreviewVo response, int row, String code, String message) {
         KnowledgeRetrievalEvaluationImportPreviewVo.RowIssue issue = new KnowledgeRetrievalEvaluationImportPreviewVo.RowIssue();
         issue.setRow(row);
@@ -1040,6 +1163,9 @@ public class KnowledgeRetrievalEvaluationController {
         response.setValid(false);
     }
 
+    /**
+     * 处理require运行。
+     */
     private KnowledgeRetrievalEvaluationRun requireRun(String setId, String runId) {
         KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
         if (run == null || Boolean.TRUE.equals(run.getDeleted()) || !setId.equals(run.getEvaluationSetId()))
@@ -1047,19 +1173,31 @@ public class KnowledgeRetrievalEvaluationController {
         return run;
     }
 
+    /**
+     * 判断是否为Completed运行。
+     */
     private boolean isCompletedRun(KnowledgeRetrievalEvaluationRun run) {
         return "SUCCEEDED".equals(run.getStatus()) || "PARTIAL_FAILED".equals(run.getStatus());
     }
 
+    /**
+     * 处理delta。
+     */
     private Double delta(Double candidate, Double baseline) {
         return candidate == null || baseline == null ? null : candidate - baseline;
     }
 
+    /**
+     * 文档Title。
+     */
     private String documentTitle(String documentId) {
         KnowledgeDocument document = StringUtils.isBlank(documentId) ? null : documentService.getById(documentId);
         return document == null ? null : document.getTitle();
     }
 
+    /**
+     * 处理requireHealthy。
+     */
     private void requireHealthy(String setId) {
         KnowledgeRetrievalEvaluationHealthVo health = evaluationSetHealth(setId);
         if (!health.isHealthy())
@@ -1114,6 +1252,9 @@ public class KnowledgeRetrievalEvaluationController {
         return response;
     }
 
+    /**
+     * 处理legacyLabel。
+     */
     private KnowledgeRetrievalEvaluationLabel legacyLabel(KnowledgeRetrievalEvaluationCaseEntity item) {
         KnowledgeRetrievalEvaluationLabel label = new KnowledgeRetrievalEvaluationLabel();
         label.setDocumentId(item.getDocumentId());
@@ -1123,6 +1264,9 @@ public class KnowledgeRetrievalEvaluationController {
         return label;
     }
 
+    /**
+     * 处理effective知识库BaseIds。
+     */
     private Set<String> effectiveKnowledgeBaseIds(String agentDefinitionId) {
         Set<String> boundIds = bindingService.list(Wrappers.lambdaQuery(AgentKnowledgeBaseBinding.class).eq(AgentKnowledgeBaseBinding::getAgentDefinitionId, agentDefinitionId).eq(AgentKnowledgeBaseBinding::getStatus, 1).eq(AgentKnowledgeBaseBinding::getDeleted, false)).stream().map(AgentKnowledgeBaseBinding::getKnowledgeBaseId).filter(StringUtils::isNotBlank).collect(Collectors.toSet());
         Set<String> ids = boundIds.isEmpty() ? new HashSet<>() : knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class).in(KnowledgeBase::getId, boundIds).eq(KnowledgeBase::getStatus, 1).eq(KnowledgeBase::getIndexStatus, 2).eq(KnowledgeBase::getDeleted, false)).stream().map(KnowledgeBase::getId).collect(Collectors.toSet());
@@ -1130,6 +1274,9 @@ public class KnowledgeRetrievalEvaluationController {
         return ids;
     }
 
+    /**
+     * 新增HealthIssue。
+     */
     private void addHealthIssue(KnowledgeRetrievalEvaluationHealthVo response, String severity, String code, String caseId, String message) {
         KnowledgeRetrievalEvaluationHealthVo.Issue issue = new KnowledgeRetrievalEvaluationHealthVo.Issue();
         issue.setSeverity(severity);
@@ -1228,14 +1375,23 @@ public class KnowledgeRetrievalEvaluationController {
         return effective;
     }
 
+    /**
+     * 处理boundedInt。
+     */
     private int boundedInt(Integer value, int defaultValue, int min, int max) {
         return Math.max(min, Math.min(max, value == null ? defaultValue : value));
     }
 
+    /**
+     * 处理boundedDouble。
+     */
     private double boundedDouble(Double value, double defaultValue, double min, double max) {
         return Math.max(min, Math.min(max, value == null ? defaultValue : value));
     }
 
+    /**
+     * 解析TargetChunks。
+     */
     private List<KnowledgeDocumentChunk> resolveTargetChunks(String targetType, String documentId, String sectionPath, String chunkId) {
         if (StringUtils.isBlank(documentId)) return Collections.emptyList();
         if ("CHUNK".equalsIgnoreCase(targetType))

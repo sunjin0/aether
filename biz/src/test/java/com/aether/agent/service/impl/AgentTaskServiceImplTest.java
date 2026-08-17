@@ -6,10 +6,18 @@ import org.junit.jupiter.api.Test;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+/**
+ * 验证智能体任务服务实现的行为。
+ */
 class AgentTaskServiceImplTest {
+    /**
+     * 处理rejectsTerminal任务Regression。
+     */
     @Test
     void rejectsTerminalTaskRegression() {
-        AgentTask completed = new AgentTask(); completed.setId("task-1"); completed.setStatus("COMPLETED");
+        AgentTask completed = new AgentTask();
+        completed.setId("task-1");
+        completed.setStatus("COMPLETED");
         AgentTaskServiceImpl service = spy(new AgentTaskServiceImpl());
         doReturn(completed).when(service).getById("task-1");
 
@@ -18,9 +26,14 @@ class AgentTaskServiceImplTest {
         verify(service, never()).updateById(any(AgentTask.class));
     }
 
+    /**
+     * 处理allowsPaused任务ToResume。
+     */
     @Test
     void allowsPausedTaskToResume() {
-        AgentTask paused = new AgentTask(); paused.setId("task-1"); paused.setStatus("PAUSED");
+        AgentTask paused = new AgentTask();
+        paused.setId("task-1");
+        paused.setStatus("PAUSED");
         AgentTaskServiceImpl service = spy(new AgentTaskServiceImpl());
         doReturn(paused).when(service).getById("task-1");
         doReturn(true).when(service).updateById(any(AgentTask.class));

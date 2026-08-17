@@ -7,40 +7,77 @@ import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+
 import java.util.HashMap;
+
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
+/**
+ * 验证Sandbox任务控制器的行为。
+ */
 class SandboxTaskControllerTest {
-    @AfterEach void clearUser() { CurrentUser.remove(); }
+    /**
+     * 处理clear用户。
+     */
+    @AfterEach
+    void clearUser() {
+        CurrentUser.remove();
+    }
 
-    @Test void unifiedDecisionApprovesForCurrentRequester() {
+    /**
+     * 处理unifiedDecisionApproves用于当前Requester。
+     */
+    @Test
+    void unifiedDecisionApprovesForCurrentRequester() {
         SandboxTaskService tasks = mock(SandboxTaskService.class);
         CurrentUser.set(user("user-1"));
-        SandboxDecisionDto request = new SandboxDecisionDto(); request.setDecision("APPROVE"); request.setReason("reviewed");
+        SandboxDecisionDto request = new SandboxDecisionDto();
+        request.setDecision("APPROVE");
+        request.setReason("reviewed");
 
         new SandboxTaskController(tasks, mock(AgentArtifactService.class), "runner-secret").decision("task-1", request);
 
-        verify(tasks).approve("task-1", "user-1", "reviewed"); verify(tasks, never()).reject(anyString(), anyString(), anyString());
+        verify(tasks).approve("task-1", "user-1", "reviewed");
+        verify(tasks, never()).reject(anyString(), anyString(), anyString());
     }
 
-    @Test void unifiedDecisionRejectsForCurrentRequester() {
+    /**
+     * 处理unifiedDecisionRejects用于当前Requester。
+     */
+    @Test
+    void unifiedDecisionRejectsForCurrentRequester() {
         SandboxTaskService tasks = mock(SandboxTaskService.class);
         CurrentUser.set(user("user-1"));
-        SandboxDecisionDto request = new SandboxDecisionDto(); request.setDecision("reject"); request.setReason("not needed");
+        SandboxDecisionDto request = new SandboxDecisionDto();
+        request.setDecision("reject");
+        request.setReason("not needed");
 
         new SandboxTaskController(tasks, mock(AgentArtifactService.class), "runner-secret").decision("task-1", request);
 
-        verify(tasks).reject("task-1", "user-1", "not needed"); verify(tasks, never()).approve(anyString(), anyString(), anyString());
+        verify(tasks).reject("task-1", "user-1", "not needed");
+        verify(tasks, never()).approve(anyString(), anyString(), anyString());
     }
 
-    @Test void unifiedDecisionRejectsUnknownDecisionBeforeCallingService() {
+    /**
+     * 处理unifiedDecisionRejectsUnknownDecisionBeforeCalling服务。
+     */
+    @Test
+    void unifiedDecisionRejectsUnknownDecisionBeforeCallingService() {
         SandboxTaskService tasks = mock(SandboxTaskService.class);
-        SandboxDecisionDto request = new SandboxDecisionDto(); request.setDecision("queue");
+        SandboxDecisionDto request = new SandboxDecisionDto();
+        request.setDecision("queue");
 
         assertThrows(ServerException.class, () -> new SandboxTaskController(tasks, mock(AgentArtifactService.class), "runner-secret").decision("task-1", request));
         verifyNoInteractions(tasks);
     }
 
-    private HashMap<String, String> user(String id) { HashMap<String, String> user = new HashMap<>(); user.put("userId", id); return user; }
+    /**
+     * 用户当前请求。
+     */
+    private HashMap<String, String> user(String id) {
+        HashMap<String, String> user = new HashMap<>();
+        user.put("userId", id);
+        return user;
+    }
 }

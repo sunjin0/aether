@@ -5,9 +5,14 @@ import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 
 import java.util.List;
 
-/** Reranks retrieved candidates through a provider that exposes a /v1/rerank-compatible endpoint. */
+/**
+ * Reranks retrieved candidates through a provider that exposes a /v1/rerank-compatible endpoint.
+ */
 public interface KnowledgeRerankService {
 
+    /**
+     * 处理rerank。
+     */
     List<KnowledgeDocumentChunk> rerank(ModelProvider provider, String model, String query,
                                         List<KnowledgeDocumentChunk> candidates, int topN);
 }

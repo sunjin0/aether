@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** Immutable published dataset snapshot used as a reproducible evaluation input. */
+/**
+ * Immutable published dataset snapshot used as a reproducible evaluation input.
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_retrieval_evaluation_set_version")

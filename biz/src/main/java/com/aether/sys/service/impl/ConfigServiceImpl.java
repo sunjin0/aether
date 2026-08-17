@@ -30,6 +30,9 @@ import java.util.stream.Collectors;
 public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> implements ConfigService {
 
 
+    /**
+     * 查询当前请求。
+     */
     @Override
     public Page<ConfigVo> list(ConfigVo config) {
         //分页
@@ -46,7 +49,7 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         if (config.getId() == null && config.getName() == null && config.getValue() == null && config.getCode() == null && config.getRemark() == null) {
             query.isNull(Config::getParent);
         }
-        Page<Config>configPage = page(page, query);
+        Page<Config> configPage = page(page, query);
         List<Config> records = configPage.getRecords();
         if (records.isEmpty()) {
             return new Page<>();
@@ -91,16 +94,26 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         voPage.setTotal(configPage.getTotal());
         return voPage;
     }
+
+    /**
+     * 处理info。
+     */
     @Override
     public Config info(String id) {
         return getById(id);
     }
 
+    /**
+     * 处理tree。
+     */
     @Override
     public List<ConfigVo> tree() {
         return tree(new ConfigVo());
     }
 
+    /**
+     * 处理tree。
+     */
     @Override
     public List<ConfigVo> tree(ConfigVo config) {
         List<Config> configs = list(Wrappers.lambdaQuery(Config.class)
@@ -127,6 +140,9 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         return buildTree(configs);
     }
 
+    /**
+     * 删除当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean delete(String id) {
@@ -150,6 +166,9 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         return updateBatchById(toDelete);
     }
 
+    /**
+     * 创建当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean create(Config config) {
@@ -157,6 +176,9 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         return save(config);
     }
 
+    /**
+     * 更新当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean update(Config config) {
@@ -179,6 +201,10 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         existing.setSortNum(config.getSortNum());
         return updateById(existing);
     }
+
+    /**
+     * 获取Value。
+     */
     @Override
     public String getValue(String code) {
         Config one = this.getOne(Wrappers.lambdaQuery(Config.class)
@@ -188,6 +214,9 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         return one == null ? null : one.getValue();
     }
 
+    /**
+     * 校验用于创建。
+     */
     private void validateForCreate(Config config) {
         validateFields(config);
         String code = StringUtils.trim(config.getCode());
@@ -198,6 +227,9 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         validateParent(config.getParent(), code, null);
     }
 
+    /**
+     * 校验Fields。
+     */
     private void validateFields(Config config) {
         if (config == null || StringUtils.isBlank(config.getCode()) || StringUtils.isBlank(config.getName())
                 || config.getValue() == null || config.getRemark() == null) {
@@ -208,6 +240,9 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         }
     }
 
+    /**
+     * 校验Parent。
+     */
     private void validateParent(String parent, String code, String id) {
         String parentCode = StringUtils.trimToNull(parent);
         if (parentCode == null) return;
@@ -223,6 +258,9 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         }
     }
 
+    /**
+     * 判断是否为Descendant。
+     */
     private boolean isDescendant(String candidateCode, String ancestorCode) {
         Map<String, String> parentByCode = list(Wrappers.lambdaQuery(Config.class)).stream()
                 .collect(Collectors.toMap(Config::getCode, Config::getParent, (first, ignored) -> first));
@@ -235,6 +273,9 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         return false;
     }
 
+    /**
+     * 构建Tree。
+     */
     private List<ConfigVo> buildTree(List<Config> configs) {
         Map<String, ConfigVo> byCode = new LinkedHashMap<>();
         List<Config> sortedConfigs = new ArrayList<>(configs);
@@ -250,11 +291,15 @@ public class ConfigServiceImpl extends ServiceImpl<ConfigMapper, Config> impleme
         List<ConfigVo> roots = new ArrayList<>();
         for (ConfigVo item : byCode.values()) {
             ConfigVo parent = StringUtils.isBlank(item.getParent()) ? null : byCode.get(item.getParent());
-            if (parent == null) roots.add(item); else parent.getChildren().add(item);
+            if (parent == null) roots.add(item);
+            else parent.getChildren().add(item);
         }
         return roots;
     }
 
+    /**
+     * 处理containsIgnoreCase。
+     */
     private boolean containsIgnoreCase(String value, String query) {
         return StringUtils.isBlank(query) || StringUtils.containsIgnoreCase(value, query.trim());
     }

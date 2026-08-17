@@ -23,7 +23,9 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-/** Authoring-only workbench for reading and drafting resource content. */
+/**
+ * Authoring-only workbench for reading and drafting resource content.
+ */
 @Service
 public class SkillResourceWorkbenchService {
     private static final int MAX_PREVIEW_BYTES = 1024 * 1024;
@@ -35,6 +37,9 @@ public class SkillResourceWorkbenchService {
     private final ModelClientFactory modelClientFactory;
     private final String resourceBucket;
 
+    /**
+     * 创建 {@code SkillResourceWorkbenchService} 实例。
+     */
     public SkillResourceWorkbenchService(AgentSkillServiceImpl skillService,
                                          AgentSkillResourceServiceImpl resourceService,
                                          ObjectStorageService storage,
@@ -51,6 +56,9 @@ public class SkillResourceWorkbenchService {
         this.resourceBucket = resourceBucket;
     }
 
+    /**
+     * 处理content。
+     */
     public String content(String skillId, String resourceId) {
         AgentSkillResource resource = skillService.listResources(skillId).stream()
                 .filter(item -> resourceId.equals(item.getId())).findFirst()
@@ -59,10 +67,14 @@ public class SkillResourceWorkbenchService {
             throw new ServerException(413, I18nUtils.getMessage("skill.resource.preview.too-large"));
         }
         byte[] bytes = storage.getObject(resourceBucket, resource.getObjectKey());
-        if (bytes.length > MAX_PREVIEW_BYTES) throw new ServerException(413, I18nUtils.getMessage("skill.resource.preview.too-large"));
+        if (bytes.length > MAX_PREVIEW_BYTES)
+            throw new ServerException(413, I18nUtils.getMessage("skill.resource.preview.too-large"));
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
+    /**
+     * 生成当前请求。
+     */
     public AgentSkillResourceGenerateVo generate(String skillId, AgentSkillResourceGenerateDto dto) {
         skillService.getById(skillId);
         if (dto == null || StringUtils.isBlank(dto.getModelId()) || StringUtils.isBlank(dto.getPrompt())) {
@@ -84,19 +96,29 @@ public class SkillResourceWorkbenchService {
         ));
         ModelClient client = modelClientFactory.getClient(provider);
         ModelChatResponse response = client.chatByProvider(request);
-        if (response == null || StringUtils.isBlank(response.getContent())) throw new ServerException(502, I18nUtils.getMessage("skill.resource.generate.empty-response"));
+        if (response == null || StringUtils.isBlank(response.getContent()))
+            throw new ServerException(502, I18nUtils.getMessage("skill.resource.generate.empty-response"));
         AgentSkillResourceGenerateVo result = new AgentSkillResourceGenerateVo();
-        result.setName(name); result.setType(type); result.setPurpose(dto.getPurpose());
-        result.setContent(stripFence(response.getContent())); result.setModel(response.getModel());
+        result.setName(name);
+        result.setType(type);
+        result.setPurpose(dto.getPurpose());
+        result.setContent(stripFence(response.getContent()));
+        result.setModel(response.getModel());
         return result;
     }
 
+    /**
+     * 处理normaliseName。
+     */
     private String normaliseName(String name, String type) {
         String extension = "MARKDOWN".equals(type) ? ".md" : ".hbs";
         String value = StringUtils.defaultIfBlank(StringUtils.trimToNull(name), "generated-resource" + extension);
         return value.contains(".") ? value : value + extension;
     }
 
+    /**
+     * 处理stripFence。
+     */
     private String stripFence(String content) {
         String value = StringUtils.trim(content);
         if (!value.startsWith("```")) return value;

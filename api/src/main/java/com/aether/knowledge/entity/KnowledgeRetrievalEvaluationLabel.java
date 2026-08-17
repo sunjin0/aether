@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** One positive retrieval target for an evaluation case. */
+/**
+ * One positive retrieval target for an evaluation case.
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_retrieval_evaluation_label")

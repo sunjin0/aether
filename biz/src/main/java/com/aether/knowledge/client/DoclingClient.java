@@ -20,8 +20,13 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.util.List;
 import java.util.Map;
 
+/**
+ * 表示DoclingClient。
+ */
 @Component
 public class DoclingClient {
 
@@ -32,6 +37,9 @@ public class DoclingClient {
     private final DelegationTokenService delegationTokenService;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    /**
+     * 创建 {@code DoclingClient} 实例。
+     */
     public DoclingClient(@Value("${docling.service.url:}") String serviceUrl,
                          DelegationTokenService delegationTokenService) {
         this.serviceUrl = serviceUrl;
@@ -51,10 +59,16 @@ public class DoclingClient {
         }
     }
 
+    /**
+     * 判断是否为Enabled。
+     */
     public boolean isEnabled() {
         return restTemplate != null;
     }
 
+    /**
+     * 转换当前请求。
+     */
     public String convert(String fileName, byte[] bytes) {
         return convert(fileName, bytes, "markdown", false);
     }
@@ -78,6 +92,9 @@ public class DoclingClient {
 
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
             body.add("file", new ByteArrayResource(bytes) {
+                /**
+                 * 获取Filename。
+                 */
                 @Override
                 public String getFilename() {
                     return fileName;
@@ -98,7 +115,7 @@ public class DoclingClient {
                     return extractJsonData(response.getBody());
                 }
                 Object markdown = response.getBody().get("markdown");
-                if (markdown instanceof String) return (String) markdown;
+                if (markdown instanceof String) return appendImageChunks((String) markdown, response.getBody());
                 if ("both".equals(fmt)) {
                     return extractJsonData(response.getBody());
                 }
@@ -110,6 +127,9 @@ public class DoclingClient {
         }
     }
 
+    /**
+     * 处理extractJsonData。
+     */
     private String extractJsonData(Map<String, Object> body) {
         Object jsonData = body.get("json_data");
         if (jsonData instanceof String) return (String) jsonData;
@@ -121,5 +141,26 @@ public class DoclingClient {
             }
         }
         return jsonData != null ? jsonData.toString() : null;
+    }
+
+    /**
+     * 将 MCP 对文档内嵌图片生成的语义块并入正文，复用既有分块和向量化流程入库。
+     */
+    private String appendImageChunks(String markdown, Map<String, Object> body) {
+        Object imageChunks = body.get("image_chunks");
+        if (!(imageChunks instanceof List)) return markdown;
+        StringBuilder result = new StringBuilder(markdown == null ? "" : markdown.trim());
+        for (Object item : (List<?>) imageChunks) {
+            if (!(item instanceof Map)) continue;
+            Map<?, ?> chunk = (Map<?, ?>) item;
+            Object text = chunk.get("text");
+            if (!(text instanceof String) || StringUtils.isBlank((String) text)) continue;
+            if (result.length() > 0) result.append("\n\n");
+            result.append("## 文档内嵌图片语义");
+            Object page = chunk.get("page");
+            if (page != null) result.append("（第 ").append(page).append(" 页）");
+            result.append("\n\n").append(((String) text).trim());
+        }
+        return result.toString();
     }
 }

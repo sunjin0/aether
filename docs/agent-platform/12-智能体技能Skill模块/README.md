@@ -1,10 +1,15 @@
 # Agent 平台 — 智能体技能（Skill）模块方案
 
 > 更新日期：2026-08-11
-> 状态：已实现（数据库 V38-V43、Skill CRUD / 草稿 / 版本 / 发布、工具与知识库绑定、Agent-Skill 安装绑定、资源上传/列表/删除（对象存储）、渐进发现与单 Skill 动态激活、前端发现配置、只读路由预览、提示词合成与工具收敛已接入 AgentChat）。运行期会校验已冻结资源的存在性、启用状态和 SHA-256，将受限 Markdown/模板参考注入提示词，按输入 Schema 校验并脱敏 `skillInputs`，并在 `agent_run.skill_snapshot` 冻结路由候选、分数、选择/降级原因、版本、资源与最小授权范围；未命中时仅使用 Agent 基础提示词和基础授权。文件生成通过平台通用 `generate_artifact` 工具完成，Skill 不再提供脚本执行入口。
+> 状态：已实现（数据库 V38-V43、Skill CRUD / 草稿 / 版本 / 发布、工具与知识库绑定、Agent-Skill 安装绑定、资源上传/列表/删除（对象存储）、渐进发现与单
+> Skill 动态激活、前端发现配置、只读路由预览、提示词合成与工具收敛已接入 AgentChat）。运行期会校验已冻结资源的存在性、启用状态和
+> SHA-256，将受限 Markdown/模板参考注入提示词，按输入 Schema 校验并脱敏 `skillInputs`，并在 `agent_run.skill_snapshot`
+> 冻结路由候选、分数、选择/降级原因、版本、资源与最小授权范围；未命中时仅使用 Agent 基础提示词和基础授权。文件生成通过平台通用
+`generate_artifact` 工具完成，Skill 不再提供脚本执行入口。
 > 范围：Skill 模块功能方案设计、数据模型、运行机制、接口与实施规划。
 
-> V45 补充：Skill 渐进发现的向量模型配置由 `skill.routing.embeddingModelId` 保存模型目录 ID，替代旧的供应商 ID。仅具备 `EMBEDDING` 能力且模型、供应商均启用的目录项可被保存；变更后会重新索引已发布 Skill 版本，防止新查询向量与历史向量混用。
+> V45 补充：Skill 渐进发现的向量模型配置由 `skill.routing.embeddingModelId` 保存模型目录 ID，替代旧的供应商 ID。仅具备
+`EMBEDDING` 能力且模型、供应商均启用的目录项可被保存；变更后会重新索引已发布 Skill 版本，防止新查询向量与历史向量混用。
 
 ---
 
@@ -14,16 +19,17 @@
 
 当前平台已具备以下与"技能"相邻的能力，但缺少统一的能力封装层：
 
-| 已有能力 | 作用 | 局限 |
-| --- | --- | --- |
-| `AgentDefinition` | Agent 身份、系统提示词、模型参数、执行模式 | 提示词为单体文本，无法复用、组合或按版本管理 |
-| `AgentTool` + 绑定 | 授予 Agent MCP 工具能力，含风险审批与审计 | 工具是执行能力，不含任务规范与输入契约 |
-| `agent_knowledge_base_binding` | 为 Agent 授权知识库，参与 RAG | 只有"库级"开关，没有能力级限定 |
-| `AgentWorkflowTemplate` | 复用工作流画布 | 面向流程编排，不是聊天能力包 |
+| 已有能力                           | 作用                         | 局限                     |
+|--------------------------------|----------------------------|------------------------|
+| `AgentDefinition`              | Agent 身份、系统提示词、模型参数、执行模式   | 提示词为单体文本，无法复用、组合或按版本管理 |
+| `AgentTool` + 绑定               | 授予 Agent MCP 工具能力，含风险审批与审计 | 工具是执行能力，不含任务规范与输入契约    |
+| `agent_knowledge_base_binding` | 为 Agent 授权知识库，参与 RAG       | 只有"库级"开关，没有能力级限定       |
+| `AgentWorkflowTemplate`        | 复用工作流画布                    | 面向流程编排，不是聊天能力包         |
 
 ### 1.2 目标
 
-Skill 模块将"领域知识 + 执行规范 + 资源依赖"封装为**可版本化、可审批、可复用**的技能包，由管理员配置后绑定到 Agent。Agent 对话时按绑定的 Skill 版本解析并合入上下文，不改变现有聊天、MCP 审批、Deep Agent 回调与审计链路。
+Skill 模块将"领域知识 + 执行规范 + 资源依赖"封装为**可版本化、可审批、可复用**的技能包，由管理员配置后绑定到 Agent。Agent
+对话时按绑定的 Skill 版本解析并合入上下文，不改变现有聊天、MCP 审批、Deep Agent 回调与审计链路。
 
 ### 1.3 边界（已确认）
 
@@ -45,15 +51,15 @@ Skill 模块将"领域知识 + 执行规范 + 资源依赖"封装为**可版本�
 
 ## 二、术语
 
-| 术语 | 说明 |
-| --- | --- |
-| Skill | 技能主记录，表示稳定的能力身份（名称、编码、分类、状态、当前版本） |
-| Skill 版本 | 不可变快照，含指令、契约、资源、工具与知识库声明 |
-| 资源（Resource） | Skill 版本内上传的 Markdown、模板文件；内容由 SHA-256 和不可覆盖对象键共同标识 |
-| Agent-Skill 绑定 | 将某 Skill 的某个已发布版本安装到 Agent，含优先级与配置覆盖 |
-| 权限收敛 | 最终可用工具/知识库 = Agent 已授权 ∩ Skill 声明 |
-| 最终装配上下文 | 一次请求经校验后冻结的 Skill、工具、知识库、资源和提示词集合，所有运行链路只能消费该集合 |
-| 发现元数据 | 版本级 `routing_summary`、触发词、排除词和示例；发布后冻结，仅用于候选检索与路由复核 |
+| 术语             | 说明                                                  |
+|----------------|-----------------------------------------------------|
+| Skill          | 技能主记录，表示稳定的能力身份（名称、编码、分类、状态、当前版本）                   |
+| Skill 版本       | 不可变快照，含指令、契约、资源、工具与知识库声明                            |
+| 资源（Resource）   | Skill 版本内上传的 Markdown、模板文件；内容由 SHA-256 和不可覆盖对象键共同标识 |
+| Agent-Skill 绑定 | 将某 Skill 的某个已发布版本安装到 Agent，含优先级与配置覆盖                |
+| 权限收敛           | 最终可用工具/知识库 = Agent 已授权 ∩ Skill 声明                   |
+| 最终装配上下文        | 一次请求经校验后冻结的 Skill、工具、知识库、资源和提示词集合，所有运行链路只能消费该集合     |
+| 发现元数据          | 版本级 `routing_summary`、触发词、排除词和示例；发布后冻结，仅用于候选检索与路由复核 |
 
 ---
 
@@ -108,90 +114,93 @@ agent_skill (主记录)
 
 ### 5.2 `agent_skill` — Skill 主记录
 
-| 字段 | 说明 |
-| --- | --- |
-| `name` | Skill 名称 |
-| `code` | 唯一编码，`uk_code` |
-| `description` | 用途说明 |
-| `category` | 分类（制度问答、风险评估、工单查询等） |
-| `status` | `0` 草稿、`1` 已启用、`2` 已停用 |
-| `current_version_id` | 当前已发布版本 ID |
-| `icon` / `tags` / `sort_num` | 展示与排序 |
+| 字段                           | 说明                     |
+|------------------------------|------------------------|
+| `name`                       | Skill 名称               |
+| `code`                       | 唯一编码，`uk_code`         |
+| `description`                | 用途说明                   |
+| `category`                   | 分类（制度问答、风险评估、工单查询等）    |
+| `status`                     | `0` 草稿、`1` 已启用、`2` 已停用 |
+| `current_version_id`         | 当前已发布版本 ID             |
+| `icon` / `tags` / `sort_num` | 展示与排序                  |
 
 继承 `BaseEntity`（`id`、`created_at`、`updated_at`、`sort_num`、`deleted`、`state`）。
 
 ### 5.3 `agent_skill_version` — 不可变版本
 
-| 字段 | 说明 |
-| --- | --- |
-| `skill_id` | 所属 Skill |
-| `version_no` | 版本号（`1`、`2`…），`uk(skill_id, version_no)` |
-| `instruction` | 领域指令（Markdown） |
-| `input_schema` | 输入契约 JSON（JSON Schema） |
-| `output_schema` | 输出契约 JSON（JSON Schema，一期作为约束与元数据） |
-| `routing_summary` | 必填，最多 200 字；说明何时应使用此 Skill，不包含完整指令 |
-| `trigger_terms` / `exclude_terms` / `routing_examples` | JSON 数组；分别用于规则命中、规则剔除和模型复核示例 |
-| `tool_policy` | `required` / `optional` 等策略说明（字段由工具绑定表表达） |
-| `status` | `0` 草稿、`1` 已发布 |
-| `change_note` | 变更说明 |
-| `published_at` / `published_by` | 发布信息 |
+| 字段                                                     | 说明                                        |
+|--------------------------------------------------------|-------------------------------------------|
+| `skill_id`                                             | 所属 Skill                                  |
+| `version_no`                                           | 版本号（`1`、`2`…），`uk(skill_id, version_no)`  |
+| `instruction`                                          | 领域指令（Markdown）                            |
+| `input_schema`                                         | 输入契约 JSON（JSON Schema）                    |
+| `output_schema`                                        | 输出契约 JSON（JSON Schema，一期作为约束与元数据）         |
+| `routing_summary`                                      | 必填，最多 200 字；说明何时应使用此 Skill，不包含完整指令        |
+| `trigger_terms` / `exclude_terms` / `routing_examples` | JSON 数组；分别用于规则命中、规则剔除和模型复核示例              |
+| `tool_policy`                                          | `required` / `optional` 等策略说明（字段由工具绑定表表达） |
+| `status`                                               | `0` 草稿、`1` 已发布                            |
+| `change_note`                                          | 变更说明                                      |
+| `published_at` / `published_by`                        | 发布信息                                      |
 
 发布后**禁止修改与删除**，仅可逻辑停用。
 
-草稿和发布模型：`agent_skill_version` 同时承载草稿和发布快照；一个 Skill 最多一个 `DRAFT` 版本，草稿可编辑且不分配正式 `version_no`。发布时在同一事务内复制草稿及全部子项为新的 `PUBLISHED` 版本、分配递增 `version_no`，随后删除或重置草稿；已发布记录及其子项绝不更新。
+草稿和发布模型：`agent_skill_version` 同时承载草稿和发布快照；一个 Skill 最多一个 `DRAFT` 版本，草稿可编辑且不分配正式
+`version_no`。发布时在同一事务内复制草稿及全部子项为新的 `PUBLISHED` 版本、分配递增 `version_no`，随后删除或重置草稿；已发布记录及其子项绝不更新。
 
 ### 5.4 `agent_skill_resource` — 版本资源
 
-| 字段 | 说明 |
-| --- | --- |
-| `skill_version_id` | 所属版本 |
-| `name` | 资源名称 |
-| `type` | `MARKDOWN` / `TEMPLATE` |
-| `language` | 模板实现语言（可选） |
-| `object_key` | 不可覆盖对象地址，例如 `skills/{skill_id}/{version_id}/{sha256}`；发布后禁止替换和删除 |
-| `content_sha256` | 文件哈希，用于校验与审计 |
-| `size` | 文件大小 |
-| `purpose` | 用途说明（参考规则 / 输出模板） |
-| `status` | `0` 禁用、`1` 启用 |
+| 字段                 | 说明                                                               |
+|--------------------|------------------------------------------------------------------|
+| `skill_version_id` | 所属版本                                                             |
+| `name`             | 资源名称                                                             |
+| `type`             | `MARKDOWN` / `TEMPLATE`                                          |
+| `language`         | 模板实现语言（可选）                                                       |
+| `object_key`       | 不可覆盖对象地址，例如 `skills/{skill_id}/{version_id}/{sha256}`；发布后禁止替换和删除 |
+| `content_sha256`   | 文件哈希，用于校验与审计                                                     |
+| `size`             | 文件大小                                                             |
+| `purpose`          | 用途说明（参考规则 / 输出模板）                                                |
+| `status`           | `0` 禁用、`1` 启用                                                    |
 
-上传时校验扩展名与 MIME、单文件/单版本总大小和资源数量；拒绝压缩包及不在白名单内的类型。发布事务中复核对象 SHA-256 后冻结对象键。资源仅作为 Skill 参考材料，不作为执行入口。
+上传时校验扩展名与 MIME、单文件/单版本总大小和资源数量；拒绝压缩包及不在白名单内的类型。发布事务中复核对象 SHA-256
+后冻结对象键。资源仅作为 Skill 参考材料，不作为执行入口。
 
 ### 5.5 `agent_skill_tool_binding` — 版本工具声明
 
-| 字段 | 说明 |
-| --- | --- |
-| `skill_version_id` | 所属版本 |
-| `tool_id` | 引用 `agent_tool.id` |
-| `required` | 是否必需工具 |
-| `priority` | 建议优先级 |
+| 字段                 | 说明                 |
+|--------------------|--------------------|
+| `skill_version_id` | 所属版本               |
+| `tool_id`          | 引用 `agent_tool.id` |
+| `required`         | 是否必需工具             |
+| `priority`         | 建议优先级              |
 
 唯一索引 `uk(skill_version_id, tool_id)`。工具状态、MCP 服务状态实时校验，不复制凭证。
 
 ### 5.6 `agent_skill_knowledge_binding` — 版本知识库声明
 
-| 字段 | 说明 |
-| --- | --- |
-| `skill_version_id` | 所属版本 |
+| 字段                  | 说明                     |
+|---------------------|------------------------|
+| `skill_version_id`  | 所属版本                   |
 | `knowledge_base_id` | 引用 `knowledge_base.id` |
 
 运行期最终范围 = Agent 已授权知识库 ∩ 此处声明。
 
 ### 5.7 `agent_definition_skill_binding` — Agent 安装项
 
-| 字段 | 说明 |
-| --- | --- |
-| `agent_definition_id` | 所属 Agent |
-| `skill_id` | 所属 Skill |
-| `skill_version_id` | **安装的明确版本**，不自动跟随最新 |
-| `priority` | 装配顺序 |
-| `status` | `0` 停用、`1` 启用 |
-| `config_overrides` | 可选参数覆盖 JSON |
+| 字段                    | 说明                  |
+|-----------------------|---------------------|
+| `agent_definition_id` | 所属 Agent            |
+| `skill_id`            | 所属 Skill            |
+| `skill_version_id`    | **安装的明确版本**，不自动跟随最新 |
+| `priority`            | 装配顺序                |
+| `status`              | `0` 停用、`1` 启用       |
+| `config_overrides`    | 可选参数覆盖 JSON         |
 
 唯一索引 `uk(agent_definition_id, skill_id)`。
 
 ### 5.8 运行快照
 
-在 `agent_run` 增加 `skill_snapshot TEXT`，在任何模型调用、检索或外部 Deep 请求前写入。快照记录实际版本和绑定、脱敏输入、资源对象键与 SHA-256、最终工具/知识库 ID、合成提示词 SHA-256、预算与裁剪结果；不保存完整敏感输入或资源正文。读取运行详情即可还原真实执行上下文。
+在 `agent_run` 增加 `skill_snapshot TEXT`，在任何模型调用、检索或外部 Deep 请求前写入。快照记录实际版本和绑定、脱敏输入、资源对象键与
+SHA-256、最终工具/知识库 ID、合成提示词 SHA-256、预算与裁剪结果；不保存完整敏感输入或资源正文。读取运行详情即可还原真实执行上下文。
 
 ---
 
@@ -202,17 +211,23 @@ agent_skill (主记录)
 普通 Agent 与 Deep Agent 共享统一装配入口：
 
 1. 校验当前用户、Agent 启用状态与执行模式；聊天请求不能指定、跳过或替换 Skill。
-2. 只读取该 Agent 启用绑定的发现元数据：排除词先剔除、触发词进入候选；配置嵌入 Provider 时再从已成功索引的版本向量召回 Top 12。
-3. 轻量路由模型仅接收候选的名称、发现摘要、标签和示例，温度为 0、上限 80 tokens，严格返回一个版本或 `NONE`。低置信度、超时、非法 JSON、无候选均返回 `NONE`；不回退为全量装配。
+2. 只读取该 Agent 启用绑定的发现元数据：排除词先剔除、触发词进入候选；配置嵌入 Provider 时再从已成功索引的版本向量召回 Top
+   12。
+3. 轻量路由模型仅接收候选的名称、发现摘要、标签和示例，温度为 0、上限 80 tokens，严格返回一个版本或 `NONE`。低置信度、超时、非法
+   JSON、无候选均返回 `NONE`；不回退为全量装配。
 4. 命中时只校验并加载**一个**已发布版本的完整上下文；未命中只保留 Agent 基础提示词和原有基础授权。随后校验：
     - 版本存在且为已发布、Skill 为启用状态。
-    - 资源对象存在、哈希匹配、状态启用；任一冻结资源异常则**请求前拒绝**，不回退到其他内容。Markdown 注入受限纯文本，模板仅注入受限摘要；历史脚本资源忽略且不作为执行入口。
-    - 必需工具必须同时满足 Agent 已启用绑定、工具启用、MCP 服务可用、存在 `mcp_tool_name` 且被当前执行模式支持，否则**请求前拒绝**并给出业务错误；可选工具不满足时从最终集合剔除并写入快照告警。
+    - 资源对象存在、哈希匹配、状态启用；任一冻结资源异常则**请求前拒绝**，不回退到其他内容。Markdown
+      注入受限纯文本，模板仅注入受限摘要；历史脚本资源忽略且不作为执行入口。
+    - 必需工具必须同时满足 Agent 已启用绑定、工具启用、MCP 服务可用、存在 `mcp_tool_name` 且被当前执行模式支持，否则**请求前拒绝
+      **并给出业务错误；可选工具不满足时从最终集合剔除并写入快照告警。
     - 知识库声明与 Agent 授权范围求交集。
 5. 按激活 Skill 的稳定 `code` 校验可选输入，拒绝客户端借输入指定未激活 Skill；对通过校验的输入脱敏。
-6. 计算最终工具和知识库集合。普通 Agent 的模型工具、RAG 检索范围；以及 Deep Agent 的 `allowed_tools`、委派 JWT 和 `knowledge_sources`，必须全部只消费同一最终集合。
+6. 计算最终工具和知识库集合。普通 Agent 的模型工具、RAG 检索范围；以及 Deep Agent 的 `allowed_tools`、委派 JWT 和
+   `knowledge_sources`，必须全部只消费同一最终集合。
 6. 预估提示词与资源注入预算，在创建 `agent_run` 后、调用模型或外部服务前写入快照。
-7. 合成系统提示词（见 6.2），普通 Agent 走既有流式链路；Deep Agent 将合成后的 `system_prompt`、受限 `knowledge_sources`、最终 `allowed_tools` 传给既有 `/v1/runs`。
+7. 合成系统提示词（见 6.2），普通 Agent 走既有流式链路；Deep Agent 将合成后的 `system_prompt`、受限 `knowledge_sources`、最终
+   `allowed_tools` 传给既有 `/v1/runs`。
 
 ### 6.2 指令合成规范
 
@@ -250,11 +265,11 @@ Validated inputs:
 
 ### 6.3 文件与平台生成语义
 
-| 类型 | 一期行为 | 二期 |
-| --- | --- | --- |
-| Markdown 规则文档 | 提取受限纯文本作为不可信参考资料纳入上下文 | 支持增量引用与版本 diff |
-| 模板文件 | 管理员可查看；仅白名单无逻辑模板的受限摘要可注入模型 | 结构化产物校验 |
-| 平台文件生成 | 不属于 Skill 资源；通过已授权的 `generate_artifact` 工具提交内容和目标格式 | 平台维护渲染器和审计记录 |
+| 类型            | 一期行为                                                | 二期             |
+|---------------|-----------------------------------------------------|----------------|
+| Markdown 规则文档 | 提取受限纯文本作为不可信参考资料纳入上下文                               | 支持增量引用与版本 diff |
+| 模板文件          | 管理员可查看；仅白名单无逻辑模板的受限摘要可注入模型                          | 结构化产物校验        |
+| 平台文件生成        | 不属于 Skill 资源；通过已授权的 `generate_artifact` 工具提交内容和目标格式 | 平台维护渲染器和审计记录   |
 
 ### 6.4 平台文件生成边界
 
@@ -269,7 +284,8 @@ Validated inputs:
 1. 管理员创建 Skill 主记录和唯一一个可编辑草稿版本，填写基础信息、领域指令、输入/输出契约。草稿版本是资源、工具和知识库声明的唯一编辑载体。
 2. 在草稿版本绑定既有工具（声明依赖）与受限知识库，上传 Markdown / 脚本 / 模板资源。
 3. 发布前校验 JSON Schema、资源类型/限额/对象哈希、工具与知识库状态、互斥规则和预算。
-4. 发布：在事务和 Skill 行锁内分配递增版本号、复制并冻结草稿及全部子项，复核对象 SHA-256；发布失败回滚数据库变更并保留草稿。已发布版本不可修改、删除或覆盖资源。
+4. 发布：在事务和 Skill 行锁内分配递增版本号、复制并冻结草稿及全部子项，复核对象
+   SHA-256；发布失败回滚数据库变更并保留草稿。已发布版本不可修改、删除或覆盖资源。
 5. 主记录指向最新已发布版本；新发布版本不会改变已有 Agent 安装项。
 6. Agent 配置页安装指定版本，配置优先级与参数覆盖。
 7. 运行期按安装版本执行；升级通过"升级到最新版"显式完成。
@@ -280,12 +296,12 @@ Validated inputs:
 
 ## 八、权限与审计
 
-| 权限路径 | 用途 |
-| --- | --- |
-| `/agent/skill` 读 | 查看、查询、预览 Skill |
-| `/agent/skill` 写 | 创建、编辑草稿、发布、停用、版本管理 |
-| `/agent/definition` 写 | 为 Agent 安装、移除、升级 Skill |
-| `/agent/chat` | 仅能在已授权 Agent 上调用其已安装 Skill |
+| 权限路径                  | 用途                         |
+|-----------------------|----------------------------|
+| `/agent/skill` 读      | 查看、查询、预览 Skill             |
+| `/agent/skill` 写      | 创建、编辑草稿、发布、停用、版本管理         |
+| `/agent/definition` 写 | 为 Agent 安装、移除、升级 Skill     |
+| `/agent/chat`         | 仅能在已授权 Agent 上调用其已安装 Skill |
 
 审计要求：
 
@@ -293,30 +309,31 @@ Validated inputs:
 - 工具调用沿用 `agent_tool_call_log` 审计。
 - 发布、停用、Agent 安装/升级等操作记录操作日志。
 - 脚本资源存储哈希与版本，防止上传后内容被替换。
-- 权限资源按既有 RBAC 模型增加 `/agent/skill` 路由与 `perm_agent_skill_read`、`perm_agent_skill_write` 叶子权限；模块权限为平台级权限，不以创建人为资源归属。
+- 权限资源按既有 RBAC 模型增加 `/agent/skill` 路由与 `perm_agent_skill_read`、`perm_agent_skill_write`
+  叶子权限；模块权限为平台级权限，不以创建人为资源归属。
 
 ---
 
 ## 九、API 草案
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `POST` | `/api/agent/skill/list` | 分页查询，支持名称、编码、分类、状态筛选 |
-| `GET` | `/api/agent/skill/{id}` | Skill 详情及当前版本 |
-| `POST` | `/api/agent/skill` | 创建草稿 |
-| `PUT` | `/api/agent/skill/{id}` | 编辑草稿基本信息 |
-| `POST` | `/api/agent/skill/{id}/draft` | 创建下一草稿版本（每个 Skill 最多一个） |
-| `GET` | `/api/agent/skill/{id}/versions` | 版本历史 |
-| `POST` | `/api/agent/skill/{id}/versions/{version}/publish` | 发布版本 |
-| `PUT` | `/api/agent/skill/{id}/status` | 启用/停用 |
-| `POST` | `/api/agent/skill/{id}/resources` | 上传资源 |
-| `GET` | `/api/agent/skill/{id}/resources` | 资源列表 |
-| `POST` | `/api/agent/skill/{id}/preview` | 使用样例输入预览合成提示词，不调用模型 |
-| `POST` | `/api/agent/skill/routing-preview?agentId=&query=` | 只读发现预览：返回候选、规则/向量分数、路由结果与降级原因；不进入主回答路径 |
-| `GET` | `/api/agent/definition/{agentId}/skills` | 查询 Agent 的 Skill 安装项 |
-| `POST` | `/api/agent/definition/{agentId}/skills` | 安装指定版本 |
-| `PUT` | `/api/agent/definition/{agentId}/skills/{bindingId}` | 调整优先级、启停、升级版本 |
-| `DELETE` | `/api/agent/definition/{agentId}/skills/{bindingId}` | 卸载 Skill |
+| 方法       | 路径                                                   | 说明                                     |
+|----------|------------------------------------------------------|----------------------------------------|
+| `POST`   | `/api/agent/skill/list`                              | 分页查询，支持名称、编码、分类、状态筛选                   |
+| `GET`    | `/api/agent/skill/{id}`                              | Skill 详情及当前版本                          |
+| `POST`   | `/api/agent/skill`                                   | 创建草稿                                   |
+| `PUT`    | `/api/agent/skill/{id}`                              | 编辑草稿基本信息                               |
+| `POST`   | `/api/agent/skill/{id}/draft`                        | 创建下一草稿版本（每个 Skill 最多一个）                |
+| `GET`    | `/api/agent/skill/{id}/versions`                     | 版本历史                                   |
+| `POST`   | `/api/agent/skill/{id}/versions/{version}/publish`   | 发布版本                                   |
+| `PUT`    | `/api/agent/skill/{id}/status`                       | 启用/停用                                  |
+| `POST`   | `/api/agent/skill/{id}/resources`                    | 上传资源                                   |
+| `GET`    | `/api/agent/skill/{id}/resources`                    | 资源列表                                   |
+| `POST`   | `/api/agent/skill/{id}/preview`                      | 使用样例输入预览合成提示词，不调用模型                    |
+| `POST`   | `/api/agent/skill/routing-preview?agentId=&query=`   | 只读发现预览：返回候选、规则/向量分数、路由结果与降级原因；不进入主回答路径 |
+| `GET`    | `/api/agent/definition/{agentId}/skills`             | 查询 Agent 的 Skill 安装项                   |
+| `POST`   | `/api/agent/definition/{agentId}/skills`             | 安装指定版本                                 |
+| `PUT`    | `/api/agent/definition/{agentId}/skills/{bindingId}` | 调整优先级、启停、升级版本                          |
+| `DELETE` | `/api/agent/definition/{agentId}/skills/{bindingId}` | 卸载 Skill                               |
 
 聊天 DTO 增量字段（可选，仅承载已自动装配 Skill 的输入）：
 
@@ -324,7 +341,8 @@ Validated inputs:
 private Map<String, Map<String, Object>> skillInputs;
 ```
 
-外层 key 必须是已安装 Skill 的 `code`，内层对象按对应版本的 `input_schema` 校验。请求不得携带 `skillIds` 或其他选择/禁用字段；未传 `skillInputs` 时仍自动装配该 Agent 所有启用 Skill，并按各版本 Schema 处理缺省值和必填项。
+外层 key 必须是已安装 Skill 的 `code`，内层对象按对应版本的 `input_schema` 校验。请求不得携带 `skillIds` 或其他选择/禁用字段；未传
+`skillInputs` 时仍自动装配该 Agent 所有启用 Skill，并按各版本 Schema 处理缺省值和必填项。
 
 ---
 
@@ -347,13 +365,13 @@ private Map<String, Map<String, Object>> skillInputs;
 
 ## 十一、代码落点
 
-| 模块 | 改动范围 |
-| --- | --- |
-| `api` | `agent.skill` 包：Entity、DTO、VO、Mapper、Service 接口；Flyway 迁移；扩展 `AgentChatDto`、`AgentRun` |
-| `biz` | Skill CRUD/发布服务；Agent-Skill 绑定服务；`SkillContextService`（校验、资源完整性、权限收敛、预算、指令合成、快照）；先于模型调用创建标准 `agent_run`，接入 `AgentChatServiceImpl` 与 `DeepAgentRunService`；扩展 `KnowledgeContextService` 以接收最终知识库 ID 集合 |
-| `admin` | `AgentSkillController`；扩展 Agent 绑定与聊天入口参数校验 |
-| `common` | 通用 JSON Schema 校验或新的 i18n 错误码（如可复用） |
-| `docs` | 更新业务说明、架构设计、数据库设计、API 参考与前端对接说明 |
+| 模块       | 改动范围                                                                                                                                                                                                  |
+|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `api`    | `agent.skill` 包：Entity、DTO、VO、Mapper、Service 接口；Flyway 迁移；扩展 `AgentChatDto`、`AgentRun`                                                                                                                |
+| `biz`    | Skill CRUD/发布服务；Agent-Skill 绑定服务；`SkillContextService`（校验、资源完整性、权限收敛、预算、指令合成、快照）；先于模型调用创建标准 `agent_run`，接入 `AgentChatServiceImpl` 与 `DeepAgentRunService`；扩展 `KnowledgeContextService` 以接收最终知识库 ID 集合 |
+| `admin`  | `AgentSkillController`；扩展 Agent 绑定与聊天入口参数校验                                                                                                                                                           |
+| `common` | 通用 JSON Schema 校验或新的 i18n 错误码（如可复用）                                                                                                                                                                   |
+| `docs`   | 更新业务说明、架构设计、数据库设计、API 参考与前端对接说明                                                                                                                                                                       |
 
 ---
 
@@ -376,12 +394,12 @@ private Map<String, Map<String, Object>> skillInputs;
 
 ## 十三、实施批次
 
-| 批次 | 内容 |
-| --- | --- |
-| 1. 基础治理 | Skill、Version、资源、工具/知识库声明、Agent 绑定、权限资源、CRUD、发布/停用与预览 |
-| 2. 标准聊天接入 | 输入校验、指令合成、工具/知识库权限收敛、运行快照 |
-| 3. Deep Agent 接入 | 将解析结果映射到既有 Deep Run 请求，补齐回归测试 |
-| 4. 二期增强 | 已实现脚本沙箱产物执行；待实现 Skill 市场/分类推荐、版本 diff、结构化输出强校验、Skill 指标与导入导出 |
+| 批次               | 内容                                                           |
+|------------------|--------------------------------------------------------------|
+| 1. 基础治理          | Skill、Version、资源、工具/知识库声明、Agent 绑定、权限资源、CRUD、发布/停用与预览        |
+| 2. 标准聊天接入        | 输入校验、指令合成、工具/知识库权限收敛、运行快照                                    |
+| 3. Deep Agent 接入 | 将解析结果映射到既有 Deep Run 请求，补齐回归测试                                |
+| 4. 二期增强          | 已实现脚本沙箱产物执行；待实现 Skill 市场/分类推荐、版本 diff、结构化输出强校验、Skill 指标与导入导出 |
 
 ---
 

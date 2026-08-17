@@ -12,8 +12,14 @@ import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * 验证智能体工作流控制器权限的行为。
+ */
 class AgentWorkflowControllerPermissionTest {
 
+    /**
+     * 处理protectsRuntimeEndpointsWithTheDedicated运行权限。
+     */
     @Test
     void protectsRuntimeEndpointsWithTheDedicatedRunPermission() throws Exception {
         assertRunWrite("start", String.class, AgentWorkflowStartDto.class);
@@ -30,6 +36,9 @@ class AgentWorkflowControllerPermissionTest {
         assertRunRead("callbacks", String.class);
     }
 
+    /**
+     * 处理protectsVersionAndImportExportEndpointsWith工作流Permissions。
+     */
     @Test
     void protectsVersionAndImportExportEndpointsWithWorkflowPermissions() throws Exception {
         assertWorkflowRead("versions", String.class);
@@ -40,36 +49,54 @@ class AgentWorkflowControllerPermissionTest {
         assertOperationsRead("deadLetters", int.class);
     }
 
+    /**
+     * 处理assert运行Read。
+     */
     private void assertRunRead(String methodName, Class<?>... types) throws Exception {
         Permission permission = method(methodName, types).getAnnotation(Permission.class);
         assertEquals("/workflow/run", permission.path());
         assertEquals(Permission.Type.Read, permission.type());
     }
 
+    /**
+     * 处理assert运行Write。
+     */
     private void assertRunWrite(String methodName, Class<?>... types) throws Exception {
         Permission permission = method(methodName, types).getAnnotation(Permission.class);
         assertEquals("/workflow/run", permission.path());
         assertEquals(Permission.Type.Write, permission.type());
     }
 
+    /**
+     * 处理assert工作流Read。
+     */
     private void assertWorkflowRead(String methodName, Class<?>... types) throws Exception {
         Permission permission = method(methodName, types).getAnnotation(Permission.class);
         assertEquals("/workflow/workflow", permission.path());
         assertEquals(Permission.Type.Read, permission.type());
     }
 
+    /**
+     * 处理assert工作流Write。
+     */
     private void assertWorkflowWrite(String methodName, Class<?>... types) throws Exception {
         Permission permission = method(methodName, types).getAnnotation(Permission.class);
         assertEquals("/workflow/workflow", permission.path());
         assertEquals(Permission.Type.Write, permission.type());
     }
 
+    /**
+     * 处理assertOperationsRead。
+     */
     private void assertOperationsRead(String methodName, Class<?>... types) throws Exception {
         Permission permission = method(methodName, types).getAnnotation(Permission.class);
         assertEquals("/workflow/operations", permission.path());
         assertEquals(Permission.Type.Read, permission.type());
     }
 
+    /**
+     * 处理method。
+     */
     private Method method(String name, Class<?>... types) throws Exception {
         return AgentWorkflowController.class.getDeclaredMethod(name, types);
     }

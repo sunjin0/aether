@@ -8,6 +8,9 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
+/**
+ * 表示智能体知识库BaseBinding。
+ */
 @Data
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)

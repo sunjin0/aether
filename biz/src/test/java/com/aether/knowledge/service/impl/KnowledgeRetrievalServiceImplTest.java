@@ -33,22 +33,38 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+/**
+ * 验证知识库Retrieval服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeRetrievalServiceImplTest {
-    @Mock private KnowledgeBaseService baseService;
-    @Mock private AgentKnowledgeBaseBindingService bindingService;
-    @Mock private KnowledgeDocumentChunkService chunkService;
-    @Mock private ModelProviderService providerService;
-    @Mock private ModelCatalogService modelCatalogService;
-    @Mock private KnowledgeEmbeddingService embeddingService;
-    @Mock private KnowledgeRerankService rerankService;
+    @Mock
+    private KnowledgeBaseService baseService;
+    @Mock
+    private AgentKnowledgeBaseBindingService bindingService;
+    @Mock
+    private KnowledgeDocumentChunkService chunkService;
+    @Mock
+    private ModelProviderService providerService;
+    @Mock
+    private ModelCatalogService modelCatalogService;
+    @Mock
+    private KnowledgeEmbeddingService embeddingService;
+    @Mock
+    private KnowledgeRerankService rerankService;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         lenient().when(modelCatalogService.resolveProvider(anyString(), anyString()))
                 .thenAnswer(invocation -> providerService.getById(invocation.getArgument(0)));
     }
 
+    /**
+     * 处理filtersCandidatesBelowConfiguredSimilarity。
+     */
     @Test
     void filtersCandidatesBelowConfiguredSimilarity() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
@@ -76,6 +92,9 @@ class KnowledgeRetrievalServiceImplTest {
         assertEquals("relevant", result.getChunks().get(0).getContent());
     }
 
+    /**
+     * 处理appliesPer文档LimitAndRemovesDuplicateContent。
+     */
     @Test
     void appliesPerDocumentLimitAndRemovesDuplicateContent() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
@@ -87,13 +106,21 @@ class KnowledgeRetrievalServiceImplTest {
         provider.setId("provider-1");
 
         KnowledgeDocumentChunk first = chunk("first", 0.95D);
-        first.setId("chunk-1"); first.setDocumentId("doc-1"); first.setContentHash("hash-1");
+        first.setId("chunk-1");
+        first.setDocumentId("doc-1");
+        first.setContentHash("hash-1");
         KnowledgeDocumentChunk sameDocument = chunk("second", 0.90D);
-        sameDocument.setId("chunk-2"); sameDocument.setDocumentId("doc-1"); sameDocument.setContentHash("hash-2");
+        sameDocument.setId("chunk-2");
+        sameDocument.setDocumentId("doc-1");
+        sameDocument.setContentHash("hash-2");
         KnowledgeDocumentChunk duplicate = chunk("first copy", 0.85D);
-        duplicate.setId("chunk-3"); duplicate.setDocumentId("doc-2"); duplicate.setContentHash("hash-1");
+        duplicate.setId("chunk-3");
+        duplicate.setDocumentId("doc-2");
+        duplicate.setContentHash("hash-1");
         KnowledgeDocumentChunk anotherDocument = chunk("third", 0.80D);
-        anotherDocument.setId("chunk-4"); anotherDocument.setDocumentId("doc-3"); anotherDocument.setContentHash("hash-3");
+        anotherDocument.setId("chunk-4");
+        anotherDocument.setDocumentId("doc-3");
+        anotherDocument.setContentHash("hash-3");
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
         when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
@@ -111,6 +138,9 @@ class KnowledgeRetrievalServiceImplTest {
         assertEquals("third", result.getChunks().get(1).getContent());
     }
 
+    /**
+     * 处理keepsHighestScoringChunkWhenRetrievedContextExceeds令牌Budget。
+     */
     @Test
     void keepsHighestScoringChunkWhenRetrievedContextExceedsTokenBudget() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
@@ -120,9 +150,13 @@ class KnowledgeRetrievalServiceImplTest {
         ModelProvider provider = new ModelProvider().setStatus(1);
         provider.setId("provider-1");
         KnowledgeDocumentChunk first = chunk("highest", 0.95D);
-        first.setId("chunk-1"); first.setDocumentId("doc-1"); first.setTokenCount(8000);
+        first.setId("chunk-1");
+        first.setDocumentId("doc-1");
+        first.setTokenCount(8000);
         KnowledgeDocumentChunk second = chunk("next", 0.90D);
-        second.setId("chunk-2"); second.setDocumentId("doc-2"); second.setTokenCount(5000);
+        second.setId("chunk-2");
+        second.setDocumentId("doc-2");
+        second.setTokenCount(5000);
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
         when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
@@ -139,6 +173,9 @@ class KnowledgeRetrievalServiceImplTest {
         assertEquals("highest", result.getChunks().get(0).getContent());
     }
 
+    /**
+     * 处理cachesEmbedding用于RepeatedNormalized查询。
+     */
     @Test
     void cachesEmbeddingForRepeatedNormalizedQuery() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
@@ -146,9 +183,11 @@ class KnowledgeRetrievalServiceImplTest {
         KnowledgeBase base = new KnowledgeBase().setEmbeddingProviderId("provider-cache").setEmbeddingModelId("provider-cache");
         base.setId("kb-cache");
         ModelProvider provider = new ModelProvider().setStatus(1);
-        provider.setId("provider-cache"); provider.setDefaultModel("embedding-model");
+        provider.setId("provider-cache");
+        provider.setDefaultModel("embedding-model");
         KnowledgeDocumentChunk candidate = chunk("cached", 0.9D);
-        candidate.setId("chunk-cache"); candidate.setDocumentId("doc-cache");
+        candidate.setId("chunk-cache");
+        candidate.setDocumentId("doc-cache");
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
         when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
@@ -166,6 +205,9 @@ class KnowledgeRetrievalServiceImplTest {
         verify(chunkService, times(1)).searchSimilarChunks(anyList(), anyString(), anyInt());
     }
 
+    /**
+     * 处理returnsLexicalOnlyCandidateThroughHybridRetrieval。
+     */
     @Test
     void returnsLexicalOnlyCandidateThroughHybridRetrieval() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
@@ -176,9 +218,12 @@ class KnowledgeRetrievalServiceImplTest {
         ModelProvider provider = new ModelProvider().setStatus(1);
         provider.setId("provider-hybrid");
         KnowledgeDocumentChunk semantic = chunk("semantic", 0.4D);
-        semantic.setId("semantic-1"); semantic.setDocumentId("doc-semantic");
+        semantic.setId("semantic-1");
+        semantic.setDocumentId("doc-semantic");
         KnowledgeDocumentChunk lexical = new KnowledgeDocumentChunk();
-        lexical.setId("lexical-1"); lexical.setDocumentId("doc-lexical"); lexical.setContent("SKU-2026-A");
+        lexical.setId("lexical-1");
+        lexical.setDocumentId("doc-lexical");
+        lexical.setContent("SKU-2026-A");
         lexical.setLexicalScore(0.8D);
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
@@ -196,6 +241,9 @@ class KnowledgeRetrievalServiceImplTest {
         assertEquals("lexical-1", result.getChunks().get(0).getId());
     }
 
+    /**
+     * 处理usesConfiguredRerankerBeforeSelectingFinalChunks。
+     */
     @Test
     void usesConfiguredRerankerBeforeSelectingFinalChunks() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
@@ -208,9 +256,11 @@ class KnowledgeRetrievalServiceImplTest {
         ModelProvider rerankProvider = new ModelProvider().setStatus(1);
         rerankProvider.setId("rerank-provider");
         KnowledgeDocumentChunk first = chunk("first", 0.95D);
-        first.setId("first"); first.setDocumentId("doc-1");
+        first.setId("first");
+        first.setDocumentId("doc-1");
         KnowledgeDocumentChunk preferred = chunk("preferred", 0.8D);
-        preferred.setId("preferred"); preferred.setDocumentId("doc-2");
+        preferred.setId("preferred");
+        preferred.setDocumentId("doc-2");
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
         when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
@@ -229,6 +279,9 @@ class KnowledgeRetrievalServiceImplTest {
         verify(rerankService).rerank(eq(rerankProvider), nullable(String.class), eq("question"), anyList(), eq(1));
     }
 
+    /**
+     * 处理expandsIdentifierTerms用于LexicalRetrieval。
+     */
     @Test
     void expandsIdentifierTermsForLexicalRetrieval() {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
@@ -251,6 +304,9 @@ class KnowledgeRetrievalServiceImplTest {
         verify(chunkService).searchLexicalChunks(anyList(), eq("SKU-2026-A"), anyInt());
     }
 
+    /**
+     * 处理chunk。
+     */
     private KnowledgeDocumentChunk chunk(String content, double similarity) {
         KnowledgeDocumentChunk chunk = new KnowledgeDocumentChunk();
         chunk.setKnowledgeBaseId("kb-1");
@@ -259,6 +315,9 @@ class KnowledgeRetrievalServiceImplTest {
         return chunk;
     }
 
+    /**
+     * 服务当前请求。
+     */
     private KnowledgeRetrievalServiceImpl service() {
         return new KnowledgeRetrievalServiceImpl(baseService, bindingService, chunkService, providerService,
                 embeddingService, rerankService, null, modelCatalogService);

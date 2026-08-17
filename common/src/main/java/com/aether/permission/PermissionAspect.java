@@ -1,7 +1,7 @@
 package com.aether.permission;
 
 import com.aether.exception.ServerException;
-import  com.aether.i18n.I18nUtils;
+import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
 import com.aether.utils.TokenUtils;
 
@@ -30,11 +30,17 @@ public class PermissionAspect {
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
 
+    /**
+     * 处理pointcut。
+     */
     @Pointcut("@within(com.aether.permission.Permission) || @annotation(com.aether.permission.Permission)")
     public void pointcut() {
 
     }
 
+    /**
+     * 处理before。
+     */
     @Before("pointcut()")
     public void before(JoinPoint joinPoint) {
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
@@ -58,7 +64,7 @@ public class PermissionAspect {
             return;
 
         HashMap<String, String> user = CurrentUser.getUser();
-        if (user == null|| user.get("userId") == null) {
+        if (user == null || user.get("userId") == null) {
             throw new ServerException(401, I18nUtils.getMessage("auth.error.no.permission"));
         }
         String userId = user.get("userId");

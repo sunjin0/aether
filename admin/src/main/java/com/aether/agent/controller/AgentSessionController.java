@@ -43,7 +43,9 @@ import java.util.Comparator;
 import java.util.Collections;
 import java.math.BigDecimal;
 
-/** 持续 Deep Agent Session 与 Task 查询接口。 */
+/**
+ * 持续 Deep Agent Session 与 Task 查询接口。
+ */
 @RestController
 @Permission(path = "/agent/chat")
 @RequestMapping("/api/agent/session")
@@ -60,6 +62,9 @@ public class AgentSessionController {
     private final KnowledgeContextService knowledgeContext;
     private final SkillContextService skillContextService;
 
+    /**
+     * 创建 {@code AgentSessionController} 实例。
+     */
     public AgentSessionController(AgentSessionService sessions, AgentTaskService tasks, AgentRunPlanService plans,
                                   AgentTaskEventService taskEvents, AgentSessionMemoryService sessionMemories,
                                   AdminPreferenceService preferences, DeepAgentRunService deepAgentRuns,
@@ -78,6 +83,9 @@ public class AgentSessionController {
         this.skillContextService = skillContextService;
     }
 
+    /**
+     * 详情当前请求。
+     */
     @GetMapping("/conversation/{conversationId}")
     public WebResponse<Map<String, Object>> detail(@PathVariable String conversationId) {
         String userId = currentUserId();
@@ -95,7 +103,9 @@ public class AgentSessionController {
         return WebResponse.OK(result);
     }
 
-    /** 当前用户范围的持续 Agent 运营概览，不返回其他用户或原始推理数据。 */
+    /**
+     * 当前用户范围的持续 Agent 运营概览，不返回其他用户或原始推理数据。
+     */
     @GetMapping("/overview")
     public WebResponse<Map<String, Object>> overview() {
         String userId = currentUserId();
@@ -110,7 +120,8 @@ public class AgentSessionController {
             String status = StringUtils.defaultIfBlank(item.getStatus(), "UNKNOWN");
             taskStatusCounts.put(status, taskStatusCounts.getOrDefault(status, 0) + 1);
             if ("COMPLETED".equals(status)) completed++;
-            if ("WAITING_USER".equals(status) || "WAITING_APPROVAL".equals(status) || "PAUSED".equals(status)) manualIntervention++;
+            if ("WAITING_USER".equals(status) || "WAITING_APPROVAL".equals(status) || "PAUSED".equals(status))
+                manualIntervention++;
         }
         int activeSessions = 0;
         long lastActiveAt = 0L;
@@ -142,7 +153,7 @@ public class AgentSessionController {
     @PostMapping("/conversation/{conversationId}/messages")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Map<String, String>> submitMessage(@PathVariable String conversationId,
-                                                            @RequestBody AgentChatDto input) {
+                                                          @RequestBody AgentChatDto input) {
         String userId = currentUserId();
         AgentSession session = sessions.getOne(Wrappers.lambdaQuery(AgentSession.class)
                 .eq(AgentSession::getConversationId, conversationId).eq(AgentSession::getUserId, userId)
@@ -207,6 +218,9 @@ public class AgentSessionController {
         return WebResponse.OK(result);
     }
 
+    /**
+     * 任务当前请求。
+     */
     @GetMapping("/task/{taskId}")
     public WebResponse<Map<String, Object>> task(@PathVariable String taskId) {
         AgentTask task = requireOwnedTask(taskId);
@@ -216,6 +230,9 @@ public class AgentSessionController {
         return WebResponse.OK(result);
     }
 
+    /**
+     * 处理feedback。
+     */
     @PostMapping("/task/{taskId}/feedback")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Void> feedback(@PathVariable String taskId, @RequestBody Map<String, Object> payload) {
@@ -235,13 +252,18 @@ public class AgentSessionController {
         return WebResponse.OK((Void) null);
     }
 
+    /**
+     * 处理events。
+     */
     @GetMapping("/task/{taskId}/events")
     public WebResponse<List<AgentTaskEvent>> events(@PathVariable String taskId) {
         AgentTask task = requireOwnedTask(taskId);
         return WebResponse.OK(taskEvents.listByTaskId(task.getId()));
     }
 
-    /** 以 Task 为入口暂停，Run 接口仍保留作兼容层。 */
+    /**
+     * 以 Task 为入口暂停，Run 接口仍保留作兼容层。
+     */
     @PostMapping("/task/{taskId}/pause")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Void> pauseTask(@PathVariable String taskId) {
@@ -252,7 +274,9 @@ public class AgentSessionController {
         return WebResponse.OK((Void) null);
     }
 
-    /** 从当前 Task 的最新安全检查点继续执行。 */
+    /**
+     * 从当前 Task 的最新安全检查点继续执行。
+     */
     @PostMapping("/task/{taskId}/resume")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Void> resumeTask(@PathVariable String taskId) {
@@ -270,7 +294,7 @@ public class AgentSessionController {
     @PostMapping("/task/{taskId}/input")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Map<String, String>> inputTask(@PathVariable String taskId,
-                                                        @RequestBody Map<String, Object> payload) {
+                                                      @RequestBody Map<String, Object> payload) {
         AgentTask task = requireOwnedTask(taskId);
         if (!"WAITING_USER".equals(task.getStatus()) && !"WAITING_APPROVAL".equals(task.getStatus())) {
             throw new ServerException(409, "当前任务不等待用户输入或审批");
@@ -287,13 +311,18 @@ public class AgentSessionController {
         return WebResponse.OK(result);
     }
 
+    /**
+     * 处理memories。
+     */
     @GetMapping("/{sessionId}/memory")
     public WebResponse<List<AgentSessionMemory>> memories(@PathVariable String sessionId) {
         requireOwnedSession(sessionId);
         return WebResponse.OK(sessionMemories.listInjectable(sessionId, 100));
     }
 
-    /** Session 级运行概览，供聊天页和后续运营面板对账。 */
+    /**
+     * Session 级运行概览，供聊天页和后续运营面板对账。
+     */
     @GetMapping("/{sessionId}/metrics")
     public WebResponse<Map<String, Object>> metrics(@PathVariable String sessionId) {
         AgentSession session = requireOwnedSession(sessionId);
@@ -315,6 +344,9 @@ public class AgentSessionController {
         return WebResponse.OK(result);
     }
 
+    /**
+     * 删除Memory。
+     */
     @DeleteMapping("/{sessionId}/memory/{memoryId}")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Void> deleteMemory(@PathVariable String sessionId, @PathVariable String memoryId) {
@@ -330,11 +362,13 @@ public class AgentSessionController {
         return WebResponse.OK((Void) null);
     }
 
-    /** 用户确认、修正或删除跨任务可用的稳定偏好。 */
+    /**
+     * 用户确认、修正或删除跨任务可用的稳定偏好。
+     */
     @PostMapping("/{sessionId}/memory/feedback")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<AdminPreference> memoryFeedback(@PathVariable String sessionId,
-                                                         @RequestBody Map<String, Object> payload) {
+                                                       @RequestBody Map<String, Object> payload) {
         String userId = currentUserId();
         AgentSession session = sessions.getById(sessionId);
         if (session == null || Boolean.TRUE.equals(session.getDeleted()) || !userId.equals(session.getUserId())) {
@@ -375,10 +409,14 @@ public class AgentSessionController {
         preference.setSource(AdminPreference.SOURCE_EXPLICIT);
         preference.setConfidence(BigDecimal.ONE);
         preference.setStatus(AdminPreference.STATUS_ENABLED);
-        if (preference.getId() == null) preferences.save(preference); else preferences.updateById(preference);
+        if (preference.getId() == null) preferences.save(preference);
+        else preferences.updateById(preference);
         return WebResponse.OK(preference);
     }
 
+    /**
+     * 处理requireOwned任务。
+     */
     private AgentTask requireOwnedTask(String taskId) {
         String userId = currentUserId();
         AgentTask task = tasks.getById(taskId);
@@ -388,12 +426,18 @@ public class AgentSessionController {
         return task;
     }
 
+    /**
+     * 处理require当前运行。
+     */
     private void requireCurrentRun(AgentTask task) {
         if (StringUtils.isBlank(task.getCurrentRunId())) {
             throw new ServerException(409, "任务尚未分配可控制的运行实例");
         }
     }
 
+    /**
+     * 处理requireOwned会话。
+     */
     private AgentSession requireOwnedSession(String sessionId) {
         String userId = currentUserId();
         AgentSession session = sessions.getById(sessionId);
@@ -403,12 +447,18 @@ public class AgentSessionController {
         return session;
     }
 
+    /**
+     * 当前用户Id。
+     */
     private String currentUserId() {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         if (StringUtils.isBlank(userId)) throw new ServerException(401, "未登录");
         return userId;
     }
 
+    /**
+     * 判断是否为偏好Category。
+     */
     private boolean isPreferenceCategory(String category) {
         return AdminPreference.CATEGORY_LANGUAGE.equals(category) || AdminPreference.CATEGORY_STYLE.equals(category)
                 || AdminPreference.CATEGORY_FORMAT.equals(category) || AdminPreference.CATEGORY_TECH_STACK.equals(category)

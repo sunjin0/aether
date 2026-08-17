@@ -9,6 +9,9 @@ import lombok.EqualsAndHashCode;
 
 import java.util.List;
 
+/**
+ * 表示知识库审核任务详情VO。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class KnowledgeReviewTaskDetailVo extends KnowledgeReviewTaskVo {

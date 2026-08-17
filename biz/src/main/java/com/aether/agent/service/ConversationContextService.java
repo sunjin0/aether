@@ -47,12 +47,18 @@ public class ConversationContextService {
     private final AgentRunService runService;
     private final AgentToolCallLogService toolCallLogService;
 
+    /**
+     * 创建 {@code ConversationContextService} 实例。
+     */
     public ConversationContextService(AgentMessageService messageService,
                                       ConversationCacheService cacheService,
                                       ConversationSummaryService summaryService) {
         this(messageService, cacheService, summaryService, null, null);
     }
 
+    /**
+     * 创建 {@code ConversationContextService} 实例。
+     */
     @Autowired
     public ConversationContextService(AgentMessageService messageService,
                                       ConversationCacheService cacheService,
@@ -66,7 +72,9 @@ public class ConversationContextService {
         this.toolCallLogService = toolCallLogService;
     }
 
-    /** 查询缓存，缓存未命中时从数据库读取完整的近期上下文。 */
+    /**
+     * 查询缓存，缓存未命中时从数据库读取完整的近期上下文。
+     */
     public List<ModelChatMessage> getOrBuildRecent(AgentDefinition agent, String conversationId) {
         List<ModelChatMessage> cached = cacheService.get(conversationId);
         if (cached != null && !cached.isEmpty()) {
@@ -77,7 +85,9 @@ public class ConversationContextService {
         return context;
     }
 
-    /** 追加已持久化的用户、助手或工具交互消息。 */
+    /**
+     * 追加已持久化的用户、助手或工具交互消息。
+     */
     public void append(String conversationId, ModelChatMessage message) {
         // Rebuild from persisted messages on the next request. This keeps the
         // cache consistent with rewrittenContent and with asynchronously
@@ -106,7 +116,7 @@ public class ConversationContextService {
      * Builds durable history for a Deep Agent request. The current user message
      * must not have been persisted yet when this method is called, otherwise it
      * would be injected twice (as memory and as the current task).
-     *
+     * <p>
      * A previously generated conversation summary is preferred. When there is
      * no summary yet, the latest bounded message window is returned. This keeps
      * Deep sessions useful across requests without exposing the primary system
@@ -127,7 +137,9 @@ public class ConversationContextService {
         return memory;
     }
 
-    /** 从持久化消息构建系统提示与最近 20 条用户/助手消息。 */
+    /**
+     * 从持久化消息构建系统提示与最近 20 条用户/助手消息。
+     */
     public List<ModelChatMessage> buildFromHistory(AgentDefinition agent, String conversationId) {
         List<ModelChatMessage> context = createSystemContext(agent);
         List<AgentMessage> messages = queryRecentMessages(conversationId, HISTORY_MESSAGE_LIMIT);
@@ -136,7 +148,9 @@ public class ConversationContextService {
         return context;
     }
 
-    /** 构建摘要与最近消息混合的模型上下文。 */
+    /**
+     * 构建摘要与最近消息混合的模型上下文。
+     */
     public List<ModelChatMessage> buildWithSummary(AgentDefinition agent, ModelProvider provider, String conversationId) {
         List<ModelChatMessage> context = createSystemContext(agent);
         List<ModelChatMessage> cachedMessages = cacheService.get(conversationId);
@@ -182,6 +196,9 @@ public class ConversationContextService {
         return context;
     }
 
+    /**
+     * 创建SystemContext。
+     */
     private List<ModelChatMessage> createSystemContext(AgentDefinition agent) {
         List<ModelChatMessage> context = new ArrayList<ModelChatMessage>();
         if (agent != null && StringUtils.isNotBlank(agent.getSystemPrompt())) {
@@ -190,10 +207,16 @@ public class ConversationContextService {
         return context;
     }
 
+    /**
+     * 统计Messages。
+     */
     private long countMessages(String conversationId) {
         return messageService.count(baseMessageQuery(conversationId));
     }
 
+    /**
+     * 查询RecentMessages。
+     */
     private List<AgentMessage> queryRecentMessages(String conversationId, int limit) {
         return messageService.list(baseMessageQuery(conversationId)
                 .orderByDesc(AgentMessage::getCreatedAt)
@@ -201,6 +224,9 @@ public class ConversationContextService {
                 .last("limit " + limit));
     }
 
+    /**
+     * 查询OldestMessages。
+     */
     private List<AgentMessage> queryOldestMessages(String conversationId, int limit) {
         if (limit <= 0) {
             return Collections.emptyList();
@@ -211,6 +237,9 @@ public class ConversationContextService {
                 .last("limit " + limit));
     }
 
+    /**
+     * 查询MessagesAfter。
+     */
     private List<AgentMessage> queryMessagesAfter(String conversationId, SummarySnapshot summary) {
         LambdaQueryWrapper<AgentMessage> query = baseMessageQuery(conversationId);
         query.and(wrapper -> wrapper
@@ -223,6 +252,9 @@ public class ConversationContextService {
                 .orderByAsc(AgentMessage::getId));
     }
 
+    /**
+     * 处理base消息查询。
+     */
     private LambdaQueryWrapper<AgentMessage> baseMessageQuery(String conversationId) {
         return Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getConversationId, conversationId)
@@ -230,6 +262,9 @@ public class ConversationContextService {
                 .in(AgentMessage::getRole, "user", "assistant");
     }
 
+    /**
+     * 处理limitSummaryBatch。
+     */
     private List<AgentMessage> limitSummaryBatch(List<AgentMessage> messages) {
         if (messages.isEmpty()) {
             return messages;
@@ -247,6 +282,9 @@ public class ConversationContextService {
         return limited;
     }
 
+    /**
+     * 新增Messages。
+     */
     private void addMessages(List<ModelChatMessage> context, List<AgentMessage> messages) {
         Map<String, List<List<AgentToolCallLog>>> toolHistory = loadToolHistory(messages);
         for (AgentMessage message : messages) {
@@ -261,6 +299,9 @@ public class ConversationContextService {
         }
     }
 
+    /**
+     * 加载Tool历史记录。
+     */
     private Map<String, List<List<AgentToolCallLog>>> loadToolHistory(List<AgentMessage> messages) {
         if (runService == null || toolCallLogService == null || messages.isEmpty()) {
             return Collections.emptyMap();
@@ -314,6 +355,9 @@ public class ConversationContextService {
         return byMessage;
     }
 
+    /**
+     * 新增Tool运行。
+     */
     private void addToolRun(List<ModelChatMessage> context, List<AgentToolCallLog> logs) {
         // Historical tool calls do not retain the provider's reasoning_content. Replaying them as
         // OpenAI tool protocol messages therefore makes DeepSeek thinking mode reject the next
@@ -334,6 +378,9 @@ public class ConversationContextService {
         context.add(new ModelChatMessage("assistant", summary.toString()));
     }
 
+    /**
+     * 处理truncate。
+     */
     private String truncate(String value, int maxLength) {
         return value == null || value.length() <= maxLength
                 ? value : value.substring(0, maxLength);
@@ -347,7 +394,9 @@ public class ConversationContextService {
         enforceBudget(context, DEFAULT_CONTEXT_MAX_CHARS);
     }
 
-    /** 根据供应商上下文窗口和 Agent 最大输出，计算本次请求可使用的输入 token 预算。 */
+    /**
+     * 根据供应商上下文窗口和 Agent 最大输出，计算本次请求可使用的输入 token 预算。
+     */
     public void enforceBudget(List<ModelChatMessage> context,
                               AgentDefinition agent,
                               ModelProvider provider) {
@@ -355,7 +404,9 @@ public class ConversationContextService {
         enforceTokenBudget(context, inputBudget);
     }
 
-    /** 返回为本次模型请求预留输出和安全余量后的可用输入 token 数。 */
+    /**
+     * 返回为本次模型请求预留输出和安全余量后的可用输入 token 数。
+     */
     public int getInputTokenBudget(AgentDefinition agent, ModelProvider provider) {
         int contextWindow = provider != null && provider.getContextWindow() != null
                 && provider.getContextWindow() > 0
@@ -381,6 +432,9 @@ public class ConversationContextService {
         }
     }
 
+    /**
+     * 处理enforceBudget。
+     */
     void enforceBudget(List<ModelChatMessage> context, int maxChars) {
         if (context == null || context.isEmpty() || maxChars <= 0) {
             return;
@@ -396,6 +450,9 @@ public class ConversationContextService {
         trimProtectedMessages(context, maxChars);
     }
 
+    /**
+     * 处理enforce令牌Budget。
+     */
     void enforceTokenBudget(List<ModelChatMessage> context, int maxTokens) {
         if (context == null || context.isEmpty() || maxTokens <= 0) {
             return;
@@ -430,10 +487,16 @@ public class ConversationContextService {
         MODEL_TOKEN_RATIOS = Collections.unmodifiableMap(ratios);
     }
 
+    /**
+     * 处理estimateTokens。
+     */
     public int estimateTokens(String value) {
         return estimateTokens(value, null);
     }
 
+    /**
+     * 处理estimateTokens。
+     */
     public int estimateTokens(String value, String model) {
         if (StringUtils.isEmpty(value)) {
             return 0;
@@ -442,10 +505,16 @@ public class ConversationContextService {
         return (int) Math.ceil(value.getBytes(StandardCharsets.UTF_8).length / divisor);
     }
 
+    /**
+     * 处理estimateContextTokens。
+     */
     public int estimateContextTokens(List<ModelChatMessage> context) {
         return estimateContextTokens(context, null);
     }
 
+    /**
+     * 处理estimateContextTokens。
+     */
     public int estimateContextTokens(List<ModelChatMessage> context, String model) {
         if (context == null || context.isEmpty()) {
             return 0;
@@ -467,6 +536,9 @@ public class ConversationContextService {
         return total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
     }
 
+    /**
+     * 解析令牌Divisor。
+     */
     private double resolveTokenDivisor(String model) {
         if (model == null) {
             return 3.0;
@@ -480,6 +552,9 @@ public class ConversationContextService {
         return 3.0;
     }
 
+    /**
+     * 处理trimOptionalSystemsTo令牌Budget。
+     */
     private void trimOptionalSystemsToTokenBudget(List<ModelChatMessage> context, int maxTokens) {
         while (true) {
             int currentTotal = estimateContextTokens(context);
@@ -506,6 +581,9 @@ public class ConversationContextService {
         }
     }
 
+    /**
+     * 处理trimProtectedContentTo令牌Budget。
+     */
     private void trimProtectedContentToTokenBudget(List<ModelChatMessage> context, int maxTokens) {
         while (true) {
             int currentTotal = estimateContextTokens(context);
@@ -531,7 +609,9 @@ public class ConversationContextService {
         }
     }
 
-    /** Runtime retrieval is lowest-priority context; preserve versioned Skill instructions. */
+    /**
+     * Runtime retrieval is lowest-priority context; preserve versioned Skill instructions.
+     */
     private void trimRuntimeContextsToTokenBudget(List<ModelChatMessage> context, int maxTokens) {
         while (estimateContextTokens(context) > maxTokens) {
             int runtimeIndex = -1;
@@ -557,11 +637,17 @@ public class ConversationContextService {
         }
     }
 
+    /**
+     * 处理replaceContent。
+     */
     private void replaceContent(ModelChatMessage message, String content) {
         message.setContent(content);
         message.setCachedTokens(null);
     }
 
+    /**
+     * 处理abbreviateTo令牌Budget。
+     */
     private String abbreviateToTokenBudget(String value, int maxTokens) {
         if (value == null || estimateTokens(value) <= maxTokens) {
             return value;
@@ -582,6 +668,9 @@ public class ConversationContextService {
         return best;
     }
 
+    /**
+     * 处理oldestRemovable历史记录索引。
+     */
     private int oldestRemovableHistoryIndex(List<ModelChatMessage> context) {
         int latestUser = lastRoleIndex(context, "user");
         int latestToolGroup = lastToolGroupStart(context);
@@ -596,6 +685,9 @@ public class ConversationContextService {
         return -1;
     }
 
+    /**
+     * 移除历史记录Group。
+     */
     private void removeHistoryGroup(List<ModelChatMessage> context, int index) {
         ModelChatMessage message = context.get(index);
         boolean toolCall = "assistant".equals(message.getRole())
@@ -608,6 +700,9 @@ public class ConversationContextService {
         }
     }
 
+    /**
+     * 处理trimOptionalSystemMessages。
+     */
     private void trimOptionalSystemMessages(List<ModelChatMessage> context, int maxChars) {
         while (contextChars(context) > maxChars) {
             int longestIndex = -1;
@@ -630,6 +725,9 @@ public class ConversationContextService {
         }
     }
 
+    /**
+     * 处理trimProtectedMessages。
+     */
     private void trimProtectedMessages(List<ModelChatMessage> context, int maxChars) {
         while (contextChars(context) > maxChars) {
             int candidate = longestContentIndex(context);
@@ -643,6 +741,9 @@ public class ConversationContextService {
         }
     }
 
+    /**
+     * 处理longestContent索引。
+     */
     private int longestContentIndex(List<ModelChatMessage> context) {
         int index = -1;
         int length = 0;
@@ -656,6 +757,9 @@ public class ConversationContextService {
         return index;
     }
 
+    /**
+     * 处理last角色索引。
+     */
     private int lastRoleIndex(List<ModelChatMessage> context, String role) {
         for (int i = context.size() - 1; i >= 0; i--) {
             if (role.equals(context.get(i).getRole())) {
@@ -665,6 +769,9 @@ public class ConversationContextService {
         return -1;
     }
 
+    /**
+     * 处理lastToolGroupStart。
+     */
     private int lastToolGroupStart(List<ModelChatMessage> context) {
         for (int i = context.size() - 1; i >= 0; i--) {
             ModelChatMessage message = context.get(i);
@@ -676,6 +783,9 @@ public class ConversationContextService {
         return -1;
     }
 
+    /**
+     * 处理contextChars。
+     */
     private int contextChars(List<ModelChatMessage> context) {
         int total = 0;
         for (ModelChatMessage message : context) {
@@ -687,6 +797,9 @@ public class ConversationContextService {
         return total;
     }
 
+    /**
+     * 处理abbreviate。
+     */
     private String abbreviate(String value, int maxLength) {
         if (value == null || value.length() <= maxLength) {
             return value;

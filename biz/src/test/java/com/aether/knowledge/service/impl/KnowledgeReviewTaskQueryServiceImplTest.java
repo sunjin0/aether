@@ -37,6 +37,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证知识库审核任务查询服务实现的行为。
+ */
 class KnowledgeReviewTaskQueryServiceImplTest {
     private KnowledgeReviewTaskService taskService;
     private KnowledgeAccessService accessService;
@@ -47,6 +50,9 @@ class KnowledgeReviewTaskQueryServiceImplTest {
     private KnowledgeReviewActionLogService actionLogService;
     private KnowledgeReviewTaskQueryServiceImpl queryService;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         new I18nUtils(mock(I18nService.class));
@@ -65,6 +71,9 @@ class KnowledgeReviewTaskQueryServiceImplTest {
                 documentService, versionService, aiReviewService, aiIssueService, actionLogService);
     }
 
+    /**
+     * 查询RejectsUnknown状态BeforeLoadingAccessible知识库Bases。
+     */
     @Test
     void listRejectsUnknownStatusBeforeLoadingAccessibleKnowledgeBases() {
         KnowledgeReviewTaskQueryVo query = new KnowledgeReviewTaskQueryVo();
@@ -75,6 +84,9 @@ class KnowledgeReviewTaskQueryServiceImplTest {
         verify(accessService, never()).readableKnowledgeBaseIds();
     }
 
+    /**
+     * 查询ReturnsEmpty分页查询WithoutExecutingSqlWhenNothing判断是否为Readable。
+     */
     @Test
     void listReturnsEmptyPageWithoutExecutingSqlWhenNothingIsReadable() {
         when(accessService.readableKnowledgeBaseIds()).thenReturn(Collections.emptyList());
@@ -87,6 +99,9 @@ class KnowledgeReviewTaskQueryServiceImplTest {
         verifyNoInteractions(taskService);
     }
 
+    /**
+     * 详情Aggregates文档VersionAnd审核历史记录。
+     */
     @Test
     void detailAggregatesDocumentVersionAndReviewHistory() {
         KnowledgeReviewTask task = new KnowledgeReviewTask();
@@ -125,6 +140,9 @@ class KnowledgeReviewTaskQueryServiceImplTest {
         verify(accessService).requireReadable("kb-1");
     }
 
+    /**
+     * 详情RejectsDeleted任务BeforeAccess检查。
+     */
     @Test
     void detailRejectsDeletedTaskBeforeAccessCheck() {
         KnowledgeReviewTask task = new KnowledgeReviewTask();

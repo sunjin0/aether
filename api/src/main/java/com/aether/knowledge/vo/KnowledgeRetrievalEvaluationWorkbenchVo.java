@@ -8,7 +8,9 @@ import lombok.Data;
 import java.util.ArrayList;
 import java.util.List;
 
-/** One consistent snapshot for the retrieval evaluation workbench. */
+/**
+ * One consistent snapshot for the retrieval evaluation workbench.
+ */
 @Data
 public class KnowledgeRetrievalEvaluationWorkbenchVo {
     private KnowledgeRetrievalEvaluationSet evaluationSet;

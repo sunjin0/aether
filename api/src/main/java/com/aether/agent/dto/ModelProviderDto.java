@@ -5,7 +5,6 @@ import lombok.Data;
 
 import javax.validation.constraints.Max;
 import javax.validation.constraints.Min;
-import java.math.BigDecimal;
 
 /**
  * 模型供应商 DTO
@@ -25,7 +24,9 @@ public class ModelProviderDto {
     @ApiModelProperty(value = "API Key")
     private String apiKey;
 
-    /** Legacy field is retained only for schema compatibility; new runtime selections use ModelCatalog. */
+    /**
+     * Legacy field is retained only for schema compatibility; new runtime selections use ModelCatalog.
+     */
     @ApiModelProperty(value = "历史默认模型名称（新配置不使用）")
     private String defaultModel;
 

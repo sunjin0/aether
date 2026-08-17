@@ -2,6 +2,9 @@ package com.aether.knowledge.vo;
 
 import lombok.Data;
 
+/**
+ * 表示知识库索引Job查询VO。
+ */
 @Data
 public class KnowledgeIndexJobQueryVo {
     private String knowledgeBaseId;

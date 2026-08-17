@@ -46,6 +46,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     private final UserRoleMapper userRoleMapper;
     private final int accessTokenSeconds;
 
+    /**
+     * 创建 {@code ServiceAccountServiceImpl} 实例。
+     */
     public ServiceAccountServiceImpl(UserService userService, UserRoleService userRoleService, RoleService roleService,
                                      PasswordEncoder passwordEncoder, RedisTemplate<String, Object> redisTemplate,
                                      UserMapper userMapper, UserRoleMapper userRoleMapper,
@@ -60,17 +63,23 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         this.accessTokenSeconds = Math.max(60, Math.min(accessTokenSeconds, 3600));
     }
 
+    /**
+     * 创建当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ServiceAccountSecretVo create(ServiceAccountCreateDto dto) {
-        if (dto == null || StringUtils.isBlank(dto.getName())) throw new ServerException(422, I18nUtils.getMessage("service-account.name.required"));
-        if (dto.getName().length() > 128) throw new ServerException(422, I18nUtils.getMessage("service-account.name.length.exceeded"));
+        if (dto == null || StringUtils.isBlank(dto.getName()))
+            throw new ServerException(422, I18nUtils.getMessage("service-account.name.required"));
+        if (dto.getName().length() > 128)
+            throw new ServerException(422, I18nUtils.getMessage("service-account.name.length.exceeded"));
         List<String> roleIds = dto.getRoleIds() == null ? Collections.<String>emptyList() : dto.getRoleIds();
         if (roleIds.isEmpty()) throw new ServerException(422, I18nUtils.getMessage("service-account.roles.required"));
         if (roleService.count(Wrappers.lambdaQuery(Role.class).in(Role::getId, roleIds).eq(Role::getDeleted, false)) != new HashSet<String>(roleIds).size())
             throw new ServerException(422, I18nUtils.getMessage("service-account.roles.invalid"));
         String clientId = StringUtils.defaultIfBlank(dto.getClientId(), "sa_" + randomToken(12));
-        if (!clientId.matches("[A-Za-z][A-Za-z0-9_-]{2,63}")) throw new ServerException(422, I18nUtils.getMessage("service-account.client-id.invalid"));
+        if (!clientId.matches("[A-Za-z][A-Za-z0-9_-]{2,63}"))
+            throw new ServerException(422, I18nUtils.getMessage("service-account.client-id.invalid"));
         if (count(Wrappers.lambdaQuery(ServiceAccount.class).eq(ServiceAccount::getClientId, clientId).eq(ServiceAccount::getDeleted, false)) > 0)
             throw new ServerException(409, I18nUtils.getMessage("service-account.client-id.exists"));
         String secret = "sa_" + randomToken(32);
@@ -79,7 +88,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         user.setType("System_Role_Service");
         user.setSex("Gender_Type_Woman");
         user.setEmail("svc-" + clientId + "@service.local");
-        user.setPhone("svc-"+UUID.randomUUID().toString().replace("-", ""));
+        user.setPhone("svc-" + UUID.randomUUID().toString().replace("-", ""));
         user.setAvatar("https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png");
         user.setPassword(passwordEncoder.encode(randomToken(32)));
         userService.save(user);
@@ -102,12 +111,17 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         return secretVo(account, secret);
     }
 
+    /**
+     * 更新当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean update(String id, ServiceAccountUpdateDto dto) {
         ServiceAccount account = required(id);
-        if (dto == null || StringUtils.isBlank(dto.getName())) throw new ServerException(422, I18nUtils.getMessage("service-account.name.required"));
-        if (dto.getName().length() > 128) throw new ServerException(422, I18nUtils.getMessage("service-account.name.length.exceeded"));
+        if (dto == null || StringUtils.isBlank(dto.getName()))
+            throw new ServerException(422, I18nUtils.getMessage("service-account.name.required"));
+        if (dto.getName().length() > 128)
+            throw new ServerException(422, I18nUtils.getMessage("service-account.name.length.exceeded"));
         List<String> roleIds = dto.getRoleIds() == null ? Collections.<String>emptyList() : dto.getRoleIds();
         if (roleIds.isEmpty()) throw new ServerException(422, I18nUtils.getMessage("service-account.roles.required"));
         if (roleService.count(Wrappers.lambdaQuery(Role.class).in(Role::getId, roleIds).eq(Role::getDeleted, false)) != new HashSet<String>(roleIds).size())
@@ -126,6 +140,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         return updated;
     }
 
+    /**
+     * 删除当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean delete(String id) {
@@ -136,6 +153,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         return baseMapper.physicalDeleteById(id) > 0;
     }
 
+    /**
+     * 处理rotateSecret。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ServiceAccountSecretVo rotateSecret(String id) {
@@ -147,6 +167,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         return secretVo(account, secret);
     }
 
+    /**
+     * 处理issue令牌。
+     */
     @Override
     public ServiceAccountTokenVo issueToken(ServiceAccountTokenDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getClientId()) || StringUtils.isBlank(dto.getClientSecret()))
@@ -169,6 +192,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         return result;
     }
 
+    /**
+     * 处理setEnabled。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean setEnabled(String id, boolean enabled) {
@@ -181,6 +207,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         return updated;
     }
 
+    /**
+     * 判断是否为Active。
+     */
     @Override
     public boolean isActive(String serviceAccountId, String tokenVersion) {
         if (StringUtils.isBlank(serviceAccountId) || StringUtils.isBlank(tokenVersion)) return false;
@@ -189,10 +218,14 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
                 && StringUtils.equals(String.valueOf(account.getTokenVersion()), tokenVersion);
     }
 
+    /**
+     * 处理assert工作流StartAllowed。
+     */
     @Override
     public void assertWorkflowStartAllowed(String id, String workflowId) {
         ServiceAccount account = required(id);
-        if (!Boolean.TRUE.equals(account.getEnabled())) throw new ServerException(403, I18nUtils.getMessage("service-account.disabled"));
+        if (!Boolean.TRUE.equals(account.getEnabled()))
+            throw new ServerException(403, I18nUtils.getMessage("service-account.disabled"));
         List<String> allowed = StringUtils.isBlank(account.getAllowedWorkflowIds()) ? Collections.<String>emptyList()
                 : JSON.parseArray(account.getAllowedWorkflowIds(), String.class);
         if (allowed != null && !allowed.isEmpty() && !allowed.contains(workflowId))
@@ -204,9 +237,13 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         String key = "ServiceAccountWorkflowStarts:" + account.getId() + ":" + bucket;
         Long count = redisTemplate.opsForValue().increment(key);
         if (count != null && count == 1L) redisTemplate.expire(key, 2, java.util.concurrent.TimeUnit.HOURS);
-        if (count != null && count > limit) throw new ServerException(429, I18nUtils.getMessage("service-account.workflow-start-quota.exhausted"));
+        if (count != null && count > limit)
+            throw new ServerException(429, I18nUtils.getMessage("service-account.workflow-start-quota.exhausted"));
     }
 
+    /**
+     * 处理required。
+     */
     private ServiceAccount required(String id) {
         ServiceAccount account = getById(id);
         if (account == null || Boolean.TRUE.equals(account.getDeleted()))
@@ -214,6 +251,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         return account;
     }
 
+    /**
+     * 处理secretVO。
+     */
     private ServiceAccountSecretVo secretVo(ServiceAccount account, String secret) {
         ServiceAccountSecretVo result = new ServiceAccountSecretVo();
         result.setId(account.getId());
@@ -223,6 +263,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         return result;
     }
 
+    /**
+     * 处理random令牌。
+     */
     private String randomToken(int bytes) {
         byte[] value = new byte[bytes];
         RANDOM.nextBytes(value);

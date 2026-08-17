@@ -16,7 +16,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** Authenticated Deep Run stream: persisted history first, followed by live callback events. */
+/**
+ * Authenticated Deep Run stream: persisted history first, followed by live callback events.
+ */
 @RestController
 @RequestMapping("/api/agent/deep-runs")
 public class DeepRunStreamController {
@@ -24,11 +26,17 @@ public class DeepRunStreamController {
     private final DeepAgentRunService deepAgentRunService;
     private final AgentRunStepService agentRunStepService;
 
+    /**
+     * 创建 {@code DeepRunStreamController} 实例。
+     */
     public DeepRunStreamController(DeepAgentRunService deepAgentRunService, AgentRunStepService agentRunStepService) {
         this.deepAgentRunService = deepAgentRunService;
         this.agentRunStepService = agentRunStepService;
     }
 
+    /**
+     * 处理stream。
+     */
     @GetMapping(value = "/{runId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@PathVariable String runId) throws Exception {
         AgentRun run = deepAgentRunService.getDeepRunForReconciliation(runId);
@@ -48,6 +56,9 @@ public class DeepRunStreamController {
         return emitter;
     }
 
+    /**
+     * 处理stepJson。
+     */
     private String stepJson(AgentRunStep step) {
         JSONObject data = new JSONObject();
         data.put("runId", step.getRunId());

@@ -26,13 +26,18 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import javax.validation.constraints.NotNull;
+
 import org.springframework.data.redis.core.RedisTemplate;
 
 import javax.annotation.Resource;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * 实现用户业务服务。
+ */
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
 
@@ -61,6 +66,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
 
+    /**
+     * 处理register。
+     */
     @Override
     public Boolean register(UserVo user) throws ServerException {
         String email = user.getEmail();
@@ -77,6 +85,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return save(user);
     }
 
+    /**
+     * 检查Code。
+     */
     private void checkCode(String email, Integer verificationCode) {
         if ("123456".equals(verificationCode.toString()))
             return;
@@ -101,6 +112,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         emailService.update(one);
     }
 
+    /**
+     * 处理resetPassword。
+     */
     @Override
     public Boolean resetPassword(UserVo user) throws ServerException {
         String password = user.getPassword();
@@ -115,6 +129,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
     }
 
+    /**
+     * 验证当前请求。
+     */
     @Override
     public Boolean verify(UserVo user) throws ServerException {
         String account = user.getAccount();
@@ -165,6 +182,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return email != null;
     }
 
+    /**
+     * 处理login。
+     */
     @Transactional(rollbackFor = ServerException.class)
     @Override
     public UserVo login(UserVo user) throws ServerException {
@@ -197,6 +217,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     }
 
+    /**
+     * 获取角色Ids按用户Id。
+     */
     @Override
     public List<String> getRoleIdsByUserId(String userId) {
         List<UserRole> list = userRoleService.list(Wrappers.<UserRole>lambdaQuery()
@@ -208,17 +231,26 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return Collections.emptyList();
     }
 
+    /**
+     * 处理bind角色。
+     */
     @Override
     public Boolean bindRole(String userId, List<String> roleIds) {
         return userRoleService.saveUserRoleIds(userId, roleIds);
     }
 
+    /**
+     * 获取Routers。
+     */
     @Override
     public List<ResourceVo> getRouters() {
         HashMap<String, String> user = CurrentUser.getUser();
         return getRoutersByUserId(user == null ? null : user.get("userId"));
     }
 
+    /**
+     * 获取Routers按用户Id。
+     */
     private List<ResourceVo> getRoutersByUserId(String userId) {
         List<ResourceVo> routes = new ArrayList<>();
         if (userId != null) {
@@ -296,6 +328,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return routes;
     }
 
+    /**
+     * 详情当前请求。
+     */
     @Override
     public UserVo detail() {
         UserVo userVo = new UserVo();
@@ -311,6 +346,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return userVo;
     }
 
+    /**
+     * 获取权限Map按用户Id。
+     */
     @NotNull
     @Override
     public HashMap<String, Object> getPermissionMapByUserId(String userId, String token) {
@@ -326,7 +364,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                             map.put(child.getPath(), child.getAccess() != null && child.getAccess().contains("Write"));
                         }
                     });
-                }else if (router.getAccess() != null) {
+                } else if (router.getAccess() != null) {
                     map.put(router.getPath(), router.getAccess().contains("Write"));
                 }
             }
@@ -340,6 +378,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return map;
     }
 
+    /**
+     * 发送VerificationCode。
+     */
     @Override
     public void sendVerificationCode(String email) {
         User user = this.getOne(Wrappers.<User>lambdaQuery()
@@ -363,6 +404,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
     }
 
+    /**
+     * 处理logout。
+     */
     @Override
     public boolean logout() {
         HashOperations<String, Object, Object> operations = redisTemplate.opsForHash();

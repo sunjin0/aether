@@ -1,5 +1,8 @@
 package com.aether.knowledge.model;
 
+/**
+ * 表示知识库审核状态。
+ */
 public final class KnowledgeReviewStatus {
     public static final String DRAFT = "DRAFT";
     public static final String AI_REVIEWING = "AI_REVIEWING";
@@ -8,5 +11,9 @@ public final class KnowledgeReviewStatus {
     public static final String APPROVED = "APPROVED";
     public static final String REJECTED = "REJECTED";
 
-    private KnowledgeReviewStatus() { }
+    /**
+     * 创建 {@code KnowledgeReviewStatus} 实例。
+     */
+    private KnowledgeReviewStatus() {
+    }
 }

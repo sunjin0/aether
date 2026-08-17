@@ -12,6 +12,7 @@ import java.util.List;
 public interface ModelProviderService extends IService<ModelProvider> {
     /**
      * 获取模型供应商列表
+     *
      * @return 模型供应商列表
      */
     List<Option> getModelProviders();

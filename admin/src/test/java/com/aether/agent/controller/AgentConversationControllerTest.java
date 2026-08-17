@@ -39,22 +39,38 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证智能体会话控制器的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class AgentConversationControllerTest {
 
-    @Mock private AgentConversationService conversationService;
-    @Mock private AgentMessageService messageService;
-    @Mock private AgentRunService runService;
-    @Mock private AgentToolCallLogService toolCallLogService;
-    @Mock private AdminPreferenceEventService preferenceEventService;
-    @Mock private AdminPreferenceService preferenceService;
-    @Mock private ConversationCacheService cacheService;
-    @Mock private ConversationSummaryService summaryService;
-    @Mock private AgentToolWorkflow agentToolWorkflow;
-    @Mock private I18nService i18nService;
+    @Mock
+    private AgentConversationService conversationService;
+    @Mock
+    private AgentMessageService messageService;
+    @Mock
+    private AgentRunService runService;
+    @Mock
+    private AgentToolCallLogService toolCallLogService;
+    @Mock
+    private AdminPreferenceEventService preferenceEventService;
+    @Mock
+    private AdminPreferenceService preferenceService;
+    @Mock
+    private ConversationCacheService cacheService;
+    @Mock
+    private ConversationSummaryService summaryService;
+    @Mock
+    private AgentToolWorkflow agentToolWorkflow;
+    @Mock
+    private I18nService i18nService;
 
     private AgentConversationController controller;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         initTableInfo(AgentConversation.class);
@@ -73,11 +89,17 @@ class AgentConversationControllerTest {
                 preferenceEventService, preferenceService, cacheService, summaryService, agentToolWorkflow);
     }
 
+    /**
+     * 处理tearDown。
+     */
     @AfterEach
     void tearDown() {
         CurrentUser.remove();
     }
 
+    /**
+     * 删除Cleans会话MemoryAndAuditData。
+     */
     @Test
     void deleteCleansConversationMemoryAndAuditData() {
         AgentConversation conversation = new AgentConversation();
@@ -112,6 +134,9 @@ class AgentConversationControllerTest {
         verify(preferenceService).clearUserCache("user-1");
     }
 
+    /**
+     * 处理failed会话删除DoesNotInvalidateMemory。
+     */
     @Test
     void failedConversationDeleteDoesNotInvalidateMemory() {
         AgentConversation conversation = new AgentConversation();
@@ -127,6 +152,9 @@ class AgentConversationControllerTest {
         verify(summaryService, never()).evict("conversation-1");
     }
 
+    /**
+     * 处理changingToolApprovalPolicyRevokesTemporaryApprovals。
+     */
     @Test
     void changingToolApprovalPolicyRevokesTemporaryApprovals() {
         AgentConversation conversation = new AgentConversation();
@@ -146,6 +174,9 @@ class AgentConversationControllerTest {
         verify(agentToolWorkflow).revokeTemporaryGrants("user-1", "agent-1", "conversation-1");
     }
 
+    /**
+     * 处理initTableInfo。
+     */
     private void initTableInfo(Class<?> type) {
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""), type);

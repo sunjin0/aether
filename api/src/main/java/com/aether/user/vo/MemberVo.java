@@ -1,9 +1,12 @@
 package com.aether.user.vo;
 
-import  com.aether.user.entity.Member;
+import com.aether.user.entity.Member;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+/**
+ * 表示MemberVO。
+ */
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class MemberVo extends Member {

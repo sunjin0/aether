@@ -38,6 +38,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.Set;
+
 import com.alibaba.fastjson2.JSON;
 
 /**
@@ -59,6 +60,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     private final long maxResourceSize;
     private final SkillRoutingIndexService routingIndexService;
 
+    /**
+     * 创建 {@code AgentSkillServiceImpl} 实例。
+     */
     public AgentSkillServiceImpl(AgentSkillVersionServiceImpl versionService,
                                  AgentSkillToolBindingServiceImpl toolBindingService,
                                  AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService,
@@ -83,6 +87,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         this.maxResourceSize = maxResourceSize;
     }
 
+    /**
+     * 创建Draft。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String createDraft(AgentSkillDraftDto dto) {
@@ -103,6 +110,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return skill.getId();
     }
 
+    /**
+     * 创建下一个Draft。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String createNextDraft(String skillId) {
@@ -112,22 +122,54 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         }
         // 新草稿从最新发布版本复制，确保管理员修改不会影响已安装的生产版本。
         AgentSkillVersion source = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 1).orderByDesc(AgentSkillVersion::getVersionNo).last("limit 1"));
-        if (source == null) throw new ServerException(409, I18nUtils.getMessage("skill.draft.published-source.required"));
+        if (source == null)
+            throw new ServerException(409, I18nUtils.getMessage("skill.draft.published-source.required"));
         AgentSkillVersion draft = new AgentSkillVersion();
-        draft.setSkillId(skillId); draft.setStatus(0); draft.setInstruction(source.getInstruction()); draft.setInputSchema(source.getInputSchema()); draft.setOutputSchema(source.getOutputSchema()); draft.setToolPolicy(source.getToolPolicy()); draft.setChangeNote(source.getChangeNote()); draft.setRoutingSummary(source.getRoutingSummary()); draft.setTriggerTerms(source.getTriggerTerms()); draft.setExcludeTerms(source.getExcludeTerms()); draft.setRoutingExamples(source.getRoutingExamples());
+        draft.setSkillId(skillId);
+        draft.setStatus(0);
+        draft.setInstruction(source.getInstruction());
+        draft.setInputSchema(source.getInputSchema());
+        draft.setOutputSchema(source.getOutputSchema());
+        draft.setToolPolicy(source.getToolPolicy());
+        draft.setChangeNote(source.getChangeNote());
+        draft.setRoutingSummary(source.getRoutingSummary());
+        draft.setTriggerTerms(source.getTriggerTerms());
+        draft.setExcludeTerms(source.getExcludeTerms());
+        draft.setRoutingExamples(source.getRoutingExamples());
         versionService.save(draft);
         for (AgentSkillToolBinding sourceBinding : toolBindingService.list(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, source.getId()))) {
-            AgentSkillToolBinding copy = new AgentSkillToolBinding(); copy.setSkillVersionId(draft.getId()); copy.setToolId(sourceBinding.getToolId()); copy.setRequired(sourceBinding.getRequired()); copy.setPriority(sourceBinding.getPriority()); toolBindingService.save(copy);
+            AgentSkillToolBinding copy = new AgentSkillToolBinding();
+            copy.setSkillVersionId(draft.getId());
+            copy.setToolId(sourceBinding.getToolId());
+            copy.setRequired(sourceBinding.getRequired());
+            copy.setPriority(sourceBinding.getPriority());
+            toolBindingService.save(copy);
         }
         for (AgentSkillKnowledgeBinding sourceBinding : knowledgeBindingService.list(Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class).eq(AgentSkillKnowledgeBinding::getSkillVersionId, source.getId()))) {
-            AgentSkillKnowledgeBinding copy = new AgentSkillKnowledgeBinding(); copy.setSkillVersionId(draft.getId()); copy.setKnowledgeBaseId(sourceBinding.getKnowledgeBaseId()); knowledgeBindingService.save(copy);
+            AgentSkillKnowledgeBinding copy = new AgentSkillKnowledgeBinding();
+            copy.setSkillVersionId(draft.getId());
+            copy.setKnowledgeBaseId(sourceBinding.getKnowledgeBaseId());
+            knowledgeBindingService.save(copy);
         }
         for (AgentSkillResource sourceResource : resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, source.getId()))) {
-            AgentSkillResource copy = new AgentSkillResource(); copy.setSkillVersionId(draft.getId()); copy.setName(sourceResource.getName()); copy.setType(sourceResource.getType()); copy.setLanguage(sourceResource.getLanguage()); copy.setObjectKey(sourceResource.getObjectKey()); copy.setContentSha256(sourceResource.getContentSha256()); copy.setSize(sourceResource.getSize()); copy.setPurpose(sourceResource.getPurpose()); copy.setStatus(sourceResource.getStatus()); resourceService.save(copy);
+            AgentSkillResource copy = new AgentSkillResource();
+            copy.setSkillVersionId(draft.getId());
+            copy.setName(sourceResource.getName());
+            copy.setType(sourceResource.getType());
+            copy.setLanguage(sourceResource.getLanguage());
+            copy.setObjectKey(sourceResource.getObjectKey());
+            copy.setContentSha256(sourceResource.getContentSha256());
+            copy.setSize(sourceResource.getSize());
+            copy.setPurpose(sourceResource.getPurpose());
+            copy.setStatus(sourceResource.getStatus());
+            resourceService.save(copy);
         }
         return draft.getId();
     }
 
+    /**
+     * 更新Draft。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateDraft(String skillId, AgentSkillDraftDto dto) {
@@ -143,6 +185,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         replaceDraftBindings(draft.getId(), dto);
     }
 
+    /**
+     * 发布当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AgentSkillVersion publish(String skillId, String userId) {
@@ -172,6 +217,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return draft;
     }
 
+    /**
+     * 详情当前请求。
+     */
     @Override
     public AgentSkillDetailVo detail(String skillId) {
         AgentSkill skill = requireSkill(skillId);
@@ -181,44 +229,94 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         result.setDraft(draft);
         result.setCurrentVersion(StringUtils.isBlank(skill.getCurrentVersionId()) ? null : versionService.getById(skill.getCurrentVersionId()));
         String versionId = draft != null ? draft.getId() : skill.getCurrentVersionId();
-        if (versionId == null) { result.setTools(Collections.emptyList()); result.setKnowledgeBases(Collections.emptyList()); result.setResources(Collections.emptyList()); return result; }
+        if (versionId == null) {
+            result.setTools(Collections.emptyList());
+            result.setKnowledgeBases(Collections.emptyList());
+            result.setResources(Collections.emptyList());
+            return result;
+        }
         result.setTools(toolBindingService.list(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, versionId)));
         result.setKnowledgeBases(knowledgeBindingService.list(Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class).eq(AgentSkillKnowledgeBinding::getSkillVersionId, versionId)));
         result.setResources(resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, versionId)));
         return result;
     }
 
+    /**
+     * 查询Versions。
+     */
     @Override
     public List<AgentSkillVersion> listVersions(String skillId) {
         requireSkill(skillId);
         return versionService.list(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).orderByDesc(AgentSkillVersion::getVersionNo));
     }
 
-    @Override public List<AgentDefinitionSkillBinding> listBindings(String agentId) { return definitionBindingService.list(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class).eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId).orderByAsc(AgentDefinitionSkillBinding::getPriority)); }
+    /**
+     * 查询Bindings。
+     */
+    @Override
+    public List<AgentDefinitionSkillBinding> listBindings(String agentId) {
+        return definitionBindingService.list(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class).eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId).orderByAsc(AgentDefinitionSkillBinding::getPriority));
+    }
 
+    /**
+     * 处理install。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String install(String agentId, AgentSkillInstallDto dto) {
         requireAgent(agentId);
         AgentSkillVersion version = requirePublishedVersion(dto.getSkillVersionId());
-        if (definitionBindingService.count(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class).eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId).eq(AgentDefinitionSkillBinding::getSkillId, version.getSkillId())) > 0) throw new ServerException(409, I18nUtils.getMessage("skill.installation.already-exists"));
-        AgentDefinitionSkillBinding binding = new AgentDefinitionSkillBinding(); binding.setAgentDefinitionId(agentId); binding.setSkillId(version.getSkillId()); binding.setSkillVersionId(version.getId()); binding.setPriority(dto.getPriority()); binding.setStatus(dto.getStatus() == null ? 1 : dto.getStatus()); binding.setConfigOverrides(dto.getConfigOverrides()); definitionBindingService.save(binding); return binding.getId();
+        if (definitionBindingService.count(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class).eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId).eq(AgentDefinitionSkillBinding::getSkillId, version.getSkillId())) > 0)
+            throw new ServerException(409, I18nUtils.getMessage("skill.installation.already-exists"));
+        AgentDefinitionSkillBinding binding = new AgentDefinitionSkillBinding();
+        binding.setAgentDefinitionId(agentId);
+        binding.setSkillId(version.getSkillId());
+        binding.setSkillVersionId(version.getId());
+        binding.setPriority(dto.getPriority());
+        binding.setStatus(dto.getStatus() == null ? 1 : dto.getStatus());
+        binding.setConfigOverrides(dto.getConfigOverrides());
+        definitionBindingService.save(binding);
+        return binding.getId();
     }
 
-    @Override public void updateBinding(String agentId, String bindingId, AgentSkillBindingUpdateDto dto) {
+    /**
+     * 更新Binding。
+     */
+    @Override
+    public void updateBinding(String agentId, String bindingId, AgentSkillBindingUpdateDto dto) {
         AgentDefinitionSkillBinding binding = requireBinding(agentId, bindingId);
-        if (StringUtils.isNotBlank(dto.getSkillVersionId())) { AgentSkillVersion version = requirePublishedVersion(dto.getSkillVersionId()); if (!version.getSkillId().equals(binding.getSkillId())) throw new ServerException(400, I18nUtils.getMessage("skill.installation.version.mismatch")); binding.setSkillVersionId(version.getId()); }
-        if (dto.getPriority() != null) binding.setPriority(dto.getPriority()); if (dto.getStatus() != null) binding.setStatus(dto.getStatus()); if (dto.getConfigOverrides() != null) binding.setConfigOverrides(dto.getConfigOverrides()); definitionBindingService.updateById(binding);
+        if (StringUtils.isNotBlank(dto.getSkillVersionId())) {
+            AgentSkillVersion version = requirePublishedVersion(dto.getSkillVersionId());
+            if (!version.getSkillId().equals(binding.getSkillId()))
+                throw new ServerException(400, I18nUtils.getMessage("skill.installation.version.mismatch"));
+            binding.setSkillVersionId(version.getId());
+        }
+        if (dto.getPriority() != null) binding.setPriority(dto.getPriority());
+        if (dto.getStatus() != null) binding.setStatus(dto.getStatus());
+        if (dto.getConfigOverrides() != null) binding.setConfigOverrides(dto.getConfigOverrides());
+        definitionBindingService.updateById(binding);
     }
-    @Override public void removeBinding(String agentId, String bindingId) { definitionBindingService.removeById(requireBinding(agentId, bindingId).getId()); }
 
+    /**
+     * 移除Binding。
+     */
+    @Override
+    public void removeBinding(String agentId, String bindingId) {
+        definitionBindingService.removeById(requireBinding(agentId, bindingId).getId());
+    }
+
+    /**
+     * 上传资源。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AgentSkillResource uploadResource(String skillId, String fileName, String contentType, byte[] content, String purpose, String type) {
         requireSkill(skillId);
         AgentSkillVersion draft = requireDraft(skillId);
-        if (content == null || content.length == 0) throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.required"));
-        if (content.length > maxResourceSize) throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.size-exceeded"));
+        if (content == null || content.length == 0)
+            throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.required"));
+        if (content.length > maxResourceSize)
+            throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.size-exceeded"));
         String[] parsed = parseResource(fileName, type);
         if (resourceService.count(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, draft.getId())) >= MAX_DRAFT_RESOURCE_COUNT) {
             throw new ServerException(400, I18nUtils.getMessage("skill.resource.count-exceeded"));
@@ -243,22 +341,35 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return resource;
     }
 
+    /**
+     * 更新Draft资源。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AgentSkillResource updateDraftResource(String skillId, String resourceId, String fileName, String contentType, byte[] content, String purpose, String type) {
         AgentSkillVersion draft = requireDraft(skillId);
         AgentSkillResource resource = resourceService.getById(resourceId);
-        if (resource == null || !draft.getId().equals(resource.getSkillVersionId())) throw new ServerException(404, I18nUtils.getMessage("skill.resource.not-found"));
-        if (content == null || content.length == 0 || content.length > maxResourceSize) throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.size-exceeded"));
+        if (resource == null || !draft.getId().equals(resource.getSkillVersionId()))
+            throw new ServerException(404, I18nUtils.getMessage("skill.resource.not-found"));
+        if (content == null || content.length == 0 || content.length > maxResourceSize)
+            throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.size-exceeded"));
         String[] parsed = parseResource(fileName, type);
         String newObjectKey = "skills/" + skillId + "/" + draft.getId() + "/" + sha256Hex(content);
         objectStorageService.upload(resourceBucket, newObjectKey, content, StringUtils.defaultIfBlank(contentType, "application/octet-stream"));
-        resource.setName(fileName); resource.setType(parsed[0]); resource.setLanguage(parsed[1]); resource.setObjectKey(newObjectKey);
-        resource.setContentSha256(sha256Hex(content)); resource.setSize((long) content.length); resource.setPurpose(StringUtils.trimToNull(purpose));
+        resource.setName(fileName);
+        resource.setType(parsed[0]);
+        resource.setLanguage(parsed[1]);
+        resource.setObjectKey(newObjectKey);
+        resource.setContentSha256(sha256Hex(content));
+        resource.setSize((long) content.length);
+        resource.setPurpose(StringUtils.trimToNull(purpose));
         resourceService.updateById(resource);
         return resource;
     }
 
+    /**
+     * 查询Resources。
+     */
     @Override
     public List<AgentSkillResource> listResources(String skillId) {
         requireSkill(skillId);
@@ -268,6 +379,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, versionId));
     }
 
+    /**
+     * 移除Draft资源。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void removeDraftResource(String skillId, String resourceId) {
@@ -286,11 +400,15 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         }
     }
 
+    /**
+     * 预览当前请求。
+     */
     @Override
     public AgentSkillPreviewVo preview(String skillId, AgentSkillPreviewDto dto) {
         AgentSkill skill = requireSkill(skillId);
         AgentSkillVersion version = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 0));
-        if (version == null) version = StringUtils.isBlank(skill.getCurrentVersionId()) ? null : versionService.getById(skill.getCurrentVersionId());
+        if (version == null)
+            version = StringUtils.isBlank(skill.getCurrentVersionId()) ? null : versionService.getById(skill.getCurrentVersionId());
         if (version == null) throw new ServerException(409, I18nUtils.getMessage("skill.resource.no-version"));
 
         AgentSkillPreviewVo result = new AgentSkillPreviewVo();
@@ -347,6 +465,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return result;
     }
 
+    /**
+     * 处理lifecycle。
+     */
     @Override
     public AgentSkillVo lifecycle(AgentSkill skill) {
         AgentSkillVo result = new AgentSkillVo();
@@ -365,6 +486,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return result;
     }
 
+    /**
+     * 发布检查。
+     */
     @Override
     public AgentSkillPublishCheckVo publishCheck(String skillId) {
         AgentSkill skill = requireSkill(skillId);
@@ -378,18 +502,24 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         result.setDraftVersionId(draft.getId());
         if (StringUtils.isBlank(draft.getInstruction())) result.getBlockers().add("请填写系统指令");
         if (StringUtils.isBlank(draft.getRoutingSummary())) result.getBlockers().add("请填写 Skill 发现摘要");
-        else if (draft.getRoutingSummary().length() > 200) result.getBlockers().add("Skill 发现摘要不能超过 200 个字符");
+        else if (draft.getRoutingSummary().length() > 200)
+            result.getBlockers().add("Skill 发现摘要不能超过 200 个字符");
         validateRoutingMetadata(draft, result);
-        if (StringUtils.isBlank(skill.getDescription())) result.getWarnings().add("尚未填写技能描述，其他管理员难以理解其适用范围");
-        if (StringUtils.isBlank(draft.getInputSchema())) result.getWarnings().add("尚未声明输入参数，运行时输入将不受结构约束");
-        if (StringUtils.isBlank(draft.getOutputSchema())) result.getWarnings().add("尚未声明输出参数，回答格式可能不稳定");
-        if (detail.getResources().isEmpty()) result.getWarnings().add("未添加资源文件；如该技能依赖制度、模板或脚本，请在发布前补充");
+        if (StringUtils.isBlank(skill.getDescription()))
+            result.getWarnings().add("尚未填写技能描述，其他管理员难以理解其适用范围");
+        if (StringUtils.isBlank(draft.getInputSchema()))
+            result.getWarnings().add("尚未声明输入参数，运行时输入将不受结构约束");
+        if (StringUtils.isBlank(draft.getOutputSchema()))
+            result.getWarnings().add("尚未声明输出参数，回答格式可能不稳定");
+        if (detail.getResources().isEmpty())
+            result.getWarnings().add("未添加资源文件；如该技能依赖制度、模板或脚本，请在发布前补充");
         Set<String> toolIds = new LinkedHashSet<>();
         for (AgentSkillToolBinding binding : detail.getTools()) {
             if (!toolIds.add(binding.getToolId())) result.getWarnings().add("工具依赖存在重复声明");
             AgentTool tool = agentToolService.getById(binding.getToolId());
             boolean available = tool != null && !Boolean.TRUE.equals(tool.getDeleted()) && Integer.valueOf(1).equals(tool.getStatus());
-            if (!available && Boolean.TRUE.equals(binding.getRequired())) result.getBlockers().add("必需工具不可用：" + binding.getToolId());
+            if (!available && Boolean.TRUE.equals(binding.getRequired()))
+                result.getBlockers().add("必需工具不可用：" + binding.getToolId());
             else if (!available) result.getWarnings().add("可选工具当前不可用：" + binding.getToolId());
         }
         result.setEstimatedTokens((long) (StringUtils.length(skill.getDescription()) + StringUtils.length(draft.getInstruction())) / 4L);
@@ -397,6 +527,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return result;
     }
 
+    /**
+     * 处理statistics。
+     */
     @Override
     public AgentSkillStatisticsVo statistics() {
         AgentSkillStatisticsVo result = new AgentSkillStatisticsVo();
@@ -408,11 +541,15 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return result;
     }
 
+    /**
+     * 构建预览Prompt。
+     */
     private String buildPreviewPrompt(AgentSkill skill, AgentSkillVersion version, List<AgentSkillResource> resources, Map<String, Object> sampleInput) {
         StringBuilder prompt = new StringBuilder("[Installed Skill]\n## ").append(skill.getName())
                 .append(version.getVersionNo() == null ? "（草稿）" : " v" + version.getVersionNo());
         if (StringUtils.isNotBlank(skill.getDescription())) prompt.append("\nPurpose: ").append(skill.getDescription());
-        if (StringUtils.isNotBlank(version.getInstruction())) prompt.append("\nInstructions:\n").append(version.getInstruction());
+        if (StringUtils.isNotBlank(version.getInstruction()))
+            prompt.append("\nInstructions:\n").append(version.getInstruction());
         if (resources != null && !resources.isEmpty()) {
             prompt.append("\n\n## 资源参考");
             for (AgentSkillResource resource : resources) {
@@ -427,14 +564,18 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return prompt.toString();
     }
 
-    /** 返回 [type, language]；按扩展名白名单解析，拒绝压缩包与未知类型。 */
+    /**
+     * 返回 [type, language]；按扩展名白名单解析，拒绝压缩包与未知类型。
+     */
     private String[] parseResource(String fileName, String declaredType) {
         String name = StringUtils.trimToNull(fileName);
-        if (name == null || name.indexOf('.') < 0) throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.unsupported-type"));
+        if (name == null || name.indexOf('.') < 0)
+            throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.unsupported-type"));
         String lower = name.toLowerCase(Locale.ROOT);
         String[] parsed;
         if (lower.endsWith(".md")) parsed = new String[]{"MARKDOWN", null};
-        else if (lower.endsWith(".html") || lower.endsWith(".hbs") || lower.endsWith(".tpl") || lower.endsWith(".ftl")) parsed = new String[]{"TEMPLATE", null};
+        else if (lower.endsWith(".html") || lower.endsWith(".hbs") || lower.endsWith(".tpl") || lower.endsWith(".ftl"))
+            parsed = new String[]{"TEMPLATE", null};
         else throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.unsupported-type"));
         if (StringUtils.isNotBlank(declaredType) && !declaredType.equalsIgnoreCase(parsed[0])) {
             throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.type-mismatch"));
@@ -442,6 +583,9 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         return parsed;
     }
 
+    /**
+     * 处理sha256Hex。
+     */
     private String sha256Hex(byte[] content) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -454,20 +598,133 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         }
     }
 
+    /**
+     * 处理replaceDraftBindings。
+     */
     private void replaceDraftBindings(String versionId, AgentSkillDraftDto dto) {
         // 仅草稿允许整体替换依赖声明；已发布版本不会调用此方法。
         toolBindingService.remove(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, versionId));
         knowledgeBindingService.remove(Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class).eq(AgentSkillKnowledgeBinding::getSkillVersionId, versionId));
-        if (dto.getTools() != null) for (AgentSkillToolDto item : dto.getTools()) { if (StringUtils.isBlank(item.getToolId())) throw new ServerException(400, I18nUtils.getMessage("skill.binding.tool-id.required")); AgentSkillToolBinding binding = new AgentSkillToolBinding(); binding.setSkillVersionId(versionId); binding.setToolId(item.getToolId()); binding.setRequired(Boolean.TRUE.equals(item.getRequired())); binding.setPriority(item.getPriority()); toolBindingService.save(binding); }
-        if (dto.getKnowledgeBaseIds() != null) for (String id : dto.getKnowledgeBaseIds()) { if (StringUtils.isBlank(id)) throw new ServerException(400, I18nUtils.getMessage("skill.binding.knowledge-base-id.required")); AgentSkillKnowledgeBinding binding = new AgentSkillKnowledgeBinding(); binding.setSkillVersionId(versionId); binding.setKnowledgeBaseId(id); knowledgeBindingService.save(binding); }
+        if (dto.getTools() != null) for (AgentSkillToolDto item : dto.getTools()) {
+            if (StringUtils.isBlank(item.getToolId()))
+                throw new ServerException(400, I18nUtils.getMessage("skill.binding.tool-id.required"));
+            AgentSkillToolBinding binding = new AgentSkillToolBinding();
+            binding.setSkillVersionId(versionId);
+            binding.setToolId(item.getToolId());
+            binding.setRequired(Boolean.TRUE.equals(item.getRequired()));
+            binding.setPriority(item.getPriority());
+            toolBindingService.save(binding);
+        }
+        if (dto.getKnowledgeBaseIds() != null) for (String id : dto.getKnowledgeBaseIds()) {
+            if (StringUtils.isBlank(id))
+                throw new ServerException(400, I18nUtils.getMessage("skill.binding.knowledge-base-id.required"));
+            AgentSkillKnowledgeBinding binding = new AgentSkillKnowledgeBinding();
+            binding.setSkillVersionId(versionId);
+            binding.setKnowledgeBaseId(id);
+            knowledgeBindingService.save(binding);
+        }
     }
-    private AgentSkill requireSkill(String id) { AgentSkill value = getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("skill.not-found")); return value; }
-    private AgentSkillVersion requireDraft(String skillId) { AgentSkillVersion value = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 0)); if (value == null) throw new ServerException(409, I18nUtils.getMessage("skill.draft.not-found")); return value; }
-    private AgentSkillVersion requirePublishedVersion(String id) { AgentSkillVersion value = versionService.getById(id); if (value == null || !Integer.valueOf(1).equals(value.getStatus())) throw new ServerException(400, I18nUtils.getMessage("skill.version.not-published")); AgentSkill skill = requireSkill(value.getSkillId()); if (!Integer.valueOf(1).equals(skill.getStatus())) throw new ServerException(400, I18nUtils.getMessage("skill.disabled")); return value; }
-    private AgentDefinitionSkillBinding requireBinding(String agentId, String id) { AgentDefinitionSkillBinding value = definitionBindingService.getById(id); if (value == null || !agentId.equals(value.getAgentDefinitionId())) throw new ServerException(404, I18nUtils.getMessage("skill.installation.not-found")); return value; }
-    private void requireAgent(String id) { AgentDefinition agent = agentDefinitionService.getById(id); if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("skill.agent.not-found")); }
-    private void validateIdentity(AgentSkillDraftDto dto) { if (dto == null || StringUtils.isBlank(dto.getName()) || StringUtils.isBlank(dto.getCode())) throw new ServerException(400, I18nUtils.getMessage("skill.identity.required")); }
-    private void applyIdentity(AgentSkill target, AgentSkillDraftDto source) { target.setName(source.getName()); target.setCode(source.getCode()); target.setDescription(source.getDescription()); target.setCategory(source.getCategory()); target.setIcon(source.getIcon()); target.setTags(source.getTags()); }
-    private void applyDraft(AgentSkillVersion target, AgentSkillDraftDto source) { target.setInstruction(source.getInstruction()); target.setInputSchema(source.getInputSchema()); target.setOutputSchema(source.getOutputSchema()); target.setToolPolicy(source.getToolPolicy()); target.setChangeNote(source.getChangeNote()); target.setRoutingSummary(source.getRoutingSummary()); target.setTriggerTerms(JSON.toJSONString(source.getTriggerTerms() == null ? Collections.emptyList() : source.getTriggerTerms())); target.setExcludeTerms(JSON.toJSONString(source.getExcludeTerms() == null ? Collections.emptyList() : source.getExcludeTerms())); target.setRoutingExamples(JSON.toJSONString(source.getRoutingExamples() == null ? Collections.emptyList() : source.getRoutingExamples())); }
-    private void validateRoutingMetadata(AgentSkillVersion draft, AgentSkillPublishCheckVo result) { try { List<String> trigger = JSON.parseArray(StringUtils.defaultIfBlank(draft.getTriggerTerms(), "[]"), String.class); List<String> exclude = JSON.parseArray(StringUtils.defaultIfBlank(draft.getExcludeTerms(), "[]"), String.class); List<String> examples = JSON.parseArray(StringUtils.defaultIfBlank(draft.getRoutingExamples(), "[]"), String.class); if (trigger.size() > 20 || exclude.size() > 20 || examples.size() > 5) result.getBlockers().add("路由关键词最多 20 个，示例最多 5 个"); for (String value : trigger) if (exclude.contains(value)) result.getBlockers().add("触发词和排除词不能重复：" + value); } catch (Exception e) { result.getBlockers().add("路由发现配置必须是有效列表"); } }
+
+    /**
+     * 处理requireSkill。
+     */
+    private AgentSkill requireSkill(String id) {
+        AgentSkill value = getById(id);
+        if (value == null || Boolean.TRUE.equals(value.getDeleted()))
+            throw new ServerException(404, I18nUtils.getMessage("skill.not-found"));
+        return value;
+    }
+
+    /**
+     * 处理requireDraft。
+     */
+    private AgentSkillVersion requireDraft(String skillId) {
+        AgentSkillVersion value = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 0));
+        if (value == null) throw new ServerException(409, I18nUtils.getMessage("skill.draft.not-found"));
+        return value;
+    }
+
+    /**
+     * 处理requirePublishedVersion。
+     */
+    private AgentSkillVersion requirePublishedVersion(String id) {
+        AgentSkillVersion value = versionService.getById(id);
+        if (value == null || !Integer.valueOf(1).equals(value.getStatus()))
+            throw new ServerException(400, I18nUtils.getMessage("skill.version.not-published"));
+        AgentSkill skill = requireSkill(value.getSkillId());
+        if (!Integer.valueOf(1).equals(skill.getStatus()))
+            throw new ServerException(400, I18nUtils.getMessage("skill.disabled"));
+        return value;
+    }
+
+    /**
+     * 处理requireBinding。
+     */
+    private AgentDefinitionSkillBinding requireBinding(String agentId, String id) {
+        AgentDefinitionSkillBinding value = definitionBindingService.getById(id);
+        if (value == null || !agentId.equals(value.getAgentDefinitionId()))
+            throw new ServerException(404, I18nUtils.getMessage("skill.installation.not-found"));
+        return value;
+    }
+
+    /**
+     * 处理require智能体。
+     */
+    private void requireAgent(String id) {
+        AgentDefinition agent = agentDefinitionService.getById(id);
+        if (agent == null || Boolean.TRUE.equals(agent.getDeleted()))
+            throw new ServerException(404, I18nUtils.getMessage("skill.agent.not-found"));
+    }
+
+    /**
+     * 校验Identity。
+     */
+    private void validateIdentity(AgentSkillDraftDto dto) {
+        if (dto == null || StringUtils.isBlank(dto.getName()) || StringUtils.isBlank(dto.getCode()))
+            throw new ServerException(400, I18nUtils.getMessage("skill.identity.required"));
+    }
+
+    /**
+     * 处理applyIdentity。
+     */
+    private void applyIdentity(AgentSkill target, AgentSkillDraftDto source) {
+        target.setName(source.getName());
+        target.setCode(source.getCode());
+        target.setDescription(source.getDescription());
+        target.setCategory(source.getCategory());
+        target.setIcon(source.getIcon());
+        target.setTags(source.getTags());
+    }
+
+    /**
+     * 处理applyDraft。
+     */
+    private void applyDraft(AgentSkillVersion target, AgentSkillDraftDto source) {
+        target.setInstruction(source.getInstruction());
+        target.setInputSchema(source.getInputSchema());
+        target.setOutputSchema(source.getOutputSchema());
+        target.setToolPolicy(source.getToolPolicy());
+        target.setChangeNote(source.getChangeNote());
+        target.setRoutingSummary(source.getRoutingSummary());
+        target.setTriggerTerms(JSON.toJSONString(source.getTriggerTerms() == null ? Collections.emptyList() : source.getTriggerTerms()));
+        target.setExcludeTerms(JSON.toJSONString(source.getExcludeTerms() == null ? Collections.emptyList() : source.getExcludeTerms()));
+        target.setRoutingExamples(JSON.toJSONString(source.getRoutingExamples() == null ? Collections.emptyList() : source.getRoutingExamples()));
+    }
+
+    /**
+     * 校验RoutingMetadata。
+     */
+    private void validateRoutingMetadata(AgentSkillVersion draft, AgentSkillPublishCheckVo result) {
+        try {
+            List<String> trigger = JSON.parseArray(StringUtils.defaultIfBlank(draft.getTriggerTerms(), "[]"), String.class);
+            List<String> exclude = JSON.parseArray(StringUtils.defaultIfBlank(draft.getExcludeTerms(), "[]"), String.class);
+            List<String> examples = JSON.parseArray(StringUtils.defaultIfBlank(draft.getRoutingExamples(), "[]"), String.class);
+            if (trigger.size() > 20 || exclude.size() > 20 || examples.size() > 5)
+                result.getBlockers().add("路由关键词最多 20 个，示例最多 5 个");
+            for (String value : trigger)
+                if (exclude.contains(value)) result.getBlockers().add("触发词和排除词不能重复：" + value);
+        } catch (Exception e) {
+            result.getBlockers().add("路由发现配置必须是有效列表");
+        }
+    }
 }

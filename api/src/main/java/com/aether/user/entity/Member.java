@@ -1,15 +1,15 @@
 package com.aether.user.entity;
 
 import com.aether.entity.BaseEntity;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
-import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 /**
-* Member"实体类"}
-*/
+ * Member"实体类"}
+ */
 @Data
 @EqualsAndHashCode(callSuper = false)
 @ApiModel("Member")

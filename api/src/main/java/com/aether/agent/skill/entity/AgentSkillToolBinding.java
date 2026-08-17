@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** 技能版本声明的 MCP 工具依赖，用于收窄 Agent 工具范围。 */
+/**
+ * 技能版本声明的 MCP 工具依赖，用于收窄 Agent 工具范围。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_skill_tool_binding")

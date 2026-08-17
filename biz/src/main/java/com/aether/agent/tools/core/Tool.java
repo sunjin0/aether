@@ -18,9 +18,18 @@ import java.util.Map;
  */
 public interface Tool {
 
+    /**
+     * 获取Tool。
+     */
     AgentTool getTool();
 
+    /**
+     * 处理supports。
+     */
     boolean supports(String toolName);
 
+    /**
+     * 处理当前请求。
+     */
     ToolResult handle(String conversationId, Map<String, Object> arguments);
 }

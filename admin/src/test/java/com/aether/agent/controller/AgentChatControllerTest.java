@@ -28,8 +28,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证智能体对话控制器的行为。
+ */
 class AgentChatControllerTest {
 
+    /**
+     * 处理setUpI18n。
+     */
     @BeforeEach
     void setUpI18n() {
         I18nService i18n = mock(I18nService.class);
@@ -38,12 +44,18 @@ class AgentChatControllerTest {
         ReflectionTestUtils.setField(I18nUtils.class, "i18nService", i18n);
     }
 
+    /**
+     * 处理clear当前用户。
+     */
     @AfterEach
     void clearCurrentUser() {
         com.aether.local.CurrentUser.remove();
         ReflectionTestUtils.setField(I18nUtils.class, "i18nService", null);
     }
 
+    /**
+     * 对话ReturnsNotFoundWhen智能体DoesNotExist。
+     */
     @Test
     void chatReturnsNotFoundWhenAgentDoesNotExist() {
         AgentDefinitionService definitions = mock(AgentDefinitionService.class);
@@ -57,6 +69,9 @@ class AgentChatControllerTest {
         assertEquals(true, error.getMessage().startsWith("404:"));
     }
 
+    /**
+     * 处理deepStreamTimeoutUsesConfigured运行TimeoutAndMargin。
+     */
     @Test
     void deepStreamTimeoutUsesConfiguredRunTimeoutAndMargin() {
         AgentChatController controller = controller(mock(AgentDefinitionService.class), config(600L));
@@ -66,6 +81,9 @@ class AgentChatControllerTest {
         assertEquals(630000L, timeout);
     }
 
+    /**
+     * 处理deepStreamTimeoutFallsBack用于NonPositiveConfiguration。
+     */
     @Test
     void deepStreamTimeoutFallsBackForNonPositiveConfiguration() {
         AgentChatController controller = controller(mock(AgentDefinitionService.class), config(0L));
@@ -75,6 +93,9 @@ class AgentChatControllerTest {
         assertEquals(630000L, timeout);
     }
 
+    /**
+     * 处理standardStreamTimeoutRemainsFiveMinutes。
+     */
     @Test
     void standardStreamTimeoutRemainsFiveMinutes() {
         Long timeout = (Long) ReflectionTestUtils.getField(AgentChatController.class, "STREAM_TIMEOUT_MS");
@@ -82,6 +103,9 @@ class AgentChatControllerTest {
         assertEquals(300000L, timeout);
     }
 
+    /**
+     * 处理disabledDeep智能体DoesNot分发运行。
+     */
     @Test
     void disabledDeepAgentDoesNotDispatchRun() {
         AgentChatService chatService = mock(AgentChatService.class);
@@ -104,6 +128,9 @@ class AgentChatControllerTest {
                 org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any());
     }
 
+    /**
+     * 处理deep会话用于Another智能体UsesStandardMismatchErrorWithout分发。
+     */
     @Test
     void deepConversationForAnotherAgentUsesStandardMismatchErrorWithoutDispatch() {
         AgentChatService chatService = mock(AgentChatService.class);
@@ -136,11 +163,17 @@ class AgentChatControllerTest {
                 org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any());
     }
 
+    /**
+     * 控制器当前请求。
+     */
     private AgentChatController controller(AgentDefinitionService definitions, DeepAgentConfig config) {
         return controller(mock(AgentChatService.class), mock(AgentConversationService.class), definitions,
                 mock(DeepAgentRunService.class), config);
     }
 
+    /**
+     * 控制器当前请求。
+     */
     private AgentChatController controller(AgentChatService chatService, AgentConversationService conversations,
                                            AgentDefinitionService definitions, DeepAgentRunService deepRuns,
                                            DeepAgentConfig config) {
@@ -150,6 +183,9 @@ class AgentChatControllerTest {
                 mock(KnowledgeContextService.class), config);
     }
 
+    /**
+     * 处理deep智能体。
+     */
     private AgentDefinition deepAgent(String id) {
         AgentDefinition agent = new AgentDefinition();
         agent.setId(id);
@@ -157,6 +193,9 @@ class AgentChatControllerTest {
         return agent;
     }
 
+    /**
+     * 配置当前请求。
+     */
     private DeepAgentConfig config(long runTimeoutSeconds) {
         DeepAgentConfig config = new DeepAgentConfig();
         config.setRunTimeoutSeconds(runTimeoutSeconds);

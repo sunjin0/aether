@@ -10,6 +10,9 @@ import javax.validation.ConstraintValidatorContext;
 import java.lang.reflect.Field;
 import java.util.Map;
 
+/**
+ * 表示GenericValidator。
+ */
 @Component
 public class GenericValidator implements ConstraintValidator<ValidEntity, Object> {
 
@@ -84,6 +87,9 @@ public class GenericValidator implements ConstraintValidator<ValidEntity, Object
         log.error("Field not found: {}", fieldName);
     }
 
+    /**
+     * 处理initialize。
+     */
     @Override
     public void initialize(ValidEntity constraintAnnotation) {
         fieldRules = constraintAnnotation.fields();
@@ -91,6 +97,9 @@ public class GenericValidator implements ConstraintValidator<ValidEntity, Object
         all = constraintAnnotation.all();
     }
 
+    /**
+     * 判断是否为Valid。
+     */
     @Override
     public boolean isValid(Object obj, ConstraintValidatorContext context) {
         if (obj == null) return false;

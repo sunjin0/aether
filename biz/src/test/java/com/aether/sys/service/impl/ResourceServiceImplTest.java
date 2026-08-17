@@ -23,6 +23,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证资源服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class ResourceServiceImplTest {
 
@@ -33,6 +36,9 @@ class ResourceServiceImplTest {
 
     private ResourceServiceImpl service;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() throws Exception {
         new I18nUtils(i18nService);
@@ -43,6 +49,9 @@ class ResourceServiceImplTest {
         baseMapperField.set(service, resourceMapper);
     }
 
+    /**
+     * 查询BindsRootParentIdAsString。
+     */
     @Test
     void listBindsRootParentIdAsString() {
         when(resourceMapper.selectPage(any(Page.class), any(Wrapper.class)))

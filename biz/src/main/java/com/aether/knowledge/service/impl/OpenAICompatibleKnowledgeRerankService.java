@@ -32,9 +32,12 @@ public class OpenAICompatibleKnowledgeRerankService implements KnowledgeRerankSe
 
     private final RestTemplate restTemplate = new RestTemplate();
 
+    /**
+     * 处理rerank。
+     */
     @Override
     public List<KnowledgeDocumentChunk> rerank(ModelProvider provider, String model, String query,
-                                                List<KnowledgeDocumentChunk> candidates, int topN) {
+                                               List<KnowledgeDocumentChunk> candidates, int topN) {
         if (provider == null || StringUtils.isBlank(provider.getApiBaseUrl()) || candidates == null || candidates.isEmpty()) {
             return candidates;
         }
@@ -71,10 +74,16 @@ public class OpenAICompatibleKnowledgeRerankService implements KnowledgeRerankSe
         }
     }
 
+    /**
+     * 处理post。
+     */
     private String post(String url, String body, HttpHeaders headers) {
         return restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), String.class).getBody();
     }
 
+    /**
+     * 处理applyScores。
+     */
     private List<KnowledgeDocumentChunk> applyScores(String response, List<KnowledgeDocumentChunk> candidates, int topN) {
         JSONObject json = JSONObject.parseObject(response);
         JSONArray data = json == null ? null : json.getJSONArray("data");
@@ -103,6 +112,9 @@ public class OpenAICompatibleKnowledgeRerankService implements KnowledgeRerankSe
         return ranked.subList(0, Math.min(Math.max(1, topN), ranked.size()));
     }
 
+    /**
+     * 构建RerankUrls。
+     */
     private String[] buildRerankUrls(String baseUrl) {
         String normalized = StringUtils.removeEnd(baseUrl, "/");
         // Allow the provider to specify an exact endpoint when it differs from

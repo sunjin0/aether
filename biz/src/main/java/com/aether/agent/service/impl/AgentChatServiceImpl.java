@@ -79,7 +79,9 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final String INTERACTION_STATUS_ANSWERED = "answered";
     private static final int TOOL_CALL_STATUS_SUCCESS = 0;
     private static final int MAX_TOOL_CALL_ITERATIONS = 5; // 最大工具调用迭代次数
-    /** Keep one verbose MCP response from consuming the following model turn's context window. */
+    /**
+     * Keep one verbose MCP response from consuming the following model turn's context window.
+     */
     private static final int MAX_TOOL_CONTEXT_CHARS = 6000;
 
     private final AgentDefinitionService agentDefinitionService;
@@ -100,10 +102,15 @@ public class AgentChatServiceImpl implements AgentChatService {
     @Autowired(required = false)
     private SkillArtifactExecutionService artifactExecutionService;
 
-    /** 默认关闭，避免每轮聊天在主模型调用前额外等待一次同步模型重写。 */
+    /**
+     * 默认关闭，避免每轮聊天在主模型调用前额外等待一次同步模型重写。
+     */
     @Value("${agent.chat.query-rewrite.enabled:false}")
     private boolean queryRewriteEnabled;
 
+    /**
+     * 创建 {@code AgentChatServiceImpl} 实例。
+     */
     @Autowired
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
                                 ModelProviderService modelProviderService,
@@ -112,12 +119,12 @@ public class AgentChatServiceImpl implements AgentChatService {
                                 ChatRunService chatRunService,
                                 ModelClientFactory modelClientFactory,
                                 AgentToolWorkflow agentToolWorkflow,
-                                 KnowledgeContextService knowledgeContextService,
-                                 InteractionReplyService interactionReplyService,
-                                 ConversationContextService conversationContextService,
-                                 AdminPreferenceExtractionService adminPreferenceExtractionService,
-                                  QueryRewriteService queryRewriteService, SkillContextService skillContextService,
-                                  ModelCatalogService modelCatalogService) {
+                                KnowledgeContextService knowledgeContextService,
+                                InteractionReplyService interactionReplyService,
+                                ConversationContextService conversationContextService,
+                                AdminPreferenceExtractionService adminPreferenceExtractionService,
+                                QueryRewriteService queryRewriteService, SkillContextService skillContextService,
+                                ModelCatalogService modelCatalogService) {
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.modelCatalogService = modelCatalogService;
@@ -134,24 +141,29 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.skillContextService = skillContextService;
     }
 
-    /** 保持既有单元测试和非 Spring 手工构造调用兼容，运行时由完整构造器注入 Skill 服务。 */
+    /**
+     * 保持既有单元测试和非 Spring 手工构造调用兼容，运行时由完整构造器注入 Skill 服务。
+     */
     public AgentChatServiceImpl(AgentDefinitionService agentDefinitionService,
-                                 ModelProviderService modelProviderService,
-                                 AgentConversationService agentConversationService,
-                                 AgentMessageService agentMessageService,
-                                 ChatRunService chatRunService,
-                                 ModelClientFactory modelClientFactory,
-                                 AgentToolWorkflow agentToolWorkflow,
-                                 KnowledgeContextService knowledgeContextService,
-                                 InteractionReplyService interactionReplyService,
-                                 ConversationContextService conversationContextService,
-                                 AdminPreferenceExtractionService adminPreferenceExtractionService,
-                                 QueryRewriteService queryRewriteService) {
+                                ModelProviderService modelProviderService,
+                                AgentConversationService agentConversationService,
+                                AgentMessageService agentMessageService,
+                                ChatRunService chatRunService,
+                                ModelClientFactory modelClientFactory,
+                                AgentToolWorkflow agentToolWorkflow,
+                                KnowledgeContextService knowledgeContextService,
+                                InteractionReplyService interactionReplyService,
+                                ConversationContextService conversationContextService,
+                                AdminPreferenceExtractionService adminPreferenceExtractionService,
+                                QueryRewriteService queryRewriteService) {
         this(agentDefinitionService, modelProviderService, agentConversationService, agentMessageService, chatRunService,
                 modelClientFactory, agentToolWorkflow, knowledgeContextService, interactionReplyService,
                 conversationContextService, adminPreferenceExtractionService, queryRewriteService, null, null);
     }
 
+    /**
+     * 对话当前请求。
+     */
     @Override
     public AgentMessageVo chat(AgentChatDto dto) {
         validateRequest(dto);
@@ -192,13 +204,13 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (Boolean.TRUE.equals(dto.getInteractive())) {
                 modelResponse = retryAskUserWhenPlainQuestion(modelResponse, modelClient, request);
             }
-            
+
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
             if (!Boolean.TRUE.equals(agent.getDefaultThinking()) && StringUtils.isBlank(modelResponse.getToolCalls())) {
                 modelResponse.setReasoningContent(null);
                 modelResponse.setReasoningTokens(null);
             }
-            
+
             // 处理工具调用
             int iteration = 0;
             boolean toolCallAttempted = false;
@@ -236,17 +248,17 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
                 List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(modelResponse, agent, userId, runId, skillContext.getTools());
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
-                
+
                 addToolResultsToContext(context, modelResponse, toolResults);
                 enforceSkillBudget(context, agent, provider, skillContext);
                 chatRunService.updateSkillSnapshot(runId, skillContext.getSnapshot());
                 conversationContextService.enforceBudget(context, agent, provider);
-                
+
                 // 继续调用模型
                 request.setMessages(context);
                 modelResponse = modelClient.chat(request);
             }
-            
+
             long latencyMs = System.currentTimeMillis() - startTime;
             ToolAuthenticityCheck authenticityCheck = checkToolAuthenticity(modelResponse.getContent(), toolCallAttempted, toolCallSucceeded);
             if (!authenticityCheck.isValid()) {
@@ -302,6 +314,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 处理stream。
+     */
     @Override
     public void stream(AgentChatDto dto, AgentStreamCallback callback) {
         validateStreamRequest(dto);
@@ -372,20 +387,20 @@ public class AgentChatServiceImpl implements AgentChatService {
             long modelStreamStartedAt = System.currentTimeMillis();
             ModelStreamResponse modelResponse = modelClient.stream(request, streamCallback);
             recordModelStreamLatency(streamCallback, modelStreamStartedAt);
-            
+
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
             if (!thinkingEnabled && StringUtils.isBlank(modelResponse.getToolCalls())) {
                 modelResponse.setReasoningContent(null);
                 modelResponse.setReasoningTokens(null);
             }
             validateNonEmptyStreamResponse(modelResponse);
-            
+
             // 当模型未提供token统计时（如Google Gemma流式响应），补充估算值
             fillDefaultTokens(modelResponse, context, effectiveContent(rewrittenContent, dto.getMessage()));
-            
+
             log.info("流式请求完成: requestId={}, conversationId={}, total={}ms", dto.getRequestId(),
                     conversation.getId(), System.currentTimeMillis() - startTime);
-            
+
             // 处理工具调用循环
             int iteration = 0;
             boolean toolCallAttempted = false;
@@ -410,7 +425,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     boolean waitingUser = MESSAGE_TYPE_INTERACTION.equals(questionMessage.getMessageType());
                     updateRun(runId, questionMessage.getId(), chatResponse, latencyMs,
                             waitingUser ? RUN_STATUS_WAITING_USER : RUN_STATUS_SUCCESS, null);
-                    
+
                     if (!callback.isClosed()) {
                         ModelStreamResponse doneResponse = new ModelStreamResponse();
                         AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : questionMessage;
@@ -449,29 +464,29 @@ public class AgentChatServiceImpl implements AgentChatService {
                         System.currentTimeMillis() - toolExecutionStartedAt, toolResults.size());
                 ChatLatencyMetrics.record("chat.tool_execution", System.currentTimeMillis() - toolExecutionStartedAt);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
-                
+
                 addToolResultsToContext(context, chatResponse, toolResults);
                 enforceSkillBudget(context, agent, provider, skillContext);
                 chatRunService.updateSkillSnapshot(runId, skillContext.getSnapshot());
                 conversationContextService.enforceBudget(context, agent, provider);
-                
+
                 // 继续调用模型（流式）
                 request.setMessages(context);
                 streamCallback = createStreamCallback(callback, conversation.getId(), thinkingEnabled);
                 modelStreamStartedAt = System.currentTimeMillis();
                 modelResponse = modelClient.stream(request, streamCallback);
                 recordModelStreamLatency(streamCallback, modelStreamStartedAt);
-                
+
                 // 推理未开启时，过滤掉reasoning_content
                 if (!thinkingEnabled && StringUtils.isBlank(modelResponse.getToolCalls())) {
                     modelResponse.setReasoningContent(null);
                 }
                 validateNonEmptyStreamResponse(modelResponse);
-                
+
                 fillDefaultTokens(modelResponse, context, effectiveContent(rewrittenContent, dto.getMessage()));
                 chatResponse = toChatResponse(modelResponse);
             }
-            
+
             long latencyMs = System.currentTimeMillis() - startTime;
             ToolAuthenticityCheck authenticityCheck = checkToolAuthenticity(modelResponse.getContent(), toolCallAttempted, toolCallSucceeded);
             if (!authenticityCheck.isValid()) {
@@ -538,6 +553,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 处理streamReply。
+     */
     private void streamReply(AgentChatDto dto, AgentStreamCallback callback) {
         String userId = resolveUserId(dto.getUserId());
         long startTime = System.currentTimeMillis();
@@ -745,6 +763,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 获取OpenReply会话。
+     */
     private AgentConversation getOpenReplyConversation(String conversationId, String userId, boolean allowTemporary) {
         AgentConversation conversation = agentConversationService.getById(conversationId);
         if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
@@ -760,6 +781,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return conversation;
     }
 
+    /**
+     * 获取PendingInteraction。
+     */
     private AgentMessage getPendingInteraction(String conversationId, String parentMessageId) {
         AgentMessage question = agentMessageService.getOne(Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getId, parentMessageId)
@@ -778,12 +802,18 @@ public class AgentChatServiceImpl implements AgentChatService {
         return question;
     }
 
+    /**
+     * 校验Request。
+     */
     private void validateRequest(AgentChatDto dto) {
         if (dto == null || StringUtils.isBlank(dto.getAgentId()) || StringUtils.isBlank(dto.getMessage())) {
             throw new ServerException(400, I18nUtils.getMessage("agent.request.invalid"));
         }
     }
 
+    /**
+     * 校验StreamRequest。
+     */
     private void validateStreamRequest(AgentChatDto dto) {
         if (dto == null) {
             throw new ServerException(400, I18nUtils.getMessage("agent.request.invalid"));
@@ -799,10 +829,13 @@ public class AgentChatServiceImpl implements AgentChatService {
         validateRequest(dto);
     }
 
+    /**
+     * 判断是否为InteractionReplyRequest。
+     */
     private boolean isInteractionReplyRequest(AgentChatDto dto) {
         return dto != null && (
-            StringUtils.isNotBlank(dto.getParentMessageId())
-            || dto.getAnswer() != null
+                StringUtils.isNotBlank(dto.getParentMessageId())
+                        || dto.getAnswer() != null
         );
     }
 
@@ -822,6 +855,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 处理applyReplyThinking配置。
+     */
     private void applyReplyThinkingConfig(AgentChatDto dto, AgentDefinition agent) {
         agent.setDefaultThinking(Boolean.TRUE.equals(dto.getThinking()));
         if (StringUtils.isNotBlank(dto.getReasoningEffort())) {
@@ -833,12 +869,18 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 获取当前用户Id。
+     */
     private String getCurrentUserId(AgentChatDto dto) {
         // 优先使用DTO中传递的userId（适用于异步线程池场景）
         String userId = dto == null ? null : dto.getUserId();
         return resolveUserId(userId);
     }
 
+    /**
+     * 解析用户Id。
+     */
     private String resolveUserId(String userId) {
         // 如果DTO中没有，则从CurrentUser获取（适用于同步调用场景）
         if (StringUtils.isBlank(userId)) {
@@ -851,6 +893,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return userId;
     }
 
+    /**
+     * 获取Enabled智能体。
+     */
     @Override
     public AgentDefinition getEnabledAgent(String agentId) {
         AgentDefinition agent = agentDefinitionService.getById(agentId);
@@ -863,6 +908,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return agent;
     }
 
+    /**
+     * 获取EnabledProvider。
+     */
     private ModelProvider getEnabledProvider(AgentDefinition agent) {
         if (modelCatalogService == null || StringUtils.isBlank(agent.getModelId())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
@@ -870,6 +918,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return modelCatalogService.resolveProvider(agent.getModelId(), "CHAT,MULTIMODAL");
     }
 
+    /**
+     * 获取Or创建会话。
+     */
     private AgentConversation getOrCreateConversation(AgentChatDto dto, String userId, AgentDefinition agent) {
         if (StringUtils.isBlank(dto.getConversationId())) {
             AgentConversation conversation = new AgentConversation();
@@ -899,15 +950,24 @@ public class AgentChatServiceImpl implements AgentChatService {
         return conversation;
     }
 
+    /**
+     * 规范化ToolApprovalPolicy。
+     */
     private String normalizeToolApprovalPolicy(String policy) {
         return "risky".equals(policy) || "never".equals(policy) ? policy : "ask";
     }
 
+    /**
+     * 构建会话Title。
+     */
     private String buildConversationTitle(String message) {
         String title = StringUtils.defaultString(message).trim();
         return title.length() > 50 ? title.substring(0, 50) : title;
     }
 
+    /**
+     * 保存用户消息。
+     */
     private AgentMessage saveUserMessage(String conversationId, String content, String rewrittenContent,
                                          String attachmentContent, String attachments) {
         AgentMessage message = new AgentMessage();
@@ -919,13 +979,16 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setAttachmentContent(attachmentContent);
         message.setAttachments(attachments);
         agentMessageService.save(message);
-        
+
         // 更新缓存：添加用户消息
         updateContextCache(conversationId, new ModelChatMessage("user", effectiveContent(rewrittenContent, content)));
-        
+
         return message;
     }
 
+    /**
+     * 保存Answer消息。
+     */
     private AgentMessage saveAnswerMessage(String conversationId, String parentMessageId, String content) {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
@@ -939,6 +1002,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return message;
     }
 
+    /**
+     * 处理rewrite用户消息。
+     */
     private String rewriteUserMessage(String conversationId, String originalContent,
                                       AgentDefinition agent, ModelProvider provider) {
         if (!queryRewriteEnabled) {
@@ -953,10 +1019,16 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 处理effectiveContent。
+     */
     private String effectiveContent(String rewrittenContent, String originalContent) {
         return StringUtils.defaultIfBlank(rewrittenContent, originalContent);
     }
 
+    /**
+     * 处理markInteraction状态。
+     */
     private void markInteractionStatus(String messageId, String status, Long answeredAt) {
         AgentMessage update = new AgentMessage();
         update.setId(messageId);
@@ -967,6 +1039,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         agentMessageService.updateById(update);
     }
 
+    /**
+     * 处理markInteractionAnswered。
+     */
     private void markInteractionAnswered(AgentMessage question, Map<String, Object> answer, Long answeredAt) {
         AgentMessage update = new AgentMessage();
         update.setId(question.getId());
@@ -976,6 +1051,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         agentMessageService.updateById(update);
     }
 
+    /**
+     * 保存Assistant消息。
+     */
     private AgentMessage saveAssistantMessage(String conversationId, ModelChatResponse modelResponse, long latencyMs) {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
@@ -994,13 +1072,16 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
         message.setLatencyMs((int) latencyMs);
         agentMessageService.save(message);
-        
+
         // 更新缓存：添加助手消息
         updateContextCache(conversationId, new ModelChatMessage("assistant", modelResponse.getContent()));
-        
+
         return message;
     }
 
+    /**
+     * 保存Assistant消息。
+     */
     private AgentMessage saveAssistantMessage(String conversationId, ModelStreamResponse modelResponse, long latencyMs) {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
@@ -1019,13 +1100,16 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
         message.setLatencyMs((int) latencyMs);
         agentMessageService.save(message);
-        
+
         // 更新缓存：添加助手消息
         updateContextCache(conversationId, new ModelChatMessage("assistant", modelResponse.getContent()));
-        
+
         return message;
     }
 
+    /**
+     * 保存AssistantPreludeIfPresent。
+     */
     private AgentMessage saveAssistantPreludeIfPresent(String conversationId, ModelChatResponse response, long latencyMs) {
         if (response == null || StringUtils.isBlank(response.getContent())) {
             return null;
@@ -1041,6 +1125,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return saveAssistantMessage(conversationId, prelude, latencyMs);
     }
 
+    /**
+     * 处理to对话Response。
+     */
     private ModelChatResponse toChatResponse(ModelStreamResponse streamResponse) {
         ModelChatResponse response = new ModelChatResponse();
         if (streamResponse != null) {
@@ -1057,6 +1144,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return response;
     }
 
+    /**
+     * 校验NonEmptyStreamResponse。
+     */
     private void validateNonEmptyStreamResponse(ModelStreamResponse response) {
         if (response == null || (StringUtils.isBlank(response.getContent())
                 && StringUtils.isBlank(response.getReasoningContent())
@@ -1065,13 +1155,18 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
-    /** 创建实时转发回调，保持流式消息的即时展示。 */
+    /**
+     * 创建实时转发回调，保持流式消息的即时展示。
+     */
     private ForwardingStreamCallback createStreamCallback(final AgentStreamCallback callback,
                                                           final String conversationId,
                                                           final boolean thinkingEnabled) {
         return new ForwardingStreamCallback(callback, conversationId, thinkingEnabled);
     }
 
+    /**
+     * 表示ForwardingStream回调。
+     */
     private static class ForwardingStreamCallback implements ModelStreamCallback {
         private final AgentStreamCallback callback;
         private final String conversationId;
@@ -1080,6 +1175,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         private boolean firstMessageLogged;
         private long firstMessageAt;
 
+        /**
+         * 创建 {@code ForwardingStreamCallback} 实例。
+         */
         private ForwardingStreamCallback(AgentStreamCallback callback, String conversationId, boolean thinkingEnabled) {
             this.callback = callback;
             this.conversationId = conversationId;
@@ -1087,6 +1185,9 @@ public class AgentChatServiceImpl implements AgentChatService {
             this.modelRequestStartedAt = System.currentTimeMillis();
         }
 
+        /**
+         * 处理on消息。
+         */
         @Override
         public void onMessage(String chunk) {
             if (!firstMessageLogged) {
@@ -1101,6 +1202,9 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
         }
 
+        /**
+         * 处理onReasoning。
+         */
         @Override
         public void onReasoning(String chunk) {
             if (thinkingEnabled && !callback.isClosed()) {
@@ -1108,6 +1212,9 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
         }
 
+        /**
+         * 处理onToolCall。
+         */
         @Override
         public void onToolCall(String toolCallJson) {
             if (!callback.isClosed()) {
@@ -1115,17 +1222,26 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
         }
 
+        /**
+         * 判断是否为Closed。
+         */
         @Override
         public boolean isClosed() {
             return callback.isClosed();
         }
 
+        /**
+         * 获取First消息At。
+         */
         private long getFirstMessageAt() {
             return firstMessageAt;
         }
 
     }
 
+    /**
+     * 更新会话消息统计。
+     */
     private void updateConversationMessageCount(String conversationId) {
         AgentConversation update = new AgentConversation();
         update.setId(conversationId);
@@ -1135,19 +1251,27 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .setSql("message_count = message_count + 1"));
     }
 
+    /**
+     * 保存Failed运行。
+     */
     private void saveFailedRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                                String messageId, String input, long latencyMs, RuntimeException e) {
         chatRunService.saveFailure(agent, provider, userId, conversationId, messageId, input, latencyMs, e);
     }
 
+    /**
+     * 保存运行。
+     */
     private String saveRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
-                         String messageId, String input, ModelChatResponse response, long latencyMs,
-                         Integer status, String errorMsg) {
+                           String messageId, String input, ModelChatResponse response, long latencyMs,
+                           Integer status, String errorMsg) {
         return chatRunService.create(agent, provider, userId, conversationId, messageId, input,
                 response, latencyMs, status, errorMsg);
     }
 
-    /** Persist exactly the prompt context provided to the model, without provider credentials. */
+    /**
+     * Persist exactly the prompt context provided to the model, without provider credentials.
+     */
     private String modelInputSnapshot(ModelChatRequest request) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("model", StringUtils.defaultIfBlank(request.getModel(), request.getAgent() == null ? null : request.getAgent().getModel()));
@@ -1162,6 +1286,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return JSON.toJSONString(snapshot);
     }
 
+    /**
+     * 处理record模型StreamLatency。
+     */
     private void recordModelStreamLatency(ForwardingStreamCallback callback, long startedAt) {
         long completedAt = System.currentTimeMillis();
         ChatLatencyMetrics.record("chat.model_stream", completedAt - startedAt);
@@ -1170,6 +1297,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 保存运行。
+     */
     private String saveRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                            String messageId, String input, ModelChatResponse response, long latencyMs,
                            Integer status, String errorMsg, String skillSnapshot) {
@@ -1177,6 +1307,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                 response, latencyMs, status, errorMsg, snapshotWithToolApprovalPolicy(conversationId, skillSnapshot));
     }
 
+    /**
+     * 处理snapshotWithToolApprovalPolicy。
+     */
     private String snapshotWithToolApprovalPolicy(String conversationId, String skillSnapshot) {
         JSONObject snapshot = StringUtils.isBlank(skillSnapshot) ? new JSONObject() : JSONObject.parseObject(skillSnapshot);
         AgentConversation conversation = agentConversationService.getById(conversationId);
@@ -1185,18 +1318,26 @@ public class AgentChatServiceImpl implements AgentChatService {
         return snapshot.toJSONString();
     }
 
+    /**
+     * 更新运行。
+     */
     private void updateRun(String runId, String messageId, ModelChatResponse response, long latencyMs,
                            Integer status, String errorMsg) {
         chatRunService.update(runId, messageId, response, latencyMs, status, errorMsg);
     }
 
-    /** Reconciles files that finished while the Agent was still generating its final reply. */
+    /**
+     * Reconciles files that finished while the Agent was still generating its final reply.
+     */
     private void attachPendingArtifacts(String runId, String messageId) {
         if (artifactExecutionService != null && StringUtils.isNoneBlank(runId, messageId)) {
             artifactExecutionService.attachPendingArtifacts(runId, messageId);
         }
     }
 
+    /**
+     * 处理truncate。
+     */
     private String truncate(String value, int maxLength) {
         if (value == null || value.length() <= maxLength) {
             return value;
@@ -1204,6 +1345,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return value.substring(0, maxLength);
     }
 
+    /**
+     * 解析ErrorCode。
+     */
     private int resolveErrorCode(RuntimeException e) {
         String message = e.getMessage();
         if (StringUtils.isNotBlank(message) && message.indexOf(':') > 0) {
@@ -1215,6 +1359,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return 500;
     }
 
+    /**
+     * 解析Error消息。
+     */
     private String resolveErrorMessage(RuntimeException e) {
         String message = e.getMessage();
         if (StringUtils.isNotBlank(message) && message.indexOf(':') > 0) {
@@ -1231,20 +1378,20 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (response == null) {
             return;
         }
-        
+
         // 如果已经有token统计，则不需要处理
         if (response.getPromptTokens() != null || response.getCompletionTokens() != null || response.getTotalTokens() != null) {
             return;
         }
-        
+
         // 估算prompt tokens（基于完整context：system prompt + 历史消息/摘要 + 当前消息）
         int promptTokens = conversationContextService.estimateContextTokens(context);
         response.setPromptTokens(promptTokens);
-        
+
         // 估算completion tokens（基于输出内容）
         int completionTokens = conversationContextService.estimateTokens(response.getContent());
         response.setCompletionTokens(completionTokens);
-        
+
         // 设置total tokens
         response.setTotalTokens(promptTokens + completionTokens);
     }
@@ -1261,19 +1408,24 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 构建带摘要的对话上下文。
      * 当对话超过阈值时，使用摘要+最近消息的模式。
      */
-    private List<ModelChatMessage> buildContextWithSummary(AgentDefinition agent, ModelProvider provider, 
+    private List<ModelChatMessage> buildContextWithSummary(AgentDefinition agent, ModelProvider provider,
                                                            String conversationId) {
         return conversationContextService.buildWithSummary(agent, provider, conversationId);
     }
 
-    /** 用冻结后的 Skill 指令替换历史中的 Agent 系统提示词，避免同一请求出现两套策略。 */
+    /**
+     * 用冻结后的 Skill 指令替换历史中的 Agent 系统提示词，避免同一请求出现两套策略。
+     */
     private void applySkillPrompt(List<ModelChatMessage> context, SkillRuntimeContext skillContext) {
         if (context == null || skillContext == null || !skillContext.isInstalled()) return;
-        if (!context.isEmpty() && "system".equals(context.get(0).getRole())) context.set(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
+        if (!context.isEmpty() && "system".equals(context.get(0).getRole()))
+            context.set(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
         else context.add(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
     }
 
-    /** Skill 已装配时，先拒绝超预算请求，再执行普通历史上下文裁剪，确保 Skill 指令不被截断。 */
+    /**
+     * Skill 已装配时，先拒绝超预算请求，再执行普通历史上下文裁剪，确保 Skill 指令不被截断。
+     */
     private void enforceSkillBudget(List<ModelChatMessage> context, AgentDefinition agent,
                                     ModelProvider provider, SkillRuntimeContext skillContext) {
         if (skillContext == null || !skillContext.isInstalled()) return;
@@ -1286,6 +1438,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 解析SkillContext。
+     */
     private SkillRuntimeContext resolveSkillContext(AgentDefinition agent, AgentChatDto dto, String routingQuery, ModelProvider provider) {
         if (skillContextService != null) return skillContextService.resolve(agent, dto, routingQuery, provider);
         SkillRuntimeContext context = new SkillRuntimeContext();
@@ -1312,6 +1467,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 判断是否拥有SuccessfulTool结果。
+     */
     private boolean hasSuccessfulToolResult(List<ToolExecutionResult> toolResults) {
         if (toolResults == null || toolResults.isEmpty()) {
             return false;
@@ -1324,6 +1482,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return false;
     }
 
+    /**
+     * 新增ToolResultsToContext。
+     */
     private void addToolResultsToContext(List<ModelChatMessage> context,
                                          ModelChatResponse response,
                                          List<ToolExecutionResult> toolResults) {
@@ -1351,6 +1512,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 处理compactToolContext。
+     */
     private String compactToolContext(String content) {
         if (StringUtils.length(content) <= MAX_TOOL_CONTEXT_CHARS) {
             return content;
@@ -1364,6 +1528,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                 + content.substring(content.length() - tailLength);
     }
 
+    /**
+     * 解析ToolName按CallId。
+     */
     private Map<String, String> parseToolNameByCallId(String toolCallsJson) {
         Map<String, String> result = new HashMap<>();
         if (StringUtils.isBlank(toolCallsJson)) {
@@ -1388,6 +1555,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return result;
     }
 
+    /**
+     * 构建Tool重试Instruction。
+     */
     private String buildToolRetryInstruction(String toolName, ToolExecutionResult result) {
         String error = StringUtils.defaultIfBlank(result.getErrorMsg(), result.getContent());
         if (StringUtils.isBlank(error)) {
@@ -1401,19 +1571,25 @@ public class AgentChatServiceImpl implements AgentChatService {
                 + "不要直接编造工具结果；如果无法修复参数，请向用户说明需要补充哪些信息。";
     }
 
+    /**
+     * 处理extract管理员偏好Async。
+     */
     private void extractAdminPreferenceAsync(String userId,
-                                            String conversationId,
-                                            AgentMessage userMessage,
-                                            AgentMessage assistantMessage,
-                                            AgentDefinition agent,
-                                            ModelProvider provider) {
+                                             String conversationId,
+                                             AgentMessage userMessage,
+                                             AgentMessage assistantMessage,
+                                             AgentDefinition agent,
+                                             ModelProvider provider) {
         adminPreferenceExtractionService.extractAsync(userId, conversationId, userMessage, assistantMessage, agent, provider);
     }
 
 
+    /**
+     * 重试Ask用户WhenPlainQuestion。
+     */
     private ModelChatResponse retryAskUserWhenPlainQuestion(ModelChatResponse response,
-                                                             ModelClient modelClient,
-                                                             ModelChatRequest request) {
+                                                            ModelClient modelClient,
+                                                            ModelChatRequest request) {
         if (response == null || hasToolCalls(response) || !looksLikeUserQuestion(response.getContent())) {
             return response;
         }
@@ -1426,6 +1602,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 处理looksLike用户Question。
+     */
     private boolean looksLikeUserQuestion(String content) {
         if (StringUtils.isBlank(content)) {
             return false;
@@ -1450,6 +1629,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                 || text.contains("请填写");
     }
 
+    /**
+     * 处理InternalToolCall。
+     */
     private ToolResult handleInternalToolCall(String conversationId, ModelChatResponse response, long latencyMs) {
         try {
             ToolResult result = agentToolWorkflow.executeInternalCall(conversationId, response);
@@ -1466,10 +1648,16 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
+    /**
+     * 判断是否拥有InternalToolCall。
+     */
     private boolean hasInternalToolCall(ModelChatResponse response) {
         return agentToolWorkflow.hasInternalCall(response);
     }
 
+    /**
+     * 检查ToolAuthenticity。
+     */
     private ToolAuthenticityCheck checkToolAuthenticity(String content, boolean toolCallAttempted, boolean toolCallSucceeded) {
         if (toolCallAttempted && !toolCallSucceeded) {
             return ToolAuthenticityCheck.invalid("工具调用已触发但没有成功执行记录");
@@ -1510,7 +1698,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
-    /** 将非流式重试结果写回流式最终响应，保留已收集的引用来源。 */
+    /**
+     * 将非流式重试结果写回流式最终响应，保留已收集的引用来源。
+     */
     private ModelStreamResponse toStreamResponse(ModelChatResponse retryResponse, ModelStreamResponse streamResponse) {
         streamResponse.setContent(retryResponse.getContent());
         streamResponse.setModel(retryResponse.getModel());
@@ -1521,12 +1711,15 @@ public class AgentChatServiceImpl implements AgentChatService {
         return streamResponse;
     }
 
+    /**
+     * 处理claimsToolBacked结果。
+     */
     private boolean claimsToolBackedResult(String content) {
         if (StringUtils.isBlank(content)) {
             return false;
         }
         String normalized = content.toLowerCase();
-        String[] explicitClaims = new String[] {
+        String[] explicitClaims = new String[]{
                 "已调用工具",
                 "调用了工具",
                 "工具返回",
@@ -1557,6 +1750,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return false;
     }
 
+    /**
+     * 构建ToolAuthenticityFallback。
+     */
     private String buildToolAuthenticityFallback(ToolAuthenticityCheck check) {
         return "工具调用未获得可信结果，已阻止生成可能不准确的工具结果。"
                 + "请稍后重试，或检查工具配置。原因：" + check.getReason();
@@ -1570,23 +1766,38 @@ public class AgentChatServiceImpl implements AgentChatService {
         private final boolean valid;
         private final String reason;
 
+        /**
+         * 创建 {@code ToolAuthenticityCheck} 实例。
+         */
         private ToolAuthenticityCheck(boolean valid, String reason) {
             this.valid = valid;
             this.reason = reason;
         }
 
+        /**
+         * 处理valid。
+         */
         static ToolAuthenticityCheck valid() {
             return new ToolAuthenticityCheck(true, null);
         }
 
+        /**
+         * 处理invalid。
+         */
         static ToolAuthenticityCheck invalid(String reason) {
             return new ToolAuthenticityCheck(false, reason);
         }
 
+        /**
+         * 判断是否为Valid。
+         */
         boolean isValid() {
             return valid;
         }
 
+        /**
+         * 获取Reason。
+         */
         String getReason() {
             return reason;
         }

@@ -8,18 +8,31 @@ import com.aether.knowledge.service.KnowledgeRetrievalEvaluationService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * 实现知识库RetrievalEvaluation业务服务。
+ */
 @Service
 /** 执行离线检索评测，不调用回答生成模型。 */
 public class KnowledgeRetrievalEvaluationServiceImpl implements KnowledgeRetrievalEvaluationService {
     private final KnowledgeRetrievalService retrievalService;
-    /** 评测复用线上检索服务，保证离线指标与真实业务链路一致。 */
-    public KnowledgeRetrievalEvaluationServiceImpl(KnowledgeRetrievalService retrievalService) { this.retrievalService = retrievalService; }
+
+    /**
+     * 评测复用线上检索服务，保证离线指标与真实业务链路一致。
+     */
+    public KnowledgeRetrievalEvaluationServiceImpl(KnowledgeRetrievalService retrievalService) {
+        this.retrievalService = retrievalService;
+    }
+
+    /**
+     * 处理evaluate。
+     */
     @Override
     /** 批量检索评测问题并计算总体平均指标。 */
     public KnowledgeRetrievalEvaluationReport evaluate(String agentDefinitionId, List<KnowledgeRetrievalEvaluationCase> cases) {
@@ -38,17 +51,28 @@ public class KnowledgeRetrievalEvaluationServiceImpl implements KnowledgeRetriev
                 KnowledgeRetrievalMetrics.Result metrics = KnowledgeRetrievalMetrics.evaluate(
                         new HashSet<String>(item.getExpectedChunkIds() == null ? Collections.<String>emptyList() : item.getExpectedChunkIds()),
                         retrieved, Collections.<String>emptySet(), false, item.getTargetType());
-                outcome.setStatus("EVALUATED"); outcome.setRetrievedChunkIds(new ArrayList<String>(retrieved));
-                outcome.setRecallAtK(metrics.getRecallAtK()); outcome.setMrr(metrics.getMrr()); outcome.setNdcg(metrics.getNdcg());
-                recall += metrics.getRecallAtK(); mrr += metrics.getMrr(); ndcg += metrics.getNdcg();
+                outcome.setStatus("EVALUATED");
+                outcome.setRetrievedChunkIds(new ArrayList<String>(retrieved));
+                outcome.setRecallAtK(metrics.getRecallAtK());
+                outcome.setMrr(metrics.getMrr());
+                outcome.setNdcg(metrics.getNdcg());
+                recall += metrics.getRecallAtK();
+                mrr += metrics.getMrr();
+                ndcg += metrics.getNdcg();
             } catch (Exception exception) {
-                outcome.setStatus("RETRIEVAL_ERROR"); outcome.setErrorCode("RETRIEVAL_FAILED");
-                outcome.setErrorMessage(StringUtils.abbreviate(exception.getMessage(), 500)); report.setFailedCount(report.getFailedCount() + 1);
+                outcome.setStatus("RETRIEVAL_ERROR");
+                outcome.setErrorCode("RETRIEVAL_FAILED");
+                outcome.setErrorMessage(StringUtils.abbreviate(exception.getMessage(), 500));
+                report.setFailedCount(report.getFailedCount() + 1);
             }
             report.getItems().add(outcome);
         }
         report.setTotal(report.getItems().size() - report.getFailedCount());
-        if (report.getTotal() > 0) { report.setRecallAtK(recall / report.getTotal()); report.setMrr(mrr / report.getTotal()); report.setNdcg(ndcg / report.getTotal()); }
+        if (report.getTotal() > 0) {
+            report.setRecallAtK(recall / report.getTotal());
+            report.setMrr(mrr / report.getTotal());
+            report.setNdcg(ndcg / report.getTotal());
+        }
         return report;
     }
 }

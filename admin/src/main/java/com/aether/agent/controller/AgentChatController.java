@@ -100,17 +100,22 @@ public class AgentChatController {
     private final SkillContextService skillContextService;
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
-    /** Bounded SSE worker pool: a cached pool can otherwise exhaust native memory under slow clients. */
+    /**
+     * Bounded SSE worker pool: a cached pool can otherwise exhaust native memory under slow clients.
+     */
     private final ThreadPoolExecutor streamExecutor = new ThreadPoolExecutor(4, 32, 60L, TimeUnit.SECONDS,
             new LinkedBlockingQueue<Runnable>(200), new ThreadPoolExecutor.AbortPolicy());
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
 
+    /**
+     * 创建 {@code AgentChatController} 实例。
+     */
     @Autowired
     public AgentChatController(AgentChatService agentChatService, AgentConversationService agentConversationService,
                                AgentMessageService agentMessageService, ChatAttachmentService chatAttachmentService,
                                AgentDefinitionService agentDefinitionService, DeepAgentRunService deepAgentRunService,
                                DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
-                                DeepAgentConfig deepAgentConfig, SkillContextService skillContextService, ModelProviderService modelProviderService, ModelCatalogService modelCatalogService) {
+                               DeepAgentConfig deepAgentConfig, SkillContextService skillContextService, ModelProviderService modelProviderService, ModelCatalogService modelCatalogService) {
         this.agentChatService = agentChatService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
@@ -125,7 +130,9 @@ public class AgentChatController {
         this.modelCatalogService = modelCatalogService;
     }
 
-    /** 兼容既有控制器单元测试；生产环境始终使用注入 Skill 上下文服务的完整构造器。 */
+    /**
+     * 兼容既有控制器单元测试；生产环境始终使用注入 Skill 上下文服务的完整构造器。
+     */
     public AgentChatController(AgentChatService agentChatService, AgentConversationService agentConversationService,
                                AgentMessageService agentMessageService, ChatAttachmentService chatAttachmentService,
                                AgentDefinitionService agentDefinitionService, DeepAgentRunService deepAgentRunService,
@@ -135,7 +142,9 @@ public class AgentChatController {
                 deepAgentRunService, deepAgentCallbackController, knowledgeContextService, deepAgentConfig, null, null, null);
     }
 
-    /** 无 Skill 上下文服务时退回 Agent 原生系统提示词的缺省上下文，保证单元测试链路可用。 */
+    /**
+     * 无 Skill 上下文服务时退回 Agent 原生系统提示词的缺省上下文，保证单元测试链路可用。
+     */
     private SkillRuntimeContext defaultSkillContext(AgentDefinition agent) {
         SkillRuntimeContext context = new SkillRuntimeContext();
         context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt()));
@@ -143,6 +152,9 @@ public class AgentChatController {
         return context;
     }
 
+    /**
+     * 对话当前请求。
+     */
     @ApiOperation("非流式聊天（兼容接口，已弃用；新调用请使用 /api/agent/chat/stream）")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -159,6 +171,9 @@ public class AgentChatController {
         return WebResponse.OK(agentChatService.chat(dto));
     }
 
+    /**
+     * 上传Attachments。
+     */
     @ApiOperation("上传并识别聊天附件")
     @PostMapping(value = "/attachment", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public WebResponse<List<AgentChatAttachmentVo>> uploadAttachments(@RequestParam("files") List<MultipartFile> files) {
@@ -178,6 +193,9 @@ public class AgentChatController {
         return WebResponse.OK(I18nUtils.getMessage("agent.chat.attachments.upload.success"), attachments);
     }
 
+    /**
+     * 流式聊天。
+     */
     @ApiOperation("流式聊天")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -198,12 +216,15 @@ public class AgentChatController {
         return openStream(dto, response);
     }
 
-    /** 与普通 Agent 共用 stream + parentMessageId 交互回复协议，恢复同一 Deep 运行。 */
+    /**
+     * 与普通 Agent 共用 stream + parentMessageId 交互回复协议，恢复同一 Deep 运行。
+     */
     private SseEmitter resumeDeep(AgentChatDto dto, HttpServletResponse response, AgentDefinition agent) {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         if (StringUtils.isBlank(userId)) throw new ServerException(401, I18nUtils.getMessage("agent.unauthorized"));
         AgentConversation conversation = getDeepConversation(dto.getConversationId(), userId, agent);
-        if (conversation == null) throw new ServerException(422, I18nUtils.getMessage("agent.deep.tool.confirmation.conversation.required"));
+        if (conversation == null)
+            throw new ServerException(422, I18nUtils.getMessage("agent.deep.tool.confirmation.conversation.required"));
         response.setHeader("Cache-Control", "no-cache, no-transform");
         response.setHeader("Connection", "keep-alive");
         SseEmitter emitter = new SseEmitter(deepStreamTimeoutMs());
@@ -223,6 +244,9 @@ public class AgentChatController {
         return emitter;
     }
 
+    /**
+     * 处理openStream。
+     */
     private SseEmitter openStream(AgentChatDto dto, HttpServletResponse response) {
         // 在主线程中提前获取userId，避免在线程池新线程中无法获取ThreadLocal中的用户信息
         String userId = CurrentUser.getUser() != null ? CurrentUser.getUser().get("userId") : null;
@@ -232,7 +256,7 @@ public class AgentChatController {
         response.setHeader("Cache-Control", "no-cache, no-transform");
         response.setHeader("Connection", "keep-alive");
         response.setHeader("X-Accel-Buffering", "no");
-        
+
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
         AtomicBoolean closed = new AtomicBoolean(false);
         emitter.onCompletion(() -> closed.set(true));
@@ -263,39 +287,39 @@ public class AgentChatController {
         final long enqueuedAt = System.currentTimeMillis();
         try {
             streamExecutor.execute(() -> {
-            long queueWaitMs = System.currentTimeMillis() - enqueuedAt;
-            if (queueWaitMs > 0) {
-                ChatLatencyMetrics.record("chat.stream.queue_wait", queueWaitMs);
-                log.info("流式聊天任务开始: queueWait={}ms, active={}, queued={}", queueWaitMs,
-                        streamExecutor.getActiveCount(), streamExecutor.getQueue().size());
-            }
-            if (streamExecutor.getActiveCount() >= STREAM_ACTIVE_WARNING_THRESHOLD
-                    || streamExecutor.getQueue().size() >= STREAM_QUEUE_WARNING_THRESHOLD) {
-                log.warn("流式聊天容量接近饱和: active={}, queued={}, poolSize={}",
-                        streamExecutor.getActiveCount(), streamExecutor.getQueue().size(), streamExecutor.getPoolSize());
-            }
-            try {
-                dto.setUserId(userId);
-                MDC.put("chatRequestId", dto.getRequestId());
-                agentChatService.stream(dto, new SseAgentStreamCallback(emitter, closed, dto.getRequestId(), heartbeatScheduler));
-            } catch (Exception e) {
-                log.error("流式聊天异常", e);
-                if (!closed.get()) {
-                    try {
-                        JSONObject errorData = new JSONObject();
-                        errorData.put("code", 500);
-                        errorData.put("message", I18nUtils.getMessage("agent.stream.failed"));
-                        emitter.send(SseEmitter.event().name("error").data(errorData.toJSONString()));
-                        closed.set(true);
-                        emitter.complete();
-                    } catch (IOException ignored) {
-                        closed.set(true);
-                    }
+                long queueWaitMs = System.currentTimeMillis() - enqueuedAt;
+                if (queueWaitMs > 0) {
+                    ChatLatencyMetrics.record("chat.stream.queue_wait", queueWaitMs);
+                    log.info("流式聊天任务开始: queueWait={}ms, active={}, queued={}", queueWaitMs,
+                            streamExecutor.getActiveCount(), streamExecutor.getQueue().size());
                 }
-            } finally {
-                MDC.remove("chatRequestId");
-                heartbeatTask.cancel(false);
-            }
+                if (streamExecutor.getActiveCount() >= STREAM_ACTIVE_WARNING_THRESHOLD
+                        || streamExecutor.getQueue().size() >= STREAM_QUEUE_WARNING_THRESHOLD) {
+                    log.warn("流式聊天容量接近饱和: active={}, queued={}, poolSize={}",
+                            streamExecutor.getActiveCount(), streamExecutor.getQueue().size(), streamExecutor.getPoolSize());
+                }
+                try {
+                    dto.setUserId(userId);
+                    MDC.put("chatRequestId", dto.getRequestId());
+                    agentChatService.stream(dto, new SseAgentStreamCallback(emitter, closed, dto.getRequestId(), heartbeatScheduler));
+                } catch (Exception e) {
+                    log.error("流式聊天异常", e);
+                    if (!closed.get()) {
+                        try {
+                            JSONObject errorData = new JSONObject();
+                            errorData.put("code", 500);
+                            errorData.put("message", I18nUtils.getMessage("agent.stream.failed"));
+                            emitter.send(SseEmitter.event().name("error").data(errorData.toJSONString()));
+                            closed.set(true);
+                            emitter.complete();
+                        } catch (IOException ignored) {
+                            closed.set(true);
+                        }
+                    }
+                } finally {
+                    MDC.remove("chatRequestId");
+                    heartbeatTask.cancel(false);
+                }
             });
         } catch (RejectedExecutionException e) {
             heartbeatTask.cancel(false);
@@ -318,6 +342,9 @@ public class AgentChatController {
         return emitter;
     }
 
+    /**
+     * 会话列表。
+     */
     @ApiOperation("会话列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -341,6 +368,10 @@ public class AgentChatController {
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
     }
+
+    /**
+     * 查询会话消息。
+     */
     @ApiOperation("查询会话消息")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -370,6 +401,9 @@ public class AgentChatController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 表示Sse智能体Stream回调。
+     */
     private static class SseAgentStreamCallback implements AgentStreamCallback {
 
         private static final long MESSAGE_COALESCE_MS = 40L;
@@ -385,6 +419,9 @@ public class AgentChatController {
         private boolean firstMessage = true;
         private String lastConversationId;
 
+        /**
+         * 创建 {@code SseAgentStreamCallback} 实例。
+         */
         private SseAgentStreamCallback(SseEmitter emitter, AtomicBoolean closed, String requestId,
                                        ScheduledExecutorService scheduler) {
             this.emitter = emitter;
@@ -393,6 +430,9 @@ public class AgentChatController {
             this.scheduler = scheduler;
         }
 
+        /**
+         * 处理on消息。
+         */
         @Override
         public void onMessage(String conversationId, String chunk) {
             if (StringUtils.isEmpty(chunk) || closed.get()) {
@@ -418,6 +458,9 @@ public class AgentChatController {
             }
         }
 
+        /**
+         * 发送消息。
+         */
         private void sendMessage(String conversationId, String chunk) {
             JSONObject data = new JSONObject();
             data.put("chunk", chunk);
@@ -427,6 +470,9 @@ public class AgentChatController {
             send("message", data, false);
         }
 
+        /**
+         * 处理flushPending消息。
+         */
         private void flushPendingMessage(String conversationId) {
             if (pendingMessage.length() == 0) {
                 return;
@@ -440,6 +486,9 @@ public class AgentChatController {
             sendMessage(conversationId, chunk);
         }
 
+        /**
+         * 处理onReasoning。
+         */
         @Override
         public void onReasoning(String conversationId, String chunk) {
             synchronized (messageLock) {
@@ -452,6 +501,9 @@ public class AgentChatController {
             send("reasoning", data, false);
         }
 
+        /**
+         * 处理onToolCall。
+         */
         @Override
         public void onToolCall(String conversationId, String toolCallJson) {
             synchronized (messageLock) {
@@ -464,6 +516,9 @@ public class AgentChatController {
             send("tool_call", data, false);
         }
 
+        /**
+         * 处理onQuestion。
+         */
         @Override
         public void onQuestion(String conversationId, String runId, AgentMessageVo question) {
             synchronized (messageLock) {
@@ -482,6 +537,9 @@ public class AgentChatController {
             send("question", data, false);
         }
 
+        /**
+         * 处理onDone。
+         */
         @Override
         public void onDone(String conversationId, String messageId, ModelStreamResponse response) {
             synchronized (messageLock) {
@@ -506,6 +564,9 @@ public class AgentChatController {
             send("done", data, true);
         }
 
+        /**
+         * 处理onError。
+         */
         @Override
         public void onError(int code, String message) {
             synchronized (messageLock) {
@@ -525,11 +586,17 @@ public class AgentChatController {
             send("error", data, true);
         }
 
+        /**
+         * 判断是否为Closed。
+         */
         @Override
         public boolean isClosed() {
             return closed.get();
         }
 
+        /**
+         * 处理on状态。
+         */
         @Override
         public void onStatus(String stage, String message) {
             JSONObject data = new JSONObject();
@@ -539,6 +606,9 @@ public class AgentChatController {
             send("status", data, false);
         }
 
+        /**
+         * 发送当前请求。
+         */
         private void send(String eventName, JSONObject data, boolean complete) {
             if (closed.get()) {
                 return;
@@ -556,6 +626,9 @@ public class AgentChatController {
         }
     }
 
+    /**
+     * 处理streamDeep。
+     */
     private SseEmitter streamDeep(AgentChatDto dto, HttpServletResponse response, AgentDefinition agent) {
         String userId = CurrentUser.getUser() != null ? CurrentUser.getUser().get("userId") : null;
         if (StringUtils.isBlank(userId)) {
@@ -579,159 +652,218 @@ public class AgentChatController {
             if (runId != null) deepAgentCallbackController.removeCallback(runId);
         };
         emitter.onCompletion(cleanup);
-        emitter.onTimeout(() -> { cleanup.run(); emitter.complete(); });
+        emitter.onTimeout(() -> {
+            cleanup.run();
+            emitter.complete();
+        });
         emitter.onError(error -> cleanup.run());
 
-        try { emitter.send(SseEmitter.event().comment("connected")); }
-        catch (IOException e) { closed.set(true); }
+        try {
+            emitter.send(SseEmitter.event().comment("connected"));
+        } catch (IOException e) {
+            closed.set(true);
+        }
 
         heartbeatRef.set(heartbeatScheduler.scheduleAtFixedRate(() -> {
             if (closed.get()) return;
-            try { emitter.send(SseEmitter.event().comment("heartbeat")); }
-            catch (Exception e) { cleanup.run(); }
+            try {
+                emitter.send(SseEmitter.event().comment("heartbeat"));
+            } catch (Exception e) {
+                cleanup.run();
+            }
         }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS));
         if (closed.get()) cleanup.run();
 
         try {
             streamExecutor.execute(() -> {
-            try {
-                AgentConversation conversation;
-                if (existingConversation != null) {
-                    conversation = existingConversation;
-                } else {
-                    conversation = new AgentConversation();
-                    conversation.setUserId(userId);
-                    conversation.setAgentDefinitionId(agent.getId());
-                    conversation.setStatus(0);
-                    conversation.setToolApprovalPolicy(normalizeToolApprovalPolicy(dto.getToolApprovalPolicy()));
-                    agentConversationService.save(conversation);
-                }
-                final String conversationId = conversation.getId();
-
-                // Deep Agent 的模型由独立运行服务选择；不能在这里要求 Agent 配置普通聊天模型。
-                ModelProvider routingProvider = null;
-                SkillRuntimeContext skillContext = skillContextService == null ? defaultSkillContext(agent) : skillContextService.resolve(agent, dto, dto.getMessage(), routingProvider);
-                List<ModelChatMessage> ctx = new ArrayList<>();
-                if (StringUtils.isNotBlank(skillContext.getSystemPrompt())) ctx.add(new ModelChatMessage("system", skillContext.getSystemPrompt()));
-                String taskContext = buildDeepTaskContext(dto);
-                List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                        ctx, userId, conversationId, agent.getId(), taskContext, skillContext.getKnowledgeBaseIds());
-
-                AgentStreamCallback callback = new AgentStreamCallback() {
-                    @Override public void onMessage(String cid, String chunk) {
-                        if (closed.get()) return;
-                        try {
-                            JSONObject data = new JSONObject();
-                            data.put("conversationId", cid);
-                            data.put("chunk", chunk);
-                            emitter.send(SseEmitter.event().name("message").data(data.toJSONString()));
-                        } catch (IOException e) { closed.set(true); }
+                try {
+                    AgentConversation conversation;
+                    if (existingConversation != null) {
+                        conversation = existingConversation;
+                    } else {
+                        conversation = new AgentConversation();
+                        conversation.setUserId(userId);
+                        conversation.setAgentDefinitionId(agent.getId());
+                        conversation.setStatus(0);
+                        conversation.setToolApprovalPolicy(normalizeToolApprovalPolicy(dto.getToolApprovalPolicy()));
+                        agentConversationService.save(conversation);
                     }
-                    @Override
-                    public void onReasoning(String cid, String chunk) {
-                        if (closed.get()) return;
-                        try {
-                            JSONObject data = new JSONObject();
-                            data.put("conversationId", cid);
-                            data.put("chunk", chunk);
-                            emitter.send(SseEmitter.event().name("reasoning").data(data.toJSONString()));
-                        } catch (IOException e) { closed.set(true); }
-                    }
+                    final String conversationId = conversation.getId();
 
-                    @Override
-                    public void onToolCall(String cid, String toolCallJson) {
-                        if (closed.get()) return;
-                        try {
-                            JSONObject data = new JSONObject();
-                            data.put("conversationId", cid);
-                            data.put("toolCalls", JSON.parseArray(toolCallJson));
-                            emitter.send(SseEmitter.event().name("tool_call").data(data.toJSONString()));
-                        } catch (Exception e) { closed.set(true); }
-                    }
+                    // Deep Agent 的模型由独立运行服务选择；不能在这里要求 Agent 配置普通聊天模型。
+                    ModelProvider routingProvider = null;
+                    SkillRuntimeContext skillContext = skillContextService == null ? defaultSkillContext(agent) : skillContextService.resolve(agent, dto, dto.getMessage(), routingProvider);
+                    List<ModelChatMessage> ctx = new ArrayList<>();
+                    if (StringUtils.isNotBlank(skillContext.getSystemPrompt()))
+                        ctx.add(new ModelChatMessage("system", skillContext.getSystemPrompt()));
+                    String taskContext = buildDeepTaskContext(dto);
+                    List<Map<String, Object>> sources = knowledgeContextService.enhance(
+                            ctx, userId, conversationId, agent.getId(), taskContext, skillContext.getKnowledgeBaseIds());
 
-                    @Override
-                    public void onRunStep(String runId, String stepJson) {
-                        if (closed.get()) return;
-                        try {
-                            JSONObject step = JSON.parseObject(stepJson);
-                            step.put("conversationId", conversationId);
-                            emitter.send(SseEmitter.event().name("run_step").data(step.toJSONString()));
-                        }
-                        catch (IOException e) { closed.set(true); }
-                    }
-
-                    @Override public void onQuestion(String cid, String rid, AgentMessageVo q) {
-                        if (closed.get()) return;
-                        try {
-                            JSONObject question = new JSONObject();
-                            question.put("conversationId", cid);
-                            question.put("runId", rid);
-                            question.put("messageId", q.getId());
-                            question.put("content", q.getContent());
-                            question.put("messageType", q.getMessageType());
-                            question.put("interactionType", q.getInteractionType());
-                            question.put("interactionStatus", q.getInteractionStatus());
-                            question.put("questionConfig", JSON.parseObject(q.getQuestionConfig()));
-                            emitter.send(SseEmitter.event().name("question").data(question.toJSONString()));
-                        } catch (Exception e) { closed.set(true); }
-                    }
-                    @Override public void onDone(String callbackConversationId, String mid, ModelStreamResponse response) {
-                        if (closed.get()) return;
-                        try {
-                            JSONObject done = new JSONObject();
-                            done.put("conversationId", callbackConversationId);
-                            done.put("messageId", mid);
-                            done.put("runId", runIdRef.get());
-                            if (response != null) {
-                                done.put("content", response.getContent());
-                                done.put("model", response.getModel());
-                                done.put("promptTokens", response.getPromptTokens());
-                                done.put("completionTokens", response.getCompletionTokens());
-                                done.put("totalTokens", response.getTotalTokens());
-                                done.put("sources", response.getSources());
+                    AgentStreamCallback callback = new AgentStreamCallback() {
+                        /**
+                         * 处理on消息。
+                         */
+                        @Override
+                        public void onMessage(String cid, String chunk) {
+                            if (closed.get()) return;
+                            try {
+                                JSONObject data = new JSONObject();
+                                data.put("conversationId", cid);
+                                data.put("chunk", chunk);
+                                emitter.send(SseEmitter.event().name("message").data(data.toJSONString()));
+                            } catch (IOException e) {
+                                closed.set(true);
                             }
-                            emitter.send(SseEmitter.event().name("done").data(done.toJSONString()));
-                            closed.set(true);
-                            emitter.complete();
-                        } catch (Exception ignored) { closed.set(true); }
-                    }
-                    @Override public void onError(int code, String message) {
-                        if (closed.get()) return;
+                        }
+
+                        /**
+                         * 处理onReasoning。
+                         */
+                        @Override
+                        public void onReasoning(String cid, String chunk) {
+                            if (closed.get()) return;
+                            try {
+                                JSONObject data = new JSONObject();
+                                data.put("conversationId", cid);
+                                data.put("chunk", chunk);
+                                emitter.send(SseEmitter.event().name("reasoning").data(data.toJSONString()));
+                            } catch (IOException e) {
+                                closed.set(true);
+                            }
+                        }
+
+                        /**
+                         * 处理onToolCall。
+                         */
+                        @Override
+                        public void onToolCall(String cid, String toolCallJson) {
+                            if (closed.get()) return;
+                            try {
+                                JSONObject data = new JSONObject();
+                                data.put("conversationId", cid);
+                                data.put("toolCalls", JSON.parseArray(toolCallJson));
+                                emitter.send(SseEmitter.event().name("tool_call").data(data.toJSONString()));
+                            } catch (Exception e) {
+                                closed.set(true);
+                            }
+                        }
+
+                        /**
+                         * 处理on运行Step。
+                         */
+                        @Override
+                        public void onRunStep(String runId, String stepJson) {
+                            if (closed.get()) return;
+                            try {
+                                JSONObject step = JSON.parseObject(stepJson);
+                                step.put("conversationId", conversationId);
+                                emitter.send(SseEmitter.event().name("run_step").data(step.toJSONString()));
+                            } catch (IOException e) {
+                                closed.set(true);
+                            }
+                        }
+
+                        /**
+                         * 处理onQuestion。
+                         */
+                        @Override
+                        public void onQuestion(String cid, String rid, AgentMessageVo q) {
+                            if (closed.get()) return;
+                            try {
+                                JSONObject question = new JSONObject();
+                                question.put("conversationId", cid);
+                                question.put("runId", rid);
+                                question.put("messageId", q.getId());
+                                question.put("content", q.getContent());
+                                question.put("messageType", q.getMessageType());
+                                question.put("interactionType", q.getInteractionType());
+                                question.put("interactionStatus", q.getInteractionStatus());
+                                question.put("questionConfig", JSON.parseObject(q.getQuestionConfig()));
+                                emitter.send(SseEmitter.event().name("question").data(question.toJSONString()));
+                            } catch (Exception e) {
+                                closed.set(true);
+                            }
+                        }
+
+                        /**
+                         * 处理onDone。
+                         */
+                        @Override
+                        public void onDone(String callbackConversationId, String mid, ModelStreamResponse response) {
+                            if (closed.get()) return;
+                            try {
+                                JSONObject done = new JSONObject();
+                                done.put("conversationId", callbackConversationId);
+                                done.put("messageId", mid);
+                                done.put("runId", runIdRef.get());
+                                if (response != null) {
+                                    done.put("content", response.getContent());
+                                    done.put("model", response.getModel());
+                                    done.put("promptTokens", response.getPromptTokens());
+                                    done.put("completionTokens", response.getCompletionTokens());
+                                    done.put("totalTokens", response.getTotalTokens());
+                                    done.put("sources", response.getSources());
+                                }
+                                emitter.send(SseEmitter.event().name("done").data(done.toJSONString()));
+                                closed.set(true);
+                                emitter.complete();
+                            } catch (Exception ignored) {
+                                closed.set(true);
+                            }
+                        }
+
+                        /**
+                         * 处理onError。
+                         */
+                        @Override
+                        public void onError(int code, String message) {
+                            if (closed.get()) return;
+                            try {
+                                JSONObject err = new JSONObject();
+                                err.put("code", code);
+                                err.put("message", message);
+                                emitter.send(SseEmitter.event().name("error").data(err.toJSONString()));
+                                closed.set(true);
+                                emitter.complete();
+                            } catch (Exception ignored) {
+                                closed.set(true);
+                            }
+                        }
+
+                        /**
+                         * 判断是否为Closed。
+                         */
+                        @Override
+                        public boolean isClosed() {
+                            return closed.get();
+                        }
+                    };
+                    String runId = deepAgentRunService.startRun(agent, userId, conversationId, dto.getMessage(),
+                            dto.getAttachmentContent(), dto.getAttachments(), sources, skillContext, registeredRunId -> {
+                                runIdRef.set(registeredRunId);
+                                deepAgentCallbackController.registerCallback(registeredRunId, callback);
+                            });
+                    runIdRef.set(runId);
+                    JSONObject accepted = new JSONObject();
+                    accepted.put("runId", runId);
+                    accepted.put("conversationId", conversationId);
+                    emitter.send(SseEmitter.event().name("accepted").data(accepted.toJSONString()));
+                    deepAgentCallbackController.reconcileTerminalCallback(runId);
+                } catch (Exception e) {
+                    log.error("Deep Agent 流式启动失败", e);
+                    if (!closed.get()) {
                         try {
                             JSONObject err = new JSONObject();
-                            err.put("code", code);
-                            err.put("message", message);
+                            err.put("code", 500);
+                            err.put("message", "Deep Agent 启动失败: " + e.getMessage());
                             emitter.send(SseEmitter.event().name("error").data(err.toJSONString()));
                             closed.set(true);
                             emitter.complete();
-                        } catch (Exception ignored) { closed.set(true); }
+                        } catch (IOException ignored) {
+                        }
                     }
-                    @Override public boolean isClosed() { return closed.get(); }
-                };
-                String runId = deepAgentRunService.startRun(agent, userId, conversationId, dto.getMessage(),
-                        dto.getAttachmentContent(), dto.getAttachments(), sources, skillContext, registeredRunId -> {
-                    runIdRef.set(registeredRunId);
-                    deepAgentCallbackController.registerCallback(registeredRunId, callback);
-                });
-                runIdRef.set(runId);
-                JSONObject accepted = new JSONObject();
-                accepted.put("runId", runId);
-                accepted.put("conversationId", conversationId);
-                emitter.send(SseEmitter.event().name("accepted").data(accepted.toJSONString()));
-                deepAgentCallbackController.reconcileTerminalCallback(runId);
-            } catch (Exception e) {
-                log.error("Deep Agent 流式启动失败", e);
-                if (!closed.get()) {
-                    try {
-                        JSONObject err = new JSONObject();
-                        err.put("code", 500);
-                        err.put("message", "Deep Agent 启动失败: " + e.getMessage());
-                        emitter.send(SseEmitter.event().name("error").data(err.toJSONString()));
-                        closed.set(true);
-                        emitter.complete();
-                    } catch (IOException ignored) {}
                 }
-            }
             });
         } catch (RejectedExecutionException e) {
             log.warn("Deep Agent 流式任务被拒绝: active={}, queued={}", streamExecutor.getActiveCount(),
@@ -753,7 +885,9 @@ public class AgentChatController {
         return emitter;
     }
 
-    /** 附件正文只作为执行上下文使用，聊天记录仍保留用户原始提问及附件元数据。 */
+    /**
+     * 附件正文只作为执行上下文使用，聊天记录仍保留用户原始提问及附件元数据。
+     */
     private String buildDeepTaskContext(AgentChatDto dto) {
         if (StringUtils.isBlank(dto.getAttachmentContent())) {
             return dto.getMessage();
@@ -761,6 +895,9 @@ public class AgentChatController {
         return StringUtils.defaultString(dto.getMessage()) + "\n\n附件内容：\n" + dto.getAttachmentContent();
     }
 
+    /**
+     * 获取Deep会话。
+     */
     private AgentConversation getDeepConversation(String conversationId, String userId, AgentDefinition agent) {
         if (StringUtils.isBlank(conversationId)) {
             return null;
@@ -781,6 +918,9 @@ public class AgentChatController {
         return conversation;
     }
 
+    /**
+     * 处理deepStreamTimeoutMs。
+     */
     private long deepStreamTimeoutMs() {
         long runTimeoutSeconds = deepAgentConfig.getRunTimeoutSeconds();
         if (runTimeoutSeconds <= 0) {
@@ -795,6 +935,9 @@ public class AgentChatController {
         return totalSeconds > Long.MAX_VALUE / 1000L ? Long.MAX_VALUE : totalSeconds * 1000L;
     }
 
+    /**
+     * 规范化ToolApprovalPolicy。
+     */
     private String normalizeToolApprovalPolicy(String policy) {
         return "risky".equals(policy) || "never".equals(policy) ? policy : "ask";
     }

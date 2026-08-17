@@ -9,7 +9,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-/** 一次聊天请求冻结的 Skill 装配结果，禁止在后续执行链路重新放大授权范围。 */
+/**
+ * 一次聊天请求冻结的 Skill 装配结果，禁止在后续执行链路重新放大授权范围。
+ */
 @Data
 public class SkillRuntimeContext {
     private String systemPrompt;
@@ -18,7 +20,9 @@ public class SkillRuntimeContext {
     private String snapshot;
     private boolean installed;
 
-    /** 将本次模型调用的预算数据纳入同一份冻结快照。 */
+    /**
+     * 将本次模型调用的预算数据纳入同一份冻结快照。
+     */
     public void recordBudget(int inputBudget, int promptTokens, int contextTokens) {
         JSONObject details = snapshot == null ? new JSONObject() : JSON.parseObject(snapshot);
         JSONObject budget = new JSONObject();

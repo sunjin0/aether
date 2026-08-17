@@ -20,6 +20,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.Collections;
 
+/**
+ * 基于 MinIO 的私有对象存储服务实现。
+ */
 @Service
 /**
  * MinIO 私有对象存储实现。
@@ -28,10 +31,13 @@ import java.util.Collections;
 public class MinioObjectStorageService implements ObjectStorageService {
     private final String endpoint, publicEndpoint, accessKey, secretKey;
 
+    /**
+     * 创建 {@code MinioObjectStorageService} 实例。
+     */
     public MinioObjectStorageService(@Value("${storage.minio.endpoint:${MINIO_ENDPOINT:}}") String endpoint,
-                                      @Value("${storage.minio.public-endpoint:${MINIO_PUBLIC_ENDPOINT:}}") String publicEndpoint,
-                                      @Value("${storage.minio.access-key:${MINIO_ACCESS_KEY:}}") String accessKey,
-                                      @Value("${storage.minio.secret-key:${MINIO_SECRET_KEY:}}") String secretKey) {
+                                     @Value("${storage.minio.public-endpoint:${MINIO_PUBLIC_ENDPOINT:}}") String publicEndpoint,
+                                     @Value("${storage.minio.access-key:${MINIO_ACCESS_KEY:}}") String accessKey,
+                                     @Value("${storage.minio.secret-key:${MINIO_SECRET_KEY:}}") String secretKey) {
         this.endpoint = endpoint;
         this.publicEndpoint = publicEndpoint;
         this.accessKey = accessKey;
@@ -54,6 +60,9 @@ public class MinioObjectStorageService implements ObjectStorageService {
         }
     }
 
+    /**
+     * 将字节内容上传至指定私有 Bucket，并返回对象键。
+     */
     public String upload(String bucket, String objectKey, byte[] content, String contentType) {
         try (InputStream in = new java.io.ByteArrayInputStream(content)) {
             MinioClient client = client();
@@ -74,6 +83,9 @@ public class MinioObjectStorageService implements ObjectStorageService {
         return presignedGetUrl(bucket, objectKey, expirySeconds, null);
     }
 
+    /**
+     * 生成指定对象的临时下载地址；可指定响应内容类型。
+     */
     @Override
     public String presignedGetUrl(String bucket, String objectKey, int expirySeconds, String responseContentType) {
         try {
@@ -102,6 +114,9 @@ public class MinioObjectStorageService implements ObjectStorageService {
         }
     }
 
+    /**
+     * 删除指定私有 Bucket 中的对象。
+     */
     public void removeObject(String bucket, String objectKey) {
         try {
             client().removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
@@ -110,16 +125,25 @@ public class MinioObjectStorageService implements ObjectStorageService {
         }
     }
 
+    /**
+     * 处理client。
+     */
     private MinioClient client() {
         return client(endpoint);
     }
 
+    /**
+     * 处理client。
+     */
     private MinioClient client(String endpoint) {
         if (blank(endpoint) || blank(accessKey) || blank(secretKey))
             throw new IllegalStateException("MinIO is not configured");
         return MinioClient.builder().endpoint(endpoint).credentials(accessKey, secretKey).build();
     }
 
+    /**
+     * 处理blank。
+     */
     private boolean blank(String value) {
         return value == null || value.trim().isEmpty();
     }

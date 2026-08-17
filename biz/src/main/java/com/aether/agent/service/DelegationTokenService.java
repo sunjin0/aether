@@ -12,15 +12,24 @@ import java.util.Date;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * 定义Delegation令牌业务服务契约。
+ */
 @Component
 public class DelegationTokenService {
 
     private final DeepAgentConfig config;
 
+    /**
+     * 创建 {@code DelegationTokenService} 实例。
+     */
     public DelegationTokenService(DeepAgentConfig config) {
         this.config = config;
     }
 
+    /**
+     * 创建当前请求。
+     */
     public String create(String runId, String userId, String agentId, List<String> allowedTools) {
         if (StringUtils.isBlank(config.getMcpDelegationSecret())) {
             throw new ServerException(500, I18nUtils.getMessage("agent.mcp.delegation-secret.missing"));
@@ -37,7 +46,9 @@ public class DelegationTokenService {
                 .sign(Algorithm.HMAC256(config.getMcpDelegationSecret()));
     }
 
-    /** Creates a least-privilege token for the internal document conversion endpoint. */
+    /**
+     * Creates a least-privilege token for the internal document conversion endpoint.
+     */
     public String createDocumentProcessingToken() {
         return create("document-processing", "system", "chat-attachment",
                 Collections.singletonList("process_document"));

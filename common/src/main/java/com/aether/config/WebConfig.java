@@ -12,18 +12,30 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.servlet.LocaleResolver;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+/**
+ * 表示Web配置。
+ */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+    /**
+     * 处理localeResolver。
+     */
     @Bean
     LocaleResolver localeResolver() {
         return new MyLocaleResolver();
     }
 
+    /**
+     * 处理passwordEncoder。
+     */
     @Bean
     BCryptPasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
+    /**
+     * 处理redisTemplate。
+     */
     @Primary
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
@@ -38,6 +50,9 @@ public class WebConfig implements WebMvcConfigurer {
         return redisTemplate;
     }
 
+    /**
+     * 处理objectRedisTemplate。
+     */
     @Bean("objectRedisTemplate")
     public RedisTemplate<String, Object> objectRedisTemplate(RedisConnectionFactory factory) {
         RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();

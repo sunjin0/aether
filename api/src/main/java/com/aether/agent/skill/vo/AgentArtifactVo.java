@@ -4,7 +4,9 @@ import com.aether.entity.BaseEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** Safe, user-facing metadata for a generated artifact. */
+/**
+ * Safe, user-facing metadata for a generated artifact.
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AgentArtifactVo extends BaseEntity {

@@ -1,7 +1,7 @@
 package com.aether.agent.entity;
 
-import com.baomidou.mybatisplus.annotation.TableName;
 import com.aether.entity.BaseEntity;
+import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
@@ -35,7 +35,9 @@ public class AgentDefinition extends BaseEntity {
     @ApiModelProperty(value = "关联模型供应商ID")
     private String modelProviderId;
 
-    /** Preferred catalog model. provider/model remain for legacy compatibility. */
+    /**
+     * Preferred catalog model. provider/model remain for legacy compatibility.
+     */
     private String modelId;
 
     @ApiModelProperty(value = "使用的模型名称")

@@ -9,9 +9,18 @@ import com.aether.agent.vo.AgentMessageVo;
  */
 public interface AgentChatService {
 
+    /**
+     * 对话当前请求。
+     */
     AgentMessageVo chat(AgentChatDto dto);
 
+    /**
+     * 处理stream。
+     */
     void stream(AgentChatDto dto, AgentStreamCallback callback);
 
+    /**
+     * 获取Enabled智能体。
+     */
     AgentDefinition getEnabledAgent(String agentId);
 }

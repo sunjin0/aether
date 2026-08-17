@@ -20,6 +20,9 @@ public class KnowledgeDocumentChunkServiceImpl
         extends ServiceImpl<KnowledgeDocumentChunkMapper, KnowledgeDocumentChunk>
         implements KnowledgeDocumentChunkService {
 
+    /**
+     * 处理searchSimilarChunks。
+     */
     @Override
     public List<KnowledgeDocumentChunk> searchSimilarChunks(List<String> knowledgeBaseIds, String embedding, int limit) {
         if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || StringUtils.isBlank(embedding) || limit <= 0) {
@@ -34,6 +37,9 @@ public class KnowledgeDocumentChunkServiceImpl
         return baseMapper.selectSimilarChunks(filteredIds, embedding, limit);
     }
 
+    /**
+     * 处理searchLexicalChunks。
+     */
     @Override
     public List<KnowledgeDocumentChunk> searchLexicalChunks(List<String> knowledgeBaseIds, String query, int limit) {
         if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty() || StringUtils.isBlank(query) || limit <= 0) {
@@ -48,6 +54,9 @@ public class KnowledgeDocumentChunkServiceImpl
         return baseMapper.selectLexicalChunks(filteredIds, query.trim(), limit);
     }
 
+    /**
+     * 查找NeighborChunks。
+     */
     @Override
     public List<KnowledgeDocumentChunk> findNeighborChunks(String documentVersionId, int chunkIndex, int radius) {
         if (StringUtils.isBlank(documentVersionId) || chunkIndex < 0 || radius <= 0) {
@@ -57,6 +66,9 @@ public class KnowledgeDocumentChunkServiceImpl
                 Math.max(0, chunkIndex - radius), chunkIndex + radius);
     }
 
+    /**
+     * 保存VectorChunk。
+     */
     @Override
     public boolean saveVectorChunk(KnowledgeDocumentChunk chunk) {
         if (chunk == null) {

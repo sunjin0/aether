@@ -18,6 +18,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * 实现管理员偏好业务服务。
+ */
 @Service
 public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMapper, AdminPreference>
         implements AdminPreferenceService {
@@ -28,16 +31,25 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
     @Autowired
     private AdminPreferenceEventService preferenceEventService;
 
+    /**
+     * 构建偏好Context。
+     */
     @Override
     public String buildPreferenceContext(String adminId, String taskType) {
         return reasoningEngine.buildPreferenceContext(adminId, taskType);
     }
 
+    /**
+     * 构建偏好Context。
+     */
     @Override
     public String buildPreferenceContext(String adminId, String taskType, String conversationId) {
         return reasoningEngine.buildPreferenceContext(adminId, taskType, conversationId);
     }
 
+    /**
+     * 获取Effective偏好。
+     */
     @Override
     public AdminPreference getEffectivePreference(String adminId, String keyName, String taskType) {
         List<AdminPreference> effective = reasoningEngine.resolveEffectivePreferences(adminId, taskType);
@@ -47,6 +59,9 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
                 .orElse(null);
     }
 
+    /**
+     * 处理incrementUsage。
+     */
     @Override
     public void incrementUsage(String preferenceId) {
         AdminPreference pref = getById(preferenceId);
@@ -63,6 +78,9 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
         }
     }
 
+    /**
+     * 处理adjustConfidence。
+     */
     @Override
     public void adjustConfidence(String preferenceId, BigDecimal delta) {
         AdminPreference pref = getById(preferenceId);
@@ -85,6 +103,9 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
         }
     }
 
+    /**
+     * 更新EffectiveScore。
+     */
     @Override
     public void updateEffectiveScore(String preferenceId) {
         AdminPreference pref = getById(preferenceId);
@@ -116,6 +137,9 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
         }
     }
 
+    /**
+     * 查询按管理员Id。
+     */
     @Override
     public List<AdminPreference> listByAdminId(String adminId) {
         return list(Wrappers.lambdaQuery(AdminPreference.class)
@@ -124,12 +148,18 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
                 .orderByDesc(AdminPreference::getEffectiveScore));
     }
 
+    /**
+     * 处理clear用户缓存。
+     */
     @Override
     public boolean clearUserCache(String adminId) {
         reasoningEngine.clearUserCache(adminId);
         return true;
     }
 
+    /**
+     * 处理reconcileAfterEvidenceRemoval。
+     */
     @Override
     public void reconcileAfterEvidenceRemoval(Collection<String> preferenceIds) {
         if (preferenceIds == null || preferenceIds.isEmpty()) {
@@ -164,6 +194,9 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
         }
     }
 
+    /**
+     * 保存当前请求。
+     */
     @Override
     public boolean save(AdminPreference preference) {
         normalizeForSave(preference);
@@ -174,6 +207,9 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
         return saved;
     }
 
+    /**
+     * 更新按Id。
+     */
     @Override
     public boolean updateById(AdminPreference preference) {
         AdminPreference existing = preference == null || preference.getId() == null
@@ -186,6 +222,9 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
         return updated;
     }
 
+    /**
+     * 移除按Id。
+     */
     @Override
     public boolean removeById(Serializable id) {
         AdminPreference existing = id == null ? null : super.getById(id);
@@ -196,6 +235,9 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
         return removed;
     }
 
+    /**
+     * 规范化用于保存。
+     */
     private void normalizeForSave(AdminPreference preference) {
         if (preference == null) {
             return;
@@ -209,6 +251,9 @@ public class AdminPreferenceServiceImpl extends ServiceImpl<AdminPreferenceMappe
         normalizeForUpdate(preference);
     }
 
+    /**
+     * 规范化用于更新。
+     */
     private void normalizeForUpdate(AdminPreference preference) {
         if (preference == null) {
             return;

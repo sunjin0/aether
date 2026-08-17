@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** Observed Runner identity; task leases remain the execution authority. */
+/**
+ * Observed Runner identity; task leases remain the execution authority.
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("sandbox_runner_node")

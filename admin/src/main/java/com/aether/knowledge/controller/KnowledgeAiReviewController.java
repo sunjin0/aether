@@ -33,6 +33,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
+/**
+ * 提供知识库Ai审核相关的 REST 接口。
+ */
 @RestController
 @RequestMapping("/api/knowledge/ai-review")
 @Permission(path = "/knowledge/document")
@@ -44,6 +47,9 @@ public class KnowledgeAiReviewController {
     private final KnowledgeDocumentService documentService;
     private final KnowledgeDocumentWorkflowService workflowService;
 
+    /**
+     * 创建 {@code KnowledgeAiReviewController} 实例。
+     */
     public KnowledgeAiReviewController(KnowledgeAiReviewRecordService reviewService,
                                        KnowledgeAiReviewIssueService issueService,
                                        KnowledgeAccessService accessService,
@@ -58,12 +64,18 @@ public class KnowledgeAiReviewController {
         this.workflowService = workflowService;
     }
 
+    /**
+     * 详情当前请求。
+     */
     @GetMapping("/{id}")
     public WebResponse<KnowledgeAiReview> detail(@PathVariable String id) {
         KnowledgeAiReview review = requireReview(id);
         return WebResponse.OK(review);
     }
 
+    /**
+     * 处理latest按Version。
+     */
     @GetMapping("/version/{versionId}/latest")
     public WebResponse<KnowledgeAiReview> latestByVersion(@PathVariable String versionId) {
         com.aether.knowledge.entity.KnowledgeDocumentVersion version = versionService.getById(versionId);
@@ -84,6 +96,9 @@ public class KnowledgeAiReviewController {
         return WebResponse.OK(review);
     }
 
+    /**
+     * 处理issues。
+     */
     @GetMapping("/{id}/issues")
     public WebResponse<List<KnowledgeAiReviewIssue>> issues(@PathVariable String id) {
         requireReview(id);
@@ -93,6 +108,9 @@ public class KnowledgeAiReviewController {
                 .orderByAsc(KnowledgeAiReviewIssue::getCreatedAt)));
     }
 
+    /**
+     * 处理diff。
+     */
     @GetMapping("/{id}/diff")
     public WebResponse<KnowledgeAiReviewDiffVo> diff(@PathVariable String id) {
         KnowledgeAiReview review = requireReview(id);
@@ -155,12 +173,15 @@ public class KnowledgeAiReviewController {
         return WebResponse.OK(result);
     }
 
+    /**
+     * 处理acceptIssue。
+     */
     @PostMapping("/{reviewId}/issues/{issueId}/accept")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<KnowledgeAiReviewIssueAcceptResultVo> acceptIssue(@PathVariable String reviewId,
-                                                                           @PathVariable String issueId,
-                                                                           @RequestBody KnowledgeAiReviewIssueAcceptVo vo) {
+                                                                         @PathVariable String issueId,
+                                                                         @RequestBody KnowledgeAiReviewIssueAcceptVo vo) {
         KnowledgeAiReview review = requireReview(reviewId);
         if (!KnowledgeAiReviewStatus.SUCCESS.equals(review.getStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.suggestions.not-ready"));
@@ -208,6 +229,9 @@ public class KnowledgeAiReviewController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.accept.success"), result);
     }
 
+    /**
+     * 处理unacceptIssue。
+     */
     @PostMapping("/{reviewId}/issues/{issueId}/unaccept")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> unacceptIssue(@PathVariable String reviewId,
@@ -239,6 +263,9 @@ public class KnowledgeAiReviewController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.unaccept.success"));
     }
 
+    /**
+     * 拒绝Issue。
+     */
     @PostMapping("/{reviewId}/issues/{issueId}/reject")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> rejectIssue(@PathVariable String reviewId,
@@ -262,11 +289,14 @@ public class KnowledgeAiReviewController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.reject.success"));
     }
 
+    /**
+     * 处理acceptIssues。
+     */
     @PostMapping("/{reviewId}/issues/accept-batch")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<KnowledgeAiReviewIssueAcceptResultVo> acceptIssues(@PathVariable String reviewId,
-                                                                            @RequestBody KnowledgeAiReviewIssueBatchAcceptVo vo) {
+                                                                          @RequestBody KnowledgeAiReviewIssueBatchAcceptVo vo) {
         if (vo.getIssueIds() == null || vo.getIssueIds().isEmpty()) {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.issue.required"));
         }
@@ -318,7 +348,8 @@ public class KnowledgeAiReviewController {
                     .set(KnowledgeAiReviewIssue::getHandleComment, vo.getComment())
                     .set(KnowledgeAiReviewIssue::getAppliedContent, appliedContent(issue, null))
                     .set(KnowledgeAiReviewIssue::getAppliedChecksum, null));
-            if (!updated) throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
+            if (!updated)
+                throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.issue.already-handled"));
         }
         KnowledgeAiReviewIssueAcceptResultVo result = new KnowledgeAiReviewIssueAcceptResultVo();
         result.setDocumentVersionId(version.getId());
@@ -329,11 +360,14 @@ public class KnowledgeAiReviewController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.batch-accept.success"), result);
     }
 
+    /**
+     * 处理applyAcceptedIssues。
+     */
     @PostMapping("/{reviewId}/issues/apply")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<KnowledgeAiReviewIssueAcceptResultVo> applyAcceptedIssues(@PathVariable String reviewId,
-                                                                                   @RequestBody KnowledgeAiReviewIssueAcceptVo vo) {
+                                                                                 @RequestBody KnowledgeAiReviewIssueAcceptVo vo) {
         if (StringUtils.isBlank(vo.getExpectedChecksum())) {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.draft-checksum.required"));
         }
@@ -381,6 +415,9 @@ public class KnowledgeAiReviewController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.apply.success"), result);
     }
 
+    /**
+     * 处理Issue。
+     */
     @PutMapping("/issue/{issueId}/handle")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> handleIssue(@PathVariable String issueId,
@@ -415,6 +452,9 @@ public class KnowledgeAiReviewController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.issue.handle.success"));
     }
 
+    /**
+     * 处理requireIssue。
+     */
     private KnowledgeAiReviewIssue requireIssue(String issueId, String reviewId) {
         KnowledgeAiReviewIssue issue = issueService.getById(issueId);
         if (issue == null || Boolean.TRUE.equals(issue.getDeleted()) || !StringUtils.equals(reviewId, issue.getAiReviewId())) {
@@ -423,6 +463,9 @@ public class KnowledgeAiReviewController {
         return issue;
     }
 
+    /**
+     * 处理requireHandleableVersion。
+     */
     private void requireHandleableVersion(KnowledgeAiReviewIssue issue) {
         com.aether.knowledge.entity.KnowledgeDocumentVersion version = versionService.getById(issue.getDocumentVersionId());
         if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
@@ -434,6 +477,9 @@ public class KnowledgeAiReviewController {
         }
     }
 
+    /**
+     * 构建ProposedContent。
+     */
     private String buildProposedContent(String sourceContent, List<KnowledgeAiReviewIssue> issues) {
         String proposed = StringUtils.defaultString(sourceContent);
         for (KnowledgeAiReviewIssue issue : issues) {
@@ -444,7 +490,7 @@ public class KnowledgeAiReviewController {
             try {
                 proposed = applyPatch(proposed, issue,
                         KnowledgeAiReviewIssueStatus.ACCEPTED.equals(issue.getHandleStatus())
-                        ? issue.getAppliedContent() : null);
+                                ? issue.getAppliedContent() : null);
             } catch (ServerException ignored) {
                 // A conflicting or incomplete suggestion stays visible in the issue list but is not auto-previewed.
             }
@@ -452,6 +498,9 @@ public class KnowledgeAiReviewController {
         return proposed;
     }
 
+    /**
+     * 处理appliedContent。
+     */
     private String appliedContent(KnowledgeAiReviewIssue issue, String manualReplacement) {
         JSONObject patch = parsePatch(issue.getSuggestedPatch());
         if (patch == null) return null;
@@ -468,6 +517,9 @@ public class KnowledgeAiReviewController {
         return replacement;
     }
 
+    /**
+     * 解析Patch。
+     */
     private JSONObject parsePatch(String value) {
         if (StringUtils.isBlank(value)) return null;
         try {
@@ -477,16 +529,22 @@ public class KnowledgeAiReviewController {
         }
     }
 
+    /**
+     * 处理applyPatch。
+     */
     private String applyPatch(String content, KnowledgeAiReviewIssue issue, String manualReplacement) {
         JSONObject patch = parsePatch(issue.getSuggestedPatch());
-        if (patch == null) throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.not-applicable"));
+        if (patch == null)
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.not-applicable"));
         JSONObject target = patch.getJSONObject("target");
         String original = target == null ? null : target.getString("original");
         original = StringUtils.defaultIfBlank(original, issue.getOriginalExcerpt());
-        if (StringUtils.isBlank(original)) throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.target-required"));
+        if (StringUtils.isBlank(original))
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.target-required"));
         String document = StringUtils.defaultString(content);
         int firstIndex = document.indexOf(original);
-        if (firstIndex < 0) throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.target-mismatch"));
+        if (firstIndex < 0)
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.target-mismatch"));
         if (document.indexOf(original, firstIndex + original.length()) >= 0) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.patch.target-ambiguous"));
         }
@@ -518,20 +576,27 @@ public class KnowledgeAiReviewController {
         throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.patch.operation.unsupported"));
     }
 
+    /**
+     * 处理lineRange。
+     */
     private int[] lineRange(String content, String excerpt) {
-        if (StringUtils.isBlank(excerpt)) return new int[] {0, 0};
+        if (StringUtils.isBlank(excerpt)) return new int[]{0, 0};
         int start = StringUtils.defaultString(content).indexOf(excerpt);
-        if (start < 0) return new int[] {0, 0};
+        if (start < 0) return new int[]{0, 0};
         int startLine = 1;
         for (int i = 0; i < start; i++) if (content.charAt(i) == '\n') startLine++;
         int endLine = startLine;
         for (int i = start; i < start + excerpt.length(); i++) if (content.charAt(i) == '\n') endLine++;
-        return new int[] {startLine, endLine};
+        return new int[]{startLine, endLine};
     }
 
+    /**
+     * 处理require审核。
+     */
     private KnowledgeAiReview requireReview(String id) {
         KnowledgeAiReview review = reviewService.getById(id);
-        if (review == null || Boolean.TRUE.equals(review.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("knowledge.ai-review.not-found"));
+        if (review == null || Boolean.TRUE.equals(review.getDeleted()))
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.ai-review.not-found"));
         accessService.requireReadable(review.getKnowledgeBaseId());
         return review;
     }

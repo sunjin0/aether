@@ -1,10 +1,10 @@
 package com.aether.msg.service;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.extension.service.IService;
+import com.aether.exception.ServerException;
 import com.aether.msg.entity.Sms;
 import com.aether.msg.vo.SmsVo;
-import com.aether.exception.ServerException;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.IService;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
@@ -37,7 +37,7 @@ public interface SmsMessageService extends IService<Sms> {
     /**
      * 按 ID 获取
      *
-      * @param id ID
+     * @param id ID
      * @return {@link Sms }
      * @throws ServerException 服务器异常
      */
@@ -67,7 +67,7 @@ public interface SmsMessageService extends IService<Sms> {
     /**
      * 删除
      *
-      * @param id ID
+     * @param id ID
      * @return {@link Boolean }
      * @throws ServerException 服务器异常
      */

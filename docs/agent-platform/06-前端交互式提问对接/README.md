@@ -52,13 +52,13 @@
 
 ### SSE 事件
 
-| 事件 | 说明 |
-|------|------|
-| `message` | 普通文本分片 |
-| `reasoning` | 推理内容分片 |
-| `question` | 交互式提问卡片 |
-| `tool_call` | 工具调用信息 |
-| `done` | 响应结束 |
+| 事件          | 说明      |
+|-------------|---------|
+| `message`   | 普通文本分片  |
+| `reasoning` | 推理内容分片  |
+| `question`  | 交互式提问卡片 |
+| `tool_call` | 工具调用信息  |
+| `done`      | 响应结束    |
 
 **question 事件**：
 
@@ -112,11 +112,11 @@ question → done(waitingUser=true)
 
 ## 四、历史消息恢复
 
-| messageType | 展示方式 |
-|-------------|----------|
-| 空 或 `chat` | 普通聊天消息 |
-| `interaction` + `interactionType=group` | tabs 交互式消息卡片 |
-| `answer` | 默认折叠到对应 interaction 卡片，不独立展示 |
+| messageType                             | 展示方式                         |
+|-----------------------------------------|------------------------------|
+| 空 或 `chat`                              | 普通聊天消息                       |
+| `interaction` + `interactionType=group` | tabs 交互式消息卡片                 |
+| `answer`                                | 默认折叠到对应 interaction 卡片，不独立展示 |
 
 ### SSE 事件处理规则
 
@@ -145,9 +145,10 @@ Boolean(message.content || message.reasoningContent)
 
 Deep Agent 的 `ask_user` 与 MCP 确认同样复用交互卡片体系，通过 `approvalType` 区分：
 
-| approvalType | 触发场景 | 交互形式 | 选项 |
-|------|------|------|------|
-| `deep_ask_user` | Deep Agent 追问补充信息 | `group` + `tabs` | 按问题类型（choice/confirm/text 等） |
+| approvalType             | 触发场景                   | 交互形式                | 选项                                         |
+|--------------------------|------------------------|---------------------|--------------------------------------------|
+| `deep_ask_user`          | Deep Agent 追问补充信息      | `group` + `tabs`    | 按问题类型（choice/confirm/text 等）               |
 | `deep_mcp_tool_approval` | Deep Agent 需要调用 MCP 工具 | `group` + `confirm` | `once`（仅本次）、`allow_10m`（10 分钟免确认）、`reject` |
 
-SSE 事件仍为 `question`，`interactionType` 为 `group`；用户提交答案时同样携带 `parentMessageId` 与 `answer.answers`，由后端根据 `approvalType` 决定恢复 Deep 运行或执行已批准工具。
+SSE 事件仍为 `question`，`interactionType` 为 `group`；用户提交答案时同样携带 `parentMessageId` 与 `answer.answers`，由后端根据
+`approvalType` 决定恢复 Deep 运行或执行已批准工具。

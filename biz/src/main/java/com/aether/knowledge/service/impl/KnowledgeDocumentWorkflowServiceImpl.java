@@ -36,6 +36,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
+/**
+ * 实现知识库文档工作流业务服务。
+ */
 @Service
 public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWorkflowService {
     private final KnowledgeDocumentService documentService;
@@ -53,6 +56,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
     private final KnowledgeReviewAuditWriter auditWriter;
     private final TransactionAfterCommitExecutor afterCommitExecutor;
 
+    /**
+     * 创建 {@code KnowledgeDocumentWorkflowServiceImpl} 实例。
+     */
     public KnowledgeDocumentWorkflowServiceImpl(KnowledgeDocumentService documentService,
                                                 KnowledgeDocumentVersionService versionService,
                                                 KnowledgeReviewTaskService taskService,
@@ -83,6 +89,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         this.afterCommitExecutor = afterCommitExecutor;
     }
 
+    /**
+     * 创建Draft。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocumentVersion createDraft(KnowledgeDocument document, String sourceVersionId) {
@@ -90,7 +99,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
             throw new ServerException(400, I18nUtils.getMessage("knowledge.document.required"));
         }
         KnowledgeDocument lockedDocument = documentMapper.selectActiveForUpdate(document.getId());
-        if (lockedDocument == null) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.not-found"));
+        if (lockedDocument == null)
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.not-found"));
         accessService.requireWritable(lockedDocument.getKnowledgeBaseId());
         if (StringUtils.isNotBlank(lockedDocument.getDraftVersionId())
                 || StringUtils.isNotBlank(lockedDocument.getSubmittedVersionId())) {
@@ -122,21 +132,30 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return version;
     }
 
+    /**
+     * 更新Draft。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocumentVersion updateDraft(String versionId, String content, String expectedChecksum) {
         return updateDraft(versionId, content, expectedChecksum, KnowledgeReviewStatus.DRAFT);
     }
 
+    /**
+     * 处理applyAiReviewedChanges。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocumentVersion applyAiReviewedChanges(String versionId, String content,
-                                                            String expectedChecksum) {
+                                                           String expectedChecksum) {
         return updateDraft(versionId, content, expectedChecksum, KnowledgeReviewStatus.AI_REVIEWED);
     }
 
+    /**
+     * 更新Draft。
+     */
     private KnowledgeDocumentVersion updateDraft(String versionId, String content,
-                                                  String expectedChecksum, String nextReviewStatus) {
+                                                 String expectedChecksum, String nextReviewStatus) {
         KnowledgeDocumentVersion version = requireVersion(versionId);
         KnowledgeDocument document = requireDocument(version.getKnowledgeDocumentId());
         accessService.requireWritable(document.getKnowledgeBaseId());
@@ -177,6 +196,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return versionService.getById(versionId);
     }
 
+    /**
+     * 处理startAi审核。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String startAiReview(String versionId) {
@@ -201,7 +223,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 .eq(KnowledgeDocumentVersion::getId, versionId)
                 .eq(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.DRAFT)
                 .set(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.AI_REVIEWING));
-        if (!transitioned) throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-state.changed"));
+        if (!transitioned)
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-state.changed"));
         stateManager.updateActiveDraftStatus(document.getId(), versionId,
                 KnowledgeReviewStatus.AI_REVIEWING);
         auditWriter.write(accessService.currentAdminId(), null, document.getId(), versionId,
@@ -212,6 +235,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return review.getId();
     }
 
+    /**
+     * 提交当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeReviewTask submit(String versionId, String comment) {
@@ -245,7 +271,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 .set(KnowledgeDocumentVersion::getReviewStatus, KnowledgeReviewStatus.SUBMITTED)
                 .set(KnowledgeDocumentVersion::getSubmittedBy, submitter)
                 .set(KnowledgeDocumentVersion::getSubmittedAt, now));
-        if (!transitioned) throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
+        if (!transitioned)
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
         KnowledgeReviewTask task = new KnowledgeReviewTask();
         task.setKnowledgeBaseId(document.getKnowledgeBaseId());
         task.setDocumentId(document.getId());
@@ -266,6 +293,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return task;
     }
 
+    /**
+     * 处理claim。
+     */
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void claim(String taskId) {
@@ -288,6 +318,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 task.getStatus(), KnowledgeReviewTaskStatus.CLAIMED, null);
     }
 
+    /**
+     * 审批通过当前请求。
+     */
     @Override
     public String approve(String taskId, String comment) {
         String jobId = transactionTemplate.execute(status -> {
@@ -298,10 +331,14 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return jobId;
     }
 
+    /**
+     * 拒绝当前请求。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void reject(String taskId, String reason) {
-        if (StringUtils.isBlank(reason)) throw new ServerException(400, I18nUtils.getMessage("knowledge.review-task.rejection-reason.required"));
+        if (StringUtils.isBlank(reason))
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.review-task.rejection-reason.required"));
         KnowledgeReviewTask task = requireTask(taskId);
         accessService.requireApprovable(task.getKnowledgeBaseId());
         String reviewer = accessService.currentAdminId();
@@ -326,7 +363,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 .set(KnowledgeDocumentVersion::getReviewedBy, reviewer)
                 .set(KnowledgeDocumentVersion::getReviewedAt, now)
                 .set(KnowledgeDocumentVersion::getReviewComment, reason));
-        if (!versionUpdated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
+        if (!versionUpdated)
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
         stateManager.finishSubmission(submission.getDocument().getId(),
                 submission.getVersion().getId(),
                 KnowledgeReviewStatus.REJECTED, now, null);
@@ -335,6 +373,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 KnowledgeReviewStatus.SUBMITTED, KnowledgeReviewStatus.REJECTED, reason);
     }
 
+    /**
+     * 处理edit审核Content。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocumentVersion editReviewContent(String taskId, String content, String expectedChecksum) {
@@ -362,7 +403,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 .set(KnowledgeDocumentVersion::getContent, normalized)
                 .set(KnowledgeDocumentVersion::getStructuredContent, null)
                 .set(KnowledgeDocumentVersion::getContentChecksum, newChecksum));
-        if (!versionUpdated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-state.changed"));
+        if (!versionUpdated)
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document.draft-state.changed"));
         boolean taskUpdated = taskService.update(Wrappers.lambdaUpdate(KnowledgeReviewTask.class)
                 .eq(KnowledgeReviewTask::getId, taskId)
                 .eq(KnowledgeReviewTask::getStatus, KnowledgeReviewTaskStatus.CLAIMED)
@@ -374,6 +416,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return versionService.getById(version.getId());
     }
 
+    /**
+     * 审批通过InTransaction。
+     */
     private ApprovalResult approveInTransaction(String taskId, String comment) {
         KnowledgeReviewTask task = requireTask(taskId);
         KnowledgeBase base = accessService.requireApprovable(task.getKnowledgeBaseId());
@@ -405,7 +450,8 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 .set(KnowledgeDocumentVersion::getReviewedBy, reviewer)
                 .set(KnowledgeDocumentVersion::getReviewedAt, now)
                 .set(KnowledgeDocumentVersion::getReviewComment, comment));
-        if (!versionUpdated) throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
+        if (!versionUpdated)
+            throw new ServerException(409, I18nUtils.getMessage("knowledge.document-version.state.changed"));
         stateManager.finishSubmission(document.getId(), version.getId(),
                 KnowledgeReviewStatus.APPROVED, now, 1);
         auditWriter.write(reviewer, taskId, task.getDocumentId(), version.getId(), KnowledgeReviewAction.APPROVED,
@@ -413,6 +459,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return new ApprovalResult(documentService.getById(document.getId()), versionService.getById(version.getId()));
     }
 
+    /**
+     * 处理ensureReviewer。
+     */
     private void ensureReviewer(KnowledgeReviewTask task, String reviewer) {
         if (KnowledgeReviewTaskStatus.PENDING.equals(task.getStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.review-task.claim-required"));
@@ -425,6 +474,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         }
     }
 
+    /**
+     * 处理latestSuccessfulAi审核。
+     */
     private KnowledgeAiReview latestSuccessfulAiReview(String versionId) {
         return aiReviewRecordService.getOne(Wrappers.lambdaQuery(KnowledgeAiReview.class)
                 .eq(KnowledgeAiReview::getDocumentVersionId, versionId)
@@ -434,6 +486,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 .last("LIMIT 1"), false);
     }
 
+    /**
+     * 判断是否拥有PendingAiIssues。
+     */
     private boolean hasPendingAiIssues(KnowledgeAiReview review) {
         return review != null && aiReviewIssueService.count(
                 Wrappers.lambdaQuery(com.aether.knowledge.entity.KnowledgeAiReviewIssue.class)
@@ -443,6 +498,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                         .eq(com.aether.knowledge.entity.KnowledgeAiReviewIssue::getDeleted, false)) > 0;
     }
 
+    /**
+     * 更新文档Pointers。
+     */
     private void updateDocumentPointers(KnowledgeDocument update, boolean includeNullPointers) {
         documentService.update(Wrappers.lambdaUpdate(KnowledgeDocument.class)
                 .eq(KnowledgeDocument::getId, update.getId())
@@ -453,6 +511,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
                 .set(includeNullPointers, KnowledgeDocument::getSubmittedVersionId, update.getSubmittedVersionId()));
     }
 
+    /**
+     * 处理requireVersion。
+     */
     private KnowledgeDocumentVersion requireVersion(String id) {
         KnowledgeDocumentVersion version = versionService.getById(id);
         if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
@@ -461,6 +522,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return version;
     }
 
+    /**
+     * 处理require文档。
+     */
     private KnowledgeDocument requireDocument(String id) {
         KnowledgeDocument document = documentService.getById(id);
         if (document == null || Boolean.TRUE.equals(document.getDeleted())) {
@@ -469,6 +533,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return document;
     }
 
+    /**
+     * 处理require任务。
+     */
     private KnowledgeReviewTask requireTask(String id) {
         KnowledgeReviewTask task = taskService.getById(id);
         if (task == null || Boolean.TRUE.equals(task.getDeleted())) {
@@ -477,6 +544,9 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         return task;
     }
 
+    /**
+     * 处理checksum。
+     */
     private String checksum(String content) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
@@ -489,9 +559,16 @@ public class KnowledgeDocumentWorkflowServiceImpl implements KnowledgeDocumentWo
         }
     }
 
+    /**
+     * 表示Approval结果。
+     */
     private static class ApprovalResult {
         private final KnowledgeDocument document;
         private final KnowledgeDocumentVersion version;
+
+        /**
+         * 创建 {@code ApprovalResult} 实例。
+         */
         private ApprovalResult(KnowledgeDocument document, KnowledgeDocumentVersion version) {
             this.document = document;
             this.version = version;

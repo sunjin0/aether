@@ -5,6 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+/**
+ * 表示SandboxExecutionTemplateVersion。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("sandbox_execution_template_version")

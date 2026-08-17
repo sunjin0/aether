@@ -16,12 +16,17 @@ import com.baomidou.mybatisplus.extension.service.IService;
  */
 public interface ResourceService extends IService<Resource> {
 
-    Page<ResourceVo> list(ResourceVo resource);
     /**
- * 保存
- * @param resource 资源
- * @param createNodes 创建节点
- * @return 保存结果
- */
-    boolean save(Resource resource,Boolean createNodes);
+     * 查询当前请求。
+     */
+    Page<ResourceVo> list(ResourceVo resource);
+
+    /**
+     * 保存
+     *
+     * @param resource    资源
+     * @param createNodes 创建节点
+     * @return 保存结果
+     */
+    boolean save(Resource resource, Boolean createNodes);
 }

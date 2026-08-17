@@ -2,7 +2,9 @@ package com.aether.workflow.vo;
 
 import lombok.Data;
 
-/** 工作流发布版本的只读快照。 */
+/**
+ * 工作流发布版本的只读快照。
+ */
 @Data
 public class AgentWorkflowVersionVo {
     private String id;

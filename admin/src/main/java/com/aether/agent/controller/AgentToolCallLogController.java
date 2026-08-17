@@ -36,11 +36,17 @@ public class AgentToolCallLogController {
 
     private final AgentToolCallLogService agentToolCallLogService;
 
+    /**
+     * 创建 {@code AgentToolCallLogController} 实例。
+     */
     @Autowired
     public AgentToolCallLogController(AgentToolCallLogService agentToolCallLogService) {
         this.agentToolCallLogService = agentToolCallLogService;
     }
 
+    /**
+     * 工具调用日志列表。
+     */
     @ApiOperation("工具调用日志列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -64,6 +70,9 @@ public class AgentToolCallLogController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 详情当前请求。
+     */
     @ApiOperation("工具调用日志详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "日志ID", required = true),

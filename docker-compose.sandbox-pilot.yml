@@ -8,25 +8,25 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-aether}
       POSTGRES_USER: ${POSTGRES_USER:-aether}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-    volumes: [postgres-data:/var/lib/postgresql/data]
+    volumes: [ postgres-data:/var/lib/postgresql/data ]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
       interval: 5s
       timeout: 5s
       retries: 20
-    networks: [pilot]
+    networks: [ pilot ]
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes: [redis-data:/data]
+    command: [ "redis-server", "--appendonly", "yes" ]
+    volumes: [ redis-data:/data ]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [pilot]
+    networks: [ pilot ]
 
   minio:
     image: minio/minio:latest
@@ -38,13 +38,13 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-    volumes: [minio-data:/data]
+    volumes: [ minio-data:/data ]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live" ]
       interval: 10s
       timeout: 5s
       retries: 20
-    networks: [pilot]
+    networks: [ pilot ]
 
   admin:
     image: ${AETHER_ADMIN_IMAGE:-aether-admin:sandbox-pilot}
@@ -52,7 +52,7 @@ services:
       context: ${AETHER_ADMIN_SOURCE:-.}
       dockerfile: admin/Dockerfile
     restart: unless-stopped
-    ports: ["${ADMIN_PORT:-18080}:8080"]
+    ports: [ "${ADMIN_PORT:-18080}:8080" ]
     environment:
       SPRING_PROFILES_ACTIVE: prod
       SPRING_REDIS_HOST: redis
@@ -73,7 +73,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
-    networks: [pilot]
+    networks: [ pilot ]
 
   dashboard:
     image: ${AETHER_DASHBOARD_IMAGE:-aether-dashboard:sandbox-pilot}
@@ -81,27 +81,27 @@ services:
       context: ${AETHER_DASHBOARD_SOURCE:?set AETHER_DASHBOARD_SOURCE}
       dockerfile: Dockerfile
     restart: unless-stopped
-    ports: ["${DASHBOARD_PORT:-18001}:80"]
+    ports: [ "${DASHBOARD_PORT:-18001}:80" ]
     environment:
       AETHER_ADMIN_UPSTREAM: http://admin:8080
-    depends_on: [admin]
-    networks: [pilot]
+    depends_on: [ admin ]
+    networks: [ pilot ]
 
   sandbox-runtime-python:
     image: ${AETHER_SANDBOX_PYTHON_IMAGE:-aether-sandbox-python:pilot}
     build:
       context: ${AETHER_MCP_SOURCE:?set AETHER_MCP_SOURCE}
       dockerfile: sandbox-runtime/python.Dockerfile
-    command: ["true"]
-    networks: [pilot]
+    command: [ "true" ]
+    networks: [ pilot ]
 
   sandbox-runtime-node:
     image: ${AETHER_SANDBOX_NODE_IMAGE:-aether-sandbox-node:pilot}
     build:
       context: ${AETHER_MCP_SOURCE:?set AETHER_MCP_SOURCE}
       dockerfile: sandbox-runtime/node.Dockerfile
-    command: ["true"]
-    networks: [pilot]
+    command: [ "true" ]
+    networks: [ pilot ]
 
   sandbox-runner:
     image: ${AETHER_SANDBOX_RUNNER_IMAGE:-aether-sandbox-runner:pilot}
@@ -110,8 +110,8 @@ services:
       dockerfile: sandbox-runner/Dockerfile
     restart: unless-stopped
     read_only: true
-    security_opt: [no-new-privileges:true]
-    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    security_opt: [ no-new-privileges:true ]
+    tmpfs: [ "/tmp:rw,noexec,nosuid,size=32m" ]
     environment:
       AETHER_ADMIN_INTERNAL_URL: http://admin:8080
       AETHER_SANDBOX_RUNNER_TOKEN: ${AETHER_SANDBOX_RUNNER_TOKEN:?set AETHER_SANDBOX_RUNNER_TOKEN}
@@ -125,7 +125,7 @@ services:
       admin: { condition: service_started }
       sandbox-runtime-python: { condition: service_completed_successfully }
       sandbox-runtime-node: { condition: service_completed_successfully }
-    networks: [pilot]
+    networks: [ pilot ]
 
 networks:
   pilot:

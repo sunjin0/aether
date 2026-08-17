@@ -9,6 +9,8 @@ import java.util.Map;
  */
 @Data
 public class AgentSkillPreviewDto {
-    /** key = Skill code，value = 对应版本的样例输入（按 input_schema 组织） */
+    /**
+     * key = Skill code，value = 对应版本的样例输入（按 input_schema 组织）
+     */
     private Map<String, Map<String, Object>> skillInputs;
 }

@@ -2,7 +2,8 @@
 
 ## 目标
 
-为 `executionMode=DEEP` 的 Agent 接入异步外部 Deep Agent 服务。前端仍通过既有的 `POST /api/agent/chat/stream` 开始聊天并接收 SSE；Java Admin 负责创建外部任务、接收签名回调、持久化审计信息并转换 SSE 事件。标准模式 `STANDARD` 的聊天流程不改变。
+为 `executionMode=DEEP` 的 Agent 接入异步外部 Deep Agent 服务。前端仍通过既有的 `POST /api/agent/chat/stream` 开始聊天并接收
+SSE；Java Admin 负责创建外部任务、接收签名回调、持久化审计信息并转换 SSE 事件。标准模式 `STANDARD` 的聊天流程不改变。
 
 ## 范围
 
@@ -29,8 +30,10 @@
 4. Java 创建状态为 `3`（排队中）的 `agent_run`，其 ID 即为外部请求的 `run_id`。
 5. Java 使用既有知识检索结果构造 `knowledge_sources`，使用启用且绑定的 MCP 工具构造 `allowed_tools`，并签发委托 JWT。
 6. Java HMAC 签名调用 `POST {baseUrl}/v1/runs`。外部服务返回 `202 Accepted` 后，Java 保持当前 SSE 连接等待回调。
-7. 外部服务调用 `POST /api/agent/deep-runs/callback/{runId}`。Java 验签、验证路径与回调体中的 run ID 一致、按事件 ID 幂等保存步骤、更新运行状态，并将进度发至持有该 run ID 的 SSE 连接。
-8. 完成回调创建 assistant 消息、更新会话消息数和知识引用审计、更新运行记录，并发送 `done`。失败或取消回调更新运行记录并发送 `error`。
+7. 外部服务调用 `POST /api/agent/deep-runs/callback/{runId}`。Java 验签、验证路径与回调体中的 run ID 一致、按事件 ID
+   幂等保存步骤、更新运行状态，并将进度发至持有该 run ID 的 SSE 连接。
+8. 完成回调创建 assistant 消息、更新会话消息数和知识引用审计、更新运行记录，并发送 `done`。失败或取消回调更新运行记录并发送
+   `error`。
 
 ## Deep Agent 请求契约
 
@@ -69,7 +72,8 @@ Java 调用外部服务时使用 JSON：
 - `X-Aether-Timestamp`，Unix 秒时间戳
 - `X-Aether-Signature`
 
-签名算法是 `HMAC-SHA256(sharedSecret, timestamp + "." + 原始请求体字节)`，验签时间窗口为五分钟。缺少、过期或错误的签名返回 `401`；未配置共享密钥或外部服务地址时拒绝 Deep 任务并记录失败运行。
+签名算法是 `HMAC-SHA256(sharedSecret, timestamp + "." + 原始请求体字节)`，验签时间窗口为五分钟。缺少、过期或错误的签名返回
+`401`；未配置共享密钥或外部服务地址时拒绝 Deep 任务并记录失败运行。
 
 ### MCP 委托 JWT
 
@@ -104,13 +108,13 @@ Java 使用 `AETHER_MCP_DELEGATION_SECRET` 签发 HS256 JWT，五分钟过期，
 
 回调事件的处理规则：
 
-| 外部事件 | 运行状态/持久化 | 前端事件 |
-| --- | --- | --- |
-| `run.started` | 运行状态改为 `4`（执行中） | `run_step` |
-| `plan.updated`、`step.started`、`tool.started`、`tool.completed` | 保存步骤 | `run_step` |
-| `run.completed` | 保存 assistant 消息和用量，状态改为 `0` | `done` |
-| `run.failed` | 保存错误，状态改为 `1` | `error` |
-| `run.cancelled` | 状态改为 `5` | `error` |
+| 外部事件                                                          | 运行状态/持久化                    | 前端事件       |
+|---------------------------------------------------------------|-----------------------------|------------|
+| `run.started`                                                 | 运行状态改为 `4`（执行中）             | `run_step` |
+| `plan.updated`、`step.started`、`tool.started`、`tool.completed` | 保存步骤                        | `run_step` |
+| `run.completed`                                               | 保存 assistant 消息和用量，状态改为 `0` | `done`     |
+| `run.failed`                                                  | 保存错误，状态改为 `1`               | `error`    |
+| `run.cancelled`                                               | 状态改为 `5`                    | `error`    |
 
 进度事件统一发为：
 
@@ -124,7 +128,8 @@ Java 使用 `AETHER_MCP_DELEGATION_SECRET` 签发 HS256 JWT，五分钟过期，
 }
 ```
 
-`done` 保持现有聊天 SSE 的会话和消息字段，并补充 `runId`、`sources`、模型和 Token 数据。Deep Agent 最终内容只在完成回调时保存和发送，不写入不完整 assistant 消息。
+`done` 保持现有聊天 SSE 的会话和消息字段，并补充 `runId`、`sources`、模型和 Token 数据。Deep Agent 最终内容只在完成回调时保存和发送，不写入不完整
+assistant 消息。
 
 ## 数据模型和查询接口
 
@@ -137,11 +142,13 @@ Java 使用 `AETHER_MCP_DELEGATION_SECRET` 签发 HS256 JWT，五分钟过期，
 
 运行状态扩展为：`0=成功`、`1=失败`、`2=超时`、`3=排队中`、`4=执行中`、`5=已取消`。
 
-`AgentRunVo` 返回 `executionMode` 和 `externalRunId`。新增 `AgentRunStepVo` 及 `GET /api/agent/run/{id}/steps`，确认运行存在后按 `occurredAt`、创建时间升序返回步骤。运行详情和步骤接口供前端断线恢复，不能重新向外部服务发起任务。
+`AgentRunVo` 返回 `executionMode` 和 `externalRunId`。新增 `AgentRunStepVo` 及 `GET /api/agent/run/{id}/steps`，确认运行存在后按
+`occurredAt`、创建时间升序返回步骤。运行详情和步骤接口供前端断线恢复，不能重新向外部服务发起任务。
 
 ## 取消和连接管理
 
-Java 为活跃 Deep Run 维护 `runId -> SseEmitter` 映射。回调无法找到活跃连接时仍必须持久化事件。浏览器主动停止 Deep 任务时调用取消接口，Java HMAC 签名转发外部 `POST /v1/runs/{runId}/cancel`；最终状态以外部 `run.cancelled` 回调为准。
+Java 为活跃 Deep Run 维护 `runId -> SseEmitter` 映射。回调无法找到活跃连接时仍必须持久化事件。浏览器主动停止 Deep
+任务时调用取消接口，Java HMAC 签名转发外部 `POST /v1/runs/{runId}/cancel`；最终状态以外部 `run.cancelled` 回调为准。
 
 ## 错误处理
 

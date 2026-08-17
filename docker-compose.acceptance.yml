@@ -134,6 +134,9 @@ services:
       HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
       AETHER_MCP_DELEGATION_SECRET: ${AETHER_MCP_DELEGATION_SECRET:-aether-mcp-delegation-dev-secret-change-me}
       AETHER_ADMIN_INTERNAL_URL: ${AETHER_ADMIN_INTERNAL_URL:-http://aether-admin:8080}
+      AETHER_VISION_API_BASE_URL: ${AETHER_VISION_API_BASE_URL:-}
+      AETHER_VISION_MODEL: ${AETHER_VISION_MODEL:-}
+      AETHER_VISION_API_KEY: ${AETHER_VISION_API_KEY:-}
     volumes:
       - mcp-huggingface-cache:/root/.cache/huggingface
       - mcp-docling-cache:/root/.cache/docling

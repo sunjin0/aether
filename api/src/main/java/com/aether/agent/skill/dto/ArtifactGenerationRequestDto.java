@@ -1,6 +1,7 @@
 package com.aether.agent.skill.dto;
 
 import lombok.Data;
+
 import java.util.Map;
 
 /**
@@ -13,6 +14,8 @@ public class ArtifactGenerationRequestDto {
     private String fileName;
     private String format;
     private String content;
-    /** 可选的结构化文档计划；平台渲染器按需消费，未知字段会被忽略。 */
+    /**
+     * 可选的结构化文档计划；平台渲染器按需消费，未知字段会被忽略。
+     */
     private Map<String, Object> document;
 }

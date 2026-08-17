@@ -14,6 +14,9 @@ public class McpSessionManager {
 
     private final Map<String, McpSession> sessions = new ConcurrentHashMap<>();
 
+    /**
+     * 获取会话。
+     */
     public McpSession getSession(AgentMcpServer server) {
         McpSession session = sessions.computeIfAbsent(server.getId(), key -> {
             McpSession created = new McpSession();
@@ -24,6 +27,9 @@ public class McpSessionManager {
         return session;
     }
 
+    /**
+     * 处理invalidate。
+     */
     public void invalidate(String serverId) {
         sessions.remove(serverId);
     }

@@ -5,6 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+/**
+ * 表示智能体会话Memory。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_session_memory")

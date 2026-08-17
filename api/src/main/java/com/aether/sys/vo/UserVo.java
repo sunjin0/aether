@@ -1,11 +1,15 @@
 package com.aether.sys.vo;
 
-import  com.aether.sys.entity.User;
+import com.aether.sys.entity.User;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+
 import java.util.HashMap;
 import java.util.List;
 
+/**
+ * 表示用户VO。
+ */
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class UserVo extends User {

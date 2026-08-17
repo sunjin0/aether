@@ -38,6 +38,9 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证会话Summary服务的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class ConversationSummaryServiceTest {
 
@@ -54,6 +57,9 @@ class ConversationSummaryServiceTest {
 
     private ConversationSummaryService service;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -64,11 +70,17 @@ class ConversationSummaryServiceTest {
                 redisTemplate, modelClientFactory, conversationService);
     }
 
+    /**
+     * 处理tearDown。
+     */
     @AfterEach
     void tearDown() {
         service.shutdown();
     }
 
+    /**
+     * 处理readsOnlySummaryWithCoverageCursor。
+     */
     @Test
     void readsOnlySummaryWithCoverageCursor() {
         SummarySnapshot stored = new SummarySnapshot();
@@ -85,6 +97,9 @@ class ConversationSummaryServiceTest {
         assertEquals(20L, result.getCoveredUntilCreatedAt());
     }
 
+    /**
+     * 处理rejectsLegacySummaryWithoutCoverageCursor。
+     */
     @Test
     void rejectsLegacySummaryWithoutCoverageCursor() {
         when(valueOperations.get("agent:summary:v3:conversation-1"))
@@ -93,6 +108,9 @@ class ConversationSummaryServiceTest {
         assertNull(service.get("conversation-1"));
     }
 
+    /**
+     * 处理refreshPersistsLastCovered消息Cursor。
+     */
     @Test
     void refreshPersistsLastCoveredMessageCursor() {
         AgentDefinition agent = new AgentDefinition();
@@ -128,6 +146,9 @@ class ConversationSummaryServiceTest {
         org.junit.jupiter.api.Assertions.assertFalse(prompt.contains("企业版呢？"));
     }
 
+    /**
+     * 缓存MissLoadsPersistentSummaryAndBackfillsRedis。
+     */
     @Test
     void cacheMissLoadsPersistentSummaryAndBackfillsRedis() {
         AgentConversation conversation = new AgentConversation();
@@ -147,6 +168,9 @@ class ConversationSummaryServiceTest {
                 eq(24L), eq(TimeUnit.HOURS));
     }
 
+    /**
+     * 处理distributedLockPreventsDuplicateRefresh。
+     */
     @Test
     void distributedLockPreventsDuplicateRefresh() {
         when(valueOperations.setIfAbsent(
@@ -159,6 +183,9 @@ class ConversationSummaryServiceTest {
         verify(modelClientFactory, after(300).never()).getClient(any());
     }
 
+    /**
+     * 处理newerCursorPreventsStaleSummaryGeneration。
+     */
     @Test
     void newerCursorPreventsStaleSummaryGeneration() {
         SummarySnapshot newer = new SummarySnapshot();
@@ -175,6 +202,9 @@ class ConversationSummaryServiceTest {
         verify(modelClientFactory, after(300).never()).getClient(any());
     }
 
+    /**
+     * 处理deletionDuringGenerationPreventsSummaryFromBeingWrittenBack。
+     */
     @Test
     void deletionDuringGenerationPreventsSummaryFromBeingWrittenBack() throws Exception {
         CountDownLatch generationStarted = new CountDownLatch(1);
@@ -202,6 +232,9 @@ class ConversationSummaryServiceTest {
                 eq(24L), eq(TimeUnit.HOURS));
     }
 
+    /**
+     * 消息当前请求。
+     */
     private AgentMessage message(String id, long createdAt) {
         AgentMessage message = new AgentMessage();
         message.setId(id);

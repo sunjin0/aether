@@ -6,8 +6,14 @@ import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * 验证OpenAI模型Client的行为。
+ */
 class OpenAIModelClientTest {
 
+    /**
+     * 解析ResponseSupportsReasoningContentWhenContent判断是否为Blank。
+     */
     @Test
     void parseResponseSupportsReasoningContentWhenContentIsBlank() throws Exception {
         String responseBody = "{"

@@ -32,6 +32,9 @@ public class AgentToolCatalog {
     private final ToolRegistry toolRegistry;
     private final RedisTemplate<String, Object> redisTemplate;
 
+    /**
+     * 创建 {@code AgentToolCatalog} 实例。
+     */
     public AgentToolCatalog(AgentToolService agentToolService, AgentToolBindingService bindingService,
                             ToolRegistry toolRegistry,
                             @Qualifier("objectRedisTemplate") RedisTemplate<String, Object> redisTemplate) {
@@ -41,6 +44,9 @@ public class AgentToolCatalog {
         this.redisTemplate = redisTemplate;
     }
 
+    /**
+     * 获取RequestTools。
+     */
     public List<AgentTool> getRequestTools(String agentId) {
         // 模型请求既包含 Agent 绑定的 MCP 工具，也包含平台内置工具。
         List<AgentTool> tools = new ArrayList<>(getBoundTools(agentId));
@@ -48,6 +54,9 @@ public class AgentToolCatalog {
         return tools;
     }
 
+    /**
+     * 获取BoundTools。
+     */
     public List<AgentTool> getBoundTools(String agentId) {
         String cacheKey = CACHE_KEY_PREFIX + agentId;
         try {
@@ -76,6 +85,9 @@ public class AgentToolCatalog {
         return tools;
     }
 
+    /**
+     * 处理evict。
+     */
     public void evict(String agentId) {
         try {
             redisTemplate.delete(CACHE_KEY_PREFIX + agentId);
@@ -84,6 +96,9 @@ public class AgentToolCatalog {
         }
     }
 
+    /**
+     * 处理evict按ToolId。
+     */
     public void evictByToolId(String toolId) {
         try {
             List<AgentToolBinding> bindings = bindingService.list(Wrappers.lambdaQuery(AgentToolBinding.class)

@@ -42,32 +42,52 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+
 import org.mockito.ArgumentCaptor;
+
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证知识库文档工作流服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeDocumentWorkflowServiceImplTest {
-    @Mock private KnowledgeDocumentService documentService;
-    @Mock private KnowledgeDocumentVersionService versionService;
-    @Mock private KnowledgeReviewTaskService taskService;
-    @Mock private KnowledgeAiReviewRecordService aiReviewRecordService;
-    @Mock private KnowledgeAiReviewIssueService aiReviewIssueService;
-    @Mock private KnowledgeAccessService accessService;
-    @Mock private KnowledgeDocumentIndexService indexService;
-    @Mock private KnowledgeAiReviewWorker aiReviewWorker;
-    @Mock private TransactionTemplate transactionTemplate;
-    @Mock private KnowledgeDocumentMapper documentMapper;
-    @Mock private KnowledgeDocumentWorkflowStateManager stateManager;
-    @Mock private KnowledgeReviewAuditWriter auditWriter;
+    @Mock
+    private KnowledgeDocumentService documentService;
+    @Mock
+    private KnowledgeDocumentVersionService versionService;
+    @Mock
+    private KnowledgeReviewTaskService taskService;
+    @Mock
+    private KnowledgeAiReviewRecordService aiReviewRecordService;
+    @Mock
+    private KnowledgeAiReviewIssueService aiReviewIssueService;
+    @Mock
+    private KnowledgeAccessService accessService;
+    @Mock
+    private KnowledgeDocumentIndexService indexService;
+    @Mock
+    private KnowledgeAiReviewWorker aiReviewWorker;
+    @Mock
+    private TransactionTemplate transactionTemplate;
+    @Mock
+    private KnowledgeDocumentMapper documentMapper;
+    @Mock
+    private KnowledgeDocumentWorkflowStateManager stateManager;
+    @Mock
+    private KnowledgeReviewAuditWriter auditWriter;
 
     private KnowledgeDocumentWorkflowServiceImpl service;
     private KnowledgeReviewConfigResolver configResolver;
     private TransactionAfterCommitExecutor afterCommitExecutor;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         new I18nUtils(org.mockito.Mockito.mock(I18nService.class));
@@ -85,6 +105,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
                 afterCommitExecutor);
     }
 
+    /**
+     * 处理startsAi审核OnlyAfterDraftTransitions。
+     */
     @Test
     void startsAiReviewOnlyAfterDraftTransitions() {
         KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.DRAFT);
@@ -112,6 +135,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         }
     }
 
+    /**
+     * 处理refusesSubmissionWhenCriticalAiIssue判断是否为Pending。
+     */
     @Test
     void refusesSubmissionWhenCriticalAiIssueIsPending() {
         KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
@@ -132,6 +158,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         assertThrows(ServerException.class, () -> service.submit("version-1", null));
     }
 
+    /**
+     * 处理editingAnAiReviewedVersionReturnsItToDraftWithChecksumCas。
+     */
     @Test
     void editingAnAiReviewedVersionReturnsItToDraftWithChecksumCas() {
         KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
@@ -149,6 +178,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         assertTrue(versionUpdate.getValue().getSqlSegment().contains("content_checksum"));
     }
 
+    /**
+     * 处理applyingReviewedChangesPreservesAiReviewed状态WithChecksumCas。
+     */
     @Test
     void applyingReviewedChangesPreservesAiReviewedStatusWithChecksumCas() {
         KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
@@ -169,6 +201,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
                 KnowledgeReviewStatus.AI_REVIEWED);
     }
 
+    /**
+     * 处理refusesSubmissionWhenAnyAiIssue判断是否为Pending。
+     */
     @Test
     void refusesSubmissionWhenAnyAiIssueIsPending() {
         KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
@@ -189,6 +224,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         assertThrows(ServerException.class, () -> service.submit("version-1", null));
     }
 
+    /**
+     * 处理refusesRequiredAiSubmissionWithoutSuccessfulPrecheck。
+     */
     @Test
     void refusesRequiredAiSubmissionWithoutSuccessfulPrecheck() {
         KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
@@ -205,6 +243,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         assertThrows(ServerException.class, () -> service.submit("version-1", null));
     }
 
+    /**
+     * 处理submitsRequiredAiVersionAfterAcceptedChangesAlterChecksum。
+     */
     @Test
     void submitsRequiredAiVersionAfterAcceptedChangesAlterChecksum() {
         KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
@@ -230,6 +271,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         verify(taskService).save(any(KnowledgeReviewTask.class));
     }
 
+    /**
+     * 处理submitsRequiredAiVersionAfterMatchingSuccessfulPrecheckWithNoPendingIssues。
+     */
     @Test
     void submitsRequiredAiVersionAfterMatchingSuccessfulPrecheckWithNoPendingIssues() {
         KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.AI_REVIEWED);
@@ -254,6 +298,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         verify(taskService).save(any(KnowledgeReviewTask.class));
     }
 
+    /**
+     * 处理preventsSubmitterFromClaimingWhenDifferentApprover判断是否为Required。
+     */
     @Test
     void preventsSubmitterFromClaimingWhenDifferentApproverIsRequired() {
         KnowledgeReviewTask task = new KnowledgeReviewTask();
@@ -270,6 +317,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         assertThrows(ServerException.class, () -> service.claim("task-1"));
     }
 
+    /**
+     * 处理refusesToClaim任务WhenIt判断是否为NoLongerTheActiveSubmission。
+     */
     @Test
     void refusesToClaimTaskWhenItIsNoLongerTheActiveSubmission() {
         KnowledgeReviewTask task = reviewTask(KnowledgeReviewTaskStatus.PENDING);
@@ -286,6 +336,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         verify(taskService, never()).claim(any(), any(), org.mockito.ArgumentMatchers.anyLong());
     }
 
+    /**
+     * 处理claims任务When文档VersionAndChecksumStillMatch。
+     */
     @Test
     void claimsTaskWhenDocumentVersionAndChecksumStillMatch() {
         KnowledgeReviewTask task = reviewTask(KnowledgeReviewTaskStatus.PENDING);
@@ -305,6 +358,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
                 org.mockito.ArgumentMatchers.anyLong());
     }
 
+    /**
+     * 处理rollsBackSubmissionWhen审核任务CannotBeCreated。
+     */
     @Test
     void rollsBackSubmissionWhenReviewTaskCannotBeCreated() {
         KnowledgeDocumentVersion version = version("version-1", KnowledgeReviewStatus.DRAFT);
@@ -323,6 +379,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         verify(documentService, never()).update(any());
     }
 
+    /**
+     * 处理requiresClaimBeforeRejecting。
+     */
     @Test
     void requiresClaimBeforeRejecting() {
         KnowledgeReviewTask task = new KnowledgeReviewTask();
@@ -335,6 +394,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         assertThrows(ServerException.class, () -> service.reject("task-1", "needs work"));
     }
 
+    /**
+     * 处理rollsBackApprovalTransactionWhen索引QueueFails。
+     */
     @Test
     void rollsBackApprovalTransactionWhenIndexQueueFails() {
         PlatformTransactionManager transactionManager =
@@ -377,6 +439,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         verify(transactionManager, never()).commit(any());
     }
 
+    /**
+     * 文档当前请求。
+     */
     private KnowledgeDocument document() {
         KnowledgeDocument document = new KnowledgeDocument();
         document.setId("document-1");
@@ -384,6 +449,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         return document;
     }
 
+    /**
+     * 处理version。
+     */
     private KnowledgeDocumentVersion version(String id, String status) {
         KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
         version.setId(id);
@@ -393,6 +461,9 @@ class KnowledgeDocumentWorkflowServiceImplTest {
         return version;
     }
 
+    /**
+     * 审核任务。
+     */
     private KnowledgeReviewTask reviewTask(String status) {
         KnowledgeReviewTask task = new KnowledgeReviewTask();
         task.setId("task-1");

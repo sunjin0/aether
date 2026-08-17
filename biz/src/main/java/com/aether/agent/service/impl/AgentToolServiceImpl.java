@@ -26,6 +26,9 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
     private final RedisTemplate<String, Object> redisTemplate;
     private final AgentToolBindingService agentToolBindingService;
 
+    /**
+     * 创建 {@code AgentToolServiceImpl} 实例。
+     */
     @Autowired
     public AgentToolServiceImpl(RedisTemplate<String, Object> redisTemplate,
                                 AgentToolBindingService agentToolBindingService) {
@@ -33,6 +36,9 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
         this.agentToolBindingService = agentToolBindingService;
     }
 
+    /**
+     * 保存当前请求。
+     */
     @Override
     public boolean save(AgentTool entity) {
         boolean saved = super.save(entity);
@@ -42,6 +48,9 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
         return saved;
     }
 
+    /**
+     * 更新按Id。
+     */
     @Override
     public boolean updateById(AgentTool entity) {
         boolean updated = super.updateById(entity);
@@ -51,6 +60,9 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
         return updated;
     }
 
+    /**
+     * 移除按Id。
+     */
     @Override
     public boolean removeById(java.io.Serializable id) {
         boolean removed = super.removeById(id);

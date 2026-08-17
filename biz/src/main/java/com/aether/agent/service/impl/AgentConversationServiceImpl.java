@@ -20,11 +20,17 @@ public class AgentConversationServiceImpl extends ServiceImpl<AgentConversationM
 
     private final AgentMessageService agentMessageService;
 
+    /**
+     * 创建 {@code AgentConversationServiceImpl} 实例。
+     */
     @Autowired
     public AgentConversationServiceImpl(AgentMessageService agentMessageService) {
         this.agentMessageService = agentMessageService;
     }
 
+    /**
+     * 获取Lifecycle。
+     */
     @Override
     public AgentConversationLifecycleVo getLifecycle(String conversationId) {
         AgentConversation conversation = getById(conversationId);
@@ -73,6 +79,9 @@ public class AgentConversationServiceImpl extends ServiceImpl<AgentConversationM
         return vo;
     }
 
+    /**
+     * 获取Statistics。
+     */
     @Override
     public AgentMessageStatisticsVo getStatistics(String conversationId) {
         AgentConversation conversation = getById(conversationId);
@@ -129,6 +138,9 @@ public class AgentConversationServiceImpl extends ServiceImpl<AgentConversationM
         return vo;
     }
 
+    /**
+     * 处理safeLong。
+     */
     private long safeLong(Integer value) {
         return value == null ? 0L : value.longValue();
     }

@@ -13,6 +13,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 实现会话Memory业务服务。
+ */
 @Service
 public class ConversationMemoryServiceImpl implements ConversationMemoryService {
 
@@ -22,10 +25,16 @@ public class ConversationMemoryServiceImpl implements ConversationMemoryService 
 
     private final StringRedisTemplate redisTemplate;
 
+    /**
+     * 创建 {@code ConversationMemoryServiceImpl} 实例。
+     */
     public ConversationMemoryServiceImpl(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
     }
 
+    /**
+     * 处理storeMemory。
+     */
     @Override
     public void storeMemory(String conversationId, String userId, String content) {
         if (StringUtils.isBlank(content)) {
@@ -35,15 +44,24 @@ public class ConversationMemoryServiceImpl implements ConversationMemoryService 
         redisTemplate.opsForValue().set(key, content, MEMORY_TTL_HOURS, TimeUnit.HOURS);
     }
 
+    /**
+     * 处理retrieveRelevantMemories。
+     */
     @Override
     public List<String> retrieveRelevantMemories(String userId, String query, int topK) {
         return Collections.emptyList();
     }
 
+    /**
+     * 删除会话Memories。
+     */
     @Override
     public void deleteConversationMemories(String conversationId) {
     }
 
+    /**
+     * 处理storeSegment。
+     */
     @Override
     public void storeSegment(String conversationId, String userId, List<String> messages,
                              AgentDefinition agent, ModelProvider provider) {

@@ -20,6 +20,9 @@ import org.springframework.stereotype.Component;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 
+/**
+ * 表示知识库文档ContentExtractor。
+ */
 @Component
 public class KnowledgeDocumentContentExtractor {
 
@@ -27,10 +30,16 @@ public class KnowledgeDocumentContentExtractor {
 
     private final DoclingClient doclingClient;
 
+    /**
+     * 创建 {@code KnowledgeDocumentContentExtractor} 实例。
+     */
     public KnowledgeDocumentContentExtractor(DoclingClient doclingClient) {
         this.doclingClient = doclingClient;
     }
 
+    /**
+     * 处理extract。
+     */
     public String extract(String fileName, byte[] bytes) {
         String name = fileName == null ? "" : fileName.toLowerCase();
         try {
@@ -94,6 +103,9 @@ public class KnowledgeDocumentContentExtractor {
         }
     }
 
+    /**
+     * 处理tryDocling。
+     */
     private String tryDocling(String name, byte[] bytes) {
         if (!doclingClient.isEnabled()) return null;
         String result = doclingClient.convert(name, bytes);
@@ -102,10 +114,16 @@ public class KnowledgeDocumentContentExtractor {
         return null;
     }
 
+    /**
+     * 判断是否为Image。
+     */
     private boolean isImage(String name) {
         return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".webp");
     }
 
+    /**
+     * 处理extractPdf。
+     */
     private String extractPdf(byte[] bytes) throws Exception {
         try (PDDocument pdf = PDDocument.load(bytes)) {
             PDFTextStripper stripper = new PDFTextStripper();
@@ -114,6 +132,9 @@ public class KnowledgeDocumentContentExtractor {
         }
     }
 
+    /**
+     * 处理extractDocx。
+     */
     private String extractDocx(byte[] bytes) throws Exception {
         try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
             StringBuilder sb = new StringBuilder();
@@ -135,6 +156,9 @@ public class KnowledgeDocumentContentExtractor {
         }
     }
 
+    /**
+     * 处理extractXlsx。
+     */
     private String extractXlsx(byte[] bytes) throws Exception {
         try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
             StringBuilder sb = new StringBuilder();
@@ -168,6 +192,9 @@ public class KnowledgeDocumentContentExtractor {
         }
     }
 
+    /**
+     * 解析HeadingLevel。
+     */
     private int resolveHeadingLevel(XWPFDocument doc, String styleId) {
         if (styleId == null) return 0;
         String lower = styleId.toLowerCase();
@@ -193,6 +220,9 @@ public class KnowledgeDocumentContentExtractor {
         return 0;
     }
 
+    /**
+     * 处理renderDocxTable。
+     */
     private String renderDocxTable(XWPFTable table) {
         StringBuilder sb = new StringBuilder();
         boolean headerRow = true;
@@ -215,6 +245,9 @@ public class KnowledgeDocumentContentExtractor {
         return sb.toString();
     }
 
+    /**
+     * 判断是否为EmptyRow。
+     */
     private boolean isEmptyRow(org.apache.poi.ss.usermodel.Row row) {
         if (row == null) return true;
         for (int c = row.getFirstCellNum(); c < row.getLastCellNum(); c++) {

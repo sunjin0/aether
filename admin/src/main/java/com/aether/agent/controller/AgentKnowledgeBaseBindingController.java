@@ -24,6 +24,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 提供智能体知识库BaseBinding相关的 REST 接口。
+ */
 @Api(tags = "Agent Knowledge Base Binding API")
 @Validated
 @RestController
@@ -34,12 +37,18 @@ public class AgentKnowledgeBaseBindingController {
     private final AgentKnowledgeBaseBindingService bindingService;
     private final KnowledgeBaseService knowledgeBaseService;
 
+    /**
+     * 创建 {@code AgentKnowledgeBaseBindingController} 实例。
+     */
     public AgentKnowledgeBaseBindingController(AgentKnowledgeBaseBindingService bindingService,
                                                KnowledgeBaseService knowledgeBaseService) {
         this.bindingService = bindingService;
         this.knowledgeBaseService = knowledgeBaseService;
     }
 
+    /**
+     * Agent knowledge base binding list。
+     */
     @ApiOperation("Agent knowledge base binding list")
     @PostMapping("/list")
     public WebResponse<List<AgentKnowledgeBaseBindingVo>> list(@RequestBody AgentKnowledgeBaseBindingVo vo) {
@@ -79,6 +88,9 @@ public class AgentKnowledgeBaseBindingController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 保存当前请求。
+     */
     @ApiOperation("Create Agent knowledge base binding")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @PostMapping
@@ -103,6 +115,9 @@ public class AgentKnowledgeBaseBindingController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("agent.knowledge-binding.create.success") : I18nUtils.getMessage("agent.knowledge-binding.create.fail"), binding.getId());
     }
 
+    /**
+     * 更新状态。
+     */
     @ApiOperation("Update Agent knowledge base binding status")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
@@ -114,6 +129,9 @@ public class AgentKnowledgeBaseBindingController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.knowledge-binding.status.update.success") : I18nUtils.getMessage("agent.knowledge-binding.status.update.fail"));
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("Delete Agent knowledge base binding")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
@@ -122,6 +140,9 @@ public class AgentKnowledgeBaseBindingController {
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.knowledge-binding.delete.success") : I18nUtils.getMessage("agent.knowledge-binding.delete.fail"));
     }
 
+    /**
+     * 校验知识库Base。
+     */
     private void validateKnowledgeBase(String knowledgeBaseId) {
         KnowledgeBase kb = knowledgeBaseService.getById(knowledgeBaseId);
         if (kb == null || Boolean.TRUE.equals(kb.getDeleted())) {

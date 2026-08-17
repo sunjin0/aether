@@ -10,6 +10,9 @@ import lombok.Data;
 
 import java.io.Serializable;
 
+/**
+ * 表示Base实体。
+ */
 @Data
 public class BaseEntity implements Serializable {
     @ApiModelProperty(value = "主键")

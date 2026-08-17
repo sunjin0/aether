@@ -29,6 +29,9 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证会话Context服务的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class ConversationContextServiceTest {
 
@@ -47,6 +50,9 @@ class ConversationContextServiceTest {
     private AgentDefinition agent;
     private ModelProvider provider;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         service = new ConversationContextService(messageService, cacheService, summaryService);
@@ -54,6 +60,9 @@ class ConversationContextServiceTest {
         provider = new ModelProvider();
     }
 
+    /**
+     * 处理rejectsInstalledSkillContextThatExceedsInputBudget。
+     */
     @Test
     void rejectsInstalledSkillContextThatExceedsInputBudget() {
         provider.setContextWindow(1000);
@@ -68,6 +77,9 @@ class ConversationContextServiceTest {
         assertEquals(256, service.getInputTokenBudget(agent, provider));
     }
 
+    /**
+     * 处理trimsRuntimeRetrievalBeforeProtectedSkillPrompt。
+     */
     @Test
     void trimsRuntimeRetrievalBeforeProtectedSkillPrompt() {
         List<ModelChatMessage> context = new ArrayList<>();
@@ -81,6 +93,9 @@ class ConversationContextServiceTest {
         assertTrue(service.estimateContextTokens(context) <= 120);
     }
 
+    /**
+     * 处理long会话WithoutSummaryAlwaysContainsLatest用户消息。
+     */
     @Test
     void longConversationWithoutSummaryAlwaysContainsLatestUserMessage() {
         when(messageService.count(any())).thenReturn(36L);
@@ -105,6 +120,9 @@ class ConversationContextServiceTest {
         assertEquals("message-20", batchCaptor.getValue().get(19).getContent());
     }
 
+    /**
+     * 处理summaryAndMessagesAfterCursorFormContinuousContext。
+     */
     @Test
     void summaryAndMessagesAfterCursorFormContinuousContext() {
         SummarySnapshot snapshot = new SummarySnapshot();
@@ -135,6 +153,9 @@ class ConversationContextServiceTest {
         assertEquals("message-31", batchCaptor.getValue().get(10).getContent());
     }
 
+    /**
+     * 处理short会话判断是否为RestoredInChronologicalOrder。
+     */
     @Test
     void shortConversationIsRestoredInChronologicalOrder() {
         when(messageService.count(any())).thenReturn(4L);
@@ -148,6 +169,9 @@ class ConversationContextServiceTest {
         assertEquals("message-4", context.get(3).getContent());
     }
 
+    /**
+     * 用户消息UsesPersistedRewriteWhenBuilding模型Context。
+     */
     @Test
     void userMessageUsesPersistedRewriteWhenBuildingModelContext() {
         AgentMessage user = message(1);
@@ -161,6 +185,9 @@ class ConversationContextServiceTest {
         assertEquals("企业版产品的退款期限是多少？", context.get(0).getContent());
     }
 
+    /**
+     * 处理rewrite历史记录PrefersPersistedRewriteAndFallsBackToOriginal。
+     */
     @Test
     void rewriteHistoryPrefersPersistedRewriteAndFallsBackToOriginal() {
         AgentMessage rewritten = message(1);
@@ -178,6 +205,9 @@ class ConversationContextServiceTest {
         assertEquals("旧问题", history.get(1).getContent());
     }
 
+    /**
+     * 处理persisted消息InvalidatesRatherThanMutatesContext缓存。
+     */
     @Test
     void persistedMessageInvalidatesRatherThanMutatesContextCache() {
         service.append("conversation-1", new ModelChatMessage("user", "latest"));
@@ -185,6 +215,9 @@ class ConversationContextServiceTest {
         verify(cacheService).evict("conversation-1");
     }
 
+    /**
+     * 处理restoresAuditedToolCallsAs历史记录SummaryBeforeTheirAssistantAnswer。
+     */
     @Test
     void restoresAuditedToolCallsAsHistorySummaryBeforeTheirAssistantAnswer() {
         AgentMessage answer = message(1);
@@ -221,6 +254,9 @@ class ConversationContextServiceTest {
         assertEquals("message-1", context.get(1).getContent());
     }
 
+    /**
+     * 处理budgetDropsOld历史记录AndKeepsLatest用户AndLatestToolProtocol。
+     */
     @Test
     void budgetDropsOldHistoryAndKeepsLatestUserAndLatestToolProtocol() {
         List<ModelChatMessage> context = new ArrayList<ModelChatMessage>();
@@ -241,6 +277,9 @@ class ConversationContextServiceTest {
         assertTrue(context.stream().anyMatch(item -> "call-latest".equals(item.getToolCallId())));
     }
 
+    /**
+     * 模型WindowAndCompletionReserveDetermine令牌Budget。
+     */
     @Test
     void modelWindowAndCompletionReserveDetermineTokenBudget() {
         AgentDefinition configuredAgent = new AgentDefinition();
@@ -262,6 +301,9 @@ class ConversationContextServiceTest {
         assertTrue(context.stream().anyMatch(item -> "最新问题".equals(item.getContent())));
     }
 
+    /**
+     * 处理messagesAscending。
+     */
     private List<AgentMessage> messagesAscending(int start, int end) {
         List<AgentMessage> messages = new ArrayList<AgentMessage>();
         for (int i = start; i <= end; i++) {
@@ -270,12 +312,18 @@ class ConversationContextServiceTest {
         return messages;
     }
 
+    /**
+     * 处理messagesDescending。
+     */
     private List<AgentMessage> messagesDescending(int start, int end) {
         List<AgentMessage> messages = messagesAscending(start, end);
         Collections.reverse(messages);
         return messages;
     }
 
+    /**
+     * 消息当前请求。
+     */
     private AgentMessage message(int index) {
         AgentMessage message = new AgentMessage();
         message.setId(String.format("%05d", index));
@@ -286,6 +334,9 @@ class ConversationContextServiceTest {
         return message;
     }
 
+    /**
+     * 处理repeat。
+     */
     private String repeat(char value, int count) {
         return String.join("", Collections.nCopies(count, String.valueOf(value)));
     }

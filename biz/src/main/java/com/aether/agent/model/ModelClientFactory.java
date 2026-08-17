@@ -15,10 +15,16 @@ public class ModelClientFactory {
 
     private final List<ModelClient> modelClients;
 
+    /**
+     * 创建 {@code ModelClientFactory} 实例。
+     */
     public ModelClientFactory(List<ModelClient> modelClients) {
         this.modelClients = modelClients;
     }
 
+    /**
+     * 获取Client。
+     */
     public ModelClient getClient(ModelProvider provider) {
         for (ModelClient modelClient : modelClients) {
             if (modelClient.supports(provider.getType())) {

@@ -4,7 +4,9 @@ import com.aether.entity.BaseEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** Skill 列表查询和展示对象。 */
+/**
+ * Skill 列表查询和展示对象。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AgentSkillVo extends BaseEntity {
@@ -16,7 +18,9 @@ public class AgentSkillVo extends BaseEntity {
     private String currentVersionId;
     private String icon;
     private String tags;
-    /** 列表生命周期摘要，避免管理员逐条进入详情确认配置状态。 */
+    /**
+     * 列表生命周期摘要，避免管理员逐条进入详情确认配置状态。
+     */
     private Boolean hasDraft;
     private Integer currentVersionNo;
     private Long installedAgentCount;

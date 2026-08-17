@@ -3,6 +3,9 @@ package com.aether.knowledge.vo;
 import com.alibaba.fastjson2.JSONObject;
 import lombok.Data;
 
+/**
+ * 表示知识库Ai审核DiffIssueVO。
+ */
 @Data
 public class KnowledgeAiReviewDiffIssueVo {
     private String id;

@@ -20,8 +20,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证智能体Tool控制器的行为。
+ */
 class AgentToolControllerTest {
 
+    /**
+     * 处理facetsAggregatesToolsWithDictionaryAndMcpServerLabels。
+     */
     @Test
     void facetsAggregatesToolsWithDictionaryAndMcpServerLabels() {
         AgentToolService toolService = mock(AgentToolService.class);
@@ -63,6 +69,9 @@ class AgentToolControllerTest {
         assertFacet(response.getData().getSources(), "none", "无来源", 1L);
     }
 
+    /**
+     * 处理facetsExcludeSourcesWhoseMcpServer判断是否为Unavailable。
+     */
     @Test
     void facetsExcludeSourcesWhoseMcpServerIsUnavailable() {
         AgentToolService toolService = mock(AgentToolService.class);
@@ -92,6 +101,9 @@ class AgentToolControllerTest {
         assertFacet(sources, "none", "无来源", 1L);
     }
 
+    /**
+     * 处理tool。
+     */
     private AgentTool tool(String id, String type, String serverId, int status) {
         AgentTool tool = new AgentTool();
         tool.setId(id);
@@ -102,6 +114,9 @@ class AgentToolControllerTest {
         return tool;
     }
 
+    /**
+     * 处理mcpServer。
+     */
     private AgentMcpServer mcpServer(String id, String name) {
         AgentMcpServer server = new AgentMcpServer();
         server.setId(id);
@@ -110,6 +125,9 @@ class AgentToolControllerTest {
         return server;
     }
 
+    /**
+     * 处理assertFacet。
+     */
     private void assertFacet(List<AgentToolFacetsVo.Item> items, Object value, String label, long count) {
         AgentToolFacetsVo.Item item = items.stream()
                 .filter(candidate -> value.equals(candidate.getValue()))

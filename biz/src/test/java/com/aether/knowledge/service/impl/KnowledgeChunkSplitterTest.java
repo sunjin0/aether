@@ -8,8 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * 验证知识库ChunkSplitter的行为。
+ */
 class KnowledgeChunkSplitterTest {
 
+    /**
+     * 处理preservesMarkdownHeadingHierarchy。
+     */
     @Test
     void preservesMarkdownHeadingHierarchy() {
         KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(120, 20);
@@ -24,6 +30,9 @@ class KnowledgeChunkSplitterTest {
         assertEquals("安装 > Linux", chunks.get(3).getSectionPath());
     }
 
+    /**
+     * 处理keepsHeadingOnlyParentWithItsFirstChildContent。
+     */
     @Test
     void keepsHeadingOnlyParentWithItsFirstChildContent() {
         KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(200, 0);
@@ -39,6 +48,9 @@ class KnowledgeChunkSplitterTest {
         assertTrue(chunks.get(1).getContent().startsWith("## 目的与治理原则\n### 禁止的自动化决定"));
     }
 
+    /**
+     * 处理usesSemanticBoundariesAndNeverExceedsLimit。
+     */
     @Test
     void usesSemanticBoundariesAndNeverExceedsLimit() {
         KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(60, 15);
@@ -56,6 +68,9 @@ class KnowledgeChunkSplitterTest {
         }
     }
 
+    /**
+     * 处理splitsOversizedSentenceWithoutLosingContent。
+     */
     @Test
     void splitsOversizedSentenceWithoutLosingContent() {
         KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(30, 5);
@@ -72,6 +87,9 @@ class KnowledgeChunkSplitterTest {
         assertEquals(source, rebuilt.toString());
     }
 
+    /**
+     * 处理estimatesChineseTokensMoreRealisticallyThanAscii。
+     */
     @Test
     void estimatesChineseTokensMoreRealisticallyThanAscii() {
         KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter();
@@ -81,6 +99,9 @@ class KnowledgeChunkSplitterTest {
         assertEquals(0, splitter.estimateTokens("  "));
     }
 
+    /**
+     * 处理respects令牌BudgetBeforeCharacterLimit。
+     */
     @Test
     void respectsTokenBudgetBeforeCharacterLimit() {
         KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(1000, 0, 4);
@@ -93,6 +114,9 @@ class KnowledgeChunkSplitterTest {
         }
     }
 
+    /**
+     * 处理keepsTableHeaderWithEverySplitTableChunk。
+     */
     @Test
     void keepsTableHeaderWithEverySplitTableChunk() {
         KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter(70, 0);

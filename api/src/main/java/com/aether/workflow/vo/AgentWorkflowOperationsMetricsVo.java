@@ -2,7 +2,9 @@ package com.aether.workflow.vo;
 
 import lombok.Data;
 
-/** 工作流运营观测聚合指标。 */
+/**
+ * 工作流运营观测聚合指标。
+ */
 @Data
 public class AgentWorkflowOperationsMetricsVo {
     private Long totalInstances;

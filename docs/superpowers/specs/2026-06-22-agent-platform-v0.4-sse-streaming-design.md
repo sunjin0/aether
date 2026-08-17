@@ -145,4 +145,5 @@ mvn test -pl biz -am -DfailIfNoTests=false
 mvn test -pl admin -am -DfailIfNoTests=false
 ```
 
-手动验证需要先配置可用的 OpenAI 兼容 `agent_model_provider` 和启用状态的 `agent_definition`。使用有效 Bearer Token 调用 `GET /api/agent/chat/stream` 后，应确认客户端能收到 `message` 分片和最终 `done`，数据库写入 user/assistant 消息，并生成运行记录。
+手动验证需要先配置可用的 OpenAI 兼容 `agent_model_provider` 和启用状态的 `agent_definition`。使用有效 Bearer Token 调用
+`GET /api/agent/chat/stream` 后，应确认客户端能收到 `message` 分片和最终 `done`，数据库写入 user/assistant 消息，并生成运行记录。

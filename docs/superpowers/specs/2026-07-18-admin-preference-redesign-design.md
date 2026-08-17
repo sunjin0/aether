@@ -3,9 +3,13 @@
 ## 1. Overview
 
 ### 1.1 Purpose
-Redesign the `sys_admin_preference` system to support dynamic preference reasoning, implicit learning with decay, and structured preference management. The current implementation is too simplistic with only `category + content` fields and lacks learning/decay capabilities.
+
+Redesign the `sys_admin_preference` system to support dynamic preference reasoning, implicit learning with decay, and
+structured preference management. The current implementation is too simplistic with only `category + content` fields and
+lacks learning/decay capabilities.
 
 ### 1.2 Design Goals
+
 - **Structured Data Model**: Hierarchical preferences with priority, scope, and decay support
 - **Dynamic Reasoning**: Context-aware preference injection based on task type and priority
 - **Implicit Learning**: Automatically extract preferences from user interactions
@@ -13,6 +17,7 @@ Redesign the `sys_admin_preference` system to support dynamic preference reasoni
 - **User Control**: Explicit feedback loop for preference confirmation/rejection
 
 ### 1.3 Constraints
+
 - Keep existing tech stack (MySQL/PostgreSQL + Redis)
 - No dictionary dependency for category field
 - No backward compatibility with old schema required
@@ -55,6 +60,7 @@ CREATE TABLE sys_admin_preference (
 ```
 
 **Key Design Points:**
+
 - `key_name` + `admin_id` unique semantic (one active record per user per preference key)
 - `scope` + `scope_detail` supports task-type differentiation
 - `effective_score` is dynamically calculated combining priority, usage, decay, and confidence
@@ -93,6 +99,7 @@ CREATE TABLE sys_admin_preference_event (
 The reasoning engine computes the "effective preference set" for each conversation based on context.
 
 **Processing Flow:**
+
 ```
 Input: userId + taskType + sessionContext
   │
@@ -118,13 +125,14 @@ Output: Ordered effective preference list → System Prompt injection
 
 ### 3.2 Scope Matching Rules
 
-| Scope | Match Condition | Priority |
-|-------|----------------|----------|
+| Scope       | Match Condition                   | Priority               |
+|-------------|-----------------------------------|------------------------|
 | `task_type` | scope_detail == current task type | Highest (when matched) |
-| `session` | Current session valid | Medium |
-| `global` | Always applies | Lowest |
+| `session`   | Current session valid             | Medium                 |
+| `global`    | Always applies                    | Lowest                 |
 
-**Example:** User has `key_name=code_language` with both global=Java and task_type:frontend=TypeScript. Frontend tasks use TypeScript; backend tasks fall back to Java.
+**Example:** User has `key_name=code_language` with both global=Java and task_type:frontend=TypeScript. Frontend tasks
+use TypeScript; backend tasks fall back to Java.
 
 ### 3.3 Effective Score Calculation
 
@@ -133,10 +141,11 @@ effective_score = priority × decay_factor × confidence
 ```
 
 Where:
+
 - `priority`: User-defined priority (0-100)
 - `decay_factor`: Based on `decay_rate` and `last_used_at`
-  - Formula: `decay_factor = max(0.1, 1.0 - decay_rate × days_since_last_use)`
-  - No decay (decay_rate=0): decay_factor always 1.0
+    - Formula: `decay_factor = max(0.1, 1.0 - decay_rate × days_since_last_use)`
+    - No decay (decay_rate=0): decay_factor always 1.0
 - `confidence`: Confidence score (0.00-1.00)
 
 ### 3.4 Output Format
@@ -166,16 +175,17 @@ Triggered asynchronously after each Agent conversation.
 
 **Behavior Signals:**
 
-| Signal | Meaning | Handling |
-|--------|---------|----------|
-| User requests "use Chinese/English" | Explicit language preference | High confidence extraction |
-| User requests "be brief/detailed" | Output length preference | Medium confidence extraction |
-| Language of code snippets user copies | Tech stack preference | Low confidence, requires accumulation |
-| User requests "rewrite in TypeScript" | Language switch preference | High confidence extraction |
-| User skips/ignores certain tool calls | Tool strategy preference | Low confidence, requires accumulation |
-| User regenerates response | Dissatisfaction with answer | No direct preference adjustment, log event only |
+| Signal                                | Meaning                      | Handling                                        |
+|---------------------------------------|------------------------------|-------------------------------------------------|
+| User requests "use Chinese/English"   | Explicit language preference | High confidence extraction                      |
+| User requests "be brief/detailed"     | Output length preference     | Medium confidence extraction                    |
+| Language of code snippets user copies | Tech stack preference        | Low confidence, requires accumulation           |
+| User requests "rewrite in TypeScript" | Language switch preference   | High confidence extraction                      |
+| User skips/ignores certain tool calls | Tool strategy preference     | Low confidence, requires accumulation           |
+| User regenerates response             | Dissatisfaction with answer  | No direct preference adjustment, log event only |
 
 **Learning Strategy:**
+
 ```
 Step 1: LLM analyzes conversation, extracts candidates (category, key_name, value, confidence)
   │
@@ -193,6 +203,7 @@ Step 3: Write to sys_admin_preference_event log
 ```
 
 **Confidence Management:**
+
 - AI-extracted initial confidence from model (range 0.6-1.0)
 - Each user "use" → confidence += 0.05 (cap at 1.0)
 - User explicit reject/override → confidence -= 0.20
@@ -203,6 +214,7 @@ Step 3: Write to sys_admin_preference_event log
 Decay causes preferences to "naturally age" over time, reducing weight of unused preferences.
 
 **Decay Calculation (real-time during reasoning):**
+
 ```java
 long daysSinceLastUse = (now - lastUsedAt) / (24 * 3600 * 1000);
 double decayFactor = Math.max(0.1, 1.0 - decayRate * daysSinceLastUse);
@@ -211,20 +223,22 @@ double effectiveScore = priority * decayFactor * confidence;
 
 **Default Decay Rates by Category:**
 
-| Category | Default decay_rate | Notes |
-|----------|-------------------|-------|
-| language | 0.00 | Language preferences are stable, no decay |
-| style | 0.005 | Style occasionally changes, very slow decay (200 days to 0) |
-| format | 0.01 | Format preferences moderate decay (100 days to 0) |
-| tech_stack | 0.02 | Tech stack changes faster (50 days to 0) |
-| tool_strategy | 0.01 | Tool strategy moderate decay |
+| Category      | Default decay_rate | Notes                                                       |
+|---------------|--------------------|-------------------------------------------------------------|
+| language      | 0.00               | Language preferences are stable, no decay                   |
+| style         | 0.005              | Style occasionally changes, very slow decay (200 days to 0) |
+| format        | 0.01               | Format preferences moderate decay (100 days to 0)           |
+| tech_stack    | 0.02               | Tech stack changes faster (50 days to 0)                    |
+| tool_strategy | 0.01               | Tool strategy moderate decay                                |
 
 **Automatic Cleanup:**
+
 - Daily scheduled task (using Spring `@Scheduled(cron = "0 0 2 * * ?")`) scans preferences with `effective_score < 10`
 - These preferences are not deleted, but excluded from reasoning
 - If user uses them again, score recovers
 
 **Explicit Preferences Never Decay:**
+
 - `source=explicit` preferences have `decay_rate=0`
 - Only `source=implicit` (auto-learned) preferences decay
 
@@ -233,11 +247,13 @@ double effectiveScore = priority * decayFactor * confidence;
 Simple feedback mechanism to provide clear signals for implicit learning.
 
 **New API Endpoints:**
+
 - `POST /api/sys/admin/preference/{id}/feedback` — User confirms preference valid
 - `DELETE /api/sys/admin/preference/{id}/feedback` — User rejects preference
 - `PUT /api/sys/admin/preference/{id}/override` — User overrides preference value
 
 **Behavior Impact:**
+
 - confirm → confidence += 0.10, usage_count +1
 - reject → confidence -= 0.30, if < 0.3 then auto-disable
 - override → old value logged to event, new value takes effect, source changed to explicit
@@ -275,6 +291,7 @@ Preferences are formatted into System Prompt instructions:
 ```
 
 **Construction Rules:**
+
 - Sorted by `effective_score` descending
 - Same `key_name` only takes highest score
 - Total length limited to 2000 characters, truncate by priority if exceeded
@@ -283,11 +300,11 @@ Preferences are formatted into System Prompt instructions:
 
 Some preferences map to model call parameters:
 
-| Preference key_name | Mapped Model Parameter |
-|-------------------|----------------------|
-| `response_length` | `max_tokens` adjustment (short→1024, medium→2048, long→4096) |
-| `temperature` | `temperature` override |
-| `language` | Specify output language in system prompt |
+| Preference key_name | Mapped Model Parameter                                       |
+|---------------------|--------------------------------------------------------------|
+| `response_length`   | `max_tokens` adjustment (short→1024, medium→2048, long→4096) |
+| `temperature`       | `temperature` override                                       |
+| `language`          | Specify output language in system prompt                     |
 
 ### 5.4 Tool Call Constraints (Reserved, Phase 2)
 
@@ -305,14 +322,14 @@ Current phase only constrains via System Prompt, no code-level interception:
 
 ### 6.1 Old to New Mapping
 
-| Old Field | New Field | Notes |
-|-----------|-----------|-------|
-| `category` | `category` | Direct mapping, values may need normalization |
-| `content` | `value` + `description` | Split content into value and human-readable description |
-| `confidence` | `confidence` | Direct mapping |
-| `status` | `status` | Direct mapping |
-| `source_conversation_id` | N/A | Moved to event log |
-| `source_message_id` | N/A | Moved to event log |
+| Old Field                | New Field               | Notes                                                   |
+|--------------------------|-------------------------|---------------------------------------------------------|
+| `category`               | `category`              | Direct mapping, values may need normalization           |
+| `content`                | `value` + `description` | Split content into value and human-readable description |
+| `confidence`             | `confidence`            | Direct mapping                                          |
+| `status`                 | `status`                | Direct mapping                                          |
+| `source_conversation_id` | N/A                     | Moved to event log                                      |
+| `source_message_id`      | N/A                     | Moved to event log                                      |
 
 ### 6.2 Migration Script
 
@@ -349,19 +366,20 @@ DROP TABLE sys_admin_preference_old;
 
 ### Phase 1: Core Refactoring (Current Implementation)
 
-| Task | Files | Description |
-|------|-------|-------------|
-| New Table DDL | `api/src/main/resources/sql/mysql/001-schema.sql` etc. | Create `sys_admin_preference` + `sys_admin_preference_event` |
-| Entity Refactoring | `api/.../entity/AdminPreference.java` | New field mappings, remove old fields |
-| VO Refactoring | `api/.../vo/AdminPreferenceVo.java` | Match new entity |
-| Mapper Refactoring | `api/.../mapper/AdminPreferenceMapper.java` | May need custom query methods |
-| Service Refactoring | `biz/.../AdminPreferenceServiceImpl.java` | Add reasoning engine, decay calculation, caching |
-| Extraction Refactoring | `biz/.../AdminPreferenceExtractionServiceImpl.java` | Rewrite learning logic for new schema |
-| Controller Refactoring | `admin/.../AdminPreferenceController.java` | Add feedback endpoints, adjust list queries |
-| Context Injection | `biz/.../KnowledgeContextService.java` | Switch to new reasoning engine |
-| Remove Dictionary Dependency | Seed data | Remove `Admin_Preference_Category` from dict |
+| Task                         | Files                                                  | Description                                                  |
+|------------------------------|--------------------------------------------------------|--------------------------------------------------------------|
+| New Table DDL                | `api/src/main/resources/sql/mysql/001-schema.sql` etc. | Create `sys_admin_preference` + `sys_admin_preference_event` |
+| Entity Refactoring           | `api/.../entity/AdminPreference.java`                  | New field mappings, remove old fields                        |
+| VO Refactoring               | `api/.../vo/AdminPreferenceVo.java`                    | Match new entity                                             |
+| Mapper Refactoring           | `api/.../mapper/AdminPreferenceMapper.java`            | May need custom query methods                                |
+| Service Refactoring          | `biz/.../AdminPreferenceServiceImpl.java`              | Add reasoning engine, decay calculation, caching             |
+| Extraction Refactoring       | `biz/.../AdminPreferenceExtractionServiceImpl.java`    | Rewrite learning logic for new schema                        |
+| Controller Refactoring       | `admin/.../AdminPreferenceController.java`             | Add feedback endpoints, adjust list queries                  |
+| Context Injection            | `biz/.../KnowledgeContextService.java`                 | Switch to new reasoning engine                               |
+| Remove Dictionary Dependency | Seed data                                              | Remove `Admin_Preference_Category` from dict                 |
 
 **Acceptance Criteria:**
+
 - New preference system fully functional
 - Old data migration script available
 - Preference reasoning engine correctly sorts by scope and priority

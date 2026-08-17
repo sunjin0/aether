@@ -18,8 +18,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证Ask用户Tool的行为。
+ */
 class AskUserToolTest {
 
+    /**
+     * 处理exposesAsk用户DefinitionAndCreatesPendingGroupInteraction。
+     */
     @Test
     void exposesAskUserDefinitionAndCreatesPendingGroupInteraction() {
         AgentMessageService messageService = mock(AgentMessageService.class);

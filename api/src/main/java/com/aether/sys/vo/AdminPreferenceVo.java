@@ -6,6 +6,9 @@ import lombok.EqualsAndHashCode;
 
 import java.math.BigDecimal;
 
+/**
+ * 表示管理员偏好VO。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AdminPreferenceVo extends BaseEntity {

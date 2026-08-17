@@ -56,12 +56,18 @@ public class ModelProviderController {
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
 
+    /**
+     * 创建 {@code ModelProviderController} 实例。
+     */
     @Autowired
     public ModelProviderController(ModelProviderService modelProviderService, ModelCatalogService modelCatalogService) {
         this.modelProviderService = modelProviderService;
         this.modelCatalogService = modelCatalogService;
     }
 
+    /**
+     * 模型供应商列表。
+     */
     @ApiOperation("模型供应商列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -103,6 +109,9 @@ public class ModelProviderController {
         return WebResponse.OK(options);
     }
 
+    /**
+     * Embedding 供应商下拉选项。
+     */
     @ApiOperation("Embedding 供应商下拉选项")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -112,12 +121,18 @@ public class ModelProviderController {
         return WebResponse.OK(modelCatalogService.getOptions("EMBEDDING"));
     }
 
+    /**
+     * 模型Options。
+     */
     @ApiOperation("按能力获取供应商模型选项")
     @GetMapping("/models/options")
     public WebResponse<List<Option>> modelOptions(@RequestParam String capability) {
         return WebResponse.OK(modelCatalogService.getOptions(capability));
     }
 
+    /**
+     * 处理models。
+     */
     @GetMapping("/models")
     public WebResponse<List<ModelCatalog>> models(@RequestParam(required = false) String providerId) {
         return WebResponse.OK(modelCatalogService.list(Wrappers.lambdaQuery(ModelCatalog.class)
@@ -125,6 +140,9 @@ public class ModelProviderController {
                 .eq(ModelCatalog::getDeleted, false).orderByAsc(ModelCatalog::getSortNum)));
     }
 
+    /**
+     * 从供应商读取可用模型列表。
+     */
     @ApiOperation("从供应商读取可用模型列表")
     @GetMapping("/{id}/models/discover")
     public WebResponse<List<Option>> discoverModels(@PathVariable @NotBlank String id) {
@@ -141,7 +159,8 @@ public class ModelProviderController {
             String baseUrl = StringUtils.removeEnd(provider.getApiBaseUrl(), "/");
             String url = baseUrl.endsWith("/v1/models") ? baseUrl : (baseUrl.endsWith("/v1") ? baseUrl + "/models" : baseUrl + "/v1/models");
             HttpHeaders headers = new HttpHeaders();
-            if (StringUtils.isNotBlank(provider.getApiKey())) headers.setBearerAuth(AesUtil.decrypt(provider.getApiKey()));
+            if (StringUtils.isNotBlank(provider.getApiKey()))
+                headers.setBearerAuth(AesUtil.decrypt(provider.getApiKey()));
             ResponseEntity<String> response = new RestTemplate().exchange(url, HttpMethod.GET, new HttpEntity<Void>(headers), String.class);
             JSONObject payload = JSON.parseObject(response.getBody());
             JSONArray models = payload == null ? null : payload.getJSONArray("data");
@@ -157,6 +176,9 @@ public class ModelProviderController {
         }
     }
 
+    /**
+     * 处理qwen模型Options。
+     */
     private List<Option> qwenModelOptions() {
         String[] models = {"qwen3.7-max", "qwen3.7-plus", "qwen3.6-flash", "qwen-max", "qwen-plus", "qwen-turbo", "qwen3-vl-plus", "qwen3-omni-flash", "text-embedding-v4", "qwen3-rerank"};
         List<Option> result = new java.util.ArrayList<>();
@@ -164,6 +186,9 @@ public class ModelProviderController {
         return result;
     }
 
+    /**
+     * 保存模型。
+     */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @PostMapping("/models")
     public WebResponse<String> saveModel(@RequestBody ModelCatalog model) {
@@ -174,36 +199,56 @@ public class ModelProviderController {
         return WebResponse.OK(I18nUtils.getMessage("agent.model.catalog.create.success"), model.getId());
     }
 
+    /**
+     * 更新模型。
+     */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @PutMapping("/models/{id}")
     public WebResponse<Void> updateModel(@PathVariable String id, @RequestBody ModelCatalog model) {
-        model.setId(id); modelCatalogService.validateForSave(model); modelCatalogService.updateById(model);
+        model.setId(id);
+        modelCatalogService.validateForSave(model);
+        modelCatalogService.updateById(model);
         return WebResponse.OK(I18nUtils.getMessage("agent.model.catalog.update.success"));
     }
 
+    /**
+     * 保存Models。
+     */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @PostMapping("/models/batch")
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<Integer> saveModels(@RequestBody List<ModelCatalog> models) {
-        if (models == null || models.isEmpty()) throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
+        if (models == null || models.isEmpty())
+            throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
         models.forEach(modelCatalogService::validateForSave);
         modelCatalogService.saveBatch(models);
         return WebResponse.OK(I18nUtils.getMessage("agent.model.catalog.create.success"), models.size());
     }
 
+    /**
+     * 删除模型。
+     */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @DeleteMapping("/models/{id}")
     public WebResponse<Void> deleteModel(@PathVariable String id) {
         return WebResponse.OK(modelCatalogService.removeById(id) ? I18nUtils.getMessage("agent.model.catalog.delete.success") : I18nUtils.getMessage("agent.model.catalog.delete.fail"));
     }
 
+    /**
+     * 更新模型状态。
+     */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @PutMapping("/models/{id}/status")
     public WebResponse<Void> updateModelStatus(@PathVariable String id, @RequestBody ModelCatalog model) {
-        ModelCatalog update = new ModelCatalog(); update.setId(id); update.setStatus(model.getStatus());
+        ModelCatalog update = new ModelCatalog();
+        update.setId(id);
+        update.setStatus(model.getStatus());
         return WebResponse.OK(modelCatalogService.updateById(update) ? I18nUtils.getMessage("agent.model.catalog.update.success") : I18nUtils.getMessage("agent.model.catalog.update.fail"));
     }
 
+    /**
+     * 详情当前请求。
+     */
     @ApiOperation("模型供应商详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "供应商ID", required = true),
@@ -221,6 +266,9 @@ public class ModelProviderController {
         return WebResponse.OK(vo);
     }
 
+    /**
+     * 保存当前请求。
+     */
     @ApiOperation("新增模型供应商")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -243,6 +291,9 @@ public class ModelProviderController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("agent.model-provider.create.success") : I18nUtils.getMessage("agent.model-provider.create.fail"), provider.getId());
     }
 
+    /**
+     * 更新当前请求。
+     */
     @ApiOperation("编辑模型供应商")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -268,6 +319,9 @@ public class ModelProviderController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.model-provider.update.success") : I18nUtils.getMessage("agent.model-provider.update.fail"));
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("删除模型供应商")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "供应商ID", required = true),
@@ -280,6 +334,9 @@ public class ModelProviderController {
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.model-provider.delete.success") : I18nUtils.getMessage("agent.model-provider.delete.fail"));
     }
 
+    /**
+     * 更新状态。
+     */
     @ApiOperation("启用/禁用模型供应商")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -294,6 +351,9 @@ public class ModelProviderController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.model-provider.status.update.success") : I18nUtils.getMessage("agent.model-provider.status.update.fail"));
     }
 
+    /**
+     * 测试Connection。
+     */
     @ApiOperation("测试连接")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -313,7 +373,8 @@ public class ModelProviderController {
             requestFactory.setReadTimeout(10000);
             RestTemplate client = new RestTemplate(requestFactory);
             HttpHeaders headers = new HttpHeaders();
-            if (StringUtils.isNotBlank(provider.getApiKey())) headers.setBearerAuth(AesUtil.decrypt(provider.getApiKey()));
+            if (StringUtils.isNotBlank(provider.getApiKey()))
+                headers.setBearerAuth(AesUtil.decrypt(provider.getApiKey()));
             client.exchange(provider.getApiBaseUrl(), HttpMethod.OPTIONS, new HttpEntity<Void>(headers), Void.class);
             connected = true;
         } catch (Exception e) {

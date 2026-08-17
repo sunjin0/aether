@@ -13,24 +13,44 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.BeanUtils;
+
 import java.util.List;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * 实现模型Catalog业务服务。
+ */
 @Service
 public class ModelCatalogServiceImpl extends ServiceImpl<ModelCatalogMapper, ModelCatalog> implements ModelCatalogService {
     private static final Set<String> SUPPORTED_CAPABILITIES = new java.util.HashSet<>(Arrays.asList("CHAT", "VIDEO", "AUDIO", "MULTIMODAL", "EMBEDDING", "RERANK"));
     private final ModelProviderService providerService;
-    public ModelCatalogServiceImpl(ModelProviderService providerService) { this.providerService = providerService; }
-    @Override public List<Option> getOptions(String capability) {
+
+    /**
+     * 创建 {@code ModelCatalogServiceImpl} 实例。
+     */
+    public ModelCatalogServiceImpl(ModelProviderService providerService) {
+        this.providerService = providerService;
+    }
+
+    /**
+     * 获取Options。
+     */
+    @Override
+    public List<Option> getOptions(String capability) {
         return list(Wrappers.lambdaQuery(ModelCatalog.class).eq(ModelCatalog::getStatus, 1)
                 .eq(ModelCatalog::getDeleted, false).orderByAsc(ModelCatalog::getSortNum)).stream()
                 .filter(item -> supports(item, capability)).filter(item -> providerAvailable(item.getProviderId()))
                 .map(item -> new Option(item.getName() + "（" + providerName(item.getProviderId()) + "）", item.getId())).collect(Collectors.toList());
     }
-    @Override public void validateForSave(ModelCatalog model) {
+
+    /**
+     * 校验用于保存。
+     */
+    @Override
+    public void validateForSave(ModelCatalog model) {
         if (model == null || StringUtils.isBlank(model.getProviderId()) || StringUtils.isBlank(model.getName()) || StringUtils.isBlank(model.getCapabilities())) {
             throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
         }
@@ -48,14 +68,24 @@ public class ModelCatalogServiceImpl extends ServiceImpl<ModelCatalogMapper, Mod
         model.setName(StringUtils.trim(model.getName()));
         model.setCapabilities(String.join(",", normalized));
     }
-    @Override public ModelCatalog requireAvailable(String id, String capability) {
+
+    /**
+     * 处理requireAvailable。
+     */
+    @Override
+    public ModelCatalog requireAvailable(String id, String capability) {
         ModelCatalog item = getById(id);
         if (item == null || Boolean.TRUE.equals(item.getDeleted()) || !Integer.valueOf(1).equals(item.getStatus())
                 || !supports(item, capability) || !providerAvailable(item.getProviderId()))
             throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.capability.invalid"));
         return item;
     }
-    @Override public ModelProvider resolveProvider(String id, String capability) {
+
+    /**
+     * 解析Provider。
+     */
+    @Override
+    public ModelProvider resolveProvider(String id, String capability) {
         ModelCatalog item = requireAvailable(id, capability);
         ModelProvider source = providerService.getById(item.getProviderId());
         ModelProvider resolved = new ModelProvider();
@@ -64,6 +94,10 @@ public class ModelCatalogServiceImpl extends ServiceImpl<ModelCatalogMapper, Mod
         if (StringUtils.isNotBlank(item.getEndpointOverride())) resolved.setApiBaseUrl(item.getEndpointOverride());
         return resolved;
     }
+
+    /**
+     * 处理supports。
+     */
     private boolean supports(ModelCatalog item, String capability) {
         if (StringUtils.isBlank(capability)) return true;
         for (String value : capability.split(",")) {
@@ -72,6 +106,20 @@ public class ModelCatalogServiceImpl extends ServiceImpl<ModelCatalogMapper, Mod
         }
         return false;
     }
-    private boolean providerAvailable(String id) { ModelProvider p=providerService.getById(id); return p != null && !Boolean.TRUE.equals(p.getDeleted()) && Integer.valueOf(1).equals(p.getStatus()); }
-    private String providerName(String id) { ModelProvider p=providerService.getById(id); return p == null ? "-" : p.getName(); }
+
+    /**
+     * 处理providerAvailable。
+     */
+    private boolean providerAvailable(String id) {
+        ModelProvider p = providerService.getById(id);
+        return p != null && !Boolean.TRUE.equals(p.getDeleted()) && Integer.valueOf(1).equals(p.getStatus());
+    }
+
+    /**
+     * 处理providerName。
+     */
+    private String providerName(String id) {
+        ModelProvider p = providerService.getById(id);
+        return p == null ? "-" : p.getName();
+    }
 }

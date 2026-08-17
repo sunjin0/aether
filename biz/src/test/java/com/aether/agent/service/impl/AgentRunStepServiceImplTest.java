@@ -12,8 +12,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证智能体运行Step服务实现的行为。
+ */
 class AgentRunStepServiceImplTest {
 
+    /**
+     * 保存IfAbsentReturnsFalseWhenUniqueConstraintRejectsDuplicate。
+     */
     @Test
     void saveIfAbsentReturnsFalseWhenUniqueConstraintRejectsDuplicate() {
         AgentRunStepMapper mapper = mock(AgentRunStepMapper.class);

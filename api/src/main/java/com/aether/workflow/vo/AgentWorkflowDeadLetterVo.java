@@ -2,7 +2,9 @@ package com.aether.workflow.vo;
 
 import lombok.Data;
 
-/** 需要人工处理的后台执行或终态回调失败记录。 */
+/**
+ * 需要人工处理的后台执行或终态回调失败记录。
+ */
 @Data
 public class AgentWorkflowDeadLetterVo {
     private String type;

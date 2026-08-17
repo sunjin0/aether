@@ -45,6 +45,8 @@ public class AgentWorkflow extends BaseEntity {
     @ApiModelProperty(value = "当前发布版本号")
     private Integer publishedVersion;
 
-    /** 同时处于运行或等待人工状态的最大实例数；0 表示不限制。 */
+    /**
+     * 同时处于运行或等待人工状态的最大实例数；0 表示不限制。
+     */
     private Integer maxConcurrentInstances;
 }

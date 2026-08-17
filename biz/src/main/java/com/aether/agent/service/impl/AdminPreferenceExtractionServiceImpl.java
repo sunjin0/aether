@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,6 +31,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 实现管理员偏好Extraction业务服务。
+ */
 @Service
 public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtractionService {
 
@@ -65,6 +69,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
     @Autowired
     private PreferenceReasoningEngine reasoningEngine;
 
+    /**
+     * 处理extractAsync。
+     */
     @Override
     @Async("asyncPoolTaskExecutor")
     public void extractAsync(String userId, String conversationId,
@@ -83,6 +90,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         }
     }
 
+    /**
+     * 处理doExtract。
+     */
     private void doExtract(String userId, String conversationId,
                            AgentMessage userMessage, AgentMessage assistantMessage,
                            ModelProvider provider, AgentDefinition agent) {
@@ -112,9 +122,12 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         recordExtractionMarker(userId, conversationId, history.get(history.size() - 1));
     }
 
+    /**
+     * 处理callCombinedAnalysis。
+     */
     private String callCombinedAnalysis(List<AgentMessage> messages,
-                                         AgentMessage userMessage, AgentMessage assistantMessage,
-                                         ModelProvider provider, AgentDefinition agent) {
+                                        AgentMessage userMessage, AgentMessage assistantMessage,
+                                        ModelProvider provider, AgentDefinition agent) {
         StringBuilder raw = new StringBuilder();
         for (AgentMessage msg : messages) {
             String role = "user".equals(msg.getRole()) ? "User" : "Assistant";
@@ -157,6 +170,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         return callModel(promptBuilder.toString(), provider, agent);
     }
 
+    /**
+     * 查询会话历史记录。
+     */
     private List<AgentMessage> queryConversationHistory(String conversationId,
                                                         AdminPreferenceEvent marker) {
         if (StringUtils.isBlank(conversationId)) {
@@ -182,6 +198,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
                 .last("LIMIT " + MAX_CONTEXT_MESSAGES));
     }
 
+    /**
+     * 处理looksLike偏好Signal。
+     */
     private boolean looksLikePreferenceSignal(List<AgentMessage> history) {
         if (history == null || history.isEmpty()) {
             return false;
@@ -195,6 +214,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         return false;
     }
 
+    /**
+     * 处理contains偏好Signal。
+     */
     private boolean containsPreferenceSignal(String content) {
         if (StringUtils.isBlank(content)) {
             return false;
@@ -217,6 +239,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         return false;
     }
 
+    /**
+     * 解析Preferences。
+     */
     private List<AdminPreference> parsePreferences(String response) {
         List<AdminPreference> result = new ArrayList<>();
         String json = unwrapJsonCodeFence(response);
@@ -277,6 +302,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         return result;
     }
 
+    /**
+     * 处理unwrapJsonCodeFence。
+     */
     private String unwrapJsonCodeFence(String response) {
         if (StringUtils.isBlank(response)) {
             return response;
@@ -293,7 +321,10 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         return json.substring(firstLineEnd + 1, closingFence).trim();
     }
 
-    private String callModel(String prompt, ModelProvider provider,AgentDefinition agent) {
+    /**
+     * 处理call模型。
+     */
+    private String callModel(String prompt, ModelProvider provider, AgentDefinition agent) {
         try {
             ModelChatMessage msg = new ModelChatMessage("user", prompt);
             ModelChatRequest request = new ModelChatRequest();
@@ -309,6 +340,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         }
     }
 
+    /**
+     * 保存偏好。
+     */
     private void savePreference(String userId, String conversationId, AdminPreference extracted) {
         String scope = AdminPreference.SCOPE_GLOBAL;
         String scopeDetail = "";
@@ -390,6 +424,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         eventService.logEvent(event);
     }
 
+    /**
+     * 判断是否为Conflict。
+     */
     private boolean isConflict(AdminPreference existing, AdminPreference extracted) {
         if (!existing.getCategory().equals(extracted.getCategory())) {
             return false;
@@ -405,6 +442,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         return false;
     }
 
+    /**
+     * 处理recordExtractionMarker。
+     */
     private void recordExtractionMarker(String userId, String conversationId,
                                         AgentMessage coveredMessage) {
         AdminPreferenceEvent event = new AdminPreferenceEvent();
@@ -416,6 +456,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         eventService.logEvent(event);
     }
 
+    /**
+     * 查找Last消息。
+     */
     private AgentMessage findLastMessage(List<AgentMessage> messages, String role,
                                          AgentMessage fallback) {
         for (int i = messages.size() - 1; i >= 0; i--) {
@@ -426,6 +469,9 @@ public class AdminPreferenceExtractionServiceImpl implements AdminPreferenceExtr
         return fallback;
     }
 
+    /**
+     * 处理defaultDecayRate。
+     */
     private BigDecimal defaultDecayRate(String category) {
         if (category == null) {
             return BigDecimal.ZERO;

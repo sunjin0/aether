@@ -5,6 +5,7 @@ import com.aether.sys.vo.ConfigVo;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,10 +27,14 @@ public interface ConfigService extends IService<Config> {
      */
     Page<ConfigVo> list(ConfigVo config);
 
-    /** Returns every active configuration as a sorted tree. */
+    /**
+     * Returns every active configuration as a sorted tree.
+     */
     List<ConfigVo> tree();
 
-    /** Returns a tree filtered by configuration fields, retaining ancestors of matching nodes. */
+    /**
+     * Returns a tree filtered by configuration fields, retaining ancestors of matching nodes.
+     */
     List<ConfigVo> tree(ConfigVo config);
 
     /**
@@ -39,6 +44,7 @@ public interface ConfigService extends IService<Config> {
      * @return {@link Config }
      */
     Config info(String id);
+
     /**
      * 删除
      *
@@ -47,9 +53,16 @@ public interface ConfigService extends IService<Config> {
      */
     boolean delete(String id);
 
+    /**
+     * 创建当前请求。
+     */
     boolean create(Config config);
 
+    /**
+     * 更新当前请求。
+     */
     boolean update(Config config);
+
     /**
      * 获取值
      *

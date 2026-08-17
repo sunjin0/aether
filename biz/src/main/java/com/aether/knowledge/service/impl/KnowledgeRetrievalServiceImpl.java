@@ -42,7 +42,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Agent 知识库检索实现：混合召回、重排序、邻块扩展和上下文预算控制。 */
+/**
+ * Agent 知识库检索实现：混合召回、重排序、邻块扩展和上下文预算控制。
+ */
 @Service
 public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService {
 
@@ -54,9 +56,13 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     private static final int DEFAULT_MAX_CHUNKS_PER_DOCUMENT = 4;
     private static final int MAX_CHUNKS_PER_DOCUMENT = 10;
     private static final int CANDIDATE_MULTIPLIER = 4;
-    /** 每个语义命中点向前后恢复的邻接分块数量。 */
+    /**
+     * 每个语义命中点向前后恢复的邻接分块数量。
+     */
     private static final int DEFAULT_NEIGHBOR_RADIUS = 1;
-    /** 检索上下文的 token 上限，为历史消息和工具输出预留空间。 */
+    /**
+     * 检索上下文的 token 上限，为历史消息和工具输出预留空间。
+     */
     private static final int MAX_CONTEXT_TOKENS = 12000;
     private static final long QUERY_EMBEDDING_CACHE_TTL_MS = 5 * 60 * 1000L;
     private static final int QUERY_EMBEDDING_CACHE_MAX_SIZE = 2000;
@@ -88,15 +94,18 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     private final ConcurrentHashMap<String, Long> rerankNotFoundUntil = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CachedQueryRewrite> queryRewriteCache = new ConcurrentHashMap<>();
 
+    /**
+     * 创建 {@code KnowledgeRetrievalServiceImpl} 实例。
+     */
     @Autowired
     public KnowledgeRetrievalServiceImpl(KnowledgeBaseService knowledgeBaseService,
-                                              AgentKnowledgeBaseBindingService bindingService,
-                                              KnowledgeDocumentChunkService knowledgeDocumentChunkService,
-                                              ModelProviderService modelProviderService,
-                                              KnowledgeEmbeddingService knowledgeEmbeddingService,
-                                              KnowledgeRerankService knowledgeRerankService,
-                                              QueryRewriteService queryRewriteService,
-                                              ModelCatalogService modelCatalogService) {
+                                         AgentKnowledgeBaseBindingService bindingService,
+                                         KnowledgeDocumentChunkService knowledgeDocumentChunkService,
+                                         ModelProviderService modelProviderService,
+                                         KnowledgeEmbeddingService knowledgeEmbeddingService,
+                                         KnowledgeRerankService knowledgeRerankService,
+                                         QueryRewriteService queryRewriteService,
+                                         ModelCatalogService modelCatalogService) {
         this.knowledgeBaseService = knowledgeBaseService;
         this.bindingService = bindingService;
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
@@ -107,6 +116,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         this.modelCatalogService = modelCatalogService;
     }
 
+    /**
+     * 创建 {@code KnowledgeRetrievalServiceImpl} 实例。
+     */
     public KnowledgeRetrievalServiceImpl(KnowledgeBaseService knowledgeBaseService,
                                          AgentKnowledgeBaseBindingService bindingService,
                                          KnowledgeDocumentChunkService knowledgeDocumentChunkService,
@@ -117,6 +129,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                 knowledgeEmbeddingService, knowledgeRerankService, null, null);
     }
 
+    /**
+     * 创建 {@code KnowledgeRetrievalServiceImpl} 实例。
+     */
     public KnowledgeRetrievalServiceImpl(KnowledgeBaseService knowledgeBaseService,
                                          AgentKnowledgeBaseBindingService bindingService,
                                          KnowledgeDocumentChunkService knowledgeDocumentChunkService,
@@ -125,6 +140,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         this(knowledgeBaseService, bindingService, knowledgeDocumentChunkService, modelProviderService,
                 knowledgeEmbeddingService, null, null, null);
     }
+
     /**
      * 根据 Agent 当前绑定的知识库和检索配置执行一次检索。
      * 流程依次为：解析知识库、查询改写、向量/词法混合召回、重排序、邻块合并和 token 截断。
@@ -134,12 +150,16 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return retrieveInternal(agentDefinitionId, query, null, Collections.<ModelChatMessage>emptyList());
     }
 
+    /**
+     * 处理retrieveWith历史记录。
+     */
     @Override
     public KnowledgeRetrievalResult retrieveWithHistory(String agentDefinitionId, String query,
                                                         List<ModelChatMessage> history) {
         return retrieveInternal(agentDefinitionId, query, null,
                 history == null ? Collections.<ModelChatMessage>emptyList() : history);
     }
+
     /**
      * 根据 Agent 当前绑定的知识库和检索配置执行一次检索。
      * 流程依次为：解析知识库、查询改写、向量/词法混合召回、重排序、邻块合并和 token 截断。
@@ -150,6 +170,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                 Collections.<ModelChatMessage>emptyList());
     }
 
+    /**
+     * 处理retrieveInternal。
+     */
     private KnowledgeRetrievalResult retrieveInternal(String agentDefinitionId, String query,
                                                       Set<String> scopedKnowledgeBaseIds,
                                                       List<ModelChatMessage> rewriteHistory) {
@@ -298,12 +321,22 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    /**
+     * 获取EmbeddingProvider。
+     */
     private ModelProvider getEmbeddingProvider(KnowledgeBase knowledgeBase) {
         if (modelCatalogService == null || StringUtils.isBlank(knowledgeBase.getEmbeddingModelId())) return null;
-        try { return modelCatalogService.resolveProvider(knowledgeBase.getEmbeddingModelId(), "EMBEDDING"); }
-        catch (Exception e) { log.warn("知识库向量模型目录项不可用: knowledgeBaseId={}", knowledgeBase.getId()); return null; }
+        try {
+            return modelCatalogService.resolveProvider(knowledgeBase.getEmbeddingModelId(), "EMBEDDING");
+        } catch (Exception e) {
+            log.warn("知识库向量模型目录项不可用: knowledgeBaseId={}", knowledgeBase.getId());
+            return null;
+        }
     }
 
+    /**
+     * 获取查询Embedding。
+     */
     private List<Double> getQueryEmbedding(ModelProvider provider, String query) {
         String cacheKey = queryEmbeddingCacheKey(provider, query);
         long now = System.currentTimeMillis();
@@ -338,6 +371,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    /**
+     * 处理evict查询Embedding缓存。
+     */
     private void evictQueryEmbeddingCache(long now) {
         if (queryEmbeddingCache.size() < QUERY_EMBEDDING_CACHE_MAX_SIZE) {
             return;
@@ -354,6 +390,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    /**
+     * 查询Embedding缓存Key。
+     */
     private String queryEmbeddingCacheKey(ModelProvider provider, String query) {
         String normalizedQuery = query.trim().replaceAll("\\s+", " ");
         String value = StringUtils.defaultString(provider.getId()) + '\n'
@@ -372,10 +411,16 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    /**
+     * 处理retrieval缓存Key。
+     */
     private String retrievalCacheKey(String agentDefinitionId, String query) {
         return hashValue(agentDefinitionId + '\n' + query.trim().replaceAll("\\s+", " "));
     }
 
+    /**
+     * 处理hashValue。
+     */
     private String hashValue(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
@@ -387,12 +432,18 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    /**
+     * 缓存结果。
+     */
     private KnowledgeRetrievalResult cacheResult(String cacheKey, KnowledgeRetrievalResult result) {
         evictRetrievalCache();
         retrievalCache.put(cacheKey, new CachedRetrieval(copyResult(result), System.currentTimeMillis() + RETRIEVAL_CACHE_TTL_MS));
         return result;
     }
 
+    /**
+     * 处理evictRetrieval缓存。
+     */
     private void evictRetrievalCache() {
         if (retrievalCache.size() < RETRIEVAL_CACHE_MAX_SIZE) return;
         long now = System.currentTimeMillis();
@@ -402,6 +453,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         if (retrievalCache.size() >= RETRIEVAL_CACHE_MAX_SIZE) retrievalCache.clear();
     }
 
+    /**
+     * 处理copy结果。
+     */
     private KnowledgeRetrievalResult copyResult(KnowledgeRetrievalResult source) {
         KnowledgeRetrievalResult copy = new KnowledgeRetrievalResult();
         copy.setRetrievalAttempted(source.isRetrievalAttempted());
@@ -412,6 +466,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return copy;
     }
 
+    /**
+     * 判断是否为ProviderCircuitOpen。
+     */
     private boolean isProviderCircuitOpen(String providerId) {
         ProviderCircuit circuit = providerCircuits.get(providerId);
         if (circuit == null) return false;
@@ -425,6 +482,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    /**
+     * 处理recordProviderFailure。
+     */
     private void recordProviderFailure(String providerId) {
         ProviderCircuit circuit = providerCircuits.computeIfAbsent(providerId, key -> new ProviderCircuit());
         synchronized (circuit) {
@@ -435,6 +495,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    /**
+     * 解析Retrieval配置。
+     */
     private RetrievalConfig parseRetrievalConfig(String value) {
         int topK = DEFAULT_TOP_K;
         double minSimilarity = DEFAULT_MIN_SIMILARITY;
@@ -516,9 +579,11 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                 queryRewriteModelId);
     }
 
-    /** 对宽召回候选集调用 reranker，并限制最终上下文数量。 */
+    /**
+     * 对宽召回候选集调用 reranker，并限制最终上下文数量。
+     */
     private List<KnowledgeDocumentChunk> rerankCandidates(List<KnowledgeDocumentChunk> candidates,
-                                                           RetrievalConfig config, String query) {
+                                                          RetrievalConfig config, String query) {
         if (!config.rerankEnabled || knowledgeRerankService == null || candidates == null || candidates.isEmpty()
                 || StringUtils.isBlank(config.rerankModelId)) {
             return candidates;
@@ -548,16 +613,28 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    /**
+     * 当前RequestId。
+     */
     private String currentRequestId() {
         return StringUtils.defaultIfBlank(MDC.get("chatRequestId"), "n/a");
     }
 
+    /**
+     * 解析Provider。
+     */
     private ModelProvider resolveProvider(String modelId, String capability) {
         if (modelCatalogService == null || StringUtils.isBlank(modelId)) return null;
-        try { return modelCatalogService.resolveProvider(modelId, capability); }
-        catch (Exception e) { return null; }
+        try {
+            return modelCatalogService.resolveProvider(modelId, capability);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
+    /**
+     * 处理rewrite查询。
+     */
     private String rewriteQuery(String query, RetrievalConfig config, List<ModelChatMessage> history) {
         if (!config.queryRewriteEnabled || queryRewriteService == null
                 || StringUtils.isBlank(config.queryRewriteModelId)) return query;
@@ -584,7 +661,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return effectiveQuery;
     }
 
-    /** Query rewriting only helps when the new turn refers to earlier context. */
+    /**
+     * Query rewriting only helps when the new turn refers to earlier context.
+     */
     private boolean requiresConversationContext(String query, List<ModelChatMessage> history) {
         if (history == null || history.isEmpty()) return false;
         String normalized = StringUtils.defaultString(query).toLowerCase();
@@ -595,6 +674,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                 || normalized.contains("那个") || normalized.contains("第二个") || normalized.contains("第一个");
     }
 
+    /**
+     * 处理evict查询Rewrite缓存。
+     */
     private void evictQueryRewriteCache() {
         if (queryRewriteCache.size() < QUERY_REWRITE_CACHE_MAX_SIZE) return;
         long now = System.currentTimeMillis();
@@ -604,6 +686,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         if (queryRewriteCache.size() >= QUERY_REWRITE_CACHE_MAX_SIZE) queryRewriteCache.clear();
     }
 
+    /**
+     * 处理applyRankingPolicy。
+     */
     private List<KnowledgeDocumentChunk> applyRankingPolicy(List<KnowledgeDocumentChunk> candidates, RetrievalConfig config) {
         if (candidates == null || candidates.isEmpty() || (config.authorityWeight == 0D && config.freshnessWeight == 0D)) {
             return candidates;
@@ -620,6 +705,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return candidates;
     }
 
+    /**
+     * 处理freshnessScore。
+     */
     private double freshnessScore(Long updatedAt, long now) {
         if (updatedAt == null || updatedAt <= 0) return 0D;
         long age = Math.max(0L, now - updatedAt);
@@ -627,12 +715,19 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return Math.max(0D, 1D - (double) age / horizon);
     }
 
-    private double clampUnit(double value) { return Math.max(0D, Math.min(1D, value)); }
+    /**
+     * 处理clampUnit。
+     */
+    private double clampUnit(double value) {
+        return Math.max(0D, Math.min(1D, value));
+    }
 
-    /** 使用向量分数和词法分数融合去重，生成排序候选集。 */
+    /**
+     * 使用向量分数和词法分数融合去重，生成排序候选集。
+     */
     private List<KnowledgeDocumentChunk> fuseCandidates(List<KnowledgeDocumentChunk> vectorCandidates,
-                                                          List<KnowledgeDocumentChunk> lexicalCandidates,
-                                                          RetrievalConfig config) {
+                                                        List<KnowledgeDocumentChunk> lexicalCandidates,
+                                                        RetrievalConfig config) {
         Map<String, KnowledgeDocumentChunk> fused = new LinkedHashMap<>();
         if (vectorCandidates != null) {
             for (KnowledgeDocumentChunk candidate : vectorCandidates) {
@@ -662,6 +757,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return applyRankingPolicy(new ArrayList<>(fused.values()), config);
     }
 
+    /**
+     * 处理searchLexicalCandidates。
+     */
     private List<KnowledgeDocumentChunk> searchLexicalCandidates(String knowledgeBaseId, String query, int limit) {
         Map<String, KnowledgeDocumentChunk> merged = new LinkedHashMap<>();
         for (String expandedQuery : buildLexicalQueries(query)) {
@@ -688,7 +786,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * cache keeps repeated wording inexpensive.
      */
     private List<KnowledgeDocumentChunk> searchVectorCandidates(ModelProvider provider, String knowledgeBaseId,
-                                                                 String query, int limit) {
+                                                                String query, int limit) {
         Map<String, KnowledgeDocumentChunk> merged = new LinkedHashMap<>();
         for (String vectorQuery : buildVectorQueries(query)) {
             String vector = knowledgeEmbeddingService.toVectorLiteral(getQueryEmbedding(provider, vectorQuery));
@@ -707,7 +805,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return new ArrayList<>(merged.values());
     }
 
-    /** 生成原问题和简化问题，用于扩大向量召回覆盖面。 */
+    /**
+     * 生成原问题和简化问题，用于扩大向量召回覆盖面。
+     */
     private List<String> buildVectorQueries(String query) {
         List<String> queries = new ArrayList<>();
         queries.add(query);
@@ -720,7 +820,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return queries;
     }
 
-    /** 提取关键词和业务术语，用于词法检索查询改写。 */
+    /**
+     * 提取关键词和业务术语，用于词法检索查询改写。
+     */
     private List<String> buildLexicalQueries(String query) {
         List<String> queries = new ArrayList<>();
         queries.add(query);
@@ -734,21 +836,33 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return queries;
     }
 
+    /**
+     * 处理candidateKey。
+     */
     private String candidateKey(KnowledgeDocumentChunk candidate) {
         return StringUtils.defaultIfBlank(candidate.getId(),
                 StringUtils.defaultIfBlank(candidate.getContentHash(), candidate.getDocumentId() + ":" + candidate.getChunkIndex()));
     }
 
+    /**
+     * 规范化VectorScore。
+     */
     private double normalizeVectorScore(Double similarity) {
         return similarity == null ? 0D : Math.max(0D, Math.min(1D, (similarity + 1D) / 2D));
     }
 
+    /**
+     * 规范化LexicalScore。
+     */
     private double normalizeLexicalScore(Double lexicalScore, double maxLexicalScore) {
         return lexicalScore == null || maxLexicalScore <= 0D ? 0D : lexicalScore / maxLexicalScore;
     }
 
+    /**
+     * 处理select知识库BaseChunks。
+     */
     private List<KnowledgeDocumentChunk> selectKnowledgeBaseChunks(List<KnowledgeDocumentChunk> candidates,
-                                                                      RetrievalConfig config) {
+                                                                   RetrievalConfig config) {
         if (candidates == null || candidates.isEmpty()) {
             return java.util.Collections.emptyList();
         }
@@ -782,6 +896,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return selected;
     }
 
+    /**
+     * 处理effectiveMinSimilarity。
+     */
     private double effectiveMinSimilarity(List<KnowledgeDocumentChunk> candidates, RetrievalConfig config) {
         if (config.strictGrounding) return config.minSimilarity;
         boolean hasNormalVectorMatch = false;
@@ -798,6 +915,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                 : Math.max(ADAPTIVE_SIMILARITY_FLOOR, config.minSimilarity - ADAPTIVE_SIMILARITY_RELAXATION);
     }
 
+    /**
+     * 处理selectDiverseChunks。
+     */
     private List<KnowledgeDocumentChunk> selectDiverseChunks(List<KnowledgeDocumentChunk> candidates) {
         candidates.sort(Comparator.comparing(KnowledgeDocumentChunk::getRetrievalScore,
                 Comparator.nullsLast(Comparator.reverseOrder())));
@@ -822,7 +942,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * that passage.  Restore those neighbours from the same immutable
      * document version after ranking, so they do not distort recall scores.
      */
-    /** 以命中分块为锚点合并前后邻块，形成可供模型阅读的上下文组。 */
+    /**
+     * 以命中分块为锚点合并前后邻块，形成可供模型阅读的上下文组。
+     */
     private List<KnowledgeDocumentChunk> buildContextGroups(List<KnowledgeDocumentChunk> anchors) {
         List<KnowledgeDocumentChunk> groups = new ArrayList<>();
         java.util.Set<String> includedChunkIds = new java.util.HashSet<>();
@@ -858,6 +980,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return groups;
     }
 
+    /**
+     * 处理toContextGroup。
+     */
     private KnowledgeDocumentChunk toContextGroup(KnowledgeDocumentChunk anchor,
                                                   List<KnowledgeDocumentChunk> groupChunks) {
         groupChunks.sort(Comparator.comparing(KnowledgeDocumentChunk::getChunkIndex,
@@ -890,7 +1015,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return group;
     }
 
-    /** 按上下文 token 预算截断候选，避免挤占对话历史和回答空间。 */
+    /**
+     * 按上下文 token 预算截断候选，避免挤占对话历史和回答空间。
+     */
     private List<KnowledgeDocumentChunk> applyContextTokenBudget(List<KnowledgeDocumentChunk> candidates) {
         List<KnowledgeDocumentChunk> selected = new ArrayList<>();
         int usedTokens = 0;
@@ -908,13 +1035,16 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return selected;
     }
 
+    /**
+     * 处理estimateTokens。
+     */
     private int estimateTokens(String content) {
         if (StringUtils.isBlank(content)) {
             return 1;
         }
         int cjk = 0;
         int other = 0;
-        for (int offset = 0; offset < content.length();) {
+        for (int offset = 0; offset < content.length(); ) {
             int codePoint = content.codePointAt(offset);
             offset += Character.charCount(codePoint);
             if (Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN) {
@@ -926,6 +1056,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         return Math.max(1, cjk + (other + 3) / 4);
     }
 
+    /**
+     * 表示Retrieval配置。
+     */
     private static class RetrievalConfig {
         private final int topK;
         private final double minSimilarity;
@@ -943,6 +1076,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         private final boolean queryRewriteEnabled;
         private final String queryRewriteModelId;
 
+        /**
+         * 创建 {@code RetrievalConfig} 实例。
+         */
         private RetrievalConfig(int topK, double minSimilarity, int maxChunksPerDocument,
                                 boolean hybridEnabled, double vectorWeight, double minLexicalScore,
                                 boolean rerankEnabled, String rerankModelId, int rerankTopN,
@@ -967,35 +1103,57 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         }
     }
 
+    /**
+     * 表示CachedEmbedding。
+     */
     private static class CachedEmbedding {
         private final List<Double> embedding;
         private final long expiresAt;
 
+        /**
+         * 创建 {@code CachedEmbedding} 实例。
+         */
         private CachedEmbedding(List<Double> embedding, long expiresAt) {
             this.embedding = embedding;
             this.expiresAt = expiresAt;
         }
     }
 
+    /**
+     * 表示CachedRetrieval。
+     */
     private static class CachedRetrieval {
         private final KnowledgeRetrievalResult result;
         private final long expiresAt;
+
+        /**
+         * 创建 {@code CachedRetrieval} 实例。
+         */
         private CachedRetrieval(KnowledgeRetrievalResult result, long expiresAt) {
             this.result = result;
             this.expiresAt = expiresAt;
         }
     }
 
+    /**
+     * 表示Cached查询Rewrite。
+     */
     private static class CachedQueryRewrite {
         private final String query;
         private final long expiresAt;
 
+        /**
+         * 创建 {@code CachedQueryRewrite} 实例。
+         */
         private CachedQueryRewrite(String query, long expiresAt) {
             this.query = query;
             this.expiresAt = expiresAt;
         }
     }
 
+    /**
+     * 表示ProviderCircuit。
+     */
     private static class ProviderCircuit {
         private int failures;
         private long openUntil;

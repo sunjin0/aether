@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** One-time, frozen dispatch ticket sent from the platform to the sandbox runner. */
+/**
+ * One-time, frozen dispatch ticket sent from the platform to the sandbox runner.
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_sandbox_execution")

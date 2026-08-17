@@ -18,40 +18,64 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "KnowledgeBase对象", description = "知识库")
 public class KnowledgeBase extends BaseEntity {
 
-    /** 知识库范围：PLATFORM-平台公共库，AGENT-Agent 专属库。 */
+    /**
+     * 知识库范围：PLATFORM-平台公共库，AGENT-Agent 专属库。
+     */
     @ApiModelProperty(value = "知识库范围：PLATFORM-平台公共库，AGENT-Agent专属库")
     private String scope;
 
-    /** Embedding 模型供应商 ID，由模型供应商下拉接口提供。 */
+    /**
+     * Embedding 模型供应商 ID，由模型供应商下拉接口提供。
+     */
     private String embeddingProviderId;
     private String embeddingModelId;
 
-    /** 知识库归属的后台管理员 ID。 */
+    /**
+     * 知识库归属的后台管理员 ID。
+     */
     private String ownerAdminId;
-    /** 可见性：platform-平台可见，private-仅所有者可见，shared-成员共享。 */
+    /**
+     * 可见性：platform-平台可见，private-仅所有者可见，shared-成员共享。
+     */
     private String visibility;
-    /** 检索配置 JSON，例如 topK、minSimilarity、hybridEnabled、vectorWeight、minLexicalScore、重排参数。 */
+    /**
+     * 检索配置 JSON，例如 topK、minSimilarity、hybridEnabled、vectorWeight、minLexicalScore、重排参数。
+     */
     private String retrievalConfig;
-    /** 文档审批策略 JSON，例如 requireDifferentApprover。 */
+    /**
+     * 文档审批策略 JSON，例如 requireDifferentApprover。
+     */
     private String reviewConfig;
-    /** 最终回答实际引用本知识库的累计次数，不统计仅召回的候选片段。 */
+    /**
+     * 最终回答实际引用本知识库的累计次数，不统计仅召回的候选片段。
+     */
     private Long referenceCount;
-    /** 最近一次实际引用时间，Unix 毫秒时间戳。 */
+    /**
+     * 最近一次实际引用时间，Unix 毫秒时间戳。
+     */
     private Long lastReferencedAt;
 
-    /** 知识库名称。 */
+    /**
+     * 知识库名称。
+     */
     @ApiModelProperty(value = "知识库名称")
     private String name;
 
-    /** 知识库描述。 */
+    /**
+     * 知识库描述。
+     */
     @ApiModelProperty(value = "描述")
     private String description;
 
-    /** 索引状态：0-未索引，1-索引中，2-已完成，3-索引失败。 */
+    /**
+     * 索引状态：0-未索引，1-索引中，2-已完成，3-索引失败。
+     */
     @ApiModelProperty(value = "索引状态：0-未索引，1-索引中，2-已完成，3-索引失败")
     private Integer indexStatus;
 
-    /** 知识库状态：0-禁用，1-启用。 */
+    /**
+     * 知识库状态：0-禁用，1-启用。
+     */
     @ApiModelProperty(value = "状态：0-禁用，1-启用")
     private Integer status;
 }

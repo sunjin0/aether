@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * 表示知识库Ai审核DiffVO。
+ */
 @Data
 public class KnowledgeAiReviewDiffVo {
     private String reviewId;

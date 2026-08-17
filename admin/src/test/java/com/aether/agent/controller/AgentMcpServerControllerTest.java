@@ -18,13 +18,22 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证智能体McpServer控制器的行为。
+ */
 class AgentMcpServerControllerTest {
 
+    /**
+     * 处理setUpI18n。
+     */
     @BeforeEach
     void setUpI18n() {
         new I18nUtils(mock(I18nService.class));
     }
 
+    /**
+     * 查询ToolsPingsServerBeforeDiscoveringTools。
+     */
     @Test
     void listToolsPingsServerBeforeDiscoveringTools() {
         AgentMcpServerService serverService = mock(AgentMcpServerService.class);
@@ -42,6 +51,9 @@ class AgentMcpServerControllerTest {
         verify(mcpClient).listTools(server);
     }
 
+    /**
+     * 查询ToolsDoesNotDiscoverWhenPingFails。
+     */
     @Test
     void listToolsDoesNotDiscoverWhenPingFails() {
         AgentMcpServerService serverService = mock(AgentMcpServerService.class);
@@ -60,6 +72,9 @@ class AgentMcpServerControllerTest {
         verify(mcpClient, never()).listTools(any());
     }
 
+    /**
+     * 处理enabledServer。
+     */
     private AgentMcpServer enabledServer() {
         AgentMcpServer server = new AgentMcpServer();
         server.setId("server-1");

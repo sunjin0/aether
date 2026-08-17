@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** 技能版本冻结的资源元数据，不保存或执行脚本正文。 */
+/**
+ * 技能版本冻结的资源元数据，不保存或执行脚本正文。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_skill_resource")

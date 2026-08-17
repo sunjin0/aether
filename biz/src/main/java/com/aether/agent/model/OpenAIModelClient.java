@@ -49,16 +49,25 @@ public class OpenAIModelClient implements ModelClient {
     private final PooledHttpClient pooledHttpClient;
     private volatile RestTemplate restTemplate;
 
+    /**
+     * 创建 {@code OpenAIModelClient} 实例。
+     */
     @Autowired
     public OpenAIModelClient(PooledHttpClient pooledHttpClient) {
         this.pooledHttpClient = pooledHttpClient;
     }
 
+    /**
+     * 处理supports。
+     */
     @Override
     public boolean supports(String providerType) {
         return "openai".equalsIgnoreCase(providerType) || "local".equalsIgnoreCase(providerType);
     }
 
+    /**
+     * 对话当前请求。
+     */
     @Override
     public ModelChatResponse chat(ModelChatRequest request) {
         ModelProvider provider = request.getProvider();
@@ -66,6 +75,9 @@ public class OpenAIModelClient implements ModelClient {
         return getModelChatResponse(request, provider, agent.getModel());
     }
 
+    /**
+     * 对话按Provider。
+     */
     @Override
     public ModelChatResponse chatByProvider(ModelChatRequest request) {
         ModelProvider provider = request.getProvider();
@@ -73,6 +85,9 @@ public class OpenAIModelClient implements ModelClient {
         return getModelChatResponse(request, provider, model);
     }
 
+    /**
+     * 获取模型对话Response。
+     */
     @NotNull
     private ModelChatResponse getModelChatResponse(ModelChatRequest request, ModelProvider provider, String model) {
         try {
@@ -100,6 +115,9 @@ public class OpenAIModelClient implements ModelClient {
         }
     }
 
+    /**
+     * 处理stream。
+     */
     @Override
     public ModelStreamResponse stream(ModelChatRequest request, ModelStreamCallback callback) {
         ModelProvider provider = request.getProvider();
@@ -127,6 +145,9 @@ public class OpenAIModelClient implements ModelClient {
         }
     }
 
+    /**
+     * 创建RestTemplate。
+     */
     private RestTemplate createRestTemplate() {
         if (restTemplate == null) {
             synchronized (this) {
@@ -141,6 +162,9 @@ public class OpenAIModelClient implements ModelClient {
         return restTemplate;
     }
 
+    /**
+     * 创建Headers。
+     */
     private HttpHeaders createHeaders(ModelProvider provider) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -150,6 +174,9 @@ public class OpenAIModelClient implements ModelClient {
         return headers;
     }
 
+    /**
+     * 创建Body。
+     */
     private JSONObject createBody(ModelChatRequest request, boolean stream) {
         AgentDefinition agent = request.getAgent() != null ? request.getAgent() : new AgentDefinition();
         List<ModelChatMessage> messages = request.getMessages();
@@ -262,6 +289,9 @@ public class OpenAIModelClient implements ModelClient {
         return body;
     }
 
+    /**
+     * 处理toJsonMessages。
+     */
     private JSONArray toJsonMessages(List<ModelChatMessage> messages) {
         JSONArray array = new JSONArray();
         if (messages == null) {
@@ -271,10 +301,10 @@ public class OpenAIModelClient implements ModelClient {
             String role = message.getRole();
             // assistant 带 tool_calls 时 content 可以为空，但 tool_calls 必须保留。
             boolean hasToolCalls = StringUtils.isNotBlank(message.getToolCalls());
-            
-            log.debug("toJsonMessages: role={}, content={}, toolCallId={}, hasToolCalls={}", 
+
+            log.debug("toJsonMessages: role={}, content={}, toolCallId={}, hasToolCalls={}",
                     role, message.getContent(), message.getToolCallId(), hasToolCalls);
-            
+
             if ("assistant".equals(role) && hasToolCalls) {
                 JSONObject item = new JSONObject();
                 item.put("role", role);
@@ -303,6 +333,9 @@ public class OpenAIModelClient implements ModelClient {
         return array;
     }
 
+    /**
+     * 规范化ToolCalls。
+     */
     private JSONArray normalizeToolCalls(JSONArray toolCalls) {
         if (toolCalls == null) {
             return new JSONArray();
@@ -320,6 +353,9 @@ public class OpenAIModelClient implements ModelClient {
         return toolCalls;
     }
 
+    /**
+     * 处理toJsonTools。
+     */
     private JSONArray toJsonTools(List<AgentTool> tools) {
         JSONArray array = new JSONArray();
         if (tools == null || tools.isEmpty()) {
@@ -338,6 +374,9 @@ public class OpenAIModelClient implements ModelClient {
         return array;
     }
 
+    /**
+     * 处理toInternalTool。
+     */
     private JSONObject toInternalTool(AgentTool tool) {
         JSONObject function = new JSONObject();
         function.put("name", tool.getName());
@@ -346,6 +385,9 @@ public class OpenAIModelClient implements ModelClient {
         return new JSONObject().fluentPut("type", "function").fluentPut("function", function);
     }
 
+    /**
+     * 处理toMcpTool。
+     */
     private JSONObject toMcpTool(AgentTool tool) {
         JSONObject function = new JSONObject();
         function.put("name", tool.getName());
@@ -363,6 +405,9 @@ public class OpenAIModelClient implements ModelClient {
     }
 
 
+    /**
+     * 构建对话Url。
+     */
     private String buildChatUrl(String apiBaseUrl) {
         if (StringUtils.isBlank(apiBaseUrl)) {
             throw new ServerException(422, I18nUtils.getMessage("agent.model.api.base.url.required"));
@@ -374,6 +419,9 @@ public class OpenAIModelClient implements ModelClient {
         return baseUrl + "/v1/chat/completions";
     }
 
+    /**
+     * 解析Response。
+     */
     private ModelChatResponse parseResponse(String responseBody, String defaultModel) {
         if (StringUtils.isBlank(responseBody)) {
             throw new ServerException(500, I18nUtils.getMessage("agent.model.response.empty"));
@@ -433,6 +481,9 @@ public class OpenAIModelClient implements ModelClient {
         return response;
     }
 
+    /**
+     * 解析Stream。
+     */
     private ModelStreamResponse parseStream(InputStream inputStream, String defaultModel, ModelStreamCallback callback) throws IOException {
         StringBuilder content = new StringBuilder();
         StringBuilder reasoningContent = new StringBuilder();
@@ -494,6 +545,9 @@ public class OpenAIModelClient implements ModelClient {
         return response;
     }
 
+    /**
+     * 解析StreamData。
+     */
     private void parseStreamData(String data, String defaultModel, ModelStreamCallback callback,
                                  StringBuilder content, StringBuilder reasoningContent,
                                  ModelStreamResponse response, Map<Integer, JSONObject> toolCallsMap) {

@@ -17,6 +17,9 @@ public class AgentToolFacetsVo {
     private List<Item> statuses = new ArrayList<>();
     private List<Item> sources = new ArrayList<>();
 
+    /**
+     * 表示Item。
+     */
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

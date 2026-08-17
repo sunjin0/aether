@@ -19,6 +19,9 @@ public class MyLocaleResolver implements LocaleResolver {
     private static final List<Locale> SUPPORTED_LOCALES = Arrays.asList(
             Locale.SIMPLIFIED_CHINESE, Locale.US);
 
+    /**
+     * 解析Locale。
+     */
     @Override
     public Locale resolveLocale(HttpServletRequest httpServletRequest) {
         String language = httpServletRequest.getHeader("Accept-Language");
@@ -44,6 +47,9 @@ public class MyLocaleResolver implements LocaleResolver {
         }
     }
 
+    /**
+     * 处理setLocale。
+     */
     @Override
     public void setLocale(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse, Locale locale) {
 

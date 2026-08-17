@@ -8,9 +8,15 @@ import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerIntercept
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * 表示MyBatisPlus配置。
+ */
 @Configuration
 public class MyBatisPlusConfig {
 
+    /**
+     * 处理mybatisPlusInterceptor。
+     */
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();

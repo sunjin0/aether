@@ -15,6 +15,9 @@ import java.util.List;
 @Mapper
 public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocumentChunk> {
 
+    /**
+     * 处理selectSimilarChunks。
+     */
     @Select("<script>SELECT chunk.id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
             "chunk.page_no, chunk.section_path, chunk.content_hash, chunk.metadata, chunk.reference_count, chunk.last_referenced_at, " +
             "chunk.embedding::text AS embedding, 1 - (chunk.embedding <![CDATA[<=>]]> CAST(#{embedding} AS vector)) AS similarity, " +
@@ -31,9 +34,12 @@ public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocume
             "ORDER BY chunk.embedding <![CDATA[<=>]]> CAST(#{embedding} AS vector) " +
             "LIMIT #{limit}</script>")
     List<KnowledgeDocumentChunk> selectSimilarChunks(@Param("knowledgeBaseIds") List<String> knowledgeBaseIds,
-                                                 @Param("embedding") String embedding,
-                                                 @Param("limit") int limit);
+                                                     @Param("embedding") String embedding,
+                                                     @Param("limit") int limit);
 
+    /**
+     * 处理selectLexicalChunks。
+     */
     @Select("<script>SELECT chunk.id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
             "chunk.page_no, chunk.section_path, chunk.content_hash, chunk.metadata, chunk.reference_count, chunk.last_referenced_at, " +
             "chunk.embedding::text AS embedding, " +
@@ -51,9 +57,12 @@ public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocume
             "</if> " +
             "ORDER BY lexical_score DESC, chunk.updated_at DESC LIMIT #{limit}</script>")
     List<KnowledgeDocumentChunk> selectLexicalChunks(@Param("knowledgeBaseIds") List<String> knowledgeBaseIds,
-                                                      @Param("query") String query,
-                                                      @Param("limit") int limit);
+                                                     @Param("query") String query,
+                                                     @Param("limit") int limit);
 
+    /**
+     * 处理selectNeighborChunks。
+     */
     @Select("SELECT id, knowledge_base_id, document_id, document_version_id, chunk_index, content, token_count, " +
             "page_no, section_path, content_hash, metadata, reference_count, last_referenced_at, " +
             "created_at, updated_at, sort_num, deleted, state " +
@@ -61,9 +70,12 @@ public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocume
             "WHERE deleted = FALSE AND document_version_id = #{documentVersionId} " +
             "AND chunk_index BETWEEN #{startIndex} AND #{endIndex} ORDER BY chunk_index")
     List<KnowledgeDocumentChunk> selectNeighborChunks(@Param("documentVersionId") String documentVersionId,
-                                                       @Param("startIndex") int startIndex,
-                                                       @Param("endIndex") int endIndex);
+                                                      @Param("startIndex") int startIndex,
+                                                      @Param("endIndex") int endIndex);
 
+    /**
+     * 处理insertVectorChunk。
+     */
     @Insert("INSERT INTO knowledge_document_chunk " +
             "(id, knowledge_base_id, document_id, document_version_id, chunk_index, content, token_count, embedding, page_no, section_path, content_hash, metadata, reference_count, last_referenced_at, created_at, updated_at, sort_num, deleted, state) " +
             "VALUES " +

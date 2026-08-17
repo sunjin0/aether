@@ -1,10 +1,13 @@
 package com.aether.agent.sandbox.vo;
 
 import lombok.Data;
-import java.util.Map;
-import java.util.List;
 
-/** Fully frozen task returned only after an atomic runner claim. */
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Fully frozen task returned only after an atomic runner claim.
+ */
 @Data
 public class SandboxRunnerTaskVo {
     private String taskId, executionToken, templateCode, runtime, executionMode, fixedCommand, imageRef;

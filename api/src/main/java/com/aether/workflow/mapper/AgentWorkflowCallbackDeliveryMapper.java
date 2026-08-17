@@ -4,5 +4,9 @@ import com.aether.workflow.entity.AgentWorkflowCallbackDelivery;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 
+/**
+ * 提供智能体工作流回调Delivery映的数据访问能力。
+ */
 @Mapper
-public interface AgentWorkflowCallbackDeliveryMapper extends BaseMapper<AgentWorkflowCallbackDelivery> { }
+public interface AgentWorkflowCallbackDeliveryMapper extends BaseMapper<AgentWorkflowCallbackDelivery> {
+}

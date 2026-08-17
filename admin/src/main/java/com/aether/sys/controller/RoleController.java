@@ -1,7 +1,6 @@
 package com.aether.sys.controller;
 
 
-
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -50,6 +49,9 @@ public class RoleController {
     private ResourceService resourceService;
 
 
+    /**
+     * 查询当前请求。
+     */
     @ApiOperation(value = "角色列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -65,6 +67,9 @@ public class RoleController {
         return WebResponse.Page(rolePage.getRecords(), rolePage.getTotal());
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation(value = "删除角色")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", required = true),
@@ -80,6 +85,9 @@ public class RoleController {
         return WebResponse.OK(update ? I18nUtils.getMessage("system.role.delete.success") : I18nUtils.getMessage("system.role.delete.fail"), update);
     }
 
+    /**
+     * 保存当前请求。
+     */
     @ApiOperation(value = "新增角色")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -93,6 +101,9 @@ public class RoleController {
         return WebResponse.OK(save ? I18nUtils.getMessage("system.role.create.success") : I18nUtils.getMessage("system.role.create.fail"), save);
     }
 
+    /**
+     * 更新当前请求。
+     */
     @ApiOperation(value = "修改角色")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -106,6 +117,9 @@ public class RoleController {
         return WebResponse.OK(update ? I18nUtils.getMessage("system.role.update.success") : I18nUtils.getMessage("system.role.update.fail"), update);
     }
 
+    /**
+     * 详情当前请求。
+     */
     @ApiOperation(value = "角色详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", required = true),
@@ -117,6 +131,9 @@ public class RoleController {
         return WebResponse.OK(role);
     }
 
+    /**
+     * 处理options。
+     */
     @ApiOperation(value = "角色下拉框数据")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -132,6 +149,9 @@ public class RoleController {
         return WebResponse.OK(options);
     }
 
+    /**
+     * 资源当前请求。
+     */
     @ApiOperation(value = "资源")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")

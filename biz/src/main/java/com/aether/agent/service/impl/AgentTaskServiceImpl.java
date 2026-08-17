@@ -1,4 +1,5 @@
 package com.aether.agent.service.impl;
+
 import com.aether.agent.entity.AgentTask;
 import com.aether.agent.mapper.AgentTaskMapper;
 import com.aether.agent.service.AgentTaskService;
@@ -8,13 +9,34 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-@Service public class AgentTaskServiceImpl extends ServiceImpl<AgentTaskMapper, AgentTask> implements AgentTaskService {
+
+/**
+ * 实现智能体任务业务服务。
+ */
+@Service
+public class AgentTaskServiceImpl extends ServiceImpl<AgentTaskMapper, AgentTask> implements AgentTaskService {
     private static final Logger log = LoggerFactory.getLogger(AgentTaskServiceImpl.class);
-    @Override public AgentTask create(String sessionId, String userId, String agentDefinitionId, String title) {
-        AgentTask task = new AgentTask(); task.setSessionId(sessionId); task.setUserId(userId); task.setAgentDefinitionId(agentDefinitionId);
-        task.setTitle(StringUtils.abbreviate(StringUtils.defaultIfBlank(title, "完成当前任务"), 500)); task.setStatus("QUEUED"); save(task); return task;
+
+    /**
+     * 创建当前请求。
+     */
+    @Override
+    public AgentTask create(String sessionId, String userId, String agentDefinitionId, String title) {
+        AgentTask task = new AgentTask();
+        task.setSessionId(sessionId);
+        task.setUserId(userId);
+        task.setAgentDefinitionId(agentDefinitionId);
+        task.setTitle(StringUtils.abbreviate(StringUtils.defaultIfBlank(title, "完成当前任务"), 500));
+        task.setStatus("QUEUED");
+        save(task);
+        return task;
     }
-    @Override public void updateStatus(String taskId, String status, String runId, String pauseReason) {
+
+    /**
+     * 更新状态。
+     */
+    @Override
+    public void updateStatus(String taskId, String status, String runId, String pauseReason) {
         if (StringUtils.isBlank(taskId) || StringUtils.isBlank(status)) return;
         AgentTask current = getById(taskId);
         if (current == null || Boolean.TRUE.equals(current.getDeleted())) return;
@@ -23,23 +45,43 @@ import org.springframework.stereotype.Service;
             log.warn("忽略非法 Agent Task 状态转换: taskId={}, {} -> {}", taskId, previous, status);
             return;
         }
-        AgentTask task = new AgentTask(); task.setId(taskId); task.setStatus(status); task.setCurrentRunId(runId); task.setPauseReason(pauseReason); updateById(task);
+        AgentTask task = new AgentTask();
+        task.setId(taskId);
+        task.setStatus(status);
+        task.setCurrentRunId(runId);
+        task.setPauseReason(pauseReason);
+        updateById(task);
     }
-    @Override public AgentTask nextQueued(String sessionId) {
+
+    /**
+     * 下一个Queued。
+     */
+    @Override
+    public AgentTask nextQueued(String sessionId) {
         if (StringUtils.isBlank(sessionId)) return null;
         return getOne(Wrappers.lambdaQuery(AgentTask.class).eq(AgentTask::getSessionId, sessionId)
                 .eq(AgentTask::getStatus, "QUEUED").eq(AgentTask::getDeleted, false)
                 .orderByAsc(AgentTask::getCreatedAt).last("limit 1"), false);
     }
-    @Override public AgentTask findActive(String sessionId) {
+
+    /**
+     * 查找Active。
+     */
+    @Override
+    public AgentTask findActive(String sessionId) {
         if (StringUtils.isBlank(sessionId)) return null;
         return getOne(Wrappers.lambdaQuery(AgentTask.class).eq(AgentTask::getSessionId, sessionId)
                 .notIn(AgentTask::getStatus, "COMPLETED", "FAILED", "CANCELLED")
                 .eq(AgentTask::getDeleted, false).orderByDesc(AgentTask::getUpdatedAt).last("limit 1"), false);
     }
+
+    /**
+     * 判断是否为AllowedTransition。
+     */
     private boolean isAllowedTransition(String from, String to) {
         if (from.equals(to)) return true;
-        if ("QUEUED".equals(from)) return "PLANNING".equals(to) || "RUNNING".equals(to) || "FAILED".equals(to) || "CANCELLED".equals(to);
+        if ("QUEUED".equals(from))
+            return "PLANNING".equals(to) || "RUNNING".equals(to) || "FAILED".equals(to) || "CANCELLED".equals(to);
         if ("PLANNING".equals(from) || "RUNNING".equals(from))
             return "WAITING_USER".equals(to) || "WAITING_APPROVAL".equals(to) || "PAUSED".equals(to) || "COMPLETED".equals(to) || "FAILED".equals(to) || "CANCELLED".equals(to) || "RUNNING".equals(to);
         if ("WAITING_USER".equals(from) || "WAITING_APPROVAL".equals(from))

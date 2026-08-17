@@ -68,6 +68,9 @@ public class AgentConversationController {
     private final ConversationSummaryService conversationSummaryService;
     private final AgentToolWorkflow agentToolWorkflow;
 
+    /**
+     * 创建 {@code AgentConversationController} 实例。
+     */
     @Autowired
     public AgentConversationController(AgentConversationService agentConversationService,
                                        AgentMessageService agentMessageService,
@@ -89,6 +92,9 @@ public class AgentConversationController {
         this.agentToolWorkflow = agentToolWorkflow;
     }
 
+    /**
+     * 会话列表。
+     */
     @ApiOperation("会话列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -111,6 +117,9 @@ public class AgentConversationController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 详情当前请求。
+     */
     @ApiOperation("会话详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "会话ID", required = true),
@@ -124,14 +133,17 @@ public class AgentConversationController {
         return WebResponse.OK(vo);
     }
 
+    /**
+     * 查询会话消息。
+     */
     @ApiOperation("查询会话消息")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @GetMapping("/{id}/messages")
     public WebResponse<List<AgentMessageVo>> messages(@PathVariable @NotBlank String id,
-                                                       @RequestParam(defaultValue = "1") Long current,
-                                                       @RequestParam(defaultValue = "20") Long pageSize) {
+                                                      @RequestParam(defaultValue = "1") Long current,
+                                                      @RequestParam(defaultValue = "20") Long pageSize) {
         getOwnedConversation(id);
         Page<AgentMessage> page = new Page<>(current, pageSize);
         Wrapper<AgentMessage> wrapper = Wrappers.lambdaQuery(AgentMessage.class)
@@ -216,11 +228,14 @@ public class AgentConversationController {
         }
     }
 
+    /**
+     * 更新ToolApprovalPolicy。
+     */
     @ApiOperation("更新会话工具确认策略")
     @Permission(path = "/agent/conversation", type = Permission.Type.Write)
     @PutMapping("/{id}/tool-approval-policy")
     public WebResponse<Void> updateToolApprovalPolicy(@PathVariable @NotBlank String id,
-                                                       @RequestBody Map<String, String> body) {
+                                                      @RequestBody Map<String, String> body) {
         AgentConversation conversation = getOwnedConversation(id);
         String policy = body == null ? null : body.get("toolApprovalPolicy");
         if (!"ask".equals(policy) && !"risky".equals(policy) && !"never".equals(policy)) {
@@ -235,6 +250,9 @@ public class AgentConversationController {
         return WebResponse.OK(null);
     }
 
+    /**
+     * 关闭当前资源。
+     */
     @ApiOperation("关闭会话")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -251,6 +269,9 @@ public class AgentConversationController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.conversation.close.success") : I18nUtils.getMessage("agent.conversation.close.fail"));
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("删除会话")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "会话ID", required = true, dataType = "string", paramType = "header"),
@@ -293,6 +314,9 @@ public class AgentConversationController {
         return WebResponse.OK(I18nUtils.getMessage("agent.conversation.delete.success"));
     }
 
+    /**
+     * 会话生命周期查询。
+     */
     @ApiOperation("会话生命周期查询")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "会话ID", required = true, dataType = "string", paramType = "header"),
@@ -308,6 +332,9 @@ public class AgentConversationController {
         return WebResponse.OK(lifecycle);
     }
 
+    /**
+     * 会话消息统计。
+     */
     @ApiOperation("会话消息统计")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "会话ID", required = true, dataType = "string", paramType = "header"),
@@ -323,6 +350,9 @@ public class AgentConversationController {
         return WebResponse.OK(statistics);
     }
 
+    /**
+     * 获取Owned会话。
+     */
     private AgentConversation getOwnedConversation(String id) {
         AgentConversation conversation = agentConversationService.getOne(Wrappers.lambdaQuery(AgentConversation.class)
                 .eq(AgentConversation::getId, id)
@@ -334,6 +364,9 @@ public class AgentConversationController {
         return conversation;
     }
 
+    /**
+     * 处理evict会话MemoryAfterCommit。
+     */
     private void evictConversationMemoryAfterCommit(String conversationId, String userId) {
         Runnable cleanup = () -> {
             conversationCacheService.evict(conversationId);
@@ -344,6 +377,9 @@ public class AgentConversationController {
                 && TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(
                     new TransactionSynchronization() {
+                        /**
+                         * 处理afterCommit。
+                         */
                         @Override
                         public void afterCommit() {
                             cleanup.run();

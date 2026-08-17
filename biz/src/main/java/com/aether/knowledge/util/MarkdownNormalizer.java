@@ -4,10 +4,16 @@ import com.vladsch.flexmark.ast.*;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.ast.Node;
 
+/**
+ * 表示MarkdownNormalizer。
+ */
 public final class MarkdownNormalizer {
 
     private static final Parser PARSER = Parser.builder().build();
 
+    /**
+     * 规范化当前请求。
+     */
     public static String normalize(String content) {
         if (content == null || content.isEmpty()) return content;
         String cleaned = content.replace("\r\n", "\n").replace('\r', '\n');
@@ -18,6 +24,9 @@ public final class MarkdownNormalizer {
         return result.trim() + "\n";
     }
 
+    /**
+     * 处理renderChildren。
+     */
     private static void renderChildren(Node parent, StringBuilder sb) {
         Node child = parent.getFirstChild();
         while (child != null) {
@@ -26,6 +35,9 @@ public final class MarkdownNormalizer {
         }
     }
 
+    /**
+     * 处理renderNode。
+     */
     private static void renderNode(Node node, StringBuilder sb) {
         if (node instanceof ThematicBreak) {
             sb.append("---\n\n");
@@ -181,6 +193,9 @@ public final class MarkdownNormalizer {
         renderChildren(node, sb);
     }
 
+    /**
+     * 处理renderItems。
+     */
     private static void renderItems(Node list, StringBuilder sb, String marker) {
         Node child = list.getFirstChild();
         boolean first = true;
@@ -205,6 +220,9 @@ public final class MarkdownNormalizer {
         sb.append('\n');
     }
 
+    /**
+     * 处理extractInner。
+     */
     private static String extractInner(BlockQuote bq) {
         StringBuilder inner = new StringBuilder();
         Node child = bq.getFirstChild();
@@ -218,6 +236,9 @@ public final class MarkdownNormalizer {
         return inner.toString();
     }
 
+    /**
+     * 处理stripTrailingEmptyLines。
+     */
     private static String stripTrailingEmptyLines(String s) {
         int end = s.length();
         while (end > 0) {
@@ -228,5 +249,9 @@ public final class MarkdownNormalizer {
         return s.substring(0, end);
     }
 
-    private MarkdownNormalizer() {}
+    /**
+     * 创建 {@code MarkdownNormalizer} 实例。
+     */
+    private MarkdownNormalizer() {
+    }
 }

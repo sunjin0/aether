@@ -23,6 +23,7 @@ public class TokenUtils {
     // 签名密钥
     private static final String SECRET_KEY = "1sa(s}>s.@jj,asj.!hg5454";
     public static final String TOKEN_KEY = "TokenList";
+
     /**
      * 创建令牌
      *
@@ -87,12 +88,16 @@ public class TokenUtils {
         return decode.getClaim("userId").asString();
     }
 
-    /** 读取已验签令牌中的可选字符串声明。 */
+    /**
+     * 读取已验签令牌中的可选字符串声明。
+     */
     public static String getClaim(String token, String name) {
         return decode(token).getClaim(name).asString();
     }
 
-    /** 创建不含刷新令牌的短期访问令牌，供服务账号 client credentials 使用。 */
+    /**
+     * 创建不含刷新令牌的短期访问令牌，供服务账号 client credentials 使用。
+     */
     public static String createAccessToken(Map<String, String> payload, int expiresInSeconds) {
         if (payload == null || payload.get("userId") == null || payload.get("userId").isEmpty()) {
             throw new ServerException(400, I18nUtils.getMessage("user.id.not.empty"));

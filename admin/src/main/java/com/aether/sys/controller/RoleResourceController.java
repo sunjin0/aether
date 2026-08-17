@@ -1,7 +1,6 @@
 package com.aether.sys.controller;
 
 
-
 import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
 import com.aether.sys.service.UserService;
@@ -9,11 +8,11 @@ import com.aether.utils.TokenUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aether.permission.Permission;
 import com.aether.sys.service.RoleResourceService;
-import  com.aether.entity.WebResponse;
-import  com.aether.sys.entity.RoleResource;
-import  com.aether.i18n.I18nUtils;
-import  com.aether.validator.ValidEntity;
-import  com.aether.sys.vo.RoleResourceVo;
+import com.aether.entity.WebResponse;
+import com.aether.sys.entity.RoleResource;
+import com.aether.i18n.I18nUtils;
+import com.aether.validator.ValidEntity;
+import com.aether.sys.vo.RoleResourceVo;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
@@ -49,6 +48,9 @@ public class RoleResourceController {
     @Resource
     private UserService userService;
 
+    /**
+     * 获取权限按角色Id。
+     */
     @ApiOperation("根据角色ID查询权限资源")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -58,6 +60,9 @@ public class RoleResourceController {
         return WebResponse.OK(roleResourceService.getPermissionByRoleId(roleId));
     }
 
+    /**
+     * 保存当前请求。
+     */
     @ApiOperation("根据角色ID添加或者修改权限资源")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -83,7 +88,7 @@ public class RoleResourceController {
         boolean result = roleResourceService.saveBatch(roleResourceList);
         if (result) {
             HashMap<String, String> user = CurrentUser.getUser();
-            if (user == null|| user.get("userId") == null) {
+            if (user == null || user.get("userId") == null) {
                 throw new ServerException(401, I18nUtils.getMessage("auth.error.no.permission"));
             }
             String userId = user.get("userId");

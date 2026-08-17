@@ -1,20 +1,18 @@
 package com.aether.sys.service;
 
+import com.aether.exception.ServerException;
 import com.aether.sys.entity.User;
 import com.aether.sys.vo.ResourceVo;
 import com.aether.sys.vo.UserVo;
-
-import com.aether.exception.ServerException;
 import com.baomidou.mybatisplus.extension.service.IService;
-
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 
-import java.util.List;
 import java.util.HashMap;
+import java.util.List;
 
 /**
  * 系统用户服务
@@ -23,15 +21,17 @@ import java.util.HashMap;
  * @since 2024/09/11
  */
 public interface UserService extends IService<User> {
-    /** 为非交互身份生成与当前用户一致的资源权限映射。 */
+    /**
+     * 为非交互身份生成与当前用户一致的资源权限映射。
+     */
     HashMap<String, Object> getPermissionMapByUserId(String userId, String token);
 
     /**
-       * 注册
-       *
-       * @param user  用户
-       * @return {@link Boolean }
-       */
+     * 注册
+     *
+     * @param user 用户
+     * @return {@link Boolean }
+     */
     @ApiOperation("注册")
     @ApiImplicitParams(
             {
@@ -46,7 +46,7 @@ public interface UserService extends IService<User> {
     /**
      * 重置密码
      *
-     * @param user  用户
+     * @param user 用户
      * @return {@link Boolean }
      */
     @ApiOperation("重置密码")
@@ -138,6 +138,9 @@ public interface UserService extends IService<User> {
     @PostMapping(value = "/getRouters")
     List<ResourceVo> getRouters();
 
+    /**
+     * 详情当前请求。
+     */
     @ApiOperation("管理员详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -145,6 +148,9 @@ public interface UserService extends IService<User> {
     @GetMapping("/detail")
     UserVo detail();
 
+    /**
+     * 发送VerificationCode。
+     */
     @ApiOperation("发送登陆验证码")
     @ApiImplicitParams(
             {
@@ -154,6 +160,9 @@ public interface UserService extends IService<User> {
     @PostMapping("/sendVerificationCode")
     void sendVerificationCode(String email);
 
+    /**
+     * 处理logout。
+     */
     @ApiOperation("退出登入")
     @ApiImplicitParams(
             {

@@ -16,6 +16,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证工作流DefinitionValidator的行为。
+ */
 class WorkflowDefinitionValidatorTest {
 
     private static final String NODES = "["
@@ -25,6 +28,9 @@ class WorkflowDefinitionValidatorTest {
             + "{\"id\":\"end\",\"type\":\"end\"}]";
     private static final String EDGES = "[{\"source\":\"start\",\"target\":\"agent\"},{\"source\":\"agent\",\"target\":\"next\"},{\"source\":\"next\",\"target\":\"end\"}]";
 
+    /**
+     * 处理setUpI18n。
+     */
     @BeforeAll
     static void setUpI18n() {
         I18nService i18nService = mock(I18nService.class);
@@ -32,6 +38,9 @@ class WorkflowDefinitionValidatorTest {
         new I18nUtils(i18nService);
     }
 
+    /**
+     * 处理acceptsDeclaredInputAndNodeOutputReferences。
+     */
     @Test
     void acceptsDeclaredInputAndNodeOutputReferences() {
         String schema = "[{\"name\":\"request\",\"required\":true}]";
@@ -40,6 +49,9 @@ class WorkflowDefinitionValidatorTest {
         assertDoesNotThrow(() -> WorkflowDefinitionValidator.validateVariables(nodes, EDGES, schema));
     }
 
+    /**
+     * 处理rejectsUnknownVariableReferenceAt发布Time。
+     */
     @Test
     void rejectsUnknownVariableReferenceAtPublishTime() {
         String nodes = NODES.replace("${request}", "${missing}");
@@ -48,6 +60,9 @@ class WorkflowDefinitionValidatorTest {
                 () -> WorkflowDefinitionValidator.validateVariables(nodes, EDGES, "[{\"name\":\"request\"}]"));
     }
 
+    /**
+     * 处理rejectsMissingRequiredOrUndeclaredStartInput。
+     */
     @Test
     void rejectsMissingRequiredOrUndeclaredStartInput() {
         String schema = "[{\"name\":\"request\",\"required\":true}]";
@@ -60,6 +75,9 @@ class WorkflowDefinitionValidatorTest {
                 () -> WorkflowDefinitionValidator.validateStartVariables(schema, unknown));
     }
 
+    /**
+     * 处理acceptsOutputDeclaredOnEveryPathAndRejectsInternalOrBranchOnlyValues。
+     */
     @Test
     void acceptsOutputDeclaredOnEveryPathAndRejectsInternalOrBranchOnlyValues() {
         String output = "[{\"name\":\"result\"}]";

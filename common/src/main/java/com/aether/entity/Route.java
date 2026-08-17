@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.util.ArrayList;
 
+/**
+ * 表示Route。
+ */
 @Data
 public class Route {
 

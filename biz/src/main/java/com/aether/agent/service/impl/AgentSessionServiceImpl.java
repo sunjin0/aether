@@ -9,8 +9,14 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+/**
+ * 实现智能体会话业务服务。
+ */
 @Service
 public class AgentSessionServiceImpl extends ServiceImpl<AgentSessionMapper, AgentSession> implements AgentSessionService {
+    /**
+     * 获取Or创建。
+     */
     @Override
     public synchronized AgentSession getOrCreate(String conversationId, String userId, String agentDefinitionId) {
         AgentSession existing = getOne(Wrappers.lambdaQuery(AgentSession.class)
@@ -57,6 +63,9 @@ public class AgentSessionServiceImpl extends ServiceImpl<AgentSessionMapper, Age
         return session;
     }
 
+    /**
+     * 处理touch。
+     */
     @Override
     public void touch(String sessionId) {
         if (sessionId == null) return;
@@ -66,6 +75,9 @@ public class AgentSessionServiceImpl extends ServiceImpl<AgentSessionMapper, Age
         updateById(update);
     }
 
+    /**
+     * 处理claim任务。
+     */
     @Override
     public boolean claimTask(String sessionId, String taskId) {
         if (StringUtils.isBlank(sessionId) || StringUtils.isBlank(taskId)) return false;
@@ -77,6 +89,9 @@ public class AgentSessionServiceImpl extends ServiceImpl<AgentSessionMapper, Age
                 .isNull(AgentSession::getActiveTaskId));
     }
 
+    /**
+     * 更新任务State。
+     */
     @Override
     public void updateTaskState(String sessionId, String taskId, String taskStatus) {
         if (StringUtils.isBlank(sessionId) || StringUtils.isBlank(taskId)) return;

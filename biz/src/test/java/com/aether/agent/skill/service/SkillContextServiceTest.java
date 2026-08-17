@@ -38,6 +38,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证SkillContext服务的行为。
+ */
 class SkillContextServiceTest {
 
     private final AgentSkillService skillService = mock(AgentSkillService.class);
@@ -51,6 +54,9 @@ class SkillContextServiceTest {
     private final SkillRouterService skillRouterService = mock(SkillRouterService.class);
     private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, resourceService, toolCatalog, mcpServerService, objectStorageService, "aether-skill", skillRouterService);
 
+    /**
+     * 处理configureMcpServer。
+     */
     @BeforeEach
     void configureMcpServer() {
         AgentMcpServer server = new AgentMcpServer();
@@ -61,11 +67,15 @@ class SkillContextServiceTest {
         when(skillRouterService.route(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenAnswer(invocation -> {
             java.util.List<AgentDefinitionSkillBinding> bindings = invocation.getArgument(3);
             SkillRouteDecision decision = new SkillRouteDecision();
-            if (bindings != null && !bindings.isEmpty()) decision.setSkillVersionId(bindings.get(0).getSkillVersionId());
+            if (bindings != null && !bindings.isEmpty())
+                decision.setSkillVersionId(bindings.get(0).getSkillVersionId());
             return decision;
         });
     }
 
+    /**
+     * 处理noInstallationFallsBackTo智能体Defaults。
+     */
     @Test
     void noInstallationFallsBackToAgentDefaults() {
         AgentDefinition agent = agent("a1", "base prompt");
@@ -81,6 +91,9 @@ class SkillContextServiceTest {
         assertTrue(context.getSnapshot().contains("\"installed\":false"));
     }
 
+    /**
+     * 处理activatesOnlyRouterSelectedSkillEvenWhenManyAreInstalled。
+     */
     @Test
     void activatesOnlyRouterSelectedSkillEvenWhenManyAreInstalled() {
         AgentDefinition agent = agent("a1", "p");
@@ -104,6 +117,9 @@ class SkillContextServiceTest {
         assertFalse(context.getSystemPrompt().contains("s2"));
     }
 
+    /**
+     * 处理rejectsDisabledSkillOrUnpublishedVersion。
+     */
     @Test
     void rejectsDisabledSkillOrUnpublishedVersion() {
         AgentDefinition agent = agent("a1", "p");
@@ -118,6 +134,9 @@ class SkillContextServiceTest {
         assertThrows(RuntimeException.class, () -> service.resolve(agent, new AgentChatDto()));
     }
 
+    /**
+     * 处理rejectsMissingRequiredTool。
+     */
     @Test
     void rejectsMissingRequiredTool() {
         AgentDefinition agent = agent("a1", "p");
@@ -130,6 +149,9 @@ class SkillContextServiceTest {
         assertThrows(RuntimeException.class, () -> service.resolve(agent, new AgentChatDto()));
     }
 
+    /**
+     * 处理narrowsToolsToDeclaredIntersection。
+     */
     @Test
     void narrowsToolsToDeclaredIntersection() {
         AgentDefinition agent = agent("a1", "p");
@@ -152,6 +174,9 @@ class SkillContextServiceTest {
         assertTrue(context.getSystemPrompt().contains("[Platform Constraints]"));
     }
 
+    /**
+     * 处理rejectsInputs用于UninstalledSkillCode。
+     */
     @Test
     void rejectsInputsForUninstalledSkillCode() {
         AgentDefinition agent = agent("a1", "p");
@@ -172,6 +197,9 @@ class SkillContextServiceTest {
         assertThrows(RuntimeException.class, () -> service.resolve(agent, dto));
     }
 
+    /**
+     * 处理doesNotMergeToolDeclarationsFromUnselectedSkills。
+     */
     @Test
     void doesNotMergeToolDeclarationsFromUnselectedSkills() {
         AgentDefinition agent = agent("a1", "p");
@@ -195,12 +223,16 @@ class SkillContextServiceTest {
         assertEquals("t1", context.getTools().get(0).getId());
     }
 
+    /**
+     * 处理routerNoneKeepsOnly智能体BaseCapabilities。
+     */
     @Test
     void routerNoneKeepsOnlyAgentBaseCapabilities() {
         AgentDefinition agent = agent("a1", "base");
         when(skillService.listBindings("a1")).thenReturn(Collections.singletonList(binding("a1", "s1", "v1", 1, 1)));
         when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.singletonList(tool("base", "Base tool", 1)));
-        SkillRouteDecision none = new SkillRouteDecision(); none.setReason("LOW_CONFIDENCE_OR_NONE");
+        SkillRouteDecision none = new SkillRouteDecision();
+        none.setReason("LOW_CONFIDENCE_OR_NONE");
         when(skillRouterService.route(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(none);
 
         SkillRuntimeContext context = service.resolve(agent, new AgentChatDto());
@@ -212,6 +244,9 @@ class SkillContextServiceTest {
         assertTrue(context.getSnapshot().contains("LOW_CONFIDENCE_OR_NONE"));
     }
 
+    /**
+     * 处理rejectsInputThatViolatesPublishedSchema。
+     */
     @Test
     void rejectsInputThatViolatesPublishedSchema() {
         AgentDefinition agent = agent("a1", "p");
@@ -229,6 +264,9 @@ class SkillContextServiceTest {
         assertThrows(RuntimeException.class, () -> service.resolve(agent, dto));
     }
 
+    /**
+     * 处理injectsVerifiedMarkdownAndMasksSensitiveInput。
+     */
     @Test
     void injectsVerifiedMarkdownAndMasksSensitiveInput() throws Exception {
         AgentDefinition agent = agent("a1", "base");
@@ -243,7 +281,13 @@ class SkillContextServiceTest {
         when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.emptyList());
         byte[] body = "# Rule\nDo not disclose secrets.".getBytes(StandardCharsets.UTF_8);
         AgentSkillResource resource = new AgentSkillResource();
-        resource.setId("r1"); resource.setName("rule.md"); resource.setType("MARKDOWN"); resource.setStatus(1); resource.setObjectKey("skills/s1/v1/rule"); resource.setContentSha256(sha256(body)); resource.setSize((long) body.length);
+        resource.setId("r1");
+        resource.setName("rule.md");
+        resource.setType("MARKDOWN");
+        resource.setStatus(1);
+        resource.setObjectKey("skills/s1/v1/rule");
+        resource.setContentSha256(sha256(body));
+        resource.setSize((long) body.length);
         when(resourceService.list(any())).thenReturn(Collections.singletonList(resource));
         when(objectStorageService.getObject("aether-skill", resource.getObjectKey())).thenReturn(body);
         AgentChatDto dto = new AgentChatDto();
@@ -260,6 +304,9 @@ class SkillContextServiceTest {
         org.mockito.Mockito.verify(objectStorageService, org.mockito.Mockito.times(1)).getObject("aether-skill", resource.getObjectKey());
     }
 
+    /**
+     * 处理omitsPlaceholderOrInvalidOutputSchema。
+     */
     @Test
     void omitsPlaceholderOrInvalidOutputSchema() {
         AgentDefinition agent = agent("a1", "base");
@@ -279,6 +326,9 @@ class SkillContextServiceTest {
         assertFalse(service.resolve(agent, new AgentChatDto()).getSystemPrompt().contains("output contract"));
     }
 
+    /**
+     * 处理sha256。
+     */
     private String sha256(byte[] value) throws Exception {
         byte[] hash = MessageDigest.getInstance("SHA-256").digest(value);
         StringBuilder result = new StringBuilder();
@@ -286,6 +336,9 @@ class SkillContextServiceTest {
         return result.toString();
     }
 
+    /**
+     * 智能体当前请求。
+     */
     private AgentDefinition agent(String id, String systemPrompt) {
         AgentDefinition agent = new AgentDefinition();
         agent.setId(id);
@@ -293,6 +346,9 @@ class SkillContextServiceTest {
         return agent;
     }
 
+    /**
+     * 处理skill。
+     */
     private AgentSkill skill(String id, String code, String name, int status) {
         AgentSkill skill = new AgentSkill();
         skill.setId(id);
@@ -302,6 +358,9 @@ class SkillContextServiceTest {
         return skill;
     }
 
+    /**
+     * 处理version。
+     */
     private AgentSkillVersion version(String id, String skillId, int versionNo, int status) {
         AgentSkillVersion version = new AgentSkillVersion();
         version.setId(id);
@@ -312,6 +371,9 @@ class SkillContextServiceTest {
         return version;
     }
 
+    /**
+     * 处理binding。
+     */
     private AgentDefinitionSkillBinding binding(String agentId, String skillId, String versionId, int priority, int status) {
         AgentDefinitionSkillBinding binding = new AgentDefinitionSkillBinding();
         binding.setAgentDefinitionId(agentId);
@@ -322,6 +384,9 @@ class SkillContextServiceTest {
         return binding;
     }
 
+    /**
+     * 处理toolBinding。
+     */
     private AgentSkillToolBinding toolBinding(String versionId, String toolId, boolean required, int priority) {
         AgentSkillToolBinding binding = new AgentSkillToolBinding();
         binding.setSkillVersionId(versionId);
@@ -331,6 +396,9 @@ class SkillContextServiceTest {
         return binding;
     }
 
+    /**
+     * 处理kbBinding。
+     */
     private AgentSkillKnowledgeBinding kbBinding(String versionId, String kbId) {
         AgentSkillKnowledgeBinding binding = new AgentSkillKnowledgeBinding();
         binding.setSkillVersionId(versionId);
@@ -338,6 +406,9 @@ class SkillContextServiceTest {
         return binding;
     }
 
+    /**
+     * 处理tool。
+     */
     private AgentTool tool(String id, String name, int status) {
         AgentTool tool = new AgentTool();
         tool.setId(id);

@@ -6,16 +6,24 @@ import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatResponse;
 import org.springframework.stereotype.Service;
 
-/** 持久化聊天运行记录及其状态变化。 */
+/**
+ * 持久化聊天运行记录及其状态变化。
+ */
 @Service
 public class ChatRunService {
     private static final int RUN_STATUS_FAILED = 1;
     private final AgentRunService agentRunService;
 
+    /**
+     * 创建 {@code ChatRunService} 实例。
+     */
     public ChatRunService(AgentRunService agentRunService) {
         this.agentRunService = agentRunService;
     }
 
+    /**
+     * 创建当前请求。
+     */
     public String create(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                          String messageId, String input, ModelChatResponse response, long latencyMs,
                          Integer status, String errorMsg) {
@@ -41,7 +49,9 @@ public class ChatRunService {
         return run.getId();
     }
 
-    /** 创建标准聊天运行并持久化请求开始时冻结的 Skill 审计快照。 */
+    /**
+     * 创建标准聊天运行并持久化请求开始时冻结的 Skill 审计快照。
+     */
     public String create(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                          String messageId, String input, ModelChatResponse response, long latencyMs,
                          Integer status, String errorMsg, String skillSnapshot) {
@@ -55,6 +65,9 @@ public class ChatRunService {
         return runId;
     }
 
+    /**
+     * 更新当前请求。
+     */
     public void update(String runId, String messageId, ModelChatResponse response, long latencyMs,
                        Integer status, String errorMsg) {
         AgentRun run = new AgentRun();
@@ -73,7 +86,9 @@ public class ChatRunService {
         agentRunService.updateById(run);
     }
 
-    /** 更新同一运行的审计快照，例如工具返回后重新计算的上下文预算。 */
+    /**
+     * 更新同一运行的审计快照，例如工具返回后重新计算的上下文预算。
+     */
     public void updateSkillSnapshot(String runId, String skillSnapshot) {
         if (runId == null || skillSnapshot == null) {
             return;
@@ -84,6 +99,9 @@ public class ChatRunService {
         agentRunService.updateById(run);
     }
 
+    /**
+     * 保存Failure。
+     */
     public void saveFailure(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                             String messageId, String input, long latencyMs, RuntimeException exception) {
         ModelChatResponse response = new ModelChatResponse();

@@ -4,15 +4,23 @@ import com.aether.agent.skill.service.AgentArtifactService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Removes recycled generated files after their 30-day recovery window. */
+/**
+ * Removes recycled generated files after their 30-day recovery window.
+ */
 @Component
 public class AgentArtifactCleanupScheduler {
     private final AgentArtifactService artifactService;
 
+    /**
+     * 创建 {@code AgentArtifactCleanupScheduler} 实例。
+     */
     public AgentArtifactCleanupScheduler(AgentArtifactService artifactService) {
         this.artifactService = artifactService;
     }
 
+    /**
+     * 处理cleanup。
+     */
     @Scheduled(cron = "${aether.agent.artifact.recycle-cleanup-cron:0 20 3 * * ?}")
     public void cleanup() {
         artifactService.purgeExpiredRecycled();

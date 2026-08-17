@@ -16,7 +16,9 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.Arrays;
 
-/** Formats extracted source text as Markdown with the knowledge base review model. */
+/**
+ * Formats extracted source text as Markdown with the knowledge base review model.
+ */
 @Service
 public class KnowledgeDocumentMarkdownFormatter {
     private static final int MAX_SOURCE_CHARS = 40000;
@@ -24,12 +26,18 @@ public class KnowledgeDocumentMarkdownFormatter {
     private final ModelCatalogService modelCatalogService;
     private final ModelClientFactory modelClientFactory;
 
+    /**
+     * 创建 {@code KnowledgeDocumentMarkdownFormatter} 实例。
+     */
     public KnowledgeDocumentMarkdownFormatter(ModelCatalogService modelCatalogService,
                                               ModelClientFactory modelClientFactory) {
         this.modelCatalogService = modelCatalogService;
         this.modelClientFactory = modelClientFactory;
     }
 
+    /**
+     * 格式化当前请求。
+     */
     public String format(KnowledgeBase base, String title, String content) {
         String source = StringUtils.trimToEmpty(content);
         if (source.length() > MAX_SOURCE_CHARS) {
@@ -56,6 +64,9 @@ public class KnowledgeDocumentMarkdownFormatter {
         return stripFence(response.getContent());
     }
 
+    /**
+     * 解析Provider。
+     */
     private ModelProvider resolveProvider(KnowledgeBase base) {
         String modelId = configString(base == null ? null : base.getReviewConfig(), "reviewModelId");
         if (StringUtils.isBlank(modelId)) return null;
@@ -66,6 +77,9 @@ public class KnowledgeDocumentMarkdownFormatter {
         }
     }
 
+    /**
+     * 配置String。
+     */
     private String configString(String config, String key) {
         if (StringUtils.isBlank(config)) return null;
         try {
@@ -75,6 +89,9 @@ public class KnowledgeDocumentMarkdownFormatter {
         }
     }
 
+    /**
+     * 处理stripFence。
+     */
     private String stripFence(String content) {
         String value = StringUtils.trim(content);
         if (!value.startsWith("```")) return value;

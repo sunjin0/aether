@@ -29,7 +29,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-/** 生成、缓存并异步刷新带覆盖游标的会话历史摘要。 */
+/**
+ * 生成、缓存并异步刷新带覆盖游标的会话历史摘要。
+ */
 @Service
 public class ConversationSummaryService {
     private static final Logger log = LoggerFactory.getLogger(ConversationSummaryService.class);
@@ -55,11 +57,17 @@ public class ConversationSummaryService {
                             + "return redis.call('del', KEYS[1]) else return 0 end",
                     Long.class);
 
+    /**
+     * 创建 {@code ConversationSummaryService} 实例。
+     */
     public ConversationSummaryService(RedisTemplate<String, Object> redisTemplate,
                                       ModelClientFactory modelClientFactory) {
         this(redisTemplate, modelClientFactory, null);
     }
 
+    /**
+     * 创建 {@code ConversationSummaryService} 实例。
+     */
     @Autowired
     public ConversationSummaryService(RedisTemplate<String, Object> redisTemplate,
                                       ModelClientFactory modelClientFactory,
@@ -122,6 +130,9 @@ public class ConversationSummaryService {
         });
     }
 
+    /**
+     * 保存Summary。
+     */
     private void saveSummary(String conversationId,
                              SummarySnapshot previous,
                              List<AgentMessage> messages,
@@ -151,6 +162,9 @@ public class ConversationSummaryService {
         }
     }
 
+    /**
+     * 生成当前请求。
+     */
     private String generate(SummarySnapshot previous,
                             List<AgentMessage> messages,
                             AgentDefinition agent,
@@ -169,6 +183,9 @@ public class ConversationSummaryService {
         }
     }
 
+    /**
+     * 构建Prompt。
+     */
     private String buildPrompt(SummarySnapshot previous, List<AgentMessage> messages) {
         StringBuilder prompt = new StringBuilder(
                 "请更新对话历史摘要。摘要必须保留用户目标、明确约束、关键事实、重要决定和未完成事项，"
@@ -184,6 +201,9 @@ public class ConversationSummaryService {
         return prompt.toString();
     }
 
+    /**
+     * 判断是否为Valid。
+     */
     private boolean isValid(SummarySnapshot snapshot) {
         return snapshot != null
                 && StringUtils.isNotBlank(snapshot.getSummary())
@@ -191,6 +211,9 @@ public class ConversationSummaryService {
                 && snapshot.getCoveredUntilCreatedAt() != null;
     }
 
+    /**
+     * 加载PersistentSnapshot。
+     */
     private SummarySnapshot loadPersistentSnapshot(String conversationId) {
         if (conversationService == null) {
             return null;
@@ -215,6 +238,9 @@ public class ConversationSummaryService {
         }
     }
 
+    /**
+     * 处理persistSnapshot。
+     */
     private boolean persistSnapshot(String conversationId, SummarySnapshot snapshot) {
         if (conversationService == null) {
             return true;
@@ -235,6 +261,9 @@ public class ConversationSummaryService {
                 .set("summary_updated_at", snapshot.getUpdatedAt()));
     }
 
+    /**
+     * 缓存Snapshot。
+     */
     private void cacheSnapshot(String conversationId, SummarySnapshot snapshot) {
         try {
             redisTemplate.opsForValue().set(
@@ -245,18 +274,30 @@ public class ConversationSummaryService {
         }
     }
 
+    /**
+     * 处理key。
+     */
     private String key(String conversationId) {
         return SUMMARY_KEY_PREFIX + conversationId;
     }
 
+    /**
+     * 处理lockKey。
+     */
     private String lockKey(String conversationId) {
         return SUMMARY_LOCK_KEY_PREFIX + conversationId;
     }
 
+    /**
+     * 处理invalidatedKey。
+     */
     private String invalidatedKey(String conversationId) {
         return SUMMARY_INVALIDATED_KEY_PREFIX + conversationId;
     }
 
+    /**
+     * 处理acquireLock。
+     */
     private String acquireLock(String conversationId) {
         String token = UUID.randomUUID().toString();
         try {
@@ -269,6 +310,9 @@ public class ConversationSummaryService {
         }
     }
 
+    /**
+     * 处理releaseLock。
+     */
     private void releaseLock(String conversationId, String token) {
         if (token == null) {
             return;
@@ -281,6 +325,9 @@ public class ConversationSummaryService {
         }
     }
 
+    /**
+     * 判断是否为Invalidated。
+     */
     private boolean isInvalidated(String conversationId) {
         if (invalidatedConversations.contains(conversationId)) {
             return true;
@@ -293,6 +340,9 @@ public class ConversationSummaryService {
         }
     }
 
+    /**
+     * 判断是否为AtOrAfter。
+     */
     private boolean isAtOrAfter(SummarySnapshot current, AgentMessage target) {
         if (!isValid(current) || target == null || target.getCreatedAt() == null) {
             return false;
@@ -306,6 +356,9 @@ public class ConversationSummaryService {
                 StringUtils.defaultString(target.getId())) >= 0;
     }
 
+    /**
+     * 处理evict。
+     */
     public void evict(String conversationId) {
         invalidatedConversations.add(conversationId);
         try {
@@ -317,6 +370,9 @@ public class ConversationSummaryService {
         }
     }
 
+    /**
+     * 处理shutdown。
+     */
     @PreDestroy
     public void shutdown() {
         executor.shutdown();
@@ -330,40 +386,67 @@ public class ConversationSummaryService {
         }
     }
 
+    /**
+     * 表示SummarySnapshot。
+     */
     public static class SummarySnapshot {
         private String summary;
         private String coveredUntilMessageId;
         private Long coveredUntilCreatedAt;
         private Long updatedAt;
 
+        /**
+         * 获取Summary。
+         */
         public String getSummary() {
             return summary;
         }
 
+        /**
+         * 处理setSummary。
+         */
         public void setSummary(String summary) {
             this.summary = summary;
         }
 
+        /**
+         * 获取CoveredUntil消息Id。
+         */
         public String getCoveredUntilMessageId() {
             return coveredUntilMessageId;
         }
 
+        /**
+         * 处理setCoveredUntil消息Id。
+         */
         public void setCoveredUntilMessageId(String coveredUntilMessageId) {
             this.coveredUntilMessageId = coveredUntilMessageId;
         }
 
+        /**
+         * 获取CoveredUntilCreatedAt。
+         */
         public Long getCoveredUntilCreatedAt() {
             return coveredUntilCreatedAt;
         }
 
+        /**
+         * 处理setCoveredUntilCreatedAt。
+         */
         public void setCoveredUntilCreatedAt(Long coveredUntilCreatedAt) {
             this.coveredUntilCreatedAt = coveredUntilCreatedAt;
         }
 
+        /**
+         * 获取UpdatedAt。
+         */
         public Long getUpdatedAt() {
             return updatedAt;
         }
 
+        /**
+         * 处理setUpdatedAt。
+         */
         public void setUpdatedAt(Long updatedAt) {
             this.updatedAt = updatedAt;
         }

@@ -1,10 +1,14 @@
 # Deep Agent 接入实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:
+> executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 `executionMode=DEEP` 的 Agent 接入外部 Deep Agent 异步服务，前端通过既有 SSE 接口接收 `run_step` 进度事件和 `done` 最终结果。
+**Goal:** 为 `executionMode=DEEP` 的 Agent 接入外部 Deep Agent 异步服务，前端通过既有 SSE 接口接收 `run_step` 进度事件和
+`done` 最终结果。
 
-**Architecture:** 新增 `DeepAgentRunService` 负责构建外部请求并签名调用；新增 `DeepAgentCallbackController` 验签接收回调并幂等持久化；在 `AgentChatController` 中按 `executionMode` 路由，DEEP 模式拒绝非流式请求；新增 Flyway 迁移、步骤查询接口和取消接口。
+**Architecture:** 新增 `DeepAgentRunService` 负责构建外部请求并签名调用；新增 `DeepAgentCallbackController`
+验签接收回调并幂等持久化；在 `AgentChatController` 中按 `executionMode` 路由，DEEP 模式拒绝非流式请求；新增 Flyway
+迁移、步骤查询接口和取消接口。
 
 **Tech Stack:** Java 8、Spring Boot 2.7.18、MyBatis-Plus、JUnit 5、Mockito、Flyway、Maven。
 
@@ -33,6 +37,7 @@
 ### Task 1: Flyway 数据库迁移
 
 **Files:**
+
 - Create: `api/src/main/resources/db/migration/postgresql/V8__deep_agent_integration.sql`
 
 - [ ] **Step 1: 写入迁移 SQL**
@@ -77,6 +82,7 @@ Expected: 测试通过，无 SQL 错误。
 - [ ] **Step 3: 提交**
 
 使用中文提交信息：
+
 ```
 git add api/src/main/resources/db/migration/postgresql/V8__deep_agent_integration.sql
 git commit -m "feat: 新增 Deep Agent 数据库迁移"
@@ -87,6 +93,7 @@ git commit -m "feat: 新增 Deep Agent 数据库迁移"
 ### Task 2: 扩展运行状态与 VO
 
 **Files:**
+
 - Modify: `api/src/main/java/com/aether/agent/vo/AgentRunVo.java:68-68`
 - Create: `api/src/main/java/com/aether/agent/vo/AgentRunStepVo.java`
 
@@ -146,6 +153,7 @@ Expected: 无编译错误。
 ### Task 3: 配置属性与 Deep Agent 客户端
 
 **Files:**
+
 - Create: `api/src/main/java/com/aether/agent/dto/DeepAgentConfig.java`
 - Create: `biz/src/main/java/com/aether/agent/service/DeepAgentSigningClient.java`
 
@@ -245,6 +253,7 @@ Expected: 无编译错误。
 ### Task 4: 委托令牌服务
 
 **Files:**
+
 - Create: `biz/src/main/java/com/aether/agent/service/DelegationTokenService.java`
 
 - [ ] **Step 1: 创建 MCP 委托 JWT 服务**
@@ -297,6 +306,7 @@ Expected: 无编译错误。`common` 已依赖 `com.auth0:java-jwt`。
 ### Task 5: 运行步骤服务扩展
 
 **Files:**
+
 - Modify: `api/src/main/java/com/aether/agent/service/AgentRunStepService.java:7-7`
 - Modify: `biz/src/main/java/com/aether/agent/service/impl/AgentRunStepServiceImpl.java:10-11`
 
@@ -381,6 +391,7 @@ mvn clean compile -pl biz -am
 ### Task 6: Deep Agent 运行编排服务
 
 **Files:**
+
 - Create: `biz/src/main/java/com/aether/agent/service/DeepAgentRunService.java`
 
 先在 `biz/src/test` 下写一个失败测试：
@@ -722,6 +733,7 @@ Expected: 两个测试通过。
 ### Task 7: 回调控制器
 
 **Files:**
+
 - Create: `admin/src/main/java/com/aether/agent/controller/DeepAgentCallbackController.java`
 
 - [ ] **Step 1: 创建回调控制器**
@@ -883,6 +895,7 @@ mvn clean compile -pl admin -am
 ### Task 8: 运行控制器扩展 —— 步骤查询与取消
 
 **Files:**
+
 - Modify: `admin/src/main/java/com/aether/agent/controller/AgentRunController.java:95-95`
 
 - [ ] **Step 1: 新增步骤查询和取消接口**
@@ -958,6 +971,7 @@ mvn clean compile -pl admin -am
 ### Task 9: 聊天控制器 Deep 模式路由
 
 **Files:**
+
 - Modify: `admin/src/main/java/com/aether/agent/controller/AgentChatController.java`
 
 - [ ] **Step 1: 非流式端点拒绝 Deep Agent**
@@ -1131,6 +1145,7 @@ mvn clean compile -pl admin -am
 ### Task 10: 后端集成测试
 
 **Files:**
+
 - Create: `admin/src/test/java/com/aether/agent/controller/DeepAgentCallbackControllerTest.java`
 - Create: `biz/src/test/java/com/aether/agent/service/impl/DeepAgentRunServiceTest.java`
 

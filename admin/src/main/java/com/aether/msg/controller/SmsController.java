@@ -17,6 +17,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * 提供Sms相关的 REST 接口。
+ */
 @Api(value = "短信服务 API")
 @RestController
 @Permission(path = "/msg/sms")
@@ -24,10 +27,16 @@ import java.util.List;
 public class SmsController {
     private final SmsMessageService smsService;
 
+    /**
+     * 创建 {@code SmsController} 实例。
+     */
     public SmsController(SmsMessageService smsService) {
         this.smsService = smsService;
     }
 
+    /**
+     * 短信记录列表。
+     */
     @ApiOperation("短信记录列表")
     @ApiImplicitParams(
             {
@@ -40,6 +49,9 @@ public class SmsController {
         return WebResponse.Page(list.getRecords(), list.getTotal());
     }
 
+    /**
+     * 短信信息。
+     */
     @ApiOperation("短信信息")
     @ApiImplicitParams(
             {
@@ -52,6 +64,9 @@ public class SmsController {
         return WebResponse.OK(smsService.getById(id));
     }
 
+    /**
+     * 保存当前请求。
+     */
     @ApiOperation("修改或保存")
     @Permission(path = "/msg/sms", type = Permission.Type.Write)
     @ApiImplicitParams(
@@ -70,6 +85,9 @@ public class SmsController {
         return WebResponse.OK(I18nUtils.getMessage(save ? "sms.create.success" : "sms.create.fail"), save);
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("删除")
     @Permission(path = "/msg/sms", type = Permission.Type.Write)
     @ApiImplicitParams(

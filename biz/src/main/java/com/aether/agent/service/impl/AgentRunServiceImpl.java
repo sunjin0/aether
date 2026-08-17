@@ -21,6 +21,9 @@ public class AgentRunServiceImpl extends ServiceImpl<AgentRunMapper, AgentRun> i
     private static final int RUN_STATUS_FAILED = 1;
     private static final int RUN_STATUS_TIMEOUT = 2;
 
+    /**
+     * 处理statistics。
+     */
     @Override
     public AgentRunStatisticsVo statistics(String agentDefinitionId, Long startTime, Long endTime) {
         List<AgentRun> runs = list(Wrappers.lambdaQuery(AgentRun.class)
@@ -74,6 +77,9 @@ public class AgentRunServiceImpl extends ServiceImpl<AgentRunMapper, AgentRun> i
         return vo;
     }
 
+    /**
+     * 处理safeLong。
+     */
     private long safeLong(Integer value) {
         return value == null ? 0L : value.longValue();
     }

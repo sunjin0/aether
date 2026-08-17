@@ -18,7 +18,9 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
-/** Parses and persists files uploaded with an agent chat message. */
+/**
+ * Parses and persists files uploaded with an agent chat message.
+ */
 @Service
 public class ChatAttachmentService {
     private static final Logger log = LoggerFactory.getLogger(ChatAttachmentService.class);
@@ -31,6 +33,9 @@ public class ChatAttachmentService {
     private final long maxFileSize;
     private final int maxExtractedChars;
 
+    /**
+     * 创建 {@code ChatAttachmentService} 实例。
+     */
     public ChatAttachmentService(KnowledgeDocumentContentExtractor contentExtractor,
                                  ObjectStorageService objectStorageService,
                                  @Value("${agent.chat.attachment.bucket:${MINIO_CHAT_ATTACHMENT_BUCKET:aether-chat}}") String bucket,
@@ -43,6 +48,9 @@ public class ChatAttachmentService {
         this.maxExtractedChars = maxExtractedChars;
     }
 
+    /**
+     * 处理当前请求。
+     */
     public ChatAttachment process(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachment.required"));
@@ -82,22 +90,34 @@ public class ChatAttachmentService {
         }
     }
 
+    /**
+     * 规范化文件Name。
+     */
     private String normalizeFileName(String value) {
         String result = StringUtils.defaultIfBlank(value, "file").replace('\\', '/');
         result = result.substring(result.lastIndexOf('/') + 1).replaceAll("[\\r\\n\\\"]", "_");
         return StringUtils.defaultIfBlank(result, "file");
     }
 
+    /**
+     * 处理extension。
+     */
     private String extension(String fileName) {
         int index = fileName.lastIndexOf('.');
         return index < 1 ? "" : fileName.substring(index + 1).toLowerCase();
     }
 
+    /**
+     * 处理suffix。
+     */
     private String suffix(String fileName) {
         String extension = extension(fileName);
         return StringUtils.isBlank(extension) ? "" : "." + extension;
     }
 
+    /**
+     * 表示对话Attachment。
+     */
     public static class ChatAttachment {
         private final String fileName;
         private final String contentType;
@@ -105,6 +125,9 @@ public class ChatAttachmentService {
         private final String objectKey;
         private final String extractedContent;
 
+        /**
+         * 创建 {@code ChatAttachment} 实例。
+         */
         public ChatAttachment(String fileName, String contentType, long size, String objectKey, String extractedContent) {
             this.fileName = fileName;
             this.contentType = contentType;
@@ -112,10 +135,40 @@ public class ChatAttachmentService {
             this.objectKey = objectKey;
             this.extractedContent = extractedContent;
         }
-        public String getFileName() { return fileName; }
-        public String getContentType() { return contentType; }
-        public long getSize() { return size; }
-        public String getObjectKey() { return objectKey; }
-        public String getExtractedContent() { return extractedContent; }
+
+        /**
+         * 获取文件Name。
+         */
+        public String getFileName() {
+            return fileName;
+        }
+
+        /**
+         * 获取ContentType。
+         */
+        public String getContentType() {
+            return contentType;
+        }
+
+        /**
+         * 获取Size。
+         */
+        public long getSize() {
+            return size;
+        }
+
+        /**
+         * 获取ObjectKey。
+         */
+        public String getObjectKey() {
+            return objectKey;
+        }
+
+        /**
+         * 获取ExtractedContent。
+         */
+        public String getExtractedContent() {
+            return extractedContent;
+        }
     }
 }

@@ -17,7 +17,7 @@ import java.util.List;
 /**
  * Deep Agent 卡死运行的兜底扫描：当运行在 QUEUED/RUNNING 状态停留超过阈值
  * (默认 30 分钟)且任务不处于等待用户输入/审批时，将其标记为失败并推进任务队列。
- *
+ * <p>
  * deep-agent 自身有 runTimeoutSeconds 超时并会回传失败回调；本扫描器覆盖
  * deep-agent 崩溃、网络分区或回调丢失导致始终无终态回调的场景，避免任务永久
  * 停留在 RUNNING/PLANNING。
@@ -33,6 +33,9 @@ public class DeepRunTimeoutScanner {
     private final DeepAgentRunService deepAgentRunService;
     private final DeepAgentConfig config;
 
+    /**
+     * 创建 {@code DeepRunTimeoutScanner} 实例。
+     */
     public DeepRunTimeoutScanner(AgentRunService agentRunService, AgentTaskService agentTaskService,
                                  DeepAgentRunService deepAgentRunService, DeepAgentConfig config) {
         this.agentRunService = agentRunService;
@@ -41,6 +44,9 @@ public class DeepRunTimeoutScanner {
         this.config = config;
     }
 
+    /**
+     * 处理scanStaleRuns。
+     */
     @Scheduled(fixedDelayString = "${aether.deep-agent.timeout-scan-interval-ms:30000}", initialDelay = 60000L)
     public void scanStaleRuns() {
         long timeoutMs = config.getStaleRunTimeoutSeconds() * 1000L;
@@ -72,7 +78,9 @@ public class DeepRunTimeoutScanner {
         }
     }
 
-    /** 等待用户输入或审批的任务不因超时回收——用户可能长时间未处理审批卡片。 */
+    /**
+     * 等待用户输入或审批的任务不因超时回收——用户可能长时间未处理审批卡片。
+     */
     private boolean isWaitingForHuman(AgentRun run) {
         if (agentTaskService == null || run == null || run.getTaskId() == null) {
             return false;

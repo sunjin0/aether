@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Small in-process latency reservoir for chat-path diagnostics.
- *
+ * <p>
  * It deliberately has no request payload or identifier, and keeps only a bounded
  * window of durations. Deployments can scrape the structured percentile log until
  * a metrics backend is wired in.
@@ -20,9 +20,15 @@ public final class ChatLatencyMetrics {
     private static final long REPORT_EVERY = 100L;
     private static final Map<String, Reservoir> RESERVOIRS = new ConcurrentHashMap<String, Reservoir>();
 
+    /**
+     * 创建 {@code ChatLatencyMetrics} 实例。
+     */
     private ChatLatencyMetrics() {
     }
 
+    /**
+     * 处理record。
+     */
     public static void record(String metric, long durationMs) {
         if (durationMs < 0) {
             return;
@@ -35,12 +41,18 @@ public final class ChatLatencyMetrics {
         }
     }
 
+    /**
+     * 表示Reservoir。
+     */
     private static final class Reservoir {
         private final long[] values = new long[WINDOW_SIZE];
         private int size;
         private int cursor;
         private long total;
 
+        /**
+         * 处理record。
+         */
         private synchronized Snapshot record(long value) {
             values[cursor] = value;
             cursor = (cursor + 1) % WINDOW_SIZE;
@@ -56,18 +68,27 @@ public final class ChatLatencyMetrics {
             return new Snapshot(size, percentile(sample, 0.50D), percentile(sample, 0.95D), percentile(sample, 0.99D));
         }
 
+        /**
+         * 处理percentile。
+         */
         private long percentile(long[] values, double quantile) {
             int index = (int) Math.ceil(quantile * values.length) - 1;
             return values[Math.max(0, Math.min(values.length - 1, index))];
         }
     }
 
+    /**
+     * 表示Snapshot。
+     */
     private static final class Snapshot {
         private final int samples;
         private final long p50;
         private final long p95;
         private final long p99;
 
+        /**
+         * 创建 {@code Snapshot} 实例。
+         */
         private Snapshot(int samples, long p50, long p95, long p99) {
             this.samples = samples;
             this.p50 = p50;

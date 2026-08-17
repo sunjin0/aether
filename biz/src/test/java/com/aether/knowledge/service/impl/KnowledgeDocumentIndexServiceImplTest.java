@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -46,24 +47,43 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证知识库文档索引服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeDocumentIndexServiceImplTest {
-    @Mock private KnowledgeDocumentService documentService;
-    @Mock private KnowledgeDocumentChunkService chunkService;
-    @Mock private KnowledgeBaseService baseService;
-    @Mock private ModelProviderService providerService;
-    @Mock private ModelCatalogService modelCatalogService;
-    @Mock private KnowledgeEmbeddingService embeddingService;
-    @Mock private KnowledgeIndexJobService jobService;
-    @Mock private KnowledgeIndexWorker indexWorker;
-    @Mock private KnowledgeDocumentVersionService versionService;
-    @Mock private TransactionAfterCommitExecutor afterCommitExecutor;
+    @Mock
+    private KnowledgeDocumentService documentService;
+    @Mock
+    private KnowledgeDocumentChunkService chunkService;
+    @Mock
+    private KnowledgeBaseService baseService;
+    @Mock
+    private ModelProviderService providerService;
+    @Mock
+    private ModelCatalogService modelCatalogService;
+    @Mock
+    private KnowledgeEmbeddingService embeddingService;
+    @Mock
+    private KnowledgeIndexJobService jobService;
+    @Mock
+    private KnowledgeIndexWorker indexWorker;
+    @Mock
+    private KnowledgeDocumentVersionService versionService;
+    @Mock
+    private TransactionAfterCommitExecutor afterCommitExecutor;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         new I18nUtils(mock(I18nService.class));
     }
 
+    /**
+     * 处理splitsEmbeddingRequestsIntoBatchesOfAtMostTen。
+     */
     @Test
     void splitsEmbeddingRequestsIntoBatchesOfAtMostTen() {
         KnowledgeBase base = new KnowledgeBase();
@@ -105,6 +125,9 @@ class KnowledgeDocumentIndexServiceImplTest {
         assertTrue(batchSizes.get(1) <= 10);
     }
 
+    /**
+     * 处理starts索引WorkerOnlyAfterTransactionCommit。
+     */
     @Test
     void startsIndexWorkerOnlyAfterTransactionCommit() {
         KnowledgeDocument document = new KnowledgeDocument();
@@ -133,17 +156,24 @@ class KnowledgeDocumentIndexServiceImplTest {
         }
     }
 
+    /**
+     * 处理reusesExistingEmbedding用于UnchangedChunk。
+     */
     @Test
     void reusesExistingEmbeddingForUnchangedChunk() throws Exception {
         KnowledgeBase base = new KnowledgeBase();
-        base.setId("kb-1"); base.setEmbeddingProviderId("provider-1");
+        base.setId("kb-1");
+        base.setEmbeddingProviderId("provider-1");
         base.setEmbeddingModelId("model-1");
         KnowledgeDocument document = new KnowledgeDocument();
-        document.setId("doc-1"); document.setKnowledgeBaseId("kb-1");
+        document.setId("doc-1");
+        document.setKnowledgeBaseId("kb-1");
         KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
-        version.setId("version-1"); version.setContent("reused");
+        version.setId("version-1");
+        version.setContent("reused");
         ModelProvider provider = new ModelProvider();
-        provider.setId("provider-1"); provider.setDefaultModel("embedding-v1");
+        provider.setId("provider-1");
+        provider.setDefaultModel("embedding-v1");
         KnowledgeDocumentChunk existing = new KnowledgeDocumentChunk();
         existing.setContentHash(sha256("章节：ROOT\n内容：\nreused"));
         existing.setEmbedding("[0.1]");
@@ -161,6 +191,9 @@ class KnowledgeDocumentIndexServiceImplTest {
         verify(chunkService).saveVectorChunk(any());
     }
 
+    /**
+     * 处理refusesTo分发索引WorkerWhenJobCannotBeSaved。
+     */
     @Test
     void refusesToDispatchIndexWorkerWhenJobCannotBeSaved() {
         KnowledgeDocument document = new KnowledgeDocument();
@@ -176,6 +209,9 @@ class KnowledgeDocumentIndexServiceImplTest {
         verifyNoInteractions(indexWorker);
     }
 
+    /**
+     * 服务当前请求。
+     */
     private KnowledgeDocumentIndexServiceImpl service(
             TransactionAfterCommitExecutor executor) {
         return new KnowledgeDocumentIndexServiceImpl(
@@ -184,6 +220,9 @@ class KnowledgeDocumentIndexServiceImplTest {
                 executor);
     }
 
+    /**
+     * 处理elevenSmallParagraphs。
+     */
     private String elevenSmallParagraphs() {
         StringBuilder content = new StringBuilder();
         for (int i = 0; i < 11; i++) {
@@ -195,6 +234,9 @@ class KnowledgeDocumentIndexServiceImplTest {
         return content.toString();
     }
 
+    /**
+     * 处理sha256。
+     */
     private String sha256(String content) throws Exception {
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(content.getBytes(StandardCharsets.UTF_8));
         StringBuilder result = new StringBuilder();

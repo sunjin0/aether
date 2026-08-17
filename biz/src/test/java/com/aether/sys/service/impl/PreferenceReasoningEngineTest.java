@@ -22,6 +22,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证偏好ReasoningEngine的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class PreferenceReasoningEngineTest {
 
@@ -34,6 +37,9 @@ class PreferenceReasoningEngineTest {
 
     private PreferenceReasoningEngine engine;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() throws Exception {
         engine = new PreferenceReasoningEngine();
@@ -42,6 +48,9 @@ class PreferenceReasoningEngineTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
     }
 
+    /**
+     * 会话偏好OnlyAppliesToMatching会话。
+     */
     @Test
     void sessionPreferenceOnlyAppliesToMatchingConversation() {
         AdminPreference global = preference("global-format", "markdown",
@@ -60,6 +69,9 @@ class PreferenceReasoningEngineTest {
         assertFalse(context.contains("verbose"));
     }
 
+    /**
+     * 处理rendering偏好ContextDoesNotReinforceConfidenceOrUsage。
+     */
     @Test
     void renderingPreferenceContextDoesNotReinforceConfidenceOrUsage() {
         AdminPreference preference = preference("response-style", "concise",
@@ -76,6 +88,9 @@ class PreferenceReasoningEngineTest {
         assertTrue(preference.getUsageCount() == 3);
     }
 
+    /**
+     * 偏好ValuesAreRenderedAsUntrustedSingleLineData。
+     */
     @Test
     void preferenceValuesAreRenderedAsUntrustedSingleLineData() {
         AdminPreference preference = preference("response-style",
@@ -91,6 +106,9 @@ class PreferenceReasoningEngineTest {
         verify(valueOperations).get(anyString());
     }
 
+    /**
+     * 处理excludesNonPresentationPreferencesAndDeduplicatesRepeatedValues。
+     */
     @Test
     void excludesNonPresentationPreferencesAndDeduplicatesRepeatedValues() {
         AdminPreference language = preference("language-1", "Chinese", AdminPreference.SCOPE_GLOBAL, "");
@@ -109,6 +127,9 @@ class PreferenceReasoningEngineTest {
         assertTrue(context.indexOf("Chinese") == context.lastIndexOf("Chinese"));
     }
 
+    /**
+     * 处理returnsNoContextWhenOnlyNonPresentationPreferencesExist。
+     */
     @Test
     void returnsNoContextWhenOnlyNonPresentationPreferencesExist() {
         AdminPreference techStack = preference("stack", "Java, Spring Boot", AdminPreference.SCOPE_GLOBAL, "");
@@ -118,6 +139,9 @@ class PreferenceReasoningEngineTest {
         assertNull(engine.buildPreferenceContext("user-1", null, "conversation-1"));
     }
 
+    /**
+     * 偏好当前请求。
+     */
     private AdminPreference preference(String key, String value, String scope, String scopeDetail) {
         AdminPreference preference = new AdminPreference();
         preference.setCategory("style");
@@ -132,6 +156,9 @@ class PreferenceReasoningEngineTest {
         return preference;
     }
 
+    /**
+     * 处理setField。
+     */
     private void setField(String name, Object value) throws Exception {
         Field field = PreferenceReasoningEngine.class.getDeclaredField(name);
         field.setAccessible(true);

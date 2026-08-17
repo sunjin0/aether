@@ -21,6 +21,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
+/**
+ * 验证管理员偏好服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class AdminPreferenceServiceImplTest {
 
@@ -34,6 +37,9 @@ class AdminPreferenceServiceImplTest {
 
     private AdminPreferenceServiceImpl service;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() throws Exception {
         service = new AdminPreferenceServiceImpl();
@@ -49,6 +55,9 @@ class AdminPreferenceServiceImplTest {
         eventServiceField.set(service, preferenceEventService);
     }
 
+    /**
+     * 执行 {@code buildPreferenceContext_delegatesToReasoningEngine} 操作。
+     */
     @Test
     void buildPreferenceContext_delegatesToReasoningEngine() {
         String adminId = "admin1";
@@ -63,6 +72,9 @@ class AdminPreferenceServiceImplTest {
         verify(reasoningEngine).buildPreferenceContext(adminId, taskType);
     }
 
+    /**
+     * 执行 {@code getEffectivePreference_filtersByKey} 操作。
+     */
     @Test
     void getEffectivePreference_filtersByKey() {
         String adminId = "admin1";
@@ -87,6 +99,9 @@ class AdminPreferenceServiceImplTest {
         assertEquals("concise", result.getValue());
     }
 
+    /**
+     * 执行 {@code getEffectivePreference_returnsNullWhenKeyNotFound} 操作。
+     */
     @Test
     void getEffectivePreference_returnsNullWhenKeyNotFound() {
         String adminId = "admin1";
@@ -104,6 +119,9 @@ class AdminPreferenceServiceImplTest {
         assertNull(result);
     }
 
+    /**
+     * 执行 {@code incrementUsage_updatesCountAndLastUsedAt} 操作。
+     */
     @Test
     void incrementUsage_updatesCountAndLastUsedAt() {
         String preferenceId = "pref1";
@@ -124,6 +142,9 @@ class AdminPreferenceServiceImplTest {
         verify(reasoningEngine).clearUserCache("admin1");
     }
 
+    /**
+     * 执行 {@code incrementUsage_doesNothingWhenPreferenceNotFound} 操作。
+     */
     @Test
     void incrementUsage_doesNothingWhenPreferenceNotFound() {
         String preferenceId = "nonexistent";
@@ -135,6 +156,9 @@ class AdminPreferenceServiceImplTest {
         verify(reasoningEngine, never()).clearUserCache(anyString());
     }
 
+    /**
+     * 执行 {@code adjustConfidence_clampsBetweenZeroAndOne} 操作。
+     */
     @Test
     void adjustConfidence_clampsBetweenZeroAndOne() {
         String preferenceId = "pref1";
@@ -149,11 +173,14 @@ class AdminPreferenceServiceImplTest {
         service.adjustConfidence(preferenceId, new BigDecimal("0.3"));
 
         verify(adminPreferenceMapper).updateById(argThat(updated ->
-            updated.getConfidence().compareTo(new BigDecimal("1.0")) == 0
+                updated.getConfidence().compareTo(new BigDecimal("1.0")) == 0
         ));
         verify(reasoningEngine).clearUserCache("admin1");
     }
 
+    /**
+     * 执行 {@code adjustConfidence_disablesWhenBelowThreshold} 操作。
+     */
     @Test
     void adjustConfidence_disablesWhenBelowThreshold() {
         String preferenceId = "pref1";
@@ -168,12 +195,15 @@ class AdminPreferenceServiceImplTest {
         service.adjustConfidence(preferenceId, new BigDecimal("-0.2"));
 
         verify(adminPreferenceMapper).updateById(argThat(updated ->
-            updated.getConfidence().compareTo(new BigDecimal("0.2")) == 0 &&
-            updated.getStatus() == AdminPreference.STATUS_DISABLED
+                updated.getConfidence().compareTo(new BigDecimal("0.2")) == 0 &&
+                        updated.getStatus() == AdminPreference.STATUS_DISABLED
         ));
         verify(reasoningEngine).clearUserCache("admin1");
     }
 
+    /**
+     * 执行 {@code updateEffectiveScore_delegatesToMapper} 操作。
+     */
     @Test
     void updateEffectiveScore_delegatesToMapper() {
         String preferenceId = "pref1";
@@ -192,12 +222,15 @@ class AdminPreferenceServiceImplTest {
         service.updateEffectiveScore(preferenceId);
 
         verify(adminPreferenceMapper).updateById(argThat(updated ->
-            updated.getEffectiveScore() != null &&
-            updated.getEffectiveScore().compareTo(BigDecimal.ZERO) > 0
+                updated.getEffectiveScore() != null &&
+                        updated.getEffectiveScore().compareTo(BigDecimal.ZERO) > 0
         ));
         verify(reasoningEngine).clearUserCache("admin1");
     }
 
+    /**
+     * 执行 {@code listByAdminId_returnsSortedPreferences} 操作。
+     */
     @Test
     void listByAdminId_returnsSortedPreferences() {
         String adminId = "admin1";
@@ -218,6 +251,9 @@ class AdminPreferenceServiceImplTest {
         verify(adminPreferenceMapper).selectList(any(Wrapper.class));
     }
 
+    /**
+     * 执行 {@code clearUserCache_delegatesToReasoningEngine} 操作。
+     */
     @Test
     void clearUserCache_delegatesToReasoningEngine() {
         String adminId = "admin1";
@@ -228,6 +264,9 @@ class AdminPreferenceServiceImplTest {
         verify(reasoningEngine).clearUserCache(adminId);
     }
 
+    /**
+     * 处理evidenceRemovalDisablesOrphanedImplicit偏好。
+     */
     @Test
     void evidenceRemovalDisablesOrphanedImplicitPreference() {
         AdminPreference preference = new AdminPreference();
@@ -249,6 +288,9 @@ class AdminPreferenceServiceImplTest {
                         && BigDecimal.ZERO.compareTo(updated.getEffectiveScore()) == 0));
     }
 
+    /**
+     * 处理evidenceRemovalKeepsImplicit偏好WithOtherEvidence。
+     */
     @Test
     void evidenceRemovalKeepsImplicitPreferenceWithOtherEvidence() {
         AdminPreference preference = new AdminPreference();
@@ -262,6 +304,9 @@ class AdminPreferenceServiceImplTest {
         verify(adminPreferenceMapper, never()).updateById(any(AdminPreference.class));
     }
 
+    /**
+     * 处理evidenceRemovalNeverDisablesExplicit偏好。
+     */
     @Test
     void evidenceRemovalNeverDisablesExplicitPreference() {
         AdminPreference preference = new AdminPreference();

@@ -1,42 +1,402 @@
 [
-  { "item": { "question": "Enterprise 计划的 P1 首次人工响应目标是多少？", "documentId": "2086731935234211843", "targetType": "DOCUMENT", "status": 1, "remark": "企业支持 SLA" }, "labels": [] },
-  { "item": { "question": "P1 和 P2 的业务影响如何区分？", "documentId": "2086731935234211843", "targetType": "DOCUMENT", "status": 1, "remark": "事故等级定义" }, "labels": [] },
-  { "item": { "question": "关闭自动续费后服务会立刻停用吗？", "documentId": "2086731935234211843", "targetType": "DOCUMENT", "status": 1, "remark": "订阅取消" }, "labels": [] },
-  { "item": { "question": "哪些项目不适用无理由退款？", "documentId": "2086731935234211843", "targetType": "DOCUMENT", "status": 1, "remark": "退款例外" }, "labels": [] },
-  { "item": { "question": "连续输错密码五次后会锁定多久？", "documentId": "2086731935234211843", "targetType": "DOCUMENT", "status": 1, "remark": "账户锁定" }, "labels": [] },
-  { "item": { "question": "计划维护影响 Enterprise 核心能力超过 15 分钟时，还需要怎样通知？", "documentId": "2086731935234211843", "targetType": "DOCUMENT", "status": 1, "remark": "维护沟通" }, "labels": [] },
-  { "item": { "question": "订阅终止后的数据保留期和备份清除周期分别是多少？", "documentId": "2086731935234211843", "targetType": "DOCUMENT", "status": 1, "remark": "退出与删除" }, "labels": [] },
-  { "item": { "question": "人工审查者是否自动拥有知识库编辑权限？", "documentId": "2086731932197535746", "targetType": "DOCUMENT", "status": 1, "remark": "审查角色边界" }, "labels": [] },
-  { "item": { "question": "临时管理员授权最长可持续多久？", "documentId": "2086731932197535746", "targetType": "DOCUMENT", "status": 1, "remark": "临时授权期限" }, "labels": [] },
-  { "item": { "question": "P1 破窗访问为什么不能由同一人发起、批准和使用？", "documentId": "2086731932197535746", "targetType": "DOCUMENT", "status": 1, "remark": "紧急访问职责分离" }, "labels": [] },
-  { "item": { "question": "Enterprise 租户的审计日志默认保留多久？", "documentId": "2086731932197535746", "targetType": "DOCUMENT", "status": 1, "remark": "审计保留" }, "labels": [] },
-  { "item": { "question": "哪些类型的数据不得直接上传到知识库？", "documentId": "2086731933753622530", "targetType": "DOCUMENT", "status": 1, "remark": "禁止数据类型" }, "labels": [] },
-  { "item": { "question": "AI 审查通过后，文档是否已经可以被 Agent 检索？", "documentId": "2086731933753622530", "targetType": "DOCUMENT", "status": 1, "remark": "审核发布门槛" }, "labels": [] },
-  { "item": { "question": "数据主体访问请求的普通完成目标是多少天？", "documentId": "2086731933753622530", "targetType": "DOCUMENT", "status": 1, "remark": "数据主体请求" }, "labels": [] },
-  { "item": { "question": "疑似数据泄露应在多长时间内报告安全响应团队？", "documentId": "2086731933753622530", "targetType": "DOCUMENT", "status": 1, "remark": "泄露上报" }, "labels": [] },
-  { "item": { "question": "哪些变更必须至少提前五个工作日评审？", "documentId": "2086731934009475075", "targetType": "DOCUMENT", "status": 1, "remark": "高风险变更" }, "labels": [] },
-  { "item": { "question": "P1 事故宣布恢复前必须满足哪些关键条件？", "documentId": "2086731934009475075", "targetType": "DOCUMENT", "status": 1, "remark": "恢复判定" }, "labels": [] },
-  { "item": { "question": "P1 和 P2 的复盘完成期限分别是多少？", "documentId": "2086731934009475075", "targetType": "DOCUMENT", "status": 1, "remark": "复盘时限" }, "labels": [] },
-  { "item": { "question": "收到 429 响应后客户端应如何重试？", "documentId": "2086731934395351041", "targetType": "DOCUMENT", "status": 1, "remark": "限流处理" }, "labels": [] },
-  { "item": { "question": "为什么网络超时后不能直接创建新的写入请求？", "documentId": "2086731934395351041", "targetType": "DOCUMENT", "status": 1, "remark": "幂等性" }, "labels": [] },
-  { "item": { "question": "平台 5xx 失败的知识库检索请求是否收费？", "documentId": "2086731934395351041", "targetType": "DOCUMENT", "status": 1, "remark": "计费例外" }, "labels": [] },
-  { "item": { "question": "生产 Webhook 密钥多久轮换一次，重叠窗口多长？", "documentId": "2086731934395351041", "targetType": "DOCUMENT", "status": 1, "remark": "Webhook 密钥轮换" }, "labels": [] },
-  { "item": { "question": "申请服务信用时，哪些情况通常不在 SLA 信用范围内？", "documentId": "2086731934651203587", "targetType": "DOCUMENT", "status": 1, "remark": "服务信用例外" }, "labels": [] },
-  { "item": { "question": "Enterprise 客户续费健康检查分别在续费前多少天启动关键节点？", "documentId": "2086731934651203587", "targetType": "DOCUMENT", "status": 1, "remark": "续费节奏" }, "labels": [] },
-  { "item": { "question": "高管升级可以绕过哪些安全和合同流程吗？", "documentId": "2086731934651203587", "targetType": "DOCUMENT", "status": 1, "remark": "升级边界" }, "labels": [] },
-  { "item": { "question": "为什么高影响决策不能只依赖模型输出？", "documentId": "2086731934974164993", "targetType": "DOCUMENT", "status": 1, "remark": "AI 人工监督" }, "labels": [] },
-  { "item": { "question": "知识库文档出现提示注入文字时，模型应该如何处理？", "documentId": "2086731934974164993", "targetType": "DOCUMENT", "status": 1, "remark": "提示注入防护" }, "labels": [] },
-  { "item": { "question": "模型或检索策略变更前，评测集应覆盖哪些类型的问题？", "documentId": "2086731934974164993", "targetType": "DOCUMENT", "status": 1, "remark": "回归评测覆盖" }, "labels": [] },
-  { "item": { "question": "Enterprise 客户的 P1 首次响应和状态页更新节奏分别是多少？", "documentId": "2086731937192951809", "targetType": "DOCUMENT", "status": 1, "remark": "DOCX 服务等级表格" }, "labels": [] },
-  { "item": { "question": "P1 事故在宣布恢复前需要验证哪些运行条件？", "documentId": "2086731937192951809", "targetType": "DOCUMENT", "status": 1, "remark": "DOCX 恢复判定" }, "labels": [] },
-  { "item": { "question": "服务信用通常不适用于哪些类型的影响？", "documentId": "2086731937192951809", "targetType": "DOCUMENT", "status": 1, "remark": "DOCX 商业例外" }, "labels": [] },
-  { "item": { "question": "生产管理员临时授权最长有效期和必需审批人分别是什么？", "documentId": "2086731938094727170", "targetType": "DOCUMENT", "status": 1, "remark": "DOCX 权限控制表格" }, "labels": [] },
-  { "item": { "question": "已审批的知识库版本与草稿版本在 Agent 检索中的区别是什么？", "documentId": "2086731938094727170", "targetType": "DOCUMENT", "status": 1, "remark": "DOCX 知识库生命周期" }, "labels": [] },
-  { "item": { "question": "调整 Chunk 策略或启用 Rerank 前，为什么要运行可追溯的评测？", "documentId": "2086731938094727170", "targetType": "DOCUMENT", "status": 1, "remark": "DOCX AI 变更控制" }, "labels": [] },
-  { "item": { "question": "AI 场景开始前必须明确哪些业务和人工监督要素？", "documentId": "2086731981379944450", "targetType": "DOCUMENT", "status": 1, "remark": "PDF 治理目标" }, "labels": [] },
-  { "item": { "question": "知识库中出现要求忽略规则或泄露密钥的文字时，应如何处理？", "documentId": "2086731981379944450", "targetType": "DOCUMENT", "status": 1, "remark": "PDF 提示注入" }, "labels": [] },
-  { "item": { "question": "客户可见的重大模型变更发布后，至少需要保留多久观察期？", "documentId": "2086731981379944450", "targetType": "DOCUMENT", "status": 1, "remark": "PDF 发布与回滚" }, "labels": [] },
-  { "item": { "question": "运营台账中 P1 和 P2 首次响应的实际值分别是多少？", "documentId": "2086731982088781826", "targetType": "DOCUMENT", "status": 1, "remark": "XLSX 运营总览公式表" }, "labels": [] },
-  { "item": { "question": "哪个计划变更与向量索引迁移有关，它的风险等级和回滚负责人是什么？", "documentId": "2086731982088781826", "targetType": "DOCUMENT", "status": 1, "remark": "XLSX 变更台账" }, "labels": [] },
-  { "item": { "question": "风险台账中缺少幂等键的批量客户端风险由哪个团队负责，当前状态是什么？", "documentId": "2086731982088781826", "targetType": "DOCUMENT", "status": 1, "remark": "XLSX 风险台账" }, "labels": [] }
+  {
+    "item": {
+      "question": "Enterprise 计划的 P1 首次人工响应目标是多少？",
+      "documentId": "2086731935234211843",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "企业支持 SLA"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "P1 和 P2 的业务影响如何区分？",
+      "documentId": "2086731935234211843",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "事故等级定义"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "关闭自动续费后服务会立刻停用吗？",
+      "documentId": "2086731935234211843",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "订阅取消"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "哪些项目不适用无理由退款？",
+      "documentId": "2086731935234211843",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "退款例外"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "连续输错密码五次后会锁定多久？",
+      "documentId": "2086731935234211843",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "账户锁定"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "计划维护影响 Enterprise 核心能力超过 15 分钟时，还需要怎样通知？",
+      "documentId": "2086731935234211843",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "维护沟通"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "订阅终止后的数据保留期和备份清除周期分别是多少？",
+      "documentId": "2086731935234211843",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "退出与删除"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "人工审查者是否自动拥有知识库编辑权限？",
+      "documentId": "2086731932197535746",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "审查角色边界"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "临时管理员授权最长可持续多久？",
+      "documentId": "2086731932197535746",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "临时授权期限"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "P1 破窗访问为什么不能由同一人发起、批准和使用？",
+      "documentId": "2086731932197535746",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "紧急访问职责分离"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "Enterprise 租户的审计日志默认保留多久？",
+      "documentId": "2086731932197535746",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "审计保留"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "哪些类型的数据不得直接上传到知识库？",
+      "documentId": "2086731933753622530",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "禁止数据类型"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "AI 审查通过后，文档是否已经可以被 Agent 检索？",
+      "documentId": "2086731933753622530",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "审核发布门槛"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "数据主体访问请求的普通完成目标是多少天？",
+      "documentId": "2086731933753622530",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "数据主体请求"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "疑似数据泄露应在多长时间内报告安全响应团队？",
+      "documentId": "2086731933753622530",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "泄露上报"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "哪些变更必须至少提前五个工作日评审？",
+      "documentId": "2086731934009475075",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "高风险变更"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "P1 事故宣布恢复前必须满足哪些关键条件？",
+      "documentId": "2086731934009475075",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "恢复判定"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "P1 和 P2 的复盘完成期限分别是多少？",
+      "documentId": "2086731934009475075",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "复盘时限"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "收到 429 响应后客户端应如何重试？",
+      "documentId": "2086731934395351041",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "限流处理"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "为什么网络超时后不能直接创建新的写入请求？",
+      "documentId": "2086731934395351041",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "幂等性"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "平台 5xx 失败的知识库检索请求是否收费？",
+      "documentId": "2086731934395351041",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "计费例外"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "生产 Webhook 密钥多久轮换一次，重叠窗口多长？",
+      "documentId": "2086731934395351041",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "Webhook 密钥轮换"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "申请服务信用时，哪些情况通常不在 SLA 信用范围内？",
+      "documentId": "2086731934651203587",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "服务信用例外"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "Enterprise 客户续费健康检查分别在续费前多少天启动关键节点？",
+      "documentId": "2086731934651203587",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "续费节奏"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "高管升级可以绕过哪些安全和合同流程吗？",
+      "documentId": "2086731934651203587",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "升级边界"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "为什么高影响决策不能只依赖模型输出？",
+      "documentId": "2086731934974164993",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "AI 人工监督"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "知识库文档出现提示注入文字时，模型应该如何处理？",
+      "documentId": "2086731934974164993",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "提示注入防护"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "模型或检索策略变更前，评测集应覆盖哪些类型的问题？",
+      "documentId": "2086731934974164993",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "回归评测覆盖"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "Enterprise 客户的 P1 首次响应和状态页更新节奏分别是多少？",
+      "documentId": "2086731937192951809",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "DOCX 服务等级表格"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "P1 事故在宣布恢复前需要验证哪些运行条件？",
+      "documentId": "2086731937192951809",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "DOCX 恢复判定"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "服务信用通常不适用于哪些类型的影响？",
+      "documentId": "2086731937192951809",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "DOCX 商业例外"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "生产管理员临时授权最长有效期和必需审批人分别是什么？",
+      "documentId": "2086731938094727170",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "DOCX 权限控制表格"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "已审批的知识库版本与草稿版本在 Agent 检索中的区别是什么？",
+      "documentId": "2086731938094727170",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "DOCX 知识库生命周期"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "调整 Chunk 策略或启用 Rerank 前，为什么要运行可追溯的评测？",
+      "documentId": "2086731938094727170",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "DOCX AI 变更控制"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "AI 场景开始前必须明确哪些业务和人工监督要素？",
+      "documentId": "2086731981379944450",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "PDF 治理目标"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "知识库中出现要求忽略规则或泄露密钥的文字时，应如何处理？",
+      "documentId": "2086731981379944450",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "PDF 提示注入"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "客户可见的重大模型变更发布后，至少需要保留多久观察期？",
+      "documentId": "2086731981379944450",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "PDF 发布与回滚"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "运营台账中 P1 和 P2 首次响应的实际值分别是多少？",
+      "documentId": "2086731982088781826",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "XLSX 运营总览公式表"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "哪个计划变更与向量索引迁移有关，它的风险等级和回滚负责人是什么？",
+      "documentId": "2086731982088781826",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "XLSX 变更台账"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "风险台账中缺少幂等键的批量客户端风险由哪个团队负责，当前状态是什么？",
+      "documentId": "2086731982088781826",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "XLSX 风险台账"
+    },
+    "labels": []
+  }
 ]

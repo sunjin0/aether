@@ -9,18 +9,26 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** 对等待人工输入的业务流程执行 SLA 超时保护。 */
+/**
+ * 对等待人工输入的业务流程执行 SLA 超时保护。
+ */
 @Component
 public class WorkflowInstanceTimeoutScheduler {
     private final AgentWorkflowInstanceService instanceService;
     private final WorkflowCallbackService callbackService;
 
+    /**
+     * 创建 {@code WorkflowInstanceTimeoutScheduler} 实例。
+     */
     public WorkflowInstanceTimeoutScheduler(AgentWorkflowInstanceService instanceService,
                                             WorkflowCallbackService callbackService) {
         this.instanceService = instanceService;
         this.callbackService = callbackService;
     }
 
+    /**
+     * 处理timeoutWaitingInstances。
+     */
     @Scheduled(fixedDelayString = "${aether.workflow.timeout.scan-interval-ms:30000}", initialDelay = 30000L)
     public void timeoutWaitingInstances() {
         long now = System.currentTimeMillis();
@@ -37,7 +45,9 @@ public class WorkflowInstanceTimeoutScheduler {
                     .eq(AgentWorkflowInstance::getStatus, "WAITING_USER")
                     .le(AgentWorkflowInstance::getDeadlineAt, now));
             if (timedOut) {
-                candidate.setStatus("TIMED_OUT"); candidate.setErrorMessage("等待人工操作超时"); candidate.setCompletedAt(now);
+                candidate.setStatus("TIMED_OUT");
+                candidate.setErrorMessage("等待人工操作超时");
+                candidate.setCompletedAt(now);
                 callbackService.recordTerminal(candidate);
             }
         }

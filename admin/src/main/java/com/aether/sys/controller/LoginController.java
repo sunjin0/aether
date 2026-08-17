@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.*;
 import javax.annotation.Resource;
 import java.util.List;
 
+/**
+ * 提供Login相关的 REST 接口。
+ */
 @RestController
 @Permission(path = "/sys/admin")
 @RequestMapping("/api/sys")
@@ -23,6 +26,9 @@ public class LoginController {
     @Resource
     private UserService userService;
 
+    /**
+     * 验证当前请求。
+     */
     @ApiOperation("验证账号密码")
     @Permission(required = false)
     @ApiImplicitParams({
@@ -36,6 +42,9 @@ public class LoginController {
         return WebResponse.OK(userService.verify(user));
     }
 
+    /**
+     * 验证帐户邮箱。
+     */
     @ApiOperation("验证帐户邮箱")
     @Permission(required = false)
     @PostMapping("/login")
@@ -44,11 +53,14 @@ public class LoginController {
             @ApiImplicitParam(name = "verificationCode", value = "验证码", required = true),
     })
     public WebResponse<UserVo> login(@RequestBody
-                                        @ValidEntity(fieldNames = {"email", "verificationCode"})
-                                       UserVo user) throws ServerException {
+                                     @ValidEntity(fieldNames = {"email", "verificationCode"})
+                                     UserVo user) throws ServerException {
         return WebResponse.OK(userService.login(user));
     }
 
+    /**
+     * 重置密码。
+     */
     @ApiOperation("重置密码")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -62,6 +74,9 @@ public class LoginController {
     }
 
 
+    /**
+     * 登录用户信息。
+     */
     @ApiOperation("登录用户信息")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -71,6 +86,9 @@ public class LoginController {
         return WebResponse.OK(userService.detail());
     }
 
+    /**
+     * 获取Routers。
+     */
     @ApiOperation("路由")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -81,11 +99,14 @@ public class LoginController {
         return WebResponse.OK(userService.getRouters());
     }
 
+    /**
+     * 发送VerificationCode。
+     */
     @ApiOperation("发送验证码")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "email", value = "邮箱", required = true),
     })
-    @Permission(required = false )
+    @Permission(required = false)
     @PostMapping("/send")
     public WebResponse<Boolean> sendVerificationCode(@RequestBody
                                                      @ValidEntity(fieldNames = {"email"})
@@ -94,6 +115,9 @@ public class LoginController {
         return WebResponse.OK(I18nUtils.getMessage("send.success"));
     }
 
+    /**
+     * 退出登录。
+     */
     @ApiOperation("退出登录")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -101,6 +125,6 @@ public class LoginController {
     @GetMapping("/logout")
     public WebResponse<Boolean> logout() {
         boolean logout = userService.logout();
-        return WebResponse.OK(I18nUtils.getMessage(logout?"logout.success":"logout.fail"));
+        return WebResponse.OK(I18nUtils.getMessage(logout ? "logout.success" : "logout.fail"));
     }
 }

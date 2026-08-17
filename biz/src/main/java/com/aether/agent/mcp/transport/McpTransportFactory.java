@@ -12,10 +12,16 @@ public class McpTransportFactory {
 
     private final List<McpTransport> transports;
 
+    /**
+     * 创建 {@code McpTransportFactory} 实例。
+     */
     public McpTransportFactory(List<McpTransport> transports) {
         this.transports = transports;
     }
 
+    /**
+     * 获取Transport。
+     */
     public McpTransport getTransport(String transportType) {
         for (McpTransport transport : transports) {
             if (transport.supports(transportType)) {
@@ -25,6 +31,9 @@ public class McpTransportFactory {
         throw new IllegalArgumentException("Unsupported MCP transport: " + transportType);
     }
 
+    /**
+     * 处理supports。
+     */
     public boolean supports(String transportType) {
         for (McpTransport transport : transports) {
             if (transport.supports(transportType)) {

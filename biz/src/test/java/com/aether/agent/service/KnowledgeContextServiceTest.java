@@ -22,8 +22,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证知识库Context服务的行为。
+ */
 class KnowledgeContextServiceTest {
 
+    /**
+     * 处理persistsOnlyCompleteCitedSources。
+     */
     @Test
     void persistsOnlyCompleteCitedSources() {
         KnowledgeReferenceLogMapper mapper = mock(KnowledgeReferenceLogMapper.class);
@@ -53,6 +59,9 @@ class KnowledgeContextServiceTest {
         verify(mapper).incrementKnowledgeBaseReference("kb-1", captor.getValue().getReferencedAt());
     }
 
+    /**
+     * 处理addsGroundingWarningWhen知识库Retrieval判断是否拥有NoMatch。
+     */
     @Test
     void addsGroundingWarningWhenKnowledgeRetrievalHasNoMatch() {
         KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
@@ -71,11 +80,15 @@ class KnowledgeContextServiceTest {
         org.junit.jupiter.api.Assertions.assertTrue(context.get(0).getContent().contains("未检索到"));
     }
 
+    /**
+     * 处理usesStrictGroundingWarningWhenConfigured。
+     */
     @Test
     void usesStrictGroundingWarningWhenConfigured() {
         KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
         KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
-        result.setRetrievalAttempted(true); result.setStrictGrounding(true);
+        result.setRetrievalAttempted(true);
+        result.setStrictGrounding(true);
         when(retrievalService.retrieveWithHistory(org.mockito.ArgumentMatchers.eq("agent-1"),
                 org.mockito.ArgumentMatchers.eq("question"), org.mockito.ArgumentMatchers.anyList())).thenReturn(result);
         KnowledgeContextService service = new KnowledgeContextService(
@@ -87,6 +100,9 @@ class KnowledgeContextServiceTest {
         org.junit.jupiter.api.Assertions.assertTrue(context.get(0).getContent().contains("只能基于知识库资料回答"));
     }
 
+    /**
+     * 处理combinesRuntimeSectionsIntoOneOrderedSystemPrompt。
+     */
     @Test
     void combinesRuntimeSectionsIntoOneOrderedSystemPrompt() {
         AdminPreferenceService preferences = mock(AdminPreferenceService.class);
@@ -98,10 +114,10 @@ class KnowledgeContextServiceTest {
         final boolean[] retrievalReceivedPreference = new boolean[1];
         when(retrievalService.retrieveWithHistory(org.mockito.ArgumentMatchers.eq("agent-1"),
                 org.mockito.ArgumentMatchers.eq("question"), org.mockito.ArgumentMatchers.anyList())).thenAnswer(invocation -> {
-                    java.util.List<ModelChatMessage> retrievalContext = invocation.getArgument(2);
-                    retrievalReceivedPreference[0] = retrievalContext.toString().contains("【表达偏好】");
-                    return result;
-                });
+            java.util.List<ModelChatMessage> retrievalContext = invocation.getArgument(2);
+            retrievalReceivedPreference[0] = retrievalContext.toString().contains("【表达偏好】");
+            return result;
+        });
         KnowledgeContextService service = new KnowledgeContextService(preferences, retrievalService,
                 mock(KnowledgeDocumentService.class));
         ArrayList<ModelChatMessage> context = new ArrayList<>();
@@ -119,6 +135,9 @@ class KnowledgeContextServiceTest {
         org.junit.jupiter.api.Assertions.assertFalse(retrievalReceivedPreference[0]);
     }
 
+    /**
+     * 处理skipsRetrieval用于CasualUnscopedTurn。
+     */
     @Test
     void skipsRetrievalForCasualUnscopedTurn() {
         KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
@@ -131,6 +150,9 @@ class KnowledgeContextServiceTest {
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anySet());
     }
 
+    /**
+     * 处理recordsWhetherRetrievedChunkWasCitedWithoutPersistingRaw查询。
+     */
     @Test
     void recordsWhetherRetrievedChunkWasCitedWithoutPersistingRawQuery() {
         KnowledgeRetrievalLogMapper mapper = mock(KnowledgeRetrievalLogMapper.class);
@@ -138,8 +160,11 @@ class KnowledgeContextServiceTest {
                 mock(AdminPreferenceService.class), mock(KnowledgeRetrievalService.class),
                 mock(KnowledgeDocumentService.class), mock(KnowledgeReferenceLogMapper.class), mapper);
         Map<String, Object> source = new HashMap<>();
-        source.put("knowledgeBaseId", "kb-1"); source.put("documentId", "doc-1"); source.put("chunkId", "chunk-1");
-        source.put("similarity", 0.8D); source.put("retrievalScore", 0.9D);
+        source.put("knowledgeBaseId", "kb-1");
+        source.put("documentId", "doc-1");
+        source.put("chunkId", "chunk-1");
+        source.put("similarity", 0.8D);
+        source.put("retrievalScore", 0.9D);
 
         service.recordRetrievalOutcome("agent-1", "conversation-1", "message-1", "private question",
                 Collections.singletonList(source), Collections.singletonList(source));
@@ -152,6 +177,9 @@ class KnowledgeContextServiceTest {
         org.junit.jupiter.api.Assertions.assertFalse("private question".equals(captor.getValue().getQueryHash()));
     }
 
+    /**
+     * 处理removesCitationIndexesThatWereNotProvided按Retrieval。
+     */
     @Test
     void removesCitationIndexesThatWereNotProvidedByRetrieval() {
         KnowledgeContextService service = new KnowledgeContextService(

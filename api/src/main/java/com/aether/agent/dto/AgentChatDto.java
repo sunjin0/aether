@@ -44,15 +44,23 @@ public class AgentChatDto {
     @ApiModelProperty(value = "Internal user ID")
     private String userId;
 
-    /** Server-generated request correlation ID for chat latency diagnostics. */
+    /**
+     * Server-generated request correlation ID for chat latency diagnostics.
+     */
     private String requestId;
 
-    /** Text recognized during the attachment-upload operation. */
+    /**
+     * Text recognized during the attachment-upload operation.
+     */
     private String attachmentContent;
 
-    /** JSON metadata returned by the attachment-upload operation. */
+    /**
+     * JSON metadata returned by the attachment-upload operation.
+     */
     private String attachments;
 
-    /** 按平台自动装配的 Skill 编码分组的可选输入，客户端不能选择或跳过 Skill。 */
+    /**
+     * 按平台自动装配的 Skill 编码分组的可选输入，客户端不能选择或跳过 Skill。
+     */
     private Map<String, Map<String, Object>> skillInputs;
 }

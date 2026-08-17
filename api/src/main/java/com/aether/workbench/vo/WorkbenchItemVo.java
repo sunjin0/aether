@@ -2,7 +2,9 @@ package com.aether.workbench.vo;
 
 import lombok.Data;
 
-/** A dashboard item with enough context for the client to route to its detail page. */
+/**
+ * A dashboard item with enough context for the client to route to its detail page.
+ */
 @Data
 public class WorkbenchItemVo {
     private String type;

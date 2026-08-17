@@ -7,8 +7,14 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
 
+/**
+ * 提供知识库审核任务映的数据访问能力。
+ */
 @Mapper
 public interface KnowledgeReviewTaskMapper extends BaseMapper<KnowledgeReviewTask> {
+    /**
+     * 处理claim。
+     */
     @Update("UPDATE knowledge_review_task SET status = '" + KnowledgeReviewTaskStatus.CLAIMED
             + "', reviewer_id = #{reviewerId}, claimed_at = #{now}, updated_at = #{now} "
             + "WHERE id = #{id} AND status = '" + KnowledgeReviewTaskStatus.PENDING

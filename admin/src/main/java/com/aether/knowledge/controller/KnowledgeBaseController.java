@@ -32,6 +32,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * 提供知识库Base相关的 REST 接口。
+ */
 @Api(tags = "Agent知识库 API")
 @Validated
 @RestController
@@ -45,6 +48,9 @@ public class KnowledgeBaseController {
     private final ModelCatalogService modelCatalogService;
     private final UserService userService;
 
+    /**
+     * 创建 {@code KnowledgeBaseController} 实例。
+     */
     public KnowledgeBaseController(KnowledgeBaseService knowledgeBaseService,
                                    KnowledgeAccessService knowledgeAccessService,
                                    ModelProviderService modelProviderService,
@@ -57,7 +63,9 @@ public class KnowledgeBaseController {
         this.userService = userService;
     }
 
-    /** 分页查询当前用户可见的知识库。 */
+    /**
+     * 分页查询当前用户可见的知识库。
+     */
     @ApiOperation("知识库列表")
     @PostMapping("/list")
     public WebResponse<List<KnowledgeBaseVo>> list(@RequestBody KnowledgeBaseVo vo) {
@@ -105,7 +113,9 @@ public class KnowledgeBaseController {
         return WebResponse.OK(options);
     }
 
-    /** 查询知识库详情，并校验当前用户可读权限。 */
+    /**
+     * 查询知识库详情，并校验当前用户可读权限。
+     */
     @ApiOperation("知识库详情")
     @GetMapping("/{id}")
     public WebResponse<KnowledgeBaseVo> detail(@PathVariable @NotBlank String id) {
@@ -115,7 +125,9 @@ public class KnowledgeBaseController {
         return WebResponse.OK(vo);
     }
 
-    /** 创建知识库并校验 AI 审核配置。 */
+    /**
+     * 创建知识库并校验 AI 审核配置。
+     */
     @ApiOperation("新增知识库")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PostMapping
@@ -139,7 +151,9 @@ public class KnowledgeBaseController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("knowledge.base.create.success") : I18nUtils.getMessage("knowledge.base.create.fail"), kb.getId());
     }
 
-    /** 更新知识库配置，保留原有归属管理员。 */
+    /**
+     * 更新知识库配置，保留原有归属管理员。
+     */
     @ApiOperation("编辑知识库")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PutMapping("/{id}")
@@ -156,7 +170,9 @@ public class KnowledgeBaseController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("knowledge.base.update.success") : I18nUtils.getMessage("knowledge.base.update.fail"));
     }
 
-    /** 软删除知识库。 */
+    /**
+     * 软删除知识库。
+     */
     @ApiOperation("删除知识库")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
@@ -166,12 +182,16 @@ public class KnowledgeBaseController {
         return WebResponse.OK(removed ? I18nUtils.getMessage("knowledge.base.delete.success") : I18nUtils.getMessage("knowledge.base.delete.fail"));
     }
 
+    /**
+     * 处理mutableFields。
+     */
     private KnowledgeBase mutableFields(KnowledgeBaseVo vo) {
         KnowledgeBase kb = new KnowledgeBase();
         kb.setScope(vo.getScope());
         kb.setEmbeddingProviderId(vo.getEmbeddingProviderId());
         kb.setEmbeddingModelId(vo.getEmbeddingModelId());
-        if (StringUtils.isBlank(kb.getEmbeddingModelId())) throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
+        if (StringUtils.isBlank(kb.getEmbeddingModelId()))
+            throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
         com.aether.agent.entity.ModelCatalog catalog = modelCatalogService.requireAvailable(kb.getEmbeddingModelId(), "EMBEDDING");
         kb.setEmbeddingProviderId(catalog.getProviderId());
         kb.setVisibility(vo.getVisibility());
@@ -183,6 +203,9 @@ public class KnowledgeBaseController {
         return kb;
     }
 
+    /**
+     * 校验审核配置。
+     */
     private String validateReviewConfig(String value) {
         if (StringUtils.isBlank(value)) {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.base.review-config.required"));
@@ -190,7 +213,8 @@ public class KnowledgeBaseController {
         try {
             JSONObject config = JSONObject.parseObject(value);
             String modelId = config.getString("reviewModelId");
-            if (StringUtils.isBlank(modelId)) throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
+            if (StringUtils.isBlank(modelId))
+                throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
             modelCatalogService.requireAvailable(modelId, "CHAT,MULTIMODAL");
             String manualReviewerId = StringUtils.trimToNull(config.getString("manualReviewerId"));
             if (manualReviewerId != null) {
@@ -212,6 +236,9 @@ public class KnowledgeBaseController {
         }
     }
 
+    /**
+     * 处理putDefault。
+     */
     private void putDefault(JSONObject config, String key, boolean value) {
         if (!config.containsKey(key)) config.put(key, value);
     }

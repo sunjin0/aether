@@ -5,6 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+/**
+ * 表示智能体任务。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_task")

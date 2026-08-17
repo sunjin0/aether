@@ -6,7 +6,9 @@ import lombok.Data;
 import java.util.Collections;
 import java.util.List;
 
-/** Aggregated, permission-filtered data for the dashboard workbench. */
+/**
+ * Aggregated, permission-filtered data for the dashboard workbench.
+ */
 @Data
 public class WorkbenchOverviewVo {
     private long waitingWorkflowInstances;

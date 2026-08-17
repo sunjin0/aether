@@ -65,6 +65,9 @@ public class AgentToolController {
     @Autowired(required = false)
     private AgentToolCatalog agentToolCatalog;
 
+    /**
+     * 创建 {@code AgentToolController} 实例。
+     */
     @Autowired
     public AgentToolController(AgentToolService agentToolService,
                                AgentToolCallLogService agentToolCallLogService,
@@ -78,7 +81,9 @@ public class AgentToolController {
         this.dictService = dictService;
     }
 
-    /** 分页查询工具，并支持 MCP 服务、状态和关键词筛选。 */
+    /**
+     * 分页查询工具，并支持 MCP 服务、状态和关键词筛选。
+     */
     @ApiOperation("工具列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -122,7 +127,9 @@ public class AgentToolController {
         return WebResponse.OK(options);
     }
 
-    /** Manually refresh the remote MCP schema for one already imported tool. */
+    /**
+     * Manually refresh the remote MCP schema for one already imported tool.
+     */
     @ApiOperation("更新MCP工具定义")
     @Permission(path = "/agent/tool", type = Permission.Type.Write)
     @PostMapping("/{id}/refresh-definition")
@@ -154,7 +161,9 @@ public class AgentToolController {
         return WebResponse.OK(I18nUtils.getMessage("agent.tool.refresh-definition.success"));
     }
 
-    /** 汇总工具中心的来源、类型和状态筛选项。 */
+    /**
+     * 汇总工具中心的来源、类型和状态筛选项。
+     */
     @ApiOperation("工具中心筛选聚合")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -208,13 +217,16 @@ public class AgentToolController {
         return WebResponse.OK(facets);
     }
 
+    /**
+     * Tool statistics。
+     */
     @ApiOperation("Tool statistics")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "璁块棶浠ょ墝", required = true, dataType = "string", paramType = "header")
     })
     @GetMapping("/statistics")
     public WebResponse<AgentToolStatisticsVo> statistics(@RequestParam(required = false) String toolType,
-                                                          @RequestParam(required = false) String mcpServerId) {
+                                                         @RequestParam(required = false) String mcpServerId) {
         AgentToolVo query = new AgentToolVo();
         query.setToolType(toolType);
         query.setMcpServerId(mcpServerId);
@@ -242,7 +254,9 @@ public class AgentToolController {
         return WebResponse.OK(statistics);
     }
 
-    /** 查询工具详情及其 MCP 配置。 */
+    /**
+     * 查询工具详情及其 MCP 配置。
+     */
     @ApiOperation("工具详情")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "工具ID", required = true),
@@ -260,7 +274,9 @@ public class AgentToolController {
         return WebResponse.OK(vo);
     }
 
-    /** 创建工具定义。 */
+    /**
+     * 创建工具定义。
+     */
     @ApiOperation("新增工具")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -276,7 +292,9 @@ public class AgentToolController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("agent.tool.create.success") : I18nUtils.getMessage("agent.tool.create.fail"), tool.getId());
     }
 
-    /** 更新工具定义。 */
+    /**
+     * 更新工具定义。
+     */
     @ApiOperation("编辑工具")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -293,7 +311,9 @@ public class AgentToolController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.tool.update.success") : I18nUtils.getMessage("agent.tool.update.fail"));
     }
 
-    /** 软删除工具定义。 */
+    /**
+     * 软删除工具定义。
+     */
     @ApiOperation("删除工具")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", value = "工具ID", required = true),
@@ -306,6 +326,9 @@ public class AgentToolController {
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.tool.delete.success") : I18nUtils.getMessage("agent.tool.delete.fail"));
     }
 
+    /**
+     * 测试Tool。
+     */
     @ApiOperation("测试工具")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -313,7 +336,7 @@ public class AgentToolController {
     @Permission(path = "/agent/tool", type = Permission.Type.Write)
     @PostMapping("/{id}/test")
     public WebResponse<ToolExecutionResult> testTool(@PathVariable @NotBlank String id,
-                                                      @RequestBody Map<String, Object> params) {
+                                                     @RequestBody Map<String, Object> params) {
         // 1. 获取工具配置
         AgentTool tool = agentToolService.getById(id);
         if (tool == null || Boolean.TRUE.equals(tool.getDeleted())) {
@@ -335,7 +358,7 @@ public class AgentToolController {
         try {
             ToolExecutor executor = toolExecutorFactory.getExecutor("mcp");
             ToolExecutionResult result = executor.execute(context);
-            
+
             if (result.isSuccess()) {
                 return WebResponse.OK(I18nUtils.getMessage("agent.tool.test.success"), result);
             } else {
@@ -347,7 +370,10 @@ public class AgentToolController {
             return WebResponse.Error(500, I18nUtils.getMessage("agent.tool.test.failed"), errorResult);
         }
     }
-    
+
+    /**
+     * 获取模拟用户信息。
+     */
     @ApiOperation("获取模拟用户信息")
     @Permission(required = false)
     @GetMapping("/user/info")
@@ -356,31 +382,35 @@ public class AgentToolController {
         //生成模拟个人数据（随机）
         Map<String, Object> info = new HashMap<>();
         info.put("name", name);
-        info.put("age", 18 + (int)(Math.random() * 50));
+        info.put("age", 18 + (int) (Math.random() * 50));
         info.put("gender", Math.random() > 0.5 ? "male" : "female");
         info.put("height", 150 + Math.random() * 40);
         info.put("weight", 45 + Math.random() * 50);
-        info.put("birthday", String.format("%d-%02d-%02d", 
-                1970 + (int)(Math.random() * 35), 
-                1 + (int)(Math.random() * 12), 
-                1 + (int)(Math.random() * 28)));
-        info.put("id", String.valueOf((long)(Math.random() * 9000000000L) + 1000000000L));
+        info.put("birthday", String.format("%d-%02d-%02d",
+                1970 + (int) (Math.random() * 35),
+                1 + (int) (Math.random() * 12),
+                1 + (int) (Math.random() * 28)));
+        info.put("id", String.valueOf((long) (Math.random() * 9000000000L) + 1000000000L));
         String[] cities = {"Beijing", "Shanghai", "Guangzhou", "Shenzhen", "Hangzhou", "Chengdu"};
-        info.put("address", cities[(int)(Math.random() * cities.length)]);
-        info.put("phone", "+86" + (long)(Math.random() * 9000000000L + 1000000000L));
-        info.put("email", name.toLowerCase() + (int)(Math.random() * 1000) + "@example.com");
+        info.put("address", cities[(int) (Math.random() * cities.length)]);
+        info.put("phone", "+86" + (long) (Math.random() * 9000000000L + 1000000000L));
+        info.put("email", name.toLowerCase() + (int) (Math.random() * 1000) + "@example.com");
         String[] edu = {"高中", "大专", "本科", "硕士", "博士"};
-        info.put("education", edu[(int)(Math.random() * edu.length)]);
+        info.put("education", edu[(int) (Math.random() * edu.length)]);
         String[] majors = {"Computer Science", "Mathematics", "Physics", "Business", "Engineering"};
-        info.put("major", majors[(int)(Math.random() * majors.length)]);
+        info.put("major", majors[(int) (Math.random() * majors.length)]);
         String[] schools = {"Peking University", "Tsinghua University", "Fudan University", "Zhejiang University"};
-        info.put("school", schools[(int)(Math.random() * schools.length)]);
+        info.put("school", schools[(int) (Math.random() * schools.length)]);
         String[] degrees = {"学士", "硕士", "博士"};
-        info.put("degree", degrees[(int)(Math.random() * degrees.length)]);
-        info.put("graduation_year", 2015 + (int)(Math.random() * 11));
+        info.put("degree", degrees[(int) (Math.random() * degrees.length)]);
+        info.put("graduation_year", 2015 + (int) (Math.random() * 11));
         info.put("is_student", Math.random() > 0.7);
         return WebResponse.OK(info);
     }
+
+    /**
+     * 处理fillToolDefaults。
+     */
     private void fillToolDefaults(AgentTool tool) {
         validateMcpServer(tool.getMcpServerId());
         if (StringUtils.isBlank(tool.getMcpToolName())) {
@@ -394,6 +424,9 @@ public class AgentToolController {
         }
     }
 
+    /**
+     * 校验McpServer。
+     */
     private void validateMcpServer(String mcpServerId) {
         if (StringUtils.isBlank(mcpServerId)) {
             throw new ServerException(422, I18nUtils.getMessage("mcp.server.required"));
@@ -404,6 +437,9 @@ public class AgentToolController {
         }
     }
 
+    /**
+     * 处理fillMcpServerInfo。
+     */
     private void fillMcpServerInfo(AgentToolVo vo) {
         if (StringUtils.isBlank(vo.getMcpServerId())) {
             return;
@@ -415,6 +451,9 @@ public class AgentToolController {
         }
     }
 
+    /**
+     * 新增状态Facet。
+     */
     private void addStatusFacet(List<AgentToolFacetsVo.Item> statuses, Map<Integer, Long> counts,
                                 int status, String label) {
         Long count = counts.get(status);
@@ -423,6 +462,9 @@ public class AgentToolController {
         }
     }
 
+    /**
+     * 处理sourceLabel。
+     */
     private String sourceLabel(String sourceId, Map<String, String> serverNames) {
         if ("none".equals(sourceId)) {
             return "无来源";
@@ -430,6 +472,9 @@ public class AgentToolController {
         return serverNames.get(sourceId);
     }
 
+    /**
+     * 处理tool统计Wrapper。
+     */
     private Wrapper<AgentTool> toolCountWrapper(AgentToolVo vo, Integer status) {
         return Wrappers.lambdaQuery(AgentTool.class)
                 .eq(StringUtils.isNotBlank(vo.getToolType()), AgentTool::getToolType, vo.getToolType())
@@ -438,12 +483,18 @@ public class AgentToolController {
                 .eq(AgentTool::getDeleted, false);
     }
 
+    /**
+     * 构建ToolCallLog查询。
+     */
     private AgentToolCallLogVo buildToolCallLogQuery(AgentToolVo vo) {
         AgentToolCallLogVo query = new AgentToolCallLogVo();
         query.setToolType(vo.getToolType());
         return query;
     }
 
+    /**
+     * 处理fillCallStatistics。
+     */
     private void fillCallStatistics(AgentToolVo vo, Map<String, AgentToolCallStatisticsVo> statisticsMap) {
         AgentToolCallStatisticsVo statistics = statisticsMap.get(vo.getId());
         if (statistics == null) {
@@ -455,6 +506,9 @@ public class AgentToolController {
         vo.setSuccessRate(statistics.getSuccessRate());
     }
 
+    /**
+     * 处理defaultLong。
+     */
     private long defaultLong(Long value) {
         return value == null ? 0L : value;
     }

@@ -2,7 +2,6 @@ package com.aether.agent.vo;
 
 import com.aether.entity.BaseEntity;
 import io.swagger.annotations.ApiModelProperty;
-import io.swagger.models.auth.In;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 

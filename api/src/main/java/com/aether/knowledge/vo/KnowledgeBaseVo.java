@@ -18,16 +18,26 @@ public class KnowledgeBaseVo extends BaseEntity {
     private String embeddingProviderId;
     private String embeddingModelId;
 
-    /** 后台管理员归属 ID。 */
+    /**
+     * 后台管理员归属 ID。
+     */
     private String ownerAdminId;
-    /** 可见性：platform-平台，private-私有，shared-共享。 */
+    /**
+     * 可见性：platform-平台，private-私有，shared-共享。
+     */
     private String visibility;
-    /** 检索配置 JSON；当前只保存，暂不启用混合检索/重排。 */
+    /**
+     * 检索配置 JSON；当前只保存，暂不启用混合检索/重排。
+     */
     private String retrievalConfig;
     private String reviewConfig;
-    /** 实际回答引用累计次数。 */
+    /**
+     * 实际回答引用累计次数。
+     */
     private Long referenceCount;
-    /** 最近实际引用时间，Unix 毫秒时间戳。 */
+    /**
+     * 最近实际引用时间，Unix 毫秒时间戳。
+     */
     private Long lastReferencedAt;
 
     @ApiModelProperty(value = "知识库名称")

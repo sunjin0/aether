@@ -22,6 +22,10 @@ import java.util.stream.Collectors;
 public class ModelProviderServiceImpl extends ServiceImpl<ModelProviderMapper, ModelProvider> implements ModelProviderService {
     @Autowired
     private DictMapper dictMapper;
+
+    /**
+     * 获取模型Providers。
+     */
     @Override
     public List<Option> getModelProviders() {
         List<ModelProvider> modelProviders = list(Wrappers.<ModelProvider>lambdaQuery().eq(ModelProvider::getStatus, 1));
@@ -37,6 +41,9 @@ public class ModelProviderServiceImpl extends ServiceImpl<ModelProviderMapper, M
         }).collect(Collectors.toList());
     }
 
+    /**
+     * 获取EmbeddingProviderOptions。
+     */
     @Override
     public List<Option> getEmbeddingProviderOptions() {
         List<ModelProvider> modelProviders = list(Wrappers.<ModelProvider>lambdaQuery()
@@ -50,6 +57,9 @@ public class ModelProviderServiceImpl extends ServiceImpl<ModelProviderMapper, M
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 构建ProviderLabel。
+     */
     private String buildProviderLabel(ModelProvider modelProvider) {
         String name = modelProvider.getName();
         if (modelProvider.getDefaultModel() != null && !modelProvider.getDefaultModel().trim().isEmpty()) {

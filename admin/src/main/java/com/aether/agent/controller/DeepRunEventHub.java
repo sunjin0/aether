@@ -7,12 +7,21 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 
-/** In-memory fan-out for live Deep Run SSE subscribers. Durable replay is served from agent_run_step. */
+/**
+ * In-memory fan-out for live Deep Run SSE subscribers. Durable replay is served from agent_run_step.
+ */
 final class DeepRunEventHub {
     private static final ConcurrentHashMap<String, Set<SseEmitter>> SUBSCRIBERS = new ConcurrentHashMap<>();
 
-    private DeepRunEventHub() { }
+    /**
+     * 创建 {@code DeepRunEventHub} 实例。
+     */
+    private DeepRunEventHub() {
+    }
 
+    /**
+     * 新增当前请求。
+     */
     static void add(String runId, SseEmitter emitter) {
         SUBSCRIBERS.computeIfAbsent(runId, ignored -> new CopyOnWriteArraySet<>()).add(emitter);
         Runnable remove = () -> remove(runId, emitter);
@@ -21,6 +30,9 @@ final class DeepRunEventHub {
         emitter.onError(ignored -> remove.run());
     }
 
+    /**
+     * 发布当前请求。
+     */
     static void publish(String runId, String event, String data, boolean terminal) {
         Set<SseEmitter> emitters = SUBSCRIBERS.get(runId);
         if (emitters == null) return;
@@ -36,6 +48,9 @@ final class DeepRunEventHub {
         }
     }
 
+    /**
+     * 移除当前请求。
+     */
     private static void remove(String runId, SseEmitter emitter) {
         Set<SseEmitter> emitters = SUBSCRIBERS.get(runId);
         if (emitters == null) return;

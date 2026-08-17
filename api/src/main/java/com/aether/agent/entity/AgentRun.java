@@ -1,7 +1,7 @@
 package com.aether.agent.entity;
 
-import com.baomidou.mybatisplus.annotation.TableName;
 import com.aether.entity.BaseEntity;
+import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
@@ -33,7 +33,9 @@ public class AgentRun extends BaseEntity {
     @ApiModelProperty(value = "持续 Agent 任务 ID")
     private String taskId;
 
-    /** 同一 Task 的第几次执行尝试；恢复/补充输入创建新 Run 时递增。 */
+    /**
+     * 同一 Task 的第几次执行尝试；恢复/补充输入创建新 Run 时递增。
+     */
     @ApiModelProperty(value = "Task execution attempt number")
     private Integer attemptNo;
 
@@ -82,7 +84,9 @@ public class AgentRun extends BaseEntity {
     @ApiModelProperty(value = "Execution mode: STANDARD or DEEP")
     private String executionMode;
 
-    /** 本次运行冻结的 Skill、工具和知识库作用域快照 JSON。 */
+    /**
+     * 本次运行冻结的 Skill、工具和知识库作用域快照 JSON。
+     */
     @ApiModelProperty(value = "Resolved Skill context snapshot JSON")
     private String skillSnapshot;
 }

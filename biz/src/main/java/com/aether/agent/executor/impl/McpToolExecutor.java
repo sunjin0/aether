@@ -32,6 +32,9 @@ public class McpToolExecutor implements ToolExecutor {
     private final AgentMcpServerService agentMcpServerService;
     private final DelegationTokenService delegationTokenService;
 
+    /**
+     * 创建 {@code McpToolExecutor} 实例。
+     */
     public McpToolExecutor(McpClient mcpClient, AgentMcpServerService agentMcpServerService,
                            DelegationTokenService delegationTokenService) {
         this.mcpClient = mcpClient;
@@ -39,11 +42,17 @@ public class McpToolExecutor implements ToolExecutor {
         this.delegationTokenService = delegationTokenService;
     }
 
+    /**
+     * 处理supports。
+     */
     @Override
     public boolean supports(String toolType) {
         return StringUtils.isBlank(toolType) || "mcp".equalsIgnoreCase(toolType);
     }
 
+    /**
+     * 执行当前请求。
+     */
     @Override
     public ToolExecutionResult execute(ToolExecutionContext context) {
         AgentTool tool = context.getTool();
@@ -71,11 +80,11 @@ public class McpToolExecutor implements ToolExecutor {
             ToolExecutionResult result = mcpError
                     ? ToolExecutionResult.failure(truncate(extractContent(response), 4096), 1)
                     : ToolExecutionResult.success(
-                            truncate(extractContent(response), 4096),
-                            truncate(response.toJSONString(), MAX_RESPONSE_BODY),
-                            200,
-                            (int) latencyMs
-                    );
+                    truncate(extractContent(response), 4096),
+                    truncate(response.toJSONString(), MAX_RESPONSE_BODY),
+                    200,
+                    (int) latencyMs
+            );
             if (mcpError) {
                 result.setRawResponse(truncate(response.toJSONString(), MAX_RESPONSE_BODY));
                 result.setHttpStatus(200);
@@ -93,6 +102,9 @@ public class McpToolExecutor implements ToolExecutor {
         }
     }
 
+    /**
+     * 构建Server。
+     */
     private AgentMcpServer buildServer(AgentTool tool) {
         if (StringUtils.isBlank(tool.getMcpServerId())) {
             throw new ServerException(422, I18nUtils.getMessage("agent.mcp.service.required"));
@@ -111,7 +123,9 @@ public class McpToolExecutor implements ToolExecutor {
         return server;
     }
 
-    /** 普通 Agent 与 Deep Agent 使用相同的 Java 委派 JWT，MCP 仅接受当前运行允许的工具。 */
+    /**
+     * 普通 Agent 与 Deep Agent 使用相同的 Java 委派 JWT，MCP 仅接受当前运行允许的工具。
+     */
     private String applyDelegationToken(AgentMcpServer server, ToolExecutionContext context, AgentTool tool) {
         if (StringUtils.isAnyBlank(context.getRunId(), context.getUserId(), context.getAgentDefinitionId())) {
             throw new ServerException(422, I18nUtils.getMessage("agent.mcp.delegation-context.required"));
@@ -130,6 +144,9 @@ public class McpToolExecutor implements ToolExecutor {
         return token;
     }
 
+    /**
+     * 处理maskAuthorization。
+     */
     private String maskAuthorization(String headersJson) {
         if (StringUtils.isBlank(headersJson)) {
             return headersJson;
@@ -147,6 +164,9 @@ public class McpToolExecutor implements ToolExecutor {
         }
     }
 
+    /**
+     * 校验Server。
+     */
     private void validateServer(AgentMcpServer server) {
         if (StringUtils.isBlank(server.getBaseUrl())) {
             throw new ServerException(422, I18nUtils.getMessage("agent.mcp.endpoint.required"));
@@ -156,6 +176,9 @@ public class McpToolExecutor implements ToolExecutor {
         }
     }
 
+    /**
+     * 处理extractContent。
+     */
     private String extractContent(JSONObject response) {
         if (response == null) {
             return "";
@@ -186,6 +209,9 @@ public class McpToolExecutor implements ToolExecutor {
         return builder.toString();
     }
 
+    /**
+     * 处理failure。
+     */
     private ToolExecutionResult failure(String requestUrl, String requestBody, String message, long startTime) {
         ToolExecutionResult result = ToolExecutionResult.failure(message, 1);
         result.setRequestUrl(requestUrl);
@@ -195,6 +221,9 @@ public class McpToolExecutor implements ToolExecutor {
         return result;
     }
 
+    /**
+     * 处理truncate。
+     */
     private String truncate(String value, int maxLength) {
         if (value == null || value.length() <= maxLength) {
             return value;

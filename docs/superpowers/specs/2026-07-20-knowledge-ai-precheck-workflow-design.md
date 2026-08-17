@@ -2,7 +2,8 @@
 
 ## 目标
 
-将 AI 审查定位为文档上传后的预检和改稿辅助，而不是对最终正文的准入校验。作者可以接受 AI 补丁或自行修改正文，不会因此被要求再次进行 AI 审查；最终内容质量由人工审批负责。
+将 AI 审查定位为文档上传后的预检和改稿辅助，而不是对最终正文的准入校验。作者可以接受 AI 补丁或自行修改正文，不会因此被要求再次进行
+AI 审查；最终内容质量由人工审批负责。
 
 ## 范围
 
@@ -28,7 +29,8 @@
 
 ## 状态规则
 
-`AI_REVIEWED` 表示该版本已成功完成 AI 预检，不表示当前正文 checksum 必须与 AI 审查快照一致。AI 必审场景下，所有 AI 问题都已处理是独立的提交条件。
+`AI_REVIEWED` 表示该版本已成功完成 AI 预检，不表示当前正文 checksum 必须与 AI 审查快照一致。AI 必审场景下，所有 AI
+问题都已处理是独立的提交条件。
 
 ```text
 DRAFT -> AI_REVIEWING：发起 AI 预检
@@ -40,7 +42,8 @@ DRAFT -> SUBMITTED：知识库未启用 AI 必审时提交
 SUBMITTED -> APPROVED | REJECTED：人工审批决定
 ```
 
-`AI_REVIEWING` 时草稿只读，确保正在执行的 AI 请求具有稳定的内容快照。进入 `AI_REVIEWED` 后允许修改正文，并持续保持 `AI_REVIEWED`。
+`AI_REVIEWING` 时草稿只读，确保正在执行的 AI 请求具有稳定的内容快照。进入 `AI_REVIEWED` 后允许修改正文，并持续保持
+`AI_REVIEWED`。
 
 ## 问题处理
 
@@ -67,15 +70,19 @@ SUBMITTED -> APPROVED | REJECTED：人工审批决定
 2. 当前版本状态为 `AI_REVIEWED`。
 3. 最近一次成功预检不存在 `handleStatus = pending` 的问题。
 
-提交时不比较成功审查记录的 `sourceChecksum` 与当前版本 checksum。因此，应用 AI 建议或后续手动修改正文均不会触发新的预检要求。未成功完成的失败或过期审查会使版本保持 `DRAFT`，不能满足 AI 必审条件。
+提交时不比较成功审查记录的 `sourceChecksum` 与当前版本 checksum。因此，应用 AI 建议或后续手动修改正文均不会触发新的预检要求。未成功完成的失败或过期审查会使版本保持
+`DRAFT`，不能满足 AI 必审条件。
 
 ## 后端调整
 
-`KnowledgeDocumentWorkflowServiceImpl.updateDraft` 更新完成预检的草稿时保留 `AI_REVIEWED`。该方法仍更新 `contentChecksum`，并通过 `expectedChecksum` 保持乐观并发控制；原本为 `DRAFT` 的版本编辑后仍为 `DRAFT`。
+`KnowledgeDocumentWorkflowServiceImpl.updateDraft` 更新完成预检的草稿时保留 `AI_REVIEWED`。该方法仍更新 `contentChecksum`
+，并通过 `expectedChecksum` 保持乐观并发控制；原本为 `DRAFT` 的版本编辑后仍为 `DRAFT`。
 
-`KnowledgeAiReviewController.applyAcceptedIssues` 继续调用 `updateDraft`，但应用后的版本状态保持 `AI_REVIEWED`，并返回 `requiresAiReview = false`。
+`KnowledgeAiReviewController.applyAcceptedIssues` 继续调用 `updateDraft`，但应用后的版本状态保持 `AI_REVIEWED`，并返回
+`requiresAiReview = false`。
 
-`KnowledgeDocumentWorkflowServiceImpl.submit` 校验当前版本存在成功 AI 预检记录，并且没有待处理问题；不得仅因审查快照 checksum 与当前正文不同而拒绝提交。
+`KnowledgeDocumentWorkflowServiceImpl.submit` 校验当前版本存在成功 AI 预检记录，并且没有待处理问题；不得仅因审查快照
+checksum 与当前正文不同而拒绝提交。
 
 问题操作接口保持现有权限、状态迁移和审计校验；手动处理接口继续支持 `manually_fixed`。
 
@@ -83,9 +90,11 @@ SUBMITTED -> APPROVED | REJECTED：人工审批决定
 
 上传或新建后进入文档工作台；AI 预检处于 `pending` 或 `running` 时进行轮询。预检完成后显示“AI 预检完成”，不得暗示该文档已经获得最终审批。
 
-Diff 工作台支持接受建议、在允许时批量接受、应用已接受补丁、拒绝或忽略建议，以及编辑正文后标记问题为手动修复。保存编辑或应用补丁后，刷新正文和 checksum，但不提示用户重新进行 AI 审查。
+Diff 工作台支持接受建议、在允许时批量接受、应用已接受补丁、拒绝或忽略建议，以及编辑正文后标记问题为手动修复。保存编辑或应用补丁后，刷新正文和
+checksum，但不提示用户重新进行 AI 审查。
 
-AI 必审时，仅当预检问题不存在 `pending` 项，前端才允许发起提交。收到 `409` 时，展示服务端消息并重新加载文档版本和最新审查记录，不能使用过期 checksum 静默重试。
+AI 必审时，仅当预检问题不存在 `pending` 项，前端才允许发起提交。收到 `409` 时，展示服务端消息并重新加载文档版本和最新审查记录，不能使用过期
+checksum 静默重试。
 
 ## 异常处理与审计
 

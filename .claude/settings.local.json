@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mvn *)"
+      "Bash(mvn *)",
+      "Bash(grep -n -A2 '^name = \"langchain\"$' \"C:\\\\Users\\\\23672\\\\PycharmProjects\\\\aether-deep-agent-service\\\\uv.lock\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST http://localhost:8080/api/sys/verify -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST http://localhost:8001/api/sys/verify -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(docker exec *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8001/)"
     ]
   }
 }

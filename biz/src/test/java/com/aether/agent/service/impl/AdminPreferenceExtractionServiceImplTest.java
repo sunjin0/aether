@@ -31,6 +31,9 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证管理员偏好Extraction服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class AdminPreferenceExtractionServiceImplTest {
 
@@ -51,6 +54,9 @@ class AdminPreferenceExtractionServiceImplTest {
     private AgentDefinition agent;
     private ModelProvider provider;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() throws Exception {
         service = new AdminPreferenceExtractionServiceImpl();
@@ -63,6 +69,9 @@ class AdminPreferenceExtractionServiceImplTest {
         provider = new ModelProvider();
     }
 
+    /**
+     * 处理ordinary会话判断是否为MarkedProcessedWithoutCalling模型。
+     */
     @Test
     void ordinaryConversationIsMarkedProcessedWithoutCallingModel() {
         AgentMessage user = message("00001", 1L, "user", "解释一下这个方法");
@@ -84,6 +93,9 @@ class AdminPreferenceExtractionServiceImplTest {
         assertEquals("conversation-1", eventCaptor.getValue().getConversationId());
     }
 
+    /**
+     * 处理explicit偏好UsesCanonicalIdentityAndInvalidates缓存。
+     */
     @Test
     void explicitPreferenceUsesCanonicalIdentityAndInvalidatesCache() {
         AgentMessage user = message("00003", 3L, "user", "企业版呢？");
@@ -116,6 +128,9 @@ class AdminPreferenceExtractionServiceImplTest {
                 eq("conversation-1"));
     }
 
+    /**
+     * 处理repeated偏好Records会话Evidence。
+     */
     @Test
     void repeatedPreferenceRecordsConversationEvidence() {
         AgentMessage user = message("00005", 5L, "user", "以后总是用中文回答");
@@ -154,6 +169,9 @@ class AdminPreferenceExtractionServiceImplTest {
         assertEquals("conversation-1", evidence.getConversationId());
     }
 
+    /**
+     * 消息当前请求。
+     */
     private AgentMessage message(String id, Long createdAt, String role, String content) {
         AgentMessage message = new AgentMessage();
         message.setId(id);
@@ -166,6 +184,9 @@ class AdminPreferenceExtractionServiceImplTest {
         return message;
     }
 
+    /**
+     * 处理setField。
+     */
     private void setField(String name, Object value) throws Exception {
         Field field = AdminPreferenceExtractionServiceImpl.class.getDeclaredField(name);
         field.setAccessible(true);

@@ -125,4 +125,5 @@ $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 & "C:\Users\23672\.m2\wrapper\dists\apache-maven-3.9.10-bin\53h08a94dg6djh6umvruv7q564\apache-maven-3.9.10\bin\mvn.cmd" clean compile -DskipTests
 ```
 
-手动验证需要先配置可用的 `agent_model_provider` 和启用状态的 `agent_definition`。使用有效 Bearer Token 调用 `POST /api/agent/chat` 后，应确认数据库中创建或更新会话、写入两条消息，并生成一条运行记录。
+手动验证需要先配置可用的 `agent_model_provider` 和启用状态的 `agent_definition`。使用有效 Bearer Token 调用
+`POST /api/agent/chat` 后，应确认数据库中创建或更新会话、写入两条消息，并生成一条运行记录。

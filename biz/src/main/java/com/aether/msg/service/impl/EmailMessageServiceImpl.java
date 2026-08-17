@@ -36,11 +36,17 @@ public class EmailMessageServiceImpl extends ServiceImpl<EmailMessageMapper, Ema
     @Autowired
     private DictService dictService;
 
+    /**
+     * 获取按Id。
+     */
     @Override
     public Email getById(Long id) throws ServerException {
         return super.getById(id);
     }
 
+    /**
+     * 获取按用户Id。
+     */
     @Override
     public Email getByUserId(String userId) throws ServerException {
         this.list(Wrappers.lambdaQuery(Email.class)
@@ -50,6 +56,9 @@ public class EmailMessageServiceImpl extends ServiceImpl<EmailMessageMapper, Ema
         return null;
     }
 
+    /**
+     * 查询当前请求。
+     */
     @Override
     public Page<Email> list(EmailVo message) throws ServerException {
         return super.page(new Page<>(message.getCurrent(), message.getPageSize()),
@@ -64,6 +73,9 @@ public class EmailMessageServiceImpl extends ServiceImpl<EmailMessageMapper, Ema
                         .orderByDesc(Email::getCreatedAt));
     }
 
+    /**
+     * 发送当前请求。
+     */
     @Transactional(rollbackFor = Exception.class)
     @Override
     public Boolean send(Email message) throws ServerException {
@@ -87,12 +99,18 @@ public class EmailMessageServiceImpl extends ServiceImpl<EmailMessageMapper, Ema
         return true;
     }
 
+    /**
+     * 处理Async发送。
+     */
     @Async
     @Override
     public void AsyncSend(Email message) throws ServerException {
         send(message);
     }
 
+    /**
+     * 更新当前请求。
+     */
     @Override
     public Boolean update(Email message) throws ServerException {
         return this.updateById(message);

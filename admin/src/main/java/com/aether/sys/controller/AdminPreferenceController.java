@@ -28,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 提供管理员偏好相关的 REST 接口。
+ */
 @Api(tags = "用户偏好 API")
 @Validated
 @RestController
@@ -38,12 +41,18 @@ public class AdminPreferenceController {
     private final AdminPreferenceService adminPreferenceService;
     private final AdminPreferenceEventService adminPreferenceEventService;
 
+    /**
+     * 创建 {@code AdminPreferenceController} 实例。
+     */
     public AdminPreferenceController(AdminPreferenceService adminPreferenceService,
                                      AdminPreferenceEventService adminPreferenceEventService) {
         this.adminPreferenceService = adminPreferenceService;
         this.adminPreferenceEventService = adminPreferenceEventService;
     }
 
+    /**
+     * 用户偏好列表。
+     */
     @ApiOperation("用户偏好列表")
     @PostMapping("/list")
     public WebResponse<List<AdminPreferenceVo>> list(@RequestBody AdminPreferenceVo vo) {
@@ -65,6 +74,9 @@ public class AdminPreferenceController {
         return WebResponse.Page(list, result.getTotal());
     }
 
+    /**
+     * 详情当前请求。
+     */
     @ApiOperation("用户偏好详情")
     @GetMapping("/{id}")
     public WebResponse<AdminPreferenceVo> detail(@PathVariable @NotBlank String id) {
@@ -74,6 +86,9 @@ public class AdminPreferenceController {
         return WebResponse.OK(vo);
     }
 
+    /**
+     * 保存当前请求。
+     */
     @ApiOperation("新增用户偏好")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PostMapping
@@ -103,6 +118,9 @@ public class AdminPreferenceController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("system.preference.create.success") : I18nUtils.getMessage("system.preference.create.fail"), preference.getId());
     }
 
+    /**
+     * 更新当前请求。
+     */
     @ApiOperation("编辑用户偏好")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PutMapping("/{id}")
@@ -116,6 +134,9 @@ public class AdminPreferenceController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("system.preference.update.success") : I18nUtils.getMessage("system.preference.update.fail"));
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("删除用户偏好")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
@@ -125,6 +146,9 @@ public class AdminPreferenceController {
         return WebResponse.OK(removed ? I18nUtils.getMessage("system.preference.delete.success") : I18nUtils.getMessage("system.preference.delete.fail"));
     }
 
+    /**
+     * 更新状态。
+     */
     @ApiOperation("启用/禁用用户偏好")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
@@ -137,6 +161,9 @@ public class AdminPreferenceController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("system.preference.status.update.success") : I18nUtils.getMessage("system.preference.status.update.fail"));
     }
 
+    /**
+     * 确认偏好。
+     */
     @ApiOperation("确认偏好")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PostMapping("/{id}/feedback")
@@ -153,6 +180,9 @@ public class AdminPreferenceController {
         return WebResponse.OK(I18nUtils.getMessage("system.preference.confirm.success"));
     }
 
+    /**
+     * 拒绝当前请求。
+     */
     @ApiOperation("拒绝偏好")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @DeleteMapping("/{id}/feedback")
@@ -164,6 +194,9 @@ public class AdminPreferenceController {
         return WebResponse.OK(I18nUtils.getMessage("system.preference.reject.success"));
     }
 
+    /**
+     * 覆盖偏好值。
+     */
     @ApiOperation("覆盖偏好值")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PutMapping("/{id}/override")
@@ -192,6 +225,9 @@ public class AdminPreferenceController {
         return WebResponse.OK(I18nUtils.getMessage("system.preference.override.success"));
     }
 
+    /**
+     * 偏好统计。
+     */
     @ApiOperation("偏好统计")
     @GetMapping("/statistics")
     public WebResponse<Map<String, Object>> statistics() {
@@ -212,6 +248,9 @@ public class AdminPreferenceController {
         return WebResponse.OK(data);
     }
 
+    /**
+     * 处理logFeedback事件。
+     */
     private void logFeedbackEvent(AdminPreference preference, String eventType) {
         AdminPreferenceEvent event = new AdminPreferenceEvent();
         event.setAdminId(preference.getAdminId());
@@ -224,6 +263,9 @@ public class AdminPreferenceController {
         adminPreferenceEventService.logEvent(event);
     }
 
+    /**
+     * 获取Existing。
+     */
     private AdminPreference getExisting(String id) {
         AdminPreference preference = adminPreferenceService.getOne(
                 Wrappers.lambdaQuery(AdminPreference.class)
@@ -236,6 +278,9 @@ public class AdminPreferenceController {
         return preference;
     }
 
+    /**
+     * 当前管理员Id。
+     */
     private String currentAdminId() {
         HashMap<String, String> user = CurrentUser.getUser();
         return user == null ? null : user.get("userId");

@@ -11,8 +11,14 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
+/**
+ * 验证工作流回调服务的行为。
+ */
 class WorkflowCallbackServiceTest {
 
+    /**
+     * 处理acceptsOnlyEnabledAllowlistedHttpCallbacksWithSigningSecret。
+     */
     @Test
     void acceptsOnlyEnabledAllowlistedHttpCallbacksWithSigningSecret() {
         WorkflowCallbackProperties properties = new WorkflowCallbackProperties();
@@ -26,6 +32,9 @@ class WorkflowCallbackServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.validateCallbackUrl("file:///tmp/events"));
     }
 
+    /**
+     * 处理rejects回调WhenSigningSecret判断是否为Missing。
+     */
     @Test
     void rejectsCallbackWhenSigningSecretIsMissing() {
         WorkflowCallbackProperties properties = new WorkflowCallbackProperties();

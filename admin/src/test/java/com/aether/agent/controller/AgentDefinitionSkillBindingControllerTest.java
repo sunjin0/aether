@@ -17,11 +17,17 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证智能体DefinitionSkillBinding控制器的行为。
+ */
 class AgentDefinitionSkillBindingControllerTest {
 
     private final AgentSkillService skillService = mock(AgentSkillService.class);
     private final AgentDefinitionSkillBindingController controller = new AgentDefinitionSkillBindingController(skillService);
 
+    /**
+     * 查询ReturnsBindings。
+     */
     @Test
     void listReturnsBindings() {
         AgentDefinitionSkillBinding binding = new AgentDefinitionSkillBinding();
@@ -37,6 +43,9 @@ class AgentDefinitionSkillBindingControllerTest {
         assertEquals("v1", response.getData().get(0).getSkillVersionId());
     }
 
+    /**
+     * 处理installReturnsBindingId。
+     */
     @Test
     void installReturnsBindingId() {
         when(skillService.install(eq("a1"), any(AgentSkillInstallDto.class))).thenReturn("b1");
@@ -49,6 +58,9 @@ class AgentDefinitionSkillBindingControllerTest {
         assertEquals("b1", response.getData());
     }
 
+    /**
+     * 更新Delegates。
+     */
     @Test
     void updateDelegates() {
         AgentSkillBindingUpdateDto dto = new AgentSkillBindingUpdateDto();
@@ -60,6 +72,9 @@ class AgentDefinitionSkillBindingControllerTest {
         verify(skillService).updateBinding("a1", "b1", dto);
     }
 
+    /**
+     * 删除Delegates。
+     */
     @Test
     void deleteDelegates() {
         WebResponse<Void> response = controller.delete("a1", "b1");

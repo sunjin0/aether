@@ -1,10 +1,13 @@
 package com.aether.msg.vo;
 
-import  com.aether.msg.entity.Email;
+import com.aether.msg.entity.Email;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 
+/**
+ * 表示EmailVO。
+ */
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class EmailVo extends Email {

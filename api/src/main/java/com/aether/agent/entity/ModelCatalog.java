@@ -6,7 +6,9 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
-/** A selectable model published by a provider. Capabilities are comma-separated enum values. */
+/**
+ * A selectable model published by a provider. Capabilities are comma-separated enum values.
+ */
 @Data
 @Accessors(chain = true)
 @EqualsAndHashCode(callSuper = true)

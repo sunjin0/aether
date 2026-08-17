@@ -3,11 +3,17 @@ package com.aether;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+/**
+ * 表示FrontApplication。
+ */
 @SpringBootApplication
-public class  FrontApplication {
+public class FrontApplication {
 
-public static void main(String[] args) {
-        SpringApplication.run( FrontApplication.class, args);
-}
+    /**
+     * 启动应用程序。
+     */
+    public static void main(String[] args) {
+        SpringApplication.run(FrontApplication.class, args);
+    }
 
 }

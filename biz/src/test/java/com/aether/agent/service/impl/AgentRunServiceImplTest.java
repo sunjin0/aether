@@ -17,6 +17,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证智能体运行服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class AgentRunServiceImplTest {
 
@@ -25,6 +28,9 @@ class AgentRunServiceImplTest {
 
     private AgentRunServiceImpl service;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() throws Exception {
         service = new AgentRunServiceImpl();
@@ -33,6 +39,9 @@ class AgentRunServiceImplTest {
         baseMapperField.set(service, agentRunMapper);
     }
 
+    /**
+     * 处理statisticsAggregatesRuns。
+     */
     @Test
     void statisticsAggregatesRuns() {
         AgentRun success = run(0, 10, 20, 30, 100);
@@ -55,6 +64,9 @@ class AgentRunServiceImplTest {
         assertEquals(2.0 / 3.0, result.getErrorRate());
     }
 
+    /**
+     * 执行当前任务。
+     */
     private AgentRun run(Integer status, Integer promptTokens, Integer completionTokens,
                          Integer totalTokens, Integer latencyMs) {
         AgentRun run = new AgentRun();

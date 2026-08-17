@@ -34,6 +34,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.eq;
 
+/**
+ * 验证Deep智能体回调控制器的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class DeepAgentCallbackControllerTest {
 
@@ -61,6 +64,9 @@ class DeepAgentCallbackControllerTest {
     @Mock
     private ModelCatalogService modelCatalogService;
 
+    /**
+     * 处理completed回调SendsStructuredDoneResponseAndRemoves回调。
+     */
     @Test
     void completedCallbackSendsStructuredDoneResponseAndRemovesCallback() {
         when(deepAgentRunService.completeRun("run-1", "final answer", "deep-model", 12, 8, 20,
@@ -100,6 +106,9 @@ class DeepAgentCallbackControllerTest {
         assertFalse(activeCallbacks.containsKey("run-1"));
     }
 
+    /**
+     * 处理completed回调SendsPersisted运行会话And消息Ids。
+     */
     @Test
     void completedCallbackSendsPersistedRunConversationAndMessageIds() {
         when(deepAgentRunService.completeRun("run-1", "final answer", "deep-model", 12, 8, 20,
@@ -117,6 +126,9 @@ class DeepAgentCallbackControllerTest {
                 org.mockito.ArgumentMatchers.any(ModelStreamResponse.class));
     }
 
+    /**
+     * 处理staleCompleted回调DoesNot发送DoneOr移除Active回调。
+     */
     @Test
     void staleCompletedCallbackDoesNotSendDoneOrRemoveActiveCallback() {
         when(deepAgentRunService.completeRun("run-1", "late answer", "deep-model", null, null, null,
@@ -135,6 +147,9 @@ class DeepAgentCallbackControllerTest {
         assertEquals(streamCallback, activeCallbacks.get("run-1"));
     }
 
+    /**
+     * 处理staleFailed回调DoesNot发送ErrorOr移除Active回调。
+     */
     @Test
     void staleFailedCallbackDoesNotSendErrorOrRemoveActiveCallback() throws Exception {
         when(config.getKeyId()).thenReturn("key-1");
@@ -164,6 +179,9 @@ class DeepAgentCallbackControllerTest {
         assertEquals(streamCallback, activeCallbacks.get("run-1"));
     }
 
+    /**
+     * 处理planApprovalRequiredCreatesPlanApprovalInteraction。
+     */
     @Test
     void planApprovalRequiredCreatesPlanApprovalInteraction() throws Exception {
         when(config.getKeyId()).thenReturn("key-1");
@@ -197,6 +215,9 @@ class DeepAgentCallbackControllerTest {
         verify(streamCallback).onQuestion(eq("conversation-1"), eq("run-1"), org.mockito.ArgumentMatchers.any());
     }
 
+    /**
+     * 处理stepStarted回调MarksStepRunning。
+     */
     @Test
     void stepStartedCallbackMarksStepRunning() throws Exception {
         when(config.getKeyId()).thenReturn("key-1");
@@ -220,6 +241,9 @@ class DeepAgentCallbackControllerTest {
         verify(planService).markStepRunning("run-1", 3);
     }
 
+    /**
+     * 处理malformedSignature判断是否为RejectedBefore回调Processing。
+     */
     @Test
     void malformedSignatureIsRejectedBeforeCallbackProcessing() {
         when(config.getKeyId()).thenReturn("key-1");
@@ -239,6 +263,9 @@ class DeepAgentCallbackControllerTest {
                 org.mockito.ArgumentMatchers.anyString());
     }
 
+    /**
+     * 处理signature。
+     */
     private String signature(String secret, String payload) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
@@ -248,6 +275,9 @@ class DeepAgentCallbackControllerTest {
         return hex.toString();
     }
 
+    /**
+     * 控制器当前请求。
+     */
     private DeepAgentCallbackController controller() {
         return new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config, planService,
                 agentDefinitionService, modelProviderService, modelCatalogService);

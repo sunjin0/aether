@@ -27,6 +27,9 @@ public class WorkflowExecutionJobDispatcher {
     private final AgentWorkflowExecutionService executionService;
     private final TaskExecutor taskExecutor;
 
+    /**
+     * 创建 {@code WorkflowExecutionJobDispatcher} 实例。
+     */
     public WorkflowExecutionJobDispatcher(AgentWorkflowExecutionJobService jobService,
                                           @Lazy AgentWorkflowExecutionService executionService,
                                           @Qualifier("asyncPoolTaskExecutor") TaskExecutor taskExecutor,
@@ -37,7 +40,9 @@ public class WorkflowExecutionJobDispatcher {
         this.maxAttempts = Math.max(1, maxAttempts);
     }
 
-    /** 同一实例同时只保留一个待处理任务；已完成任务不妨碍下一次重试创建新任务。 */
+    /**
+     * 同一实例同时只保留一个待处理任务；已完成任务不妨碍下一次重试创建新任务。
+     */
     public void enqueueAfterCommit(final String instanceId) {
         if (StringUtils.isBlank(instanceId)) return;
         long now = System.currentTimeMillis();
@@ -47,19 +52,45 @@ public class WorkflowExecutionJobDispatcher {
                 .eq(AgentWorkflowExecutionJob::getDeleted, false).last("LIMIT 1"));
         if (existing == null) {
             AgentWorkflowExecutionJob job = new AgentWorkflowExecutionJob();
-            job.setInstanceId(instanceId); job.setStatus("PENDING"); job.setAttemptCount(0); job.setNextAttemptAt(now);
+            job.setInstanceId(instanceId);
+            job.setStatus("PENDING");
+            job.setAttemptCount(0);
+            job.setNextAttemptAt(now);
             jobService.save(job);
         }
-        Runnable submit = new Runnable() { @Override public void run() { taskExecutor.execute(new Runnable() {
-            @Override public void run() { processInstance(instanceId); }
-        }); }};
+        Runnable submit = new Runnable() {
+            /**
+             * 执行当前任务。
+             */
+            @Override
+            public void run() {
+                taskExecutor.execute(new Runnable() {
+                    /**
+                     * 执行当前任务。
+                     */
+                    @Override
+                    public void run() {
+                        processInstance(instanceId);
+                    }
+                });
+            }
+        };
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() { submit.run(); }
+                /**
+                 * 处理afterCommit。
+                 */
+                @Override
+                public void afterCommit() {
+                    submit.run();
+                }
             });
         } else submit.run();
     }
 
+    /**
+     * 处理DueJobs。
+     */
     @Scheduled(fixedDelayString = "${aether.workflow.execution.scan-interval-ms:1000}", initialDelay = 5000L)
     public void processDueJobs() {
         long now = System.currentTimeMillis();
@@ -67,11 +98,21 @@ public class WorkflowExecutionJobDispatcher {
                 .and(w -> w.eq(AgentWorkflowExecutionJob::getStatus, "PENDING").le(AgentWorkflowExecutionJob::getNextAttemptAt, now)
                         .or().eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING").le(AgentWorkflowExecutionJob::getLockedAt, now - LEASE_MILLIS))
                 .eq(AgentWorkflowExecutionJob::getDeleted, false).orderByAsc(AgentWorkflowExecutionJob::getNextAttemptAt).last("LIMIT 20"));
-        for (final AgentWorkflowExecutionJob job : jobs) taskExecutor.execute(new Runnable() {
-            @Override public void run() { processJob(job.getId()); }
-        });
+        for (final AgentWorkflowExecutionJob job : jobs)
+            taskExecutor.execute(new Runnable() {
+                /**
+                 * 执行当前任务。
+                 */
+                @Override
+                public void run() {
+                    processJob(job.getId());
+                }
+            });
     }
 
+    /**
+     * 处理Instance。
+     */
     private void processInstance(String instanceId) {
         AgentWorkflowExecutionJob job = jobService.getOne(Wrappers.lambdaQuery(AgentWorkflowExecutionJob.class)
                 .eq(AgentWorkflowExecutionJob::getInstanceId, instanceId).eq(AgentWorkflowExecutionJob::getStatus, "PENDING")
@@ -79,6 +120,9 @@ public class WorkflowExecutionJobDispatcher {
         if (job != null) processJob(job.getId());
     }
 
+    /**
+     * 处理Job。
+     */
     private void processJob(String jobId) {
         long now = System.currentTimeMillis();
         boolean claimed = jobService.update(new LambdaUpdateWrapper<AgentWorkflowExecutionJob>()
@@ -112,7 +156,9 @@ public class WorkflowExecutionJobDispatcher {
         }
     }
 
-    /** 10 秒起步、指数退避，上限 5 分钟，避免故障时密集冲击模型或数据库。 */
+    /**
+     * 10 秒起步、指数退避，上限 5 分钟，避免故障时密集冲击模型或数据库。
+     */
     private long retryDelayMillis(int attempts) {
         int exponent = Math.min(Math.max(0, attempts - 1), 5);
         return Math.min(300000L, 10000L * (1L << exponent));

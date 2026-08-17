@@ -1,9 +1,12 @@
 package com.aether.workflow.vo;
 
 import lombok.Data;
+
 import java.util.List;
 
-/** 两个发布版本的结构化差异，供管理端展示和审计。 */
+/**
+ * 两个发布版本的结构化差异，供管理端展示和审计。
+ */
 @Data
 public class AgentWorkflowVersionDiffVo {
     private Integer fromVersion;

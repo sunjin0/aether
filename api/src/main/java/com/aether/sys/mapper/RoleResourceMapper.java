@@ -1,8 +1,8 @@
 package com.aether.sys.mapper;
 
 
+import com.aether.sys.entity.RoleResource;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import  com.aether.sys.entity.RoleResource;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

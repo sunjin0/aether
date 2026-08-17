@@ -12,6 +12,9 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 
+/**
+ * 表示Deep智能体SigningClient。
+ */
 @Component
 public class DeepAgentSigningClient {
     private static final Logger log = LoggerFactory.getLogger(DeepAgentSigningClient.class);
@@ -20,11 +23,17 @@ public class DeepAgentSigningClient {
     private final DeepAgentConfig config;
     private final RestTemplate restTemplate;
 
+    /**
+     * 创建 {@code DeepAgentSigningClient} 实例。
+     */
     public DeepAgentSigningClient(DeepAgentConfig config) {
         this.config = config;
         this.restTemplate = new RestTemplate();
     }
 
+    /**
+     * 处理signedPost。
+     */
     public <T> ResponseEntity<String> signedPost(String path, T body) {
         String url = config.getBaseUrl().replaceAll("/$", "") + path;
         byte[] bodyBytes = JSON.toJSONBytes(body);
@@ -47,6 +56,9 @@ public class DeepAgentSigningClient {
         return response;
     }
 
+    /**
+     * 处理hmacSha256。
+     */
     private String hmacSha256(String secret, String payload) {
         try {
             Mac mac = Mac.getInstance(HMAC_ALGORITHM);

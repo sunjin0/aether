@@ -11,7 +11,8 @@
 - `V1__init.sql`：完整初始化（建表 + 种子数据 + 公共索引 + pgvector）。
 - `V2`~`V37`：增量变更（会话摘要字段、Deep Agent、混合检索、检索评测、服务账号、工作流运行时、触发器、菜单/权限种子及评测可靠性增强）。
 
-Admin/Front 启动时自动执行迁移；相关配置见 `admin/src/main/resources/application.yml` 的 `spring.flyway` 块（locations、baseline-on-migrate、validate-on-migrate）。
+Admin/Front 启动时自动执行迁移；相关配置见 `admin/src/main/resources/application.yml` 的 `spring.flyway`
+块（locations、baseline-on-migrate、validate-on-migrate）。
 
 ### 本地初始化（PostgreSQL 16 + pgvector）
 
@@ -39,6 +40,7 @@ mvn -pl admin org.springframework.boot:spring-boot-maven-plugin:2.7.18:run -Dspr
 ## 应用配置要点
 
 ### Deep Agent 集成（生产）
+
 ```env
 AETHER_DEEP_AGENT_BASE_URL=
 AETHER_DEEP_AGENT_SHARED_SECRET=
@@ -48,6 +50,7 @@ AETHER_DEEP_AGENT_RUN_TIMEOUT_SECONDS=600
 ```
 
 ### 业务工作流回调（默认关闭）
+
 ```env
 AETHER_WORKFLOW_CALLBACK_ENABLED=true
 AETHER_WORKFLOW_CALLBACK_ALLOWED_HOSTS=workflow.example.com
@@ -55,16 +58,19 @@ AETHER_WORKFLOW_CALLBACK_SIGNING_SECRET=replace-with-a-long-random-secret
 ```
 
 ### 服务账号令牌
+
 ```env
 AETHER_SERVICE_ACCOUNT_ACCESS_TOKEN_SECONDS=900   # 最大 3600
 ```
 
 ### 存储
+
 ```env
 MINIO_ENDPOINT= MINIO_PUBLIC_ENDPOINT= MINIO_ACCESS_KEY= MINIO_SECRET_KEY=
 ```
 
 ### 文档解析
+
 `docling.service.url`（默认 `http://127.0.0.1:8000`）用于 PDF/DOCX 结构化解析与 XLSX 导入；未配置时退化为内置解析。
 
 ---

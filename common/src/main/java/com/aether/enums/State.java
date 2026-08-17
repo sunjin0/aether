@@ -3,6 +3,9 @@ package com.aether.enums;
 import lombok.Getter;
 
 
+/**
+ * 表示State。
+ */
 @Getter
 public enum State {
     /**
@@ -27,6 +30,9 @@ public enum State {
 
     private final int code;
 
+    /**
+     * 创建 {@code State} 实例。
+     */
     State(int state) {
         this.code = state;
     }

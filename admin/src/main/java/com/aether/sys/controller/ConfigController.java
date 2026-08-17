@@ -1,6 +1,7 @@
 package com.aether.sys.controller;
 
 import java.util.List;
+
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aether.permission.Permission;
 import com.aether.sys.service.ConfigService;
@@ -18,6 +19,9 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotNull;
 
+/**
+ * 提供配置相关的 REST 接口。
+ */
 @Api(value = "系统配置服务 API")
 @Validated
 @RestController
@@ -25,10 +29,17 @@ import javax.validation.constraints.NotNull;
 @RequestMapping("/api/sys/config")
 public class ConfigController {
     private final ConfigService configService;
+
+    /**
+     * 创建 {@code ConfigController} 实例。
+     */
     public ConfigController(ConfigService configService) {
         this.configService = configService;
     }
 
+    /**
+     * 查询当前请求。
+     */
     @ApiOperation(value = "获取配置列表")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -38,11 +49,19 @@ public class ConfigController {
         Page<ConfigVo> list = configService.list(config);
         return WebResponse.Page(list.getRecords(), list.getTotal());
     }
+
+    /**
+     * 获取配置树。
+     */
     @ApiOperation("获取配置树")
     @GetMapping("/tree")
     public WebResponse<List<ConfigVo>> tree(ConfigVo config) {
         return WebResponse.OK(configService.tree(config));
     }
+
+    /**
+     * 获取配置。
+     */
     @ApiOperation("获取配置")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", required = true),
@@ -53,6 +72,9 @@ public class ConfigController {
         return WebResponse.OK(configService.info(id));
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("删除配置")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "id", required = true),
@@ -65,6 +87,9 @@ public class ConfigController {
         return WebResponse.OK(delete ? I18nUtils.getMessage("system.config.delete.success") : I18nUtils.getMessage("system.config.delete.fail"), delete);
     }
 
+    /**
+     * 保存当前请求。
+     */
     @ApiOperation("添加配置")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -73,10 +98,14 @@ public class ConfigController {
     @PostMapping("/add")
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"code", "name"})
-                                         Config config) {
+                                     Config config) {
         boolean save = configService.create(config);
-            return WebResponse.OK(I18nUtils.getMessage(save ? "system.config.create.success" : "system.config.create.fail"), save);
+        return WebResponse.OK(I18nUtils.getMessage(save ? "system.config.create.success" : "system.config.create.fail"), save);
     }
+
+    /**
+     * 更新当前请求。
+     */
     @ApiOperation("修改字典")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
@@ -84,8 +113,8 @@ public class ConfigController {
     @Permission(path = "/sys/config", type = Permission.Type.Write)
     @PostMapping("/update")
     public WebResponse<Boolean> update(@RequestBody
-                                      @ValidEntity(fieldNames = {"code", "name"})
-                                           Config config) {
+                                       @ValidEntity(fieldNames = {"code", "name"})
+                                       Config config) {
         boolean update = configService.update(config);
         return WebResponse.OK(I18nUtils.getMessage(update ? "system.config.update.success" : "system.config.update.fail"), update);
     }

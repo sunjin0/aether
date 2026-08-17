@@ -10,8 +10,14 @@ import java.util.List;
  */
 public interface KnowledgeDocumentChunkService extends IService<KnowledgeDocumentChunk> {
 
+    /**
+     * 处理searchSimilarChunks。
+     */
     List<KnowledgeDocumentChunk> searchSimilarChunks(List<String> knowledgeBaseIds, String embedding, int limit);
 
+    /**
+     * 处理searchLexicalChunks。
+     */
     List<KnowledgeDocumentChunk> searchLexicalChunks(List<String> knowledgeBaseIds, String query, int limit);
 
     /**
@@ -21,5 +27,8 @@ public interface KnowledgeDocumentChunkService extends IService<KnowledgeDocumen
      */
     List<KnowledgeDocumentChunk> findNeighborChunks(String documentVersionId, int chunkIndex, int radius);
 
+    /**
+     * 保存VectorChunk。
+     */
     boolean saveVectorChunk(KnowledgeDocumentChunk chunk);
 }

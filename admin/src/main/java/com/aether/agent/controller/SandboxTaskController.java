@@ -19,14 +19,18 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+
 import java.io.IOException;
 import javax.validation.constraints.NotBlank;
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 
-/** User and administrator control-plane API. Runner endpoints remain internal. */
+/**
+ * User and administrator control-plane API. Runner endpoints remain internal.
+ */
 @RestController
 @RequestMapping("/api/agent/sandbox")
 @Permission(path = "/agent/artifact", required = false)
@@ -34,83 +38,278 @@ public class SandboxTaskController {
     private final SandboxTaskService tasks;
     private final AgentArtifactService artifacts;
     private final String runnerToken;
-    public SandboxTaskController(SandboxTaskService tasks, AgentArtifactService artifacts, @Value("${aether.sandbox.runner-token:${AETHER_SANDBOX_RUNNER_TOKEN:}}") String runnerToken) { this.tasks = tasks; this.artifacts = artifacts; this.runnerToken = runnerToken; }
 
+    /**
+     * 创建 {@code SandboxTaskController} 实例。
+     */
+    public SandboxTaskController(SandboxTaskService tasks, AgentArtifactService artifacts, @Value("${aether.sandbox.runner-token:${AETHER_SANDBOX_RUNNER_TOKEN:}}") String runnerToken) {
+        this.tasks = tasks;
+        this.artifacts = artifacts;
+        this.runnerToken = runnerToken;
+    }
+
+    /**
+     * 创建当前请求。
+     */
     @PostMapping("/tasks")
-    public WebResponse<SandboxTaskVo> create(@RequestBody SandboxTaskCreateDto request) { return WebResponse.OK(tasks.create(user(), request, false)); }
+    public WebResponse<SandboxTaskVo> create(@RequestBody SandboxTaskCreateDto request) {
+        return WebResponse.OK(tasks.create(user(), request, false));
+    }
+
+    /**
+     * 详情当前请求。
+     */
     @GetMapping("/tasks/{id}")
-    public WebResponse<SandboxTaskVo> detail(@PathVariable @NotBlank String id) { return WebResponse.OK(tasks.detail(id, user(), false)); }
+    public WebResponse<SandboxTaskVo> detail(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(tasks.detail(id, user(), false));
+    }
+
+    /**
+     * 按运行。
+     */
     @GetMapping("/tasks/run/{runId}")
-    public WebResponse<SandboxTaskVo> byRun(@PathVariable @NotBlank String runId) { return WebResponse.OK(tasks.byRun(runId, user(), false)); }
+    public WebResponse<SandboxTaskVo> byRun(@PathVariable @NotBlank String runId) {
+        return WebResponse.OK(tasks.byRun(runId, user(), false));
+    }
+
+    /**
+     * 处理events。
+     */
     @GetMapping("/tasks/{id}/events")
-    public WebResponse<List<SandboxTaskVo.SandboxEventVo>> events(@PathVariable @NotBlank String id) { return WebResponse.OK(tasks.events(id, user(), false)); }
+    public WebResponse<List<SandboxTaskVo.SandboxEventVo>> events(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(tasks.events(id, user(), false));
+    }
+
+    /**
+     * 处理artifacts。
+     */
     @GetMapping("/tasks/{id}/artifacts")
     public WebResponse<List<AgentArtifact>> artifacts(@PathVariable @NotBlank String id) {
         SandboxTaskVo task = tasks.detail(id, user(), false);
         String executionId = StringUtils.defaultIfBlank(task.getLegacyExecutionId(), task.getId());
         return WebResponse.OK(artifacts.list(Wrappers.lambdaQuery(AgentArtifact.class).eq(AgentArtifact::getExecutionId, executionId).eq(AgentArtifact::getUserId, user()).isNull(AgentArtifact::getRecycledAt).orderByDesc(AgentArtifact::getCreatedAt)));
     }
+
+    /**
+     * 审批通过当前请求。
+     */
     @PostMapping("/tasks/{id}/approve")
-    public WebResponse<Void> approve(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) { tasks.approve(id, user(), body == null ? null : body.getReason()); return WebResponse.OK("Task approved"); }
+    public WebResponse<Void> approve(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) {
+        tasks.approve(id, user(), body == null ? null : body.getReason());
+        return WebResponse.OK("Task approved");
+    }
+
+    /**
+     * 拒绝当前请求。
+     */
     @PostMapping("/tasks/{id}/reject")
-    public WebResponse<Void> reject(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) { tasks.reject(id, user(), body == null ? null : body.getReason()); return WebResponse.OK("Task rejected"); }
+    public WebResponse<Void> reject(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) {
+        tasks.reject(id, user(), body == null ? null : body.getReason());
+        return WebResponse.OK("Task rejected");
+    }
+
+    /**
+     * 处理decision。
+     */
     @PostMapping("/tasks/{id}/decision")
     public WebResponse<Void> decision(@PathVariable @NotBlank String id, @RequestBody SandboxDecisionDto body) {
-        if (body == null || !StringUtils.equalsAnyIgnoreCase(body.getDecision(), "APPROVE", "REJECT")) throw new ServerException(400, "decision must be APPROVE or REJECT");
-        if (StringUtils.equalsIgnoreCase("APPROVE", body.getDecision())) tasks.approve(id, user(), body.getReason()); else tasks.reject(id, user(), body.getReason());
+        if (body == null || !StringUtils.equalsAnyIgnoreCase(body.getDecision(), "APPROVE", "REJECT"))
+            throw new ServerException(400, "decision must be APPROVE or REJECT");
+        if (StringUtils.equalsIgnoreCase("APPROVE", body.getDecision())) tasks.approve(id, user(), body.getReason());
+        else tasks.reject(id, user(), body.getReason());
         return WebResponse.OK("Task decision recorded");
     }
-    @PostMapping("/tasks/{id}/cancel")
-    public WebResponse<Void> cancel(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) { tasks.cancel(id, user(), body == null ? null : body.getReason()); return WebResponse.OK("Cancellation requested"); }
-    @PostMapping("/tasks/{id}/retry")
-    public WebResponse<SandboxTaskVo> retry(@PathVariable @NotBlank String id) { return WebResponse.OK(tasks.retry(id, user())); }
 
+    /**
+     * 取消当前请求。
+     */
+    @PostMapping("/tasks/{id}/cancel")
+    public WebResponse<Void> cancel(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) {
+        tasks.cancel(id, user(), body == null ? null : body.getReason());
+        return WebResponse.OK("Cancellation requested");
+    }
+
+    /**
+     * 重试当前请求。
+     */
+    @PostMapping("/tasks/{id}/retry")
+    public WebResponse<SandboxTaskVo> retry(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(tasks.retry(id, user()));
+    }
+
+    /**
+     * 处理templates。
+     */
     @GetMapping("/templates")
-    public WebResponse<List<SandboxExecutionTemplate>> templates() { return WebResponse.OK(tasks.templates()); }
+    public WebResponse<List<SandboxExecutionTemplate>> templates() {
+        return WebResponse.OK(tasks.templates());
+    }
+
+    /**
+     * 处理versions。
+     */
     @GetMapping("/templates/{id}/versions")
-    public WebResponse<List<SandboxExecutionTemplateVersion>> versions(@PathVariable @NotBlank String id) { return WebResponse.OK(tasks.versions(id)); }
+    public WebResponse<List<SandboxExecutionTemplateVersion>> versions(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(tasks.versions(id));
+    }
+
+    /**
+     * 处理setTemplateEnabled。
+     */
     @PostMapping("/admin/templates/{id}/enabled")
     @Permission(path = "/agent/sandbox")
-    public WebResponse<Void> setTemplateEnabled(@PathVariable @NotBlank String id, @RequestParam boolean enabled) { tasks.setTemplateEnabled(id, enabled); return WebResponse.OK("Template state updated"); }
+    public WebResponse<Void> setTemplateEnabled(@PathVariable @NotBlank String id, @RequestParam boolean enabled) {
+        tasks.setTemplateEnabled(id, enabled);
+        return WebResponse.OK("Template state updated");
+    }
+
+    /**
+     * 发布TemplateVersion。
+     */
     @PostMapping("/admin/templates/{id}/versions")
     @Permission(path = "/agent/sandbox")
-    public WebResponse<SandboxExecutionTemplateVersion> publishTemplateVersion(@PathVariable @NotBlank String id, @RequestBody SandboxTemplateVersionPublishDto request) { return WebResponse.OK(tasks.publishTemplateVersion(id, user(), request)); }
+    public WebResponse<SandboxExecutionTemplateVersion> publishTemplateVersion(@PathVariable @NotBlank String id, @RequestBody SandboxTemplateVersionPublishDto request) {
+        return WebResponse.OK(tasks.publishTemplateVersion(id, user(), request));
+    }
+
+    /**
+     * 处理audit。
+     */
     @PostMapping("/admin/audit")
     @Permission(path = "/agent/sandbox")
-    public WebResponse<List<SandboxTaskVo>> audit(@RequestBody(required = false) SandboxAuditQueryDto query) { com.baomidou.mybatisplus.extension.plugins.pagination.Page<SandboxTaskVo> page = tasks.audit(query); return WebResponse.Page(page.getRecords(), page.getTotal()); }
+    public WebResponse<List<SandboxTaskVo>> audit(@RequestBody(required = false) SandboxAuditQueryDto query) {
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<SandboxTaskVo> page = tasks.audit(query);
+        return WebResponse.Page(page.getRecords(), page.getTotal());
+    }
+
+    /**
+     * 管理员详情。
+     */
     @GetMapping("/admin/tasks/{id}")
     @Permission(path = "/agent/sandbox")
-    public WebResponse<SandboxTaskVo> adminDetail(@PathVariable @NotBlank String id) { return WebResponse.OK(tasks.detail(id, user(), true)); }
+    public WebResponse<SandboxTaskVo> adminDetail(@PathVariable @NotBlank String id) {
+        return WebResponse.OK(tasks.detail(id, user(), true));
+    }
+
+    /**
+     * 处理metrics。
+     */
     @GetMapping("/admin/metrics")
     @Permission(path = "/agent/sandbox")
-    public WebResponse<com.aether.agent.sandbox.vo.SandboxMetricsVo> metrics() { return WebResponse.OK(tasks.metrics()); }
+    public WebResponse<com.aether.agent.sandbox.vo.SandboxMetricsVo> metrics() {
+        return WebResponse.OK(tasks.metrics());
+    }
 
+    /**
+     * 处理claim。
+     */
     @PostMapping("/runner/claim")
-    public WebResponse<SandboxRunnerTaskVo> claim(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Runner-Id") String runnerId) { return WebResponse.OK(tasks.claim(runner(token, runnerId))); }
+    public WebResponse<SandboxRunnerTaskVo> claim(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Runner-Id") String runnerId) {
+        return WebResponse.OK(tasks.claim(runner(token, runnerId)));
+    }
+
+    /**
+     * 处理heartbeat。
+     */
     @PostMapping("/runner/tasks/{id}/heartbeat")
-    public WebResponse<Boolean> heartbeat(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody(required = false) SandboxRunnerEventDto body) { SandboxRunnerEventDto data = body == null ? new SandboxRunnerEventDto() : body; return WebResponse.OK(tasks.heartbeat(id, execution, runner(runner, runnerId), data.getProgress(), data.getSummary())); }
+    public WebResponse<Boolean> heartbeat(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody(required = false) SandboxRunnerEventDto body) {
+        SandboxRunnerEventDto data = body == null ? new SandboxRunnerEventDto() : body;
+        return WebResponse.OK(tasks.heartbeat(id, execution, runner(runner, runnerId), data.getProgress(), data.getSummary()));
+    }
+
+    /**
+     * 取消Requested。
+     */
     @GetMapping("/runner/tasks/{id}/cancel")
-    public WebResponse<Boolean> cancelRequested(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id) { return WebResponse.OK(tasks.cancelRequested(id, execution, runner(runner, runnerId))); }
+    public WebResponse<Boolean> cancelRequested(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id) {
+        return WebResponse.OK(tasks.cancelRequested(id, execution, runner(runner, runnerId)));
+    }
+
+    /**
+     * 下载Input。
+     */
     @GetMapping("/runner/tasks/{id}/inputs/{inputId}")
     public ResponseEntity<byte[]> downloadInput(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @PathVariable String inputId) {
         SandboxTaskService.RunnerInputArtifact input = tasks.downloadInput(id, inputId, execution, runner(runner, runnerId));
         MediaType type;
-        try { type = MediaType.parseMediaType(input.getContentType()); } catch (Exception ignored) { type = MediaType.APPLICATION_OCTET_STREAM; }
+        try {
+            type = MediaType.parseMediaType(input.getContentType());
+        } catch (Exception ignored) {
+            type = MediaType.APPLICATION_OCTET_STREAM;
+        }
         return ResponseEntity.ok().contentType(type).contentLength(input.getContent().length).header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + input.getFileName().replace("\"", "_") + "\"").header("X-Aether-Content-SHA256", input.getSha256()).body(input.getContent());
     }
-    @PostMapping("/runner/tasks/{id}/events")
-    public WebResponse<Void> runnerEvent(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody SandboxRunnerEventDto event) { tasks.runnerEvent(id, execution, runner(runner, runnerId), event); return WebResponse.OK("Event accepted"); }
-    @PostMapping("/runner/tasks/{id}/usage")
-    public WebResponse<Void> usage(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody SandboxRunnerUsageDto usage) { tasks.reportUsage(id, execution, runner(runner, runnerId), usage); return WebResponse.OK("Usage accepted"); }
-    @PostMapping("/runner/tasks/{id}/succeed")
-    public WebResponse<Void> succeed(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody(required = false) SandboxDecisionDto body) { tasks.succeed(id, execution, runner(runner, runnerId), body == null ? null : body.getReason()); return WebResponse.OK("Task completed"); }
-    @PostMapping("/runner/tasks/{id}/artifacts")
-    public WebResponse<Void> completeArtifact(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestParam("file") MultipartFile file, @RequestParam("sha256") String sha256, @RequestParam(value = "summary", required = false) String summary, @RequestParam(value = "finalArtifact", defaultValue = "true") boolean finalArtifact) throws IOException { tasks.completeArtifact(id, execution, runner(runner, runnerId), file.getOriginalFilename(), file.getContentType(), file.getBytes(), sha256, summary, finalArtifact); return WebResponse.OK("Artifact accepted"); }
-    @PostMapping("/runner/tasks/{id}/fail")
-    public WebResponse<Void> fail(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestParam("code") String code, @RequestParam("reason") String reason, @RequestParam(value = "summary", required = false) String summary) { tasks.fail(id, execution, runner(runner, runnerId), code, reason, summary); return WebResponse.OK("Task failed"); }
 
-    private String user() { String id = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId"); if (StringUtils.isBlank(id)) throw new ServerException(401, "Unauthorized"); return id; }
-    private String requireRunner(String supplied) { if (StringUtils.isBlank(runnerToken) || !MessageDigest.isEqual(runnerToken.getBytes(StandardCharsets.UTF_8), StringUtils.defaultString(supplied).getBytes(StandardCharsets.UTF_8))) throw new ServerException(401, "Sandbox runner unauthorized"); return supplied; }
-    /** Authenticate the caller separately from the stable Runner identity used by leases and audit records. */
-    private String runner(String token, String id) { requireRunner(token); if (StringUtils.isBlank(id) || !id.matches("[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")) throw new ServerException(401, "Sandbox runner identity is invalid"); return id; }
+    /**
+     * 处理runner事件。
+     */
+    @PostMapping("/runner/tasks/{id}/events")
+    public WebResponse<Void> runnerEvent(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody SandboxRunnerEventDto event) {
+        tasks.runnerEvent(id, execution, runner(runner, runnerId), event);
+        return WebResponse.OK("Event accepted");
+    }
+
+    /**
+     * 处理usage。
+     */
+    @PostMapping("/runner/tasks/{id}/usage")
+    public WebResponse<Void> usage(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody SandboxRunnerUsageDto usage) {
+        tasks.reportUsage(id, execution, runner(runner, runnerId), usage);
+        return WebResponse.OK("Usage accepted");
+    }
+
+    /**
+     * 处理succeed。
+     */
+    @PostMapping("/runner/tasks/{id}/succeed")
+    public WebResponse<Void> succeed(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody(required = false) SandboxDecisionDto body) {
+        tasks.succeed(id, execution, runner(runner, runnerId), body == null ? null : body.getReason());
+        return WebResponse.OK("Task completed");
+    }
+
+    /**
+     * 处理completeArtifact。
+     */
+    @PostMapping("/runner/tasks/{id}/artifacts")
+    public WebResponse<Void> completeArtifact(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestParam("file") MultipartFile file, @RequestParam("sha256") String sha256, @RequestParam(value = "summary", required = false) String summary, @RequestParam(value = "finalArtifact", defaultValue = "true") boolean finalArtifact) throws IOException {
+        tasks.completeArtifact(id, execution, runner(runner, runnerId), file.getOriginalFilename(), file.getContentType(), file.getBytes(), sha256, summary, finalArtifact);
+        return WebResponse.OK("Artifact accepted");
+    }
+
+    /**
+     * 处理fail。
+     */
+    @PostMapping("/runner/tasks/{id}/fail")
+    public WebResponse<Void> fail(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestParam("code") String code, @RequestParam("reason") String reason, @RequestParam(value = "summary", required = false) String summary) {
+        tasks.fail(id, execution, runner(runner, runnerId), code, reason, summary);
+        return WebResponse.OK("Task failed");
+    }
+
+    /**
+     * 用户当前请求。
+     */
+    private String user() {
+        String id = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        if (StringUtils.isBlank(id)) throw new ServerException(401, "Unauthorized");
+        return id;
+    }
+
+    /**
+     * 处理requireRunner。
+     */
+    private String requireRunner(String supplied) {
+        if (StringUtils.isBlank(runnerToken) || !MessageDigest.isEqual(runnerToken.getBytes(StandardCharsets.UTF_8), StringUtils.defaultString(supplied).getBytes(StandardCharsets.UTF_8)))
+            throw new ServerException(401, "Sandbox runner unauthorized");
+        return supplied;
+    }
+
+    /**
+     * Authenticate the caller separately from the stable Runner identity used by leases and audit records.
+     */
+    private String runner(String token, String id) {
+        requireRunner(token);
+        if (StringUtils.isBlank(id) || !id.matches("[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"))
+            throw new ServerException(401, "Sandbox runner identity is invalid");
+        return id;
+    }
 }

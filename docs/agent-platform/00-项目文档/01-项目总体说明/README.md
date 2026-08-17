@@ -2,7 +2,8 @@
 
 ## 1. 项目定位
 
-Aether 是一个面向企业知识库与业务工具的智能体平台。平台支持普通 Agent 的实时对话，也支持 Deep Agent 将复杂请求拆分为任务计划、调用受控 MCP 工具、向用户追问并持续回传执行过程。
+Aether 是一个面向企业知识库与业务工具的智能体平台。平台支持普通 Agent 的实时对话，也支持 Deep Agent 将复杂请求拆分为任务计划、调用受控
+MCP 工具、向用户追问并持续回传执行过程。
 
 平台由四个独立项目组成：Java Admin、Dashboard、Deep Agent Service 和 MCP Server。PostgreSQL、Redis、MinIO 是平台基础服务。
 
@@ -24,12 +25,12 @@ flowchart LR
 
 ### 2.1 项目清单
 
-| 项目 | 技术 | 主要职责 |
-| --- | --- | --- |
-| `aether` | Java 8、Spring Boot 2.7、MyBatis-Plus | 用户、权限、Agent、知识库、模型配置、会话、运行审计、Deep Agent 编排。 |
-| `aether-dashboard` | React 18、Umi Max、Ant Design | 管理控制台和聊天界面，处理 SSE、任务计划、审批和用户交互。 |
-| `aether-deep-agent-service` | Python 3.11、FastAPI、LangChain/DeepAgents | 复杂任务计划和执行、MCP 工具调用、`ask_user`、回调事件。 |
-| `aether-mcp-server` | Python 3.11、MCP、Docling | MCP Streamable HTTP/stdio 工具服务及文档处理。 |
+| 项目                          | 技术                                       | 主要职责                                        |
+|-----------------------------|------------------------------------------|---------------------------------------------|
+| `aether`                    | Java 8、Spring Boot 2.7、MyBatis-Plus      | 用户、权限、Agent、知识库、模型配置、会话、运行审计、Deep Agent 编排。 |
+| `aether-dashboard`          | React 18、Umi Max、Ant Design              | 管理控制台和聊天界面，处理 SSE、任务计划、审批和用户交互。             |
+| `aether-deep-agent-service` | Python 3.11、FastAPI、LangChain/DeepAgents | 复杂任务计划和执行、MCP 工具调用、`ask_user`、回调事件。         |
+| `aether-mcp-server`         | Python 3.11、MCP、Docling                  | MCP Streamable HTTP/stdio 工具服务及文档处理。        |
 
 ## 3. 核心业务能力
 
@@ -58,7 +59,8 @@ Deep Agent 也使用同一聊天入口，但 Java Admin 会创建独立运行记
 
 ### 3.3 模型目录与能力治理
 
-模型供应商负责保存连接地址、协议和密钥；模型目录负责保存实际模型名称和能力标签。Agent 对话、知识库向量、查询重写、Rerank、AI 审查及 Skill 路由都选择模型目录项，后端在保存和运行时校验模型能力、模型状态和供应商状态。
+模型供应商负责保存连接地址、协议和密钥；模型目录负责保存实际模型名称和能力标签。Agent 对话、知识库向量、查询重写、Rerank、AI
+审查及 Skill 路由都选择模型目录项，后端在保存和运行时校验模型能力、模型状态和供应商状态。
 
 - Agent 使用 `CHAT` 或 `MULTIMODAL` 模型；知识库和 Skill 路由使用 `EMBEDDING` 模型；Rerank 使用 `RERANK` 模型。
 - 管理员可从供应商拉取模型候选，以卡片选择并逐模型配置能力后事务批量保存；已有目录项不可重复导入。
@@ -78,9 +80,11 @@ Deep Agent 也使用同一聊天入口，但 Java Admin 会创建独立运行记
 
 ## 4. 知识库与引用
 
-知识库文档保存到 MinIO，文本分块与向量检索数据保存到 PostgreSQL/pgvector。每次检索会携带文档标题、文档 ID、分块 ID、章节路径和引用编号。
+知识库文档保存到 MinIO，文本分块与向量检索数据保存到 PostgreSQL/pgvector。每次检索会携带文档标题、文档 ID、分块
+ID、章节路径和引用编号。
 
-Deep Agent 最终回传时保留 `citationIndex`、`documentName`、`documentId`、`chunkId` 和 `sectionPath`，保证正文引用、参考来源卡片和锚点能够一致对应。模型若输出半角 `[1]`，服务会在保存前规范为 `【1】`。
+Deep Agent 最终回传时保留 `citationIndex`、`documentName`、`documentId`、`chunkId` 和 `sectionPath`
+，保证正文引用、参考来源卡片和锚点能够一致对应。模型若输出半角 `[1]`，服务会在保存前规范为 `【1】`。
 
 ## 5. 安全与权限
 
@@ -88,22 +92,24 @@ Deep Agent 最终回传时保留 `citationIndex`、`documentName`、`documentId`
 - Java Admin 与 Deep Agent 的请求和回调使用 HMAC 签名，防止伪造运行事件。
 - Java 为每个 Deep Agent Run 签发短期 MCP 委派 JWT，包含运行、用户、Agent 和允许工具范围。
 - MCP Server 仅验证 JWT 的签名、有效期和 `allowedTools`，不维护静态 Token 白名单。
-- 普通聊天和手动/业务启动工作流的 MCP 工具调用需经过平台风险分析与用户确认；定时触发工作流的已配置 MCP 节点会自动批准。工具调用与结果均写入审计记录。
+- 普通聊天和手动/业务启动工作流的 MCP 工具调用需经过平台风险分析与用户确认；定时触发工作流的已配置 MCP
+  节点会自动批准。工具调用与结果均写入审计记录。
 
 ## 6. 数据与基础服务
 
-| 服务 | 用途 | 容器内地址 |
-| --- | --- | --- |
-| PostgreSQL + pgvector | 业务数据、会话、运行记录、知识库向量 | `postgres:5432` |
-| Redis | 会话缓存、权限与短期状态 | `redis:6379` |
-| MinIO | 上传文件、知识库源文件 | `minio:9000` |
-| 模型供应商与模型目录 | 普通/Deep Agent 推理、Embedding、Rerank | 供应商保存连接；目录保存模型、能力和端点覆盖 |
+| 服务                    | 用途                                | 容器内地址                  |
+|-----------------------|-----------------------------------|------------------------|
+| PostgreSQL + pgvector | 业务数据、会话、运行记录、知识库向量                | `postgres:5432`        |
+| Redis                 | 会话缓存、权限与短期状态                      | `redis:6379`           |
+| MinIO                 | 上传文件、知识库源文件                       | `minio:9000`           |
+| 模型供应商与模型目录            | 普通/Deep Agent 推理、Embedding、Rerank | 供应商保存连接；目录保存模型、能力和端点覆盖 |
 
 Java 通过 Flyway 执行 PostgreSQL 数据库迁移。生产部署时应使用持久化卷、强密码和独立的密钥管理方案。
 
 ## 7. 部署
 
-Java 项目根目录的 `docker-compose.all.yml` 提供完整部署，包含四个业务服务和三个基础服务。业务镜像从 Git 构建上下文拉取源码；私有仓库需设置只读 `GIT_AUTH_TOKEN`。
+Java 项目根目录的 `docker-compose.all.yml` 提供完整部署，包含四个业务服务和三个基础服务。业务镜像从 Git
+构建上下文拉取源码；私有仓库需设置只读 `GIT_AUTH_TOKEN`。
 
 ```powershell
 Copy-Item .env.all.example .env.all
@@ -113,14 +119,14 @@ docker compose --env-file .env.all -f docker-compose.all.yml -p aether up -d --b
 
 默认宿主机端口：
 
-| 服务 | 端口 |
-| --- | ---: |
-| Dashboard | 18001 |
-| Admin | 18080 |
-| MCP | 18000 |
-| Deep Agent | 18010 |
-| PostgreSQL | 15432 |
-| Redis | 16379 |
+| 服务                  |            端口 |
+|---------------------|--------------:|
+| Dashboard           |         18001 |
+| Admin               |         18080 |
+| MCP                 |         18000 |
+| Deep Agent          |         18010 |
+| PostgreSQL          |         15432 |
+| Redis               |         16379 |
 | MinIO API / Console | 19000 / 19001 |
 
 容器内部应始终使用服务名和标准端口通信，避免将宿主机端口写入服务间配置。

@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** A durable single-query retrieval evaluation task. */
+/**
+ * A durable single-query retrieval evaluation task.
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_retrieval_evaluation_task")

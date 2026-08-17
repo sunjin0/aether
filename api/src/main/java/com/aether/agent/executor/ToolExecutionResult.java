@@ -68,6 +68,9 @@ public class ToolExecutionResult {
      */
     private String requestBody;
 
+    /**
+     * 处理success。
+     */
     public static ToolExecutionResult success(String content, String rawResponse, Integer httpStatus, Integer latencyMs) {
         ToolExecutionResult result = new ToolExecutionResult();
         result.setSuccess(true);
@@ -79,6 +82,9 @@ public class ToolExecutionResult {
         return result;
     }
 
+    /**
+     * 处理failure。
+     */
     public static ToolExecutionResult failure(String errorMsg, Integer status) {
         ToolExecutionResult result = new ToolExecutionResult();
         result.setSuccess(false);

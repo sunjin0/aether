@@ -36,6 +36,9 @@ import javax.validation.constraints.NotBlank;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+/**
+ * 提供智能体Artifact相关的 REST 接口。
+ */
 @Api(tags = "生成文件 API")
 @Validated
 @RestController
@@ -46,6 +49,9 @@ public class AgentArtifactController {
     private final ObjectStorageService objectStorageService;
     private final String artifactBucket;
 
+    /**
+     * 创建 {@code AgentArtifactController} 实例。
+     */
     public AgentArtifactController(AgentArtifactService artifactService,
                                    ObjectStorageService objectStorageService,
                                    @Value("${artifact.storage.bucket:${MINIO_CHAT_ATTACHMENT_BUCKET:aether-chat}}") String artifactBucket) {
@@ -54,6 +60,9 @@ public class AgentArtifactController {
         this.artifactBucket = artifactBucket;
     }
 
+    /**
+     * 查询我的生成文件。
+     */
     @ApiOperation("查询我的生成文件")
     @PostMapping("/list")
     public WebResponse<List<AgentArtifactVo>> list(@RequestBody AgentArtifactQueryDto query) {
@@ -61,6 +70,9 @@ public class AgentArtifactController {
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
 
+    /**
+     * 查询本次运行已生成文件。
+     */
     @ApiOperation("查询本次运行已生成文件")
     @GetMapping("/run/{runId}")
     public WebResponse<AgentArtifact> byRun(@PathVariable @NotBlank String runId) {
@@ -70,18 +82,27 @@ public class AgentArtifactController {
         return WebResponse.OK(artifact);
     }
 
+    /**
+     * 预览生成文件。
+     */
     @ApiOperation("预览生成文件")
     @GetMapping("/{id}/preview")
     public ResponseEntity<byte[]> preview(@PathVariable @NotBlank String id) {
         return fileResponse(artifactService.requireOwned(id, currentUserId(), false), true);
     }
 
+    /**
+     * 下载生成文件。
+     */
     @ApiOperation("下载生成文件")
     @GetMapping("/{id}/download")
     public ResponseEntity<byte[]> download(@PathVariable @NotBlank String id) {
         return fileResponse(artifactService.requireOwned(id, currentUserId(), false), false);
     }
 
+    /**
+     * 将生成文件移入回收站。
+     */
     @ApiOperation("将生成文件移入回收站")
     @Permission(path = "/agent/artifact", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
@@ -90,6 +111,9 @@ public class AgentArtifactController {
         return WebResponse.OK(I18nUtils.getMessage("agent.artifact.recycled"));
     }
 
+    /**
+     * 恢复生成文件。
+     */
     @ApiOperation("恢复生成文件")
     @Permission(path = "/agent/artifact", type = Permission.Type.Write)
     @PostMapping("/{id}/restore")
@@ -98,12 +122,19 @@ public class AgentArtifactController {
         return WebResponse.OK(I18nUtils.getMessage("agent.artifact.restored"));
     }
 
+    /**
+     * 当前用户Id。
+     */
     private String currentUserId() {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
-        if (StringUtils.isBlank(userId)) throw new ServerException(401, I18nUtils.getMessage("agent.artifact.unauthorized"));
+        if (StringUtils.isBlank(userId))
+            throw new ServerException(401, I18nUtils.getMessage("agent.artifact.unauthorized"));
         return userId;
     }
 
+    /**
+     * 文件Response。
+     */
     private ResponseEntity<byte[]> fileResponse(AgentArtifact artifact, boolean inline) {
         try {
             byte[] content = objectStorageService.getObject(artifactBucket, artifact.getObjectKey());
@@ -119,6 +150,9 @@ public class AgentArtifactController {
         }
     }
 
+    /**
+     * 处理mediaType。
+     */
     private MediaType mediaType(String contentType, String fileName) {
         try {
             if (StringUtils.isNotBlank(contentType)) return MediaType.parseMediaType(contentType);

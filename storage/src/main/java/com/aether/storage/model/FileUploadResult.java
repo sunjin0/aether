@@ -3,7 +3,9 @@ package com.aether.storage.model;
 import lombok.Getter;
 import lombok.Setter;
 
-/** 通用文件上传结果。对象键由服务端生成，可用于后续预览和下载。 */
+/**
+ * 通用文件上传结果。对象键由服务端生成，可用于后续预览和下载。
+ */
 @Setter
 @Getter
 public class FileUploadResult {

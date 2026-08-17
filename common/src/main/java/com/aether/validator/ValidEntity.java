@@ -19,6 +19,9 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ValidEntity {
 
+    /**
+     * 消息当前请求。
+     */
     String message() default "";
 
 
@@ -43,8 +46,14 @@ public @interface ValidEntity {
      */
     String[] fieldNames() default {};
 
+    /**
+     * 处理groups。
+     */
     Class<?>[] groups() default {};
 
+    /**
+     * 处理payload。
+     */
     Class<? extends Payload>[] payload() default {};
 
 

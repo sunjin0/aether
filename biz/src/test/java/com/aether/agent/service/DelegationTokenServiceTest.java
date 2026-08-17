@@ -8,10 +8,16 @@ import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * 验证Delegation令牌服务的行为。
+ */
 class DelegationTokenServiceTest {
 
     private static final String SECRET = "test-delegation-secret";
 
+    /**
+     * 令牌ExpiryUsesConfiguredTtl。
+     */
     @Test
     void tokenExpiryUsesConfiguredTtl() {
         DeepAgentConfig config = new DeepAgentConfig();
@@ -25,6 +31,9 @@ class DelegationTokenServiceTest {
         assertEquals(1800L, ttlSeconds);
     }
 
+    /**
+     * 处理ttlFloorsAtSixtySecondsToKeepTokensShortLived。
+     */
     @Test
     void ttlFloorsAtSixtySecondsToKeepTokensShortLived() {
         DeepAgentConfig config = new DeepAgentConfig();

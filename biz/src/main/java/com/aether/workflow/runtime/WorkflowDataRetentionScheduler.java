@@ -6,9 +6,12 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
 import java.util.*;
 
-/** 按保留期软删除终态流程及其审计副本；0 天表示不自动清理。 */
+/**
+ * 按保留期软删除终态流程及其审计副本；0 天表示不自动清理。
+ */
 @Component
 public class WorkflowDataRetentionScheduler {
     private final AgentWorkflowInstanceService instanceService;
@@ -17,13 +20,22 @@ public class WorkflowDataRetentionScheduler {
     private final AgentWorkflowExecutionJobService jobService;
     private final int retentionDays;
 
+    /**
+     * 创建 {@code WorkflowDataRetentionScheduler} 实例。
+     */
     public WorkflowDataRetentionScheduler(AgentWorkflowInstanceService instanceService, AgentWorkflowNodeInstanceService nodeService,
                                           AgentWorkflowCallbackDeliveryService callbackService, AgentWorkflowExecutionJobService jobService,
                                           @org.springframework.beans.factory.annotation.Value("${aether.workflow.security.retention-days:90}") int retentionDays) {
-        this.instanceService = instanceService; this.nodeService = nodeService; this.callbackService = callbackService; this.jobService = jobService;
+        this.instanceService = instanceService;
+        this.nodeService = nodeService;
+        this.callbackService = callbackService;
+        this.jobService = jobService;
         this.retentionDays = Math.max(0, retentionDays);
     }
 
+    /**
+     * 处理purgeExpiredTerminalInstances。
+     */
     @Scheduled(cron = "${aether.workflow.security.retention-cron:0 30 3 * * ?}")
     public void purgeExpiredTerminalInstances() {
         if (retentionDays <= 0) return;

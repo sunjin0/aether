@@ -18,11 +18,18 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证知识库Access服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeAccessServiceImplTest {
-    @Mock private KnowledgeBaseService baseService;
+    @Mock
+    private KnowledgeBaseService baseService;
     private KnowledgeAccessServiceImpl service;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         service = new KnowledgeAccessServiceImpl(baseService);
@@ -31,11 +38,17 @@ class KnowledgeAccessServiceImplTest {
         CurrentUser.set(user);
     }
 
+    /**
+     * 处理tearDown。
+     */
     @AfterEach
     void tearDown() {
         CurrentUser.remove();
     }
 
+    /**
+     * 处理readableIdsInclude全部知识库BasesWhenAccessControl判断是否为Disabled。
+     */
     @Test
     void readableIdsIncludeAllKnowledgeBasesWhenAccessControlIsDisabled() {
         KnowledgeBase platform = new KnowledgeBase();
@@ -48,6 +61,9 @@ class KnowledgeAccessServiceImplTest {
         assertEquals(Arrays.asList("kb-1", "kb-2"), service.readableKnowledgeBaseIds());
     }
 
+    /**
+     * 处理private知识库Base判断是否为ReadableWhenAccessControl判断是否为Disabled。
+     */
     @Test
     void privateKnowledgeBaseIsReadableWhenAccessControlIsDisabled() {
         KnowledgeBase base = new KnowledgeBase().setVisibility("private");
@@ -57,6 +73,9 @@ class KnowledgeAccessServiceImplTest {
         assertSame(base, service.requireReadable("kb-1"));
     }
 
+    /**
+     * 处理anyAuthenticatedAdministratorMayWriteWhenAccessControl判断是否为Disabled。
+     */
     @Test
     void anyAuthenticatedAdministratorMayWriteWhenAccessControlIsDisabled() {
         KnowledgeBase base = new KnowledgeBase().setVisibility("shared");

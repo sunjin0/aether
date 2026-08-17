@@ -31,11 +31,17 @@ public class AgentToolCallLogServiceImpl extends ServiceImpl<AgentToolCallLogMap
 
     private final AgentToolService agentToolService;
 
+    /**
+     * 创建 {@code AgentToolCallLogServiceImpl} 实例。
+     */
     @Autowired
     public AgentToolCallLogServiceImpl(AgentToolService agentToolService) {
         this.agentToolService = agentToolService;
     }
 
+    /**
+     * 处理statistics。
+     */
     @Override
     public AgentToolCallStatisticsVo statistics(AgentToolCallLogVo query) {
         List<AgentToolCallLog> logs = filteredLogs(query);
@@ -44,6 +50,9 @@ public class AgentToolCallLogServiceImpl extends ServiceImpl<AgentToolCallLogMap
         return statistics;
     }
 
+    /**
+     * 处理toolStatistics。
+     */
     @Override
     public List<AgentToolCallStatisticsVo> toolStatistics(AgentToolCallLogVo query) {
         List<AgentToolCallStatisticsVo> result = new ArrayList<>(toolStatisticsMap(query).values());
@@ -51,6 +60,9 @@ public class AgentToolCallLogServiceImpl extends ServiceImpl<AgentToolCallLogMap
         return result;
     }
 
+    /**
+     * 处理toolStatisticsMap。
+     */
     @Override
     public Map<String, AgentToolCallStatisticsVo> toolStatisticsMap(AgentToolCallLogVo query) {
         List<AgentToolCallLog> logs = filteredLogs(query);
@@ -76,6 +88,9 @@ public class AgentToolCallLogServiceImpl extends ServiceImpl<AgentToolCallLogMap
         return grouped;
     }
 
+    /**
+     * 处理filteredLogs。
+     */
     private List<AgentToolCallLog> filteredLogs(AgentToolCallLogVo query) {
         List<String> typeToolIds = null;
         if (query != null && StringUtils.isNotBlank(query.getToolType())) {
@@ -107,6 +122,9 @@ public class AgentToolCallLogServiceImpl extends ServiceImpl<AgentToolCallLogMap
         return list(wrapper);
     }
 
+    /**
+     * 加载Tools。
+     */
     private Map<String, AgentTool> loadTools(List<AgentToolCallLog> logs) {
         List<String> toolIds = new ArrayList<>();
         for (AgentToolCallLog log : logs) {
@@ -127,6 +145,9 @@ public class AgentToolCallLogServiceImpl extends ServiceImpl<AgentToolCallLogMap
         return map;
     }
 
+    /**
+     * 处理statisticKey。
+     */
     private String statisticKey(AgentToolCallLog log) {
         if (StringUtils.isNotBlank(log.getToolId())) {
             return log.getToolId();
@@ -134,12 +155,18 @@ public class AgentToolCallLogServiceImpl extends ServiceImpl<AgentToolCallLogMap
         return StringUtils.defaultIfBlank(log.getToolName(), "unknown");
     }
 
+    /**
+     * 处理fillCounts。
+     */
     private void fillCounts(AgentToolCallStatisticsVo statistics, List<AgentToolCallLog> logs) {
         for (AgentToolCallLog log : logs) {
             addLog(statistics, log);
         }
     }
 
+    /**
+     * 新增Log。
+     */
     private void addLog(AgentToolCallStatisticsVo statistics, AgentToolCallLog log) {
         statistics.setCallCount(defaultLong(statistics.getCallCount()) + 1);
         if (Integer.valueOf(0).equals(log.getStatus())) {
@@ -154,10 +181,16 @@ public class AgentToolCallLogServiceImpl extends ServiceImpl<AgentToolCallLogMap
         statistics.setSuccessRate(successRate(statistics.getSuccessCount(), statistics.getCallCount()));
     }
 
+    /**
+     * 处理defaultLong。
+     */
     private Long defaultLong(Long value) {
         return value == null ? 0L : value;
     }
 
+    /**
+     * 处理successRate。
+     */
     private Double successRate(Long successCount, Long callCount) {
         if (callCount == null || callCount == 0) {
             return 0D;

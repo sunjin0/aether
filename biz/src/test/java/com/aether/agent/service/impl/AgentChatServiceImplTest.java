@@ -68,6 +68,9 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
+/**
+ * 验证智能体对话服务实现的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class AgentChatServiceImplTest {
 
@@ -112,6 +115,9 @@ class AgentChatServiceImplTest {
 
     private AgentChatServiceImpl service;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         I18nService i18nService = org.mockito.Mockito.mock(I18nService.class);
@@ -164,11 +170,17 @@ class AgentChatServiceImplTest {
         }).when(agentRunService).save(any(AgentRun.class));
     }
 
+    /**
+     * 处理tearDown。
+     */
     @AfterEach
     void tearDown() {
         CurrentUser.remove();
     }
 
+    /**
+     * 对话Creates会话AndPersistsMessagesAnd运行。
+     */
     @Test
     void chatCreatesConversationAndPersistsMessagesAndRun() {
         AgentDefinition agent = new AgentDefinition();
@@ -253,6 +265,9 @@ class AgentChatServiceImplTest {
         org.junit.jupiter.api.Assertions.assertNull(assistantMessage.getReasoningTokens());
     }
 
+    /**
+     * 对话BlocksClaimedTool结果WithoutSuccessfulToolLog。
+     */
     @Test
     void chatBlocksClaimedToolResultWithoutSuccessfulToolLog() {
         AgentDefinition agent = new AgentDefinition();
@@ -322,6 +337,9 @@ class AgentChatServiceImplTest {
         assertEquals(0, runCaptor.getValue().getStatus());
     }
 
+    /**
+     * 对话PersistsAsk用户ToolCallAsPendingInteraction。
+     */
     @Test
     void chatPersistsAskUserToolCallAsPendingInteraction() {
         AgentDefinition agent = new AgentDefinition();
@@ -392,6 +410,9 @@ class AgentChatServiceImplTest {
         verify(agentRunService, org.mockito.Mockito.times(2)).updateById(any(AgentRun.class));
     }
 
+    /**
+     * 对话RetriesAsk用户WhenInteractive模型ReturnsPlainQuestion。
+     */
     @Test
     void chatRetriesAskUserWhenInteractiveModelReturnsPlainQuestion() {
         AgentDefinition agent = new AgentDefinition();
@@ -450,6 +471,9 @@ class AgentChatServiceImplTest {
         verify(modelClient, org.mockito.Mockito.times(2)).chat(any());
     }
 
+    /**
+     * 对话NormalizesAsk用户TypeAliases。
+     */
     @Test
     void chatNormalizesAskUserTypeAliases() {
         AgentDefinition agent = new AgentDefinition();
@@ -501,6 +525,9 @@ class AgentChatServiceImplTest {
         org.junit.jupiter.api.Assertions.assertTrue(result.getQuestionConfig().contains("\"type\":\"choice\""));
     }
 
+    /**
+     * 对话DowngradesUnsupportedAsk用户FormToPlainAssistant消息。
+     */
     @Test
     void chatDowngradesUnsupportedAskUserFormToPlainAssistantMessage() {
         AgentDefinition agent = new AgentDefinition();
@@ -555,6 +582,9 @@ class AgentChatServiceImplTest {
         org.junit.jupiter.api.Assertions.assertNull(result.getInteractionStatus());
     }
 
+    /**
+     * 处理streamCreates会话EmitsChunksAndPersistsAssistant消息And运行。
+     */
     @Test
     void streamCreatesConversationEmitsChunksAndPersistsAssistantMessageAndRun() {
         AgentDefinition agent = new AgentDefinition();
@@ -635,6 +665,9 @@ class AgentChatServiceImplTest {
         assertEquals(0, runCaptor.getValue().getStatus());
     }
 
+    /**
+     * 处理streamKeepsAssistantPreludeWhenAsk用户判断是否为Returned。
+     */
     @Test
     void streamKeepsAssistantPreludeWhenAskUserIsReturned() {
         AgentDefinition agent = new AgentDefinition();
@@ -710,6 +743,9 @@ class AgentChatServiceImplTest {
         assertEquals("请选择部署环境", messageCaptor.getAllValues().get(2).getContent());
     }
 
+    /**
+     * 处理streamReplyContinuesFromInteractionAnswerWithoutRendering用户AnswerChunk。
+     */
     @Test
     void streamReplyContinuesFromInteractionAnswerWithoutRenderingUserAnswerChunk() {
         AgentConversation conversation = new AgentConversation();
@@ -802,6 +838,9 @@ class AgentChatServiceImplTest {
         org.junit.jupiter.api.Assertions.assertTrue(updatedQuestion.getQuestionConfig().contains("\"label\":\"生产环境\""));
     }
 
+    /**
+     * 处理streamReplyPersistsAssistantPreludeBefore下一个Ask用户Question。
+     */
     @Test
     void streamReplyPersistsAssistantPreludeBeforeNextAskUserQuestion() {
         AgentConversation conversation = new AgentConversation();
@@ -882,6 +921,9 @@ class AgentChatServiceImplTest {
         assertEquals("interaction", messageCaptor.getAllValues().get(2).getMessageType());
     }
 
+    /**
+     * 处理streamRejectsEmptyProviderResponse。
+     */
     @Test
     void streamRejectsEmptyProviderResponse() {
         AgentDefinition agent = new AgentDefinition();
@@ -935,6 +977,9 @@ class AgentChatServiceImplTest {
         assertEquals("user", messageCaptor.getValue().getRole());
     }
 
+    /**
+     * 处理emptyStreamResponse。
+     */
     private static ModelStreamResponse emptyStreamResponse(String model) {
         ModelStreamResponse response = new ModelStreamResponse();
         response.setContent("");
@@ -948,6 +993,9 @@ class AgentChatServiceImplTest {
         return response;
     }
 
+    /**
+     * 表示RecordingStream回调。
+     */
     private static class RecordingStreamCallback implements AgentStreamCallback {
 
         private final List<String> chunks = new ArrayList<>();
@@ -960,25 +1008,40 @@ class AgentChatServiceImplTest {
         private String questionMessageId;
         private final List<String> events = new ArrayList<>();
 
+        /**
+         * 处理on消息。
+         */
         @Override
         public void onMessage(String conversationId, String chunk) {
             chunks.add(conversationId + ":" + chunk);
         }
 
+        /**
+         * 处理onReasoning。
+         */
         @Override
         public void onReasoning(String conversationId, String chunk) {
         }
 
+        /**
+         * 处理onToolCall。
+         */
         @Override
         public void onToolCall(String conversationId, String toolCallJson) {
         }
 
+        /**
+         * 处理onQuestion。
+         */
         @Override
         public void onQuestion(String conversationId, String runId, AgentMessageVo question) {
             this.questionMessageId = question.getId();
             events.add("question");
         }
 
+        /**
+         * 处理onDone。
+         */
         @Override
         public void onDone(String conversationId, String messageId, ModelStreamResponse response) {
             this.doneConversationId = conversationId;
@@ -987,6 +1050,9 @@ class AgentChatServiceImplTest {
             events.add("done");
         }
 
+        /**
+         * 处理onError。
+         */
         @Override
         public void onError(int code, String message) {
             this.errorCalled = true;
@@ -994,6 +1060,9 @@ class AgentChatServiceImplTest {
             this.errorMessage = message;
         }
 
+        /**
+         * 判断是否为Closed。
+         */
         @Override
         public boolean isClosed() {
             return false;

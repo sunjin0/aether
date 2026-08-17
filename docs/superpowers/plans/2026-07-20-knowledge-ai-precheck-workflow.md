@@ -1,10 +1,13 @@
 # 知识库文档 AI 预检流程实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:
+> executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 将 AI 审查调整为上传后的预检和改稿辅助，使应用 AI 建议或手动修改后的 `AI_REVIEWED` 草稿无需重新审查即可提交人工审批。
 
-**Architecture:** 保留现有 `DRAFT -> AI_REVIEWING -> AI_REVIEWED -> SUBMITTED` 状态模型，不增加数据库字段或新状态。`AI_REVIEWED` 改为表示当前版本至少成功完成过一次预检；正文更新时保留该状态，提交时通过最近成功预检及其全部问题均已处理来判断资格，而不比较 AI 快照与当前正文 checksum。
+**Architecture:** 保留现有 `DRAFT -> AI_REVIEWING -> AI_REVIEWED -> SUBMITTED` 状态模型，不增加数据库字段或新状态。
+`AI_REVIEWED` 改为表示当前版本至少成功完成过一次预检；正文更新时保留该状态，提交时通过最近成功预检及其全部问题均已处理来判断资格，而不比较
+AI 快照与当前正文 checksum。
 
 **Tech Stack:** Java 8、Spring Boot 2.7、MyBatis-Plus、JUnit 5、Mockito、Maven。
 
@@ -13,27 +16,30 @@
 ## 文件结构
 
 - 修改：`biz/src/main/java/com/aether/knowledge/service/impl/KnowledgeDocumentWorkflowServiceImpl.java`
-  - 保留预检后的 `AI_REVIEWED` 状态，补全 AI 必审时“成功预检 + 无待处理问题”的提交校验。
+    - 保留预检后的 `AI_REVIEWED` 状态，补全 AI 必审时“成功预检 + 无待处理问题”的提交校验。
 - 修改：`admin/src/main/java/com/aether/knowledge/controller/KnowledgeAiReviewController.java`
-  - 应用已接受补丁后返回无需再次预检的结果；保留补丁与并发校验。
+    - 应用已接受补丁后返回无需再次预检的结果；保留补丁与并发校验。
 - 修改：`biz/src/test/java/com/aether/knowledge/service/impl/KnowledgeDocumentWorkflowServiceImplTest.java`
-  - 覆盖预检后编辑、无成功预检、存在待处理问题和正常提交的服务层规则。
+    - 覆盖预检后编辑、无成功预检、存在待处理问题和正常提交的服务层规则。
 - 修改：`admin/src/test/java/com/aether/knowledge/controller/KnowledgeReviewControllerTest.java`
-  - 覆盖应用补丁后的 `AI_REVIEWED` 响应，并修正已有测试中未定义的 `workflowService` mock。
+    - 覆盖应用补丁后的 `AI_REVIEWED` 响应，并修正已有测试中未定义的 `workflowService` mock。
 - 修改：`docs/agent-platform/KNOWLEDGE_REVIEW_FRONTEND_INTEGRATION.md`
-  - 将前端对接文档从“正文变更必须重审”更新为 AI 预检语义。
+    - 将前端对接文档从“正文变更必须重审”更新为 AI 预检语义。
 - 修改：`docs/agent-platform/KNOWLEDGE_AI_REVIEW_PATCH_RECOVERY_FRONTEND.md`
-  - 移除“应用补丁后重新 AI 审查”的前端动作，说明手动修复问题的处理方式。
+    - 移除“应用补丁后重新 AI 审查”的前端动作，说明手动修复问题的处理方式。
 
 ### Task 1: 先用测试固定预检后的草稿状态
 
 **Files:**
-- Modify: `biz/src/test/java/com/aether/knowledge/service/impl/KnowledgeDocumentWorkflowServiceImplTest.java:31-39,115-148`
+
+- Modify:
+  `biz/src/test/java/com/aether/knowledge/service/impl/KnowledgeDocumentWorkflowServiceImplTest.java:31-39,115-148`
 - Modify: `biz/src/main/java/com/aether/knowledge/service/impl/KnowledgeDocumentWorkflowServiceImpl.java:107-137`
 
 - [ ] **Step 1: 将现有“编辑后回到草稿”的测试替换为失败测试**
 
-将 `editingAnAiReviewedVersionReturnsItToDraft` 重命名为 `editingAnAiReviewedVersionKeepsItAiReviewed`，断言 MyBatis-Plus 更新参数包含 `AI_REVIEWED`，而非 `DRAFT`：
+将 `editingAnAiReviewedVersionReturnsItToDraft` 重命名为 `editingAnAiReviewedVersionKeepsItAiReviewed`，断言 MyBatis-Plus
+更新参数包含 `AI_REVIEWED`，而非 `DRAFT`：
 
 ```java
 @Test
@@ -106,8 +112,10 @@ git commit -m "fix(knowledge): retain prechecked draft status"
 ### Task 2: 以成功预检记录作为 AI 必审的提交凭据
 
 **Files:**
+
 - Modify: `biz/src/test/java/com/aether/knowledge/service/impl/KnowledgeDocumentWorkflowServiceImplTest.java:96-148`
-- Modify: `biz/src/main/java/com/aether/knowledge/service/impl/KnowledgeDocumentWorkflowServiceImpl.java:172-191,356-368`
+- Modify:
+  `biz/src/main/java/com/aether/knowledge/service/impl/KnowledgeDocumentWorkflowServiceImpl.java:172-191,356-368`
 
 - [ ] **Step 1: 写入“AI_REVIEWED 但不存在成功审查记录”失败测试**
 
@@ -213,7 +221,8 @@ private boolean hasPendingAiIssues(KnowledgeAiReview review) {
 
 - [ ] **Step 4: 调整既有待处理问题测试并运行服务层全部测试**
 
-将原 `refusesSubmissionWhenCriticalAiIssueIsPending` 的 `reviewConfig` 设为 `{"aiReviewRequired":true}`，使其不依赖已废弃的 `blockOnCriticalIssues` 语义；保留 `refusesSubmissionWhenAnyAiIssueIsPending`，验证任何严重级别的 `pending` 都阻断提交。
+将原 `refusesSubmissionWhenCriticalAiIssueIsPending` 的 `reviewConfig` 设为 `{"aiReviewRequired":true}`，使其不依赖已废弃的
+`blockOnCriticalIssues` 语义；保留 `refusesSubmissionWhenAnyAiIssueIsPending`，验证任何严重级别的 `pending` 都阻断提交。
 
 Run:
 
@@ -235,6 +244,7 @@ git commit -m "fix(knowledge): require resolved AI precheck issues"
 ### Task 3: 应用 AI 补丁后保持预检完成状态
 
 **Files:**
+
 - Modify: `admin/src/test/java/com/aether/knowledge/controller/KnowledgeReviewControllerTest.java:188-214`
 - Modify: `admin/src/main/java/com/aether/knowledge/controller/KnowledgeAiReviewController.java:322-369`
 
@@ -288,7 +298,8 @@ result.setRequiresAiReview(true);
 result.setRequiresAiReview(false);
 ```
 
-不要移除以下检查：版本必须为 `AI_REVIEWED`，且 `review.getSourceChecksum()` 必须与应用前正文 checksum 一致。该检查只保护补丁定位正确性，并不影响补丁应用后的后续人工编辑或提交。
+不要移除以下检查：版本必须为 `AI_REVIEWED`，且 `review.getSourceChecksum()` 必须与应用前正文 checksum
+一致。该检查只保护补丁定位正确性，并不影响补丁应用后的后续人工编辑或提交。
 
 - [ ] **Step 4: 运行控制器测试并确认通过**
 
@@ -312,6 +323,7 @@ git commit -m "fix(knowledge): keep AI precheck after patch apply"
 ### Task 4: 同步前端对接文档与最终验证
 
 **Files:**
+
 - Modify: `docs/agent-platform/KNOWLEDGE_REVIEW_FRONTEND_INTEGRATION.md:20-46,97-103,159-173,208-215`
 - Modify: `docs/agent-platform/KNOWLEDGE_AI_REVIEW_PATCH_RECOVERY_FRONTEND.md`
 - Reference: `docs/superpowers/specs/2026-07-20-knowledge-ai-precheck-workflow-design.md`
@@ -325,7 +337,9 @@ AI_REVIEWED -> AI_REVIEWED：应用 AI 建议、手动修改正文或处理 AI �
 AI_REVIEWED -> SUBMITTED：AI 必审时全部预检问题已处理；未启用 AI 必审时遵循既有草稿提交规则
 ```
 
-将工作台和验收条目更新为：保存正文不会要求重新 AI 审查；手动修复后，用户必须调用 `PUT /api/knowledge/ai-review/issue/{issueId}/handle` 并传递 `{"status":"manually_fixed"}`；提交前任何 `pending` 问题都会被后端以 `409` 拒绝。
+将工作台和验收条目更新为：保存正文不会要求重新 AI 审查；手动修复后，用户必须调用
+`PUT /api/knowledge/ai-review/issue/{issueId}/handle` 并传递 `{"status":"manually_fixed"}`；提交前任何 `pending` 问题都会被后端以
+`409` 拒绝。
 
 - [ ] **Step 2: 更新补丁恢复文档的客户端动作**
 

@@ -45,6 +45,9 @@ public class WebResponse<T> implements Serializable {
         return new WebResponse<>(200, null, result, total);
     }
 
+    /**
+     * 分页查询当前请求。
+     */
     public static <T> WebResponse<T> Page(String message, T result, Long total) {
         return new WebResponse<>(200, I18nUtils.getMessage("request.success"), result, total);
     }
@@ -126,6 +129,9 @@ public class WebResponse<T> implements Serializable {
         return new WebResponse<>(code, message, result, 0L);
     }
 
+    /**
+     * 处理Error。
+     */
     public static WebResponse<String> Error(int code, String message) {
         return new WebResponse<>(code, message, null, 0L);
     }

@@ -5,6 +5,9 @@ import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+/**
+ * 表示智能体运行StepVO。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AgentRunStepVo extends BaseEntity {

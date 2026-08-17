@@ -20,12 +20,17 @@ import org.springframework.web.client.RestTemplate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+
 import javax.annotation.PreDestroy;
 
+/**
+ * 实现知识库Embedding业务服务。
+ */
 @Service
 public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService {
 
@@ -35,6 +40,9 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
     private final CloseableHttpClient httpClient;
     private final RestTemplate restTemplate;
 
+    /**
+     * 创建 {@code KnowledgeEmbeddingServiceImpl} 实例。
+     */
     public KnowledgeEmbeddingServiceImpl() {
         PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
         connectionManager.setMaxTotal(32);
@@ -52,12 +60,18 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
         this.restTemplate = new RestTemplate(new HttpComponentsClientHttpRequestFactory(httpClient));
     }
 
+    /**
+     * 处理embed。
+     */
     @Override
     public List<Double> embed(ModelProvider provider, String input) {
         List<List<Double>> embeddings = embedAll(provider, java.util.Collections.singletonList(input));
         return embeddings.get(0);
     }
 
+    /**
+     * 处理embed全部。
+     */
     @Override
     public List<List<Double>> embedAll(ModelProvider provider, List<String> inputs) {
         if (provider == null || StringUtils.isBlank(provider.getApiBaseUrl())) {
@@ -103,6 +117,9 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
         return result;
     }
 
+    /**
+     * 处理toVectorLiteral。
+     */
     @Override
     public String toVectorLiteral(List<Double> embedding) {
         if (embedding == null || embedding.isEmpty()) {
@@ -111,11 +128,17 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
         return "[" + embedding.stream().map(String::valueOf).collect(Collectors.joining(",")) + "]";
     }
 
+    /**
+     * 关闭当前资源。
+     */
     @PreDestroy
     public void close() throws java.io.IOException {
         httpClient.close();
     }
 
+    /**
+     * 构建EmbeddingUrl。
+     */
     private String buildEmbeddingUrl(String baseUrl) {
         String normalized = StringUtils.removeEnd(baseUrl, "/");
         if (normalized.endsWith("/v1")) {
@@ -124,6 +147,9 @@ public class KnowledgeEmbeddingServiceImpl implements KnowledgeEmbeddingService 
         return normalized + "/v1/embeddings";
     }
 
+    /**
+     * 执行With重试。
+     */
     private ResponseEntity<String> executeWithRetry(String baseUrl, HttpEntity<String> request) {
         RuntimeException lastFailure = null;
         for (int attempt = 0; attempt < MAX_REQUEST_ATTEMPTS; attempt++) {

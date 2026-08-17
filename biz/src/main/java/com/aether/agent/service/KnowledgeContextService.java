@@ -49,10 +49,15 @@ public class KnowledgeContextService {
     private final KnowledgeDocumentService documentService;
     private final KnowledgeReferenceLogMapper referenceLogMapper;
     private final KnowledgeRetrievalLogMapper retrievalLogMapper;
-    /** Audit writes must not delay a streamed answer. The bounded queue protects request workers under DB pressure. */
+    /**
+     * Audit writes must not delay a streamed answer. The bounded queue protects request workers under DB pressure.
+     */
     private final ThreadPoolExecutor auditExecutor = new ThreadPoolExecutor(1, 2, 30L, TimeUnit.SECONDS,
             new ArrayBlockingQueue<Runnable>(500), new ThreadPoolExecutor.AbortPolicy());
 
+    /**
+     * 创建 {@code KnowledgeContextService} 实例。
+     */
     @Autowired
     public KnowledgeContextService(AdminPreferenceService preferenceService,
                                    KnowledgeRetrievalService retrievalService,
@@ -66,13 +71,18 @@ public class KnowledgeContextService {
         this.retrievalLogMapper = retrievalLogMapper;
     }
 
-    /** 兼容不需要持久化引用记录的轻量调用方和单元测试。 */
+    /**
+     * 兼容不需要持久化引用记录的轻量调用方和单元测试。
+     */
     public KnowledgeContextService(AdminPreferenceService preferenceService,
                                    KnowledgeRetrievalService retrievalService,
                                    KnowledgeDocumentService documentService) {
         this(preferenceService, retrievalService, documentService, null, null);
     }
 
+    /**
+     * 创建 {@code KnowledgeContextService} 实例。
+     */
     public KnowledgeContextService(AdminPreferenceService preferenceService,
                                    KnowledgeRetrievalService retrievalService,
                                    KnowledgeDocumentService documentService,
@@ -80,7 +90,9 @@ public class KnowledgeContextService {
         this(preferenceService, retrievalService, documentService, referenceLogMapper, null);
     }
 
-    /** 将用户偏好、检索文本和可引用来源注入模型上下文，并返回来源供 SSE 最终事件使用。 */
+    /**
+     * 将用户偏好、检索文本和可引用来源注入模型上下文，并返回来源供 SSE 最终事件使用。
+     */
     public List<Map<String, Object>> enhance(List<ModelChatMessage> context, String userId,
                                              String conversationId, String agentId, String query) {
         List<Map<String, Object>> sources = new ArrayList<>();
@@ -126,17 +138,23 @@ public class KnowledgeContextService {
         return sources;
     }
 
-    /** 按 Skill 冻结后的知识库集合检索，避免平台知识库在受限运行中被自动加入。 */
+    /**
+     * 按 Skill 冻结后的知识库集合检索，避免平台知识库在受限运行中被自动加入。
+     */
     public List<Map<String, Object>> enhance(List<ModelChatMessage> context, String userId, String conversationId,
-                                              String agentId, String query, Set<String> knowledgeBaseIds) {
+                                             String agentId, String query, Set<String> knowledgeBaseIds) {
         return enhanceScoped(context, userId, conversationId, agentId, query, knowledgeBaseIds);
     }
 
+    /**
+     * 处理enhanceScoped。
+     */
     private List<Map<String, Object>> enhanceScoped(List<ModelChatMessage> context, String userId, String conversationId,
-                                                     String agentId, String query, Set<String> knowledgeBaseIds) {
+                                                    String agentId, String query, Set<String> knowledgeBaseIds) {
         List<Map<String, Object>> sources = new ArrayList<>();
         if (context == null) return sources;
-        int insertIndex = 0; while (insertIndex < context.size() && "system".equals(context.get(insertIndex).getRole())) insertIndex++;
+        int insertIndex = 0;
+        while (insertIndex < context.size() && "system".equals(context.get(insertIndex).getRole())) insertIndex++;
         long preferenceStartedAt = System.currentTimeMillis();
         String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
         ChatLatencyMetrics.record("chat.preference_context", System.currentTimeMillis() - preferenceStartedAt);
@@ -145,12 +163,28 @@ public class KnowledgeContextService {
         if (retrieval == null) retrieval = new KnowledgeRetrievalResult();
         List<KnowledgeDocumentChunk> chunks = retrieval.getChunks() == null ? Collections.<KnowledgeDocumentChunk>emptyList() : retrieval.getChunks();
         Map<String, String> documentNames = resolveDocumentNames(chunks);
-        for (KnowledgeDocumentChunk chunk : chunks) { Map<String, Object> source = new HashMap<>(); source.put("knowledgeBaseId", chunk.getKnowledgeBaseId()); source.put("documentId", chunk.getDocumentId()); source.put("documentVersionId", chunk.getDocumentVersionId()); source.put("documentName", StringUtils.defaultIfBlank(documentNames.get(chunk.getDocumentId()), "知识库文档 " + (sources.size() + 1))); source.put("citationIndex", sources.size() + 1); source.put("chunkId", chunk.getId()); source.put("chunkIndex", chunk.getChunkIndex()); source.put("sectionPath", chunk.getSectionPath()); source.put("similarity", chunk.getSimilarity()); source.put("retrievalScore", chunk.getRetrievalScore()); source.put("content", truncate(chunk.getContent(), 500)); sources.add(source); }
+        for (KnowledgeDocumentChunk chunk : chunks) {
+            Map<String, Object> source = new HashMap<>();
+            source.put("knowledgeBaseId", chunk.getKnowledgeBaseId());
+            source.put("documentId", chunk.getDocumentId());
+            source.put("documentVersionId", chunk.getDocumentVersionId());
+            source.put("documentName", StringUtils.defaultIfBlank(documentNames.get(chunk.getDocumentId()), "知识库文档 " + (sources.size() + 1)));
+            source.put("citationIndex", sources.size() + 1);
+            source.put("chunkId", chunk.getId());
+            source.put("chunkIndex", chunk.getChunkIndex());
+            source.put("sectionPath", chunk.getSectionPath());
+            source.put("similarity", chunk.getSimilarity());
+            source.put("retrievalScore", chunk.getRetrievalScore());
+            source.put("content", truncate(chunk.getContent(), 500));
+            sources.add(source);
+        }
         appendRuntimeContext(context, insertIndex, preferenceContext, retrieval, sources);
         return sources;
     }
 
-    /** Keeps request-specific guidance together without merging it into protected Skill rules. */
+    /**
+     * Keeps request-specific guidance together without merging it into protected Skill rules.
+     */
     private void appendRuntimeContext(List<ModelChatMessage> context, int insertIndex, String preferenceContext,
                                       KnowledgeRetrievalResult retrieval, List<Map<String, Object>> sources) {
         StringBuilder runtime = new StringBuilder();
@@ -160,9 +194,9 @@ public class KnowledgeContextService {
         } else if (retrieval.isRetrievalAttempted()) {
             appendSection(runtime, retrieval.isStrictGrounding()
                     ? "本轮未检索到足以支撑回答的知识库片段。当前 Agent 只能基于知识库资料回答；"
-                    + "请明确说明资料不足，并请求用户补充资料或换一种表述，不得使用模型固有知识作答。"
+                      + "请明确说明资料不足，并请求用户补充资料或换一种表述，不得使用模型固有知识作答。"
                     : "本轮未检索到足以支撑回答的知识库片段。不得将推测或模型固有知识表述为知识库结论；"
-                    + "如果用户要求依据知识库回答，请明确说明当前资料不足，并在必要时请求补充信息。");
+                      + "如果用户要求依据知识库回答，请明确说明当前资料不足，并在必要时请求补充信息。");
         }
         if (sources != null && !sources.isEmpty()) {
             appendSection(runtime, buildCitationInstruction(sources, retrieval.isStrictGrounding()));
@@ -171,26 +205,35 @@ public class KnowledgeContextService {
         context.add(insertIndex, new ModelChatMessage("system", "【运行时上下文】\n" + runtime));
     }
 
+    /**
+     * 处理appendSection。
+     */
     private void appendSection(StringBuilder target, String section) {
         if (StringUtils.isBlank(section)) return;
         if (target.length() > 0) target.append("\n\n");
         target.append(section.trim());
     }
 
-    /** Skip only unambiguous casual turns for non-Skill chats; scoped Skill knowledge is always retrieved. */
+    /**
+     * Skip only unambiguous casual turns for non-Skill chats; scoped Skill knowledge is always retrieved.
+     */
     private boolean shouldSkipRetrieval(String query, Set<String> knowledgeBaseIds) {
         return knowledgeBaseIds == null && StringUtils.isNotBlank(query)
                 && CASUAL_QUERY_PATTERN.matcher(query.trim()).matches();
     }
 
-    /** Removes citations that do not belong to this retrieval before the answer reaches the client. */
+    /**
+     * Removes citations that do not belong to this retrieval before the answer reaches the client.
+     */
     public List<Map<String, Object>> ensureCitations(ModelStreamResponse response, List<Map<String, Object>> sources) {
         if (response == null) return Collections.emptyList();
         response.setContent(removeUnknownCitations(response.getContent(), sources));
         return filterCitedSources(response.getContent(), sources);
     }
 
-    /** Non-streaming version of citation sanitization. */
+    /**
+     * Non-streaming version of citation sanitization.
+     */
     public List<Map<String, Object>> ensureCitations(ModelChatResponse response, List<Map<String, Object>> sources) {
         if (response == null) return Collections.emptyList();
         response.setContent(removeUnknownCitations(response.getContent(), sources));
@@ -238,13 +281,17 @@ public class KnowledgeContextService {
         }
     }
 
-    /** Queues citation audit persistence after the user-visible response has been finalized. */
+    /**
+     * Queues citation audit persistence after the user-visible response has been finalized.
+     */
     public void recordCitationsAsync(String agentId, String conversationId, String messageId,
                                      List<Map<String, Object>> citedSources) {
         submitAudit("citations", () -> recordCitations(agentId, conversationId, messageId, citedSources));
     }
 
-    /** Records candidate-level retrieval outcomes without persisting raw user queries. */
+    /**
+     * Records candidate-level retrieval outcomes without persisting raw user queries.
+     */
     public void recordRetrievalOutcome(String agentId, String conversationId, String messageId, String query,
                                        List<Map<String, Object>> retrievedSources,
                                        List<Map<String, Object>> citedSources) {
@@ -265,21 +312,31 @@ public class KnowledgeContextService {
         try {
             if (retrievedSources == null || retrievedSources.isEmpty()) {
                 KnowledgeRetrievalLog log = new KnowledgeRetrievalLog();
-                log.setAgentDefinitionId(agentId); log.setConversationId(conversationId); log.setMessageId(messageId);
-                log.setQueryHash(queryHash); log.setCited(false); log.setOutcome("NO_MATCH"); log.setRetrievedAt(now);
+                log.setAgentDefinitionId(agentId);
+                log.setConversationId(conversationId);
+                log.setMessageId(messageId);
+                log.setQueryHash(queryHash);
+                log.setCited(false);
+                log.setOutcome("NO_MATCH");
+                log.setRetrievedAt(now);
                 retrievalLogMapper.insert(log);
                 return;
             }
             for (Map<String, Object> source : retrievedSources) {
                 KnowledgeRetrievalLog log = new KnowledgeRetrievalLog();
                 String chunkId = stringValue(source.get("chunkId"));
-                log.setAgentDefinitionId(agentId); log.setConversationId(conversationId); log.setMessageId(messageId);
-                log.setQueryHash(queryHash); log.setKnowledgeBaseId(stringValue(source.get("knowledgeBaseId")));
-                log.setDocumentId(stringValue(source.get("documentId"))); log.setChunkId(chunkId);
+                log.setAgentDefinitionId(agentId);
+                log.setConversationId(conversationId);
+                log.setMessageId(messageId);
+                log.setQueryHash(queryHash);
+                log.setKnowledgeBaseId(stringValue(source.get("knowledgeBaseId")));
+                log.setDocumentId(stringValue(source.get("documentId")));
+                log.setChunkId(chunkId);
                 log.setSimilarity(doubleValue(source.get("similarity")));
                 log.setRetrievalScore(doubleValue(source.get("retrievalScore")));
                 log.setCited(StringUtils.isNotBlank(chunkId) && citedChunkIds.contains(chunkId));
-                log.setOutcome("MATCHED"); log.setRetrievedAt(now);
+                log.setOutcome("MATCHED");
+                log.setRetrievedAt(now);
                 retrievalLogMapper.insert(log);
             }
         } catch (Exception ignored) {
@@ -287,7 +344,9 @@ public class KnowledgeContextService {
         }
     }
 
-    /** Queues retrieval audit persistence after the user-visible response has been finalized. */
+    /**
+     * Queues retrieval audit persistence after the user-visible response has been finalized.
+     */
     public void recordRetrievalOutcomeAsync(String agentId, String conversationId, String messageId, String query,
                                             List<Map<String, Object>> retrievedSources,
                                             List<Map<String, Object>> citedSources) {
@@ -295,6 +354,9 @@ public class KnowledgeContextService {
                 retrievedSources, citedSources));
     }
 
+    /**
+     * 提交Audit。
+     */
     private void submitAudit(String auditType, Runnable task) {
         try {
             auditExecutor.execute(task);
@@ -306,11 +368,17 @@ public class KnowledgeContextService {
         }
     }
 
+    /**
+     * 处理shutdownAuditExecutor。
+     */
     @PreDestroy
     public void shutdownAuditExecutor() {
         auditExecutor.shutdown();
     }
 
+    /**
+     * 解析文档Names。
+     */
     private Map<String, String> resolveDocumentNames(List<KnowledgeDocumentChunk> chunks) {
         List<String> documentIds = new ArrayList<>();
         for (KnowledgeDocumentChunk chunk : chunks) {
@@ -328,6 +396,9 @@ public class KnowledgeContextService {
         return names;
     }
 
+    /**
+     * 处理filterCitedSources。
+     */
     private List<Map<String, Object>> filterCitedSources(String content, List<Map<String, Object>> sources) {
         if (StringUtils.isBlank(content) || sources == null || sources.isEmpty()) {
             return Collections.emptyList();
@@ -347,6 +418,9 @@ public class KnowledgeContextService {
         return citedSources;
     }
 
+    /**
+     * 移除UnknownCitations。
+     */
     private String removeUnknownCitations(String content, List<Map<String, Object>> sources) {
         if (StringUtils.isBlank(content)) return content;
         Set<Integer> availableIndexes = new HashSet<>();
@@ -367,6 +441,9 @@ public class KnowledgeContextService {
         return sanitized.toString();
     }
 
+    /**
+     * 构建CitationInstruction。
+     */
     private String buildCitationInstruction(List<Map<String, Object>> sources, boolean strictGrounding) {
         StringBuilder instruction = new StringBuilder("【可引用来源】仅当回答实际使用了某个片段时，"
                 + "请在对应结论后标注其编号，例如【1】。不得编造编号，不使用知识库时不要添加引用。\n");
@@ -383,22 +460,37 @@ public class KnowledgeContextService {
         return instruction.toString();
     }
 
+    /**
+     * 处理truncate。
+     */
     private String truncate(String value, int maxLength) {
         return value == null || value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 
+    /**
+     * 处理stringValue。
+     */
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
     }
 
+    /**
+     * 处理doubleValue。
+     */
     private Double doubleValue(Object value) {
         return value instanceof Number ? ((Number) value).doubleValue() : null;
     }
 
+    /**
+     * 处理integerValue。
+     */
     private Integer integerValue(Object value) {
         return value instanceof Number ? ((Number) value).intValue() : null;
     }
 
+    /**
+     * 处理hash查询。
+     */
     private String hashQuery(String query) {
         String normalized = StringUtils.defaultString(query).trim().replaceAll("\\s+", " ");
         try {

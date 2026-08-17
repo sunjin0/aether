@@ -17,5 +17,8 @@ import java.util.List;
  */
 public interface RoleResourceService extends IService<RoleResource> {
 
+    /**
+     * 获取权限按角色Id。
+     */
     List<String> getPermissionByRoleId(String roleId);
 }

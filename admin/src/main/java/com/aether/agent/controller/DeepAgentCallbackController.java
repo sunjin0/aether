@@ -37,6 +37,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 提供Deep智能体回调相关的 REST 接口。
+ */
 @RestController
 @RequestMapping("/api/agent/deep-runs")
 public class DeepAgentCallbackController {
@@ -53,6 +56,9 @@ public class DeepAgentCallbackController {
     private final ModelCatalogService modelCatalogService;
     private final Map<String, AgentStreamCallback> activeCallbacks = new ConcurrentHashMap<>();
 
+    /**
+     * 创建 {@code DeepAgentCallbackController} 实例。
+     */
     public DeepAgentCallbackController(DeepAgentRunService deepAgentRunService, AgentMessageService agentMessageService,
                                        DeepAgentConfig config, AgentRunPlanService planService,
                                        AgentDefinitionService agentDefinitionService, ModelProviderService modelProviderService,
@@ -66,14 +72,23 @@ public class DeepAgentCallbackController {
         this.modelCatalogService = modelCatalogService;
     }
 
+    /**
+     * 处理register回调。
+     */
     public void registerCallback(String runId, AgentStreamCallback callback) {
         activeCallbacks.put(runId, callback);
     }
 
+    /**
+     * 移除回调。
+     */
     public void removeCallback(String runId) {
         activeCallbacks.remove(runId);
     }
 
+    /**
+     * 处理reconcileTerminal回调。
+     */
     public void reconcileTerminalCallback(String runId) {
         AgentStreamCallback callback = activeCallbacks.get(runId);
         if (callback == null || callback.isClosed()) return;
@@ -90,7 +105,8 @@ public class DeepAgentCallbackController {
                 response.setCompletionTokens(message.getCompletionTokens());
                 response.setTotalTokens(message.getTotalTokens());
                 response.setReasoningTokens(message.getReasoningTokens());
-                if (message.getCitations() != null) response.setSources(sourceList(JSON.parseObject("{\"sources\":" + message.getCitations() + "}"), "sources"));
+                if (message.getCitations() != null)
+                    response.setSources(sourceList(JSON.parseObject("{\"sources\":" + message.getCitations() + "}"), "sources"));
                 try {
                     callback.onDone(run.getConversationId(), message.getId(), response);
                 } finally {
@@ -103,6 +119,9 @@ public class DeepAgentCallbackController {
         }
     }
 
+    /**
+     * 回调当前请求。
+     */
     @PostMapping("/callback/{runId}")
     public ResponseEntity<Void> callback(@PathVariable String runId, HttpServletRequest request) {
         try {
@@ -387,6 +406,9 @@ public class DeepAgentCallbackController {
         }
     }
 
+    /**
+     * 处理notifyErrorAnd移除。
+     */
     private void notifyErrorAndRemove(String runId, AgentStreamCallback callback, int code, String message) {
         if (callback != null) {
             try {
@@ -399,22 +421,34 @@ public class DeepAgentCallbackController {
         }
     }
 
+    /**
+     * 处理integerValue。
+     */
     private Integer integerValue(JSONObject data, String snakeCaseKey, String camelCaseKey) {
         Integer value = data.getInteger(snakeCaseKey);
         return value != null ? value : data.getInteger(camelCaseKey);
     }
 
+    /**
+     * 处理stringValue。
+     */
     private String stringValue(JSONObject data, String snakeCaseKey, String camelCaseKey) {
         String value = data.getString(snakeCaseKey);
         return value != null ? value : data.getString(camelCaseKey);
     }
 
+    /**
+     * 处理jsonField。
+     */
     private String jsonField(JSONObject data, String snakeCaseKey, String camelCaseKey) {
         Object value = data.get(snakeCaseKey);
         if (value == null) value = data.get(camelCaseKey);
         return value != null ? JSON.toJSONString(value) : null;
     }
 
+    /**
+     * 处理source查询。
+     */
     private List<Map<String, Object>> sourceList(JSONObject data, String key) {
         List<Map> values = data.getList(key, Map.class);
         if (values == null) return null;
@@ -430,6 +464,9 @@ public class DeepAgentCallbackController {
         return sources;
     }
 
+    /**
+     * 验证Signature。
+     */
     private boolean verifySignature(HttpServletRequest request, byte[] bodyBytes) throws Exception {
         String keyId = request.getHeader("X-Aether-Key-Id");
         String timestamp = request.getHeader("X-Aether-Timestamp");
@@ -438,7 +475,11 @@ public class DeepAgentCallbackController {
         if (!config.getKeyId().equals(keyId)) return false;
 
         long ts;
-        try { ts = Long.parseLong(timestamp); } catch (NumberFormatException e) { return false; }
+        try {
+            ts = Long.parseLong(timestamp);
+        } catch (NumberFormatException e) {
+            return false;
+        }
         if (Math.abs(System.currentTimeMillis() / 1000 - ts) > MAX_SIGNATURE_AGE_SECONDS) return false;
 
         byte[] providedSignature = decodeHexSignature(signature);
@@ -448,6 +489,9 @@ public class DeepAgentCallbackController {
         return MessageDigest.isEqual(hmacSha256(config.getSharedSecret(), payload), providedSignature);
     }
 
+    /**
+     * 处理readBodyBytes。
+     */
     private byte[] readBodyBytes(InputStream inputStream) throws Exception {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] chunk = new byte[4096];
@@ -458,6 +502,9 @@ public class DeepAgentCallbackController {
         return buffer.toByteArray();
     }
 
+    /**
+     * 解码HexSignature。
+     */
     private byte[] decodeHexSignature(String signature) {
         if (signature.length() != 64) return null;
         byte[] bytes = new byte[32];
@@ -470,12 +517,18 @@ public class DeepAgentCallbackController {
         return bytes;
     }
 
+    /**
+     * 处理hmacSha256。
+     */
     private byte[] hmacSha256(String secret, String payload) throws Exception {
         Mac mac = Mac.getInstance(HMAC_ALGORITHM);
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM));
         return mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * 处理planReason。
+     */
     private String planReason(JSONObject data) {
         String reason = data == null ? null : data.getString("reason");
         if ("INITIAL".equals(reason) || "TOOL_RESULT".equals(reason) || "USER_INPUT".equals(reason)

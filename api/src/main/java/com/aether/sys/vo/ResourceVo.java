@@ -1,9 +1,14 @@
 package com.aether.sys.vo;
 
-import  com.aether.sys.entity.Resource;
+import com.aether.sys.entity.Resource;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+
 import java.util.List;
+
+/**
+ * 表示资源VO。
+ */
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class ResourceVo extends Resource {

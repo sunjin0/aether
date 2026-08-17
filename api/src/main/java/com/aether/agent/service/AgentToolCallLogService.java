@@ -13,9 +13,18 @@ import java.util.Map;
  */
 public interface AgentToolCallLogService extends IService<AgentToolCallLog> {
 
+    /**
+     * 处理statistics。
+     */
     AgentToolCallStatisticsVo statistics(AgentToolCallLogVo query);
 
+    /**
+     * 处理toolStatistics。
+     */
     List<AgentToolCallStatisticsVo> toolStatistics(AgentToolCallLogVo query);
 
+    /**
+     * 处理toolStatisticsMap。
+     */
     Map<String, AgentToolCallStatisticsVo> toolStatisticsMap(AgentToolCallLogVo query);
 }

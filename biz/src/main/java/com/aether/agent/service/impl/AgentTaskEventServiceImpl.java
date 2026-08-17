@@ -1,4 +1,5 @@
 package com.aether.agent.service.impl;
+
 import com.aether.agent.entity.AgentTaskEvent;
 import com.aether.agent.mapper.AgentTaskEventMapper;
 import com.aether.agent.service.AgentTaskEventService;
@@ -9,9 +10,15 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/**
+ * 实现智能体任务事件业务服务。
+ */
 @Service
 public class AgentTaskEventServiceImpl extends ServiceImpl<AgentTaskEventMapper, AgentTaskEvent>
         implements AgentTaskEventService {
+    /**
+     * 处理record。
+     */
     @Override
     public void record(String taskId, String runId, String eventType, String summary) {
         if (StringUtils.isBlank(taskId)) return;
@@ -24,6 +31,9 @@ public class AgentTaskEventServiceImpl extends ServiceImpl<AgentTaskEventMapper,
         save(event);
     }
 
+    /**
+     * 查询按任务Id。
+     */
     @Override
     public List<AgentTaskEvent> listByTaskId(String taskId) {
         return list(Wrappers.lambdaQuery(AgentTaskEvent.class)

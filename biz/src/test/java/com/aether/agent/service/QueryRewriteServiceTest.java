@@ -22,6 +22,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证查询Rewrite服务的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class QueryRewriteServiceTest {
 
@@ -30,6 +33,9 @@ class QueryRewriteServiceTest {
     @Mock
     private ModelClient modelClient;
 
+    /**
+     * 处理rewrites当前Raw消息UsingOnly会话历史记录。
+     */
     @Test
     void rewritesCurrentRawMessageUsingOnlyConversationHistory() {
         ModelProvider provider = new ModelProvider();
@@ -40,8 +46,8 @@ class QueryRewriteServiceTest {
         when(modelClient.chat(any(ModelChatRequest.class))).thenReturn(response);
 
         QueryRewriteResult result = new QueryRewriteService(modelClientFactory).rewrite(Arrays.asList(
-                new ModelChatMessage("user", "标准版退款期限是多少？"),
-                new ModelChatMessage("assistant", "标准版为 7 天。")),
+                        new ModelChatMessage("user", "标准版退款期限是多少？"),
+                        new ModelChatMessage("assistant", "标准版为 7 天。")),
                 "企业版呢？", new AgentDefinition(), provider);
 
         assertEquals("企业版产品的退款期限是多少？", result.getRewrittenContent());
@@ -54,6 +60,9 @@ class QueryRewriteServiceTest {
         org.junit.jupiter.api.Assertions.assertTrue(prompt.contains("标准版退款期限是多少？"));
     }
 
+    /**
+     * 处理invalid模型ResponseLeavesRewriteEmpty用于OriginalFallback。
+     */
     @Test
     void invalidModelResponseLeavesRewriteEmptyForOriginalFallback() {
         ModelProvider provider = new ModelProvider();

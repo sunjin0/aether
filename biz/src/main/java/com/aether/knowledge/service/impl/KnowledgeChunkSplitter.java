@@ -22,6 +22,9 @@ public class KnowledgeChunkSplitter {
     private final int overlapChars;
     private final int maxTokens;
 
+    /**
+     * 创建 {@code KnowledgeChunkSplitter} 实例。
+     */
     public KnowledgeChunkSplitter() {
         // A chunk must normally contain a complete explanation, not merely a
         // sentence-sized retrieval hint.  Retrieval expands around a hit too,
@@ -30,10 +33,16 @@ public class KnowledgeChunkSplitter {
         this(2400, 320, 1400);
     }
 
+    /**
+     * 创建 {@code KnowledgeChunkSplitter} 实例。
+     */
     KnowledgeChunkSplitter(int maxChars, int overlapChars) {
         this(maxChars, overlapChars, maxChars);
     }
 
+    /**
+     * 创建 {@code KnowledgeChunkSplitter} 实例。
+     */
     KnowledgeChunkSplitter(int maxChars, int overlapChars, int maxTokens) {
         if (maxChars <= 0 || overlapChars < 0 || overlapChars >= maxChars || maxTokens <= 0) {
             throw new IllegalArgumentException("invalid chunk size configuration");
@@ -43,6 +52,9 @@ public class KnowledgeChunkSplitter {
         this.maxTokens = maxTokens;
     }
 
+    /**
+     * 处理split。
+     */
     public List<Segment> split(String content) {
         if (StringUtils.isBlank(content)) {
             return Collections.emptyList();
@@ -75,13 +87,16 @@ public class KnowledgeChunkSplitter {
         return result;
     }
 
+    /**
+     * 处理estimateTokens。
+     */
     public int estimateTokens(String text) {
         if (StringUtils.isBlank(text)) {
             return 0;
         }
         int cjk = 0;
         int other = 0;
-        for (int offset = 0; offset < text.length();) {
+        for (int offset = 0; offset < text.length(); ) {
             int codePoint = text.codePointAt(offset);
             offset += Character.charCount(codePoint);
             if (isCjk(codePoint)) {
@@ -93,6 +108,9 @@ public class KnowledgeChunkSplitter {
         return Math.max(1, cjk + (other + 3) / 4);
     }
 
+    /**
+     * 处理appendSection。
+     */
     private void appendSection(List<Segment> output, String value, String sectionPath) {
         String section = StringUtils.trimToEmpty(value);
         // A title without body text is structural context, not a retrievable
@@ -112,7 +130,9 @@ public class KnowledgeChunkSplitter {
         pack(output, units, sectionPath);
     }
 
-    /** Repeats the active heading hierarchy at the beginning of a child section. */
+    /**
+     * Repeats the active heading hierarchy at the beginning of a child section.
+     */
     private void appendHeadingContext(StringBuilder section, String[] headings, int currentLevel) {
         for (int index = 0; index < currentLevel; index++) {
             if (StringUtils.isBlank(headings[index])) {
@@ -125,6 +145,9 @@ public class KnowledgeChunkSplitter {
         }
     }
 
+    /**
+     * 判断是否为HeadingOnly。
+     */
     private boolean isHeadingOnly(String section) {
         boolean hasHeading = false;
         for (String line : section.split("\\n")) {
@@ -139,6 +162,9 @@ public class KnowledgeChunkSplitter {
         return hasHeading;
     }
 
+    /**
+     * 新增Unit。
+     */
     private void addUnit(List<String> units, String value) {
         if (StringUtils.isBlank(value)) {
             return;
@@ -158,7 +184,9 @@ public class KnowledgeChunkSplitter {
         }
     }
 
-    /** Keeps Markdown table headers with every row group instead of cutting a row by character count. */
+    /**
+     * Keeps Markdown table headers with every row group instead of cutting a row by character count.
+     */
     private void addTableUnits(List<String> units, String table) {
         if (table.length() <= maxChars) {
             units.add(table);
@@ -195,12 +223,18 @@ public class KnowledgeChunkSplitter {
         }
     }
 
+    /**
+     * 判断是否为MarkdownTable。
+     */
     private boolean isMarkdownTable(String value) {
         String[] lines = value.split("\\n");
         return lines.length >= 2 && lines[0].contains("|")
                 && lines[1].matches("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$");
     }
 
+    /**
+     * 新增HardSplit。
+     */
     private void addHardSplit(List<String> units, String value) {
         int start = 0;
         while (start < value.length()) {
@@ -222,6 +256,9 @@ public class KnowledgeChunkSplitter {
         }
     }
 
+    /**
+     * 处理pack。
+     */
     private void pack(List<Segment> output, List<String> units, String sectionPath) {
         List<String> current = new ArrayList<>();
         for (String unit : units) {
@@ -239,7 +276,9 @@ public class KnowledgeChunkSplitter {
         }
     }
 
-    /** Absorbs a tiny trailing unit when it still fits its preceding semantic section. */
+    /**
+     * Absorbs a tiny trailing unit when it still fits its preceding semantic section.
+     */
     private void appendSegment(List<Segment> output, String content, String sectionPath) {
         if (content.length() < minimumChunkChars() && !output.isEmpty()) {
             Segment previous = output.get(output.size() - 1);
@@ -253,10 +292,16 @@ public class KnowledgeChunkSplitter {
         output.add(new Segment(content, sectionPath));
     }
 
+    /**
+     * 处理minimumChunkChars。
+     */
     private int minimumChunkChars() {
         return Math.min(180, Math.max(32, maxChars / 4));
     }
 
+    /**
+     * 处理overlapTail。
+     */
     private List<String> overlapTail(List<String> current) {
         List<String> tail = new ArrayList<>();
         for (int i = current.size() - 1; i >= 0; i--) {
@@ -270,6 +315,9 @@ public class KnowledgeChunkSplitter {
         return tail;
     }
 
+    /**
+     * 处理joinedLength。
+     */
     private int joinedLength(List<String> values) {
         if (values.isEmpty()) {
             return 0;
@@ -281,11 +329,17 @@ public class KnowledgeChunkSplitter {
         return length;
     }
 
+    /**
+     * 处理exceedsChunkBudget。
+     */
     private boolean exceedsChunkBudget(List<String> current, String next) {
         return joinedLength(current) + 2 + next.length() > maxChars
                 || estimateTokens(StringUtils.join(current, "\n\n") + "\n\n" + next) > maxTokens;
     }
 
+    /**
+     * 处理joinHeadings。
+     */
     private String joinHeadings(String[] headings) {
         List<String> path = new ArrayList<>();
         for (String heading : headings) {
@@ -296,6 +350,9 @@ public class KnowledgeChunkSplitter {
         return path.isEmpty() ? "ROOT" : StringUtils.join(path, " > ");
     }
 
+    /**
+     * 判断是否为Cjk。
+     */
     private boolean isCjk(int codePoint) {
         Character.UnicodeScript script = Character.UnicodeScript.of(codePoint);
         return script == Character.UnicodeScript.HAN
@@ -304,19 +361,31 @@ public class KnowledgeChunkSplitter {
                 || script == Character.UnicodeScript.HANGUL;
     }
 
+    /**
+     * 表示Segment。
+     */
     public static class Segment {
         private final String content;
         private final String sectionPath;
 
+        /**
+         * 创建 {@code Segment} 实例。
+         */
         Segment(String content, String sectionPath) {
             this.content = content;
             this.sectionPath = sectionPath;
         }
 
+        /**
+         * 获取Content。
+         */
         public String getContent() {
             return content;
         }
 
+        /**
+         * 获取SectionPath。
+         */
         public String getSectionPath() {
             return sectionPath;
         }

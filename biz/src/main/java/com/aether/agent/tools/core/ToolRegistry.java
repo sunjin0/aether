@@ -22,10 +22,16 @@ public class ToolRegistry {
 
     private final List<Tool> handlers;
 
+    /**
+     * 创建 {@code ToolRegistry} 实例。
+     */
     public ToolRegistry(List<Tool> handlers) {
         this.handlers = handlers;
     }
 
+    /**
+     * 获取Tools。
+     */
     public List<AgentTool> getTools() {
         List<AgentTool> tools = new ArrayList<>();
         for (Tool handler : handlers) {
@@ -34,6 +40,9 @@ public class ToolRegistry {
         return tools;
     }
 
+    /**
+     * 获取Handler。
+     */
     public Tool getHandler(String toolName) {
         for (Tool handler : handlers) {
             if (handler.supports(toolName)) {

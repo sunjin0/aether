@@ -22,16 +22,25 @@ import org.springframework.stereotype.Service;
 @Service
 public class SmsMessageServiceImpl extends ServiceImpl<SmsMessageMapper, Sms> implements SmsMessageService {
 
+    /**
+     * 发送当前请求。
+     */
     @Override
     public Boolean send(Sms message) throws ServerException {
         return null;
     }
 
+    /**
+     * 获取按Id。
+     */
     @Override
     public Sms getById(String id) throws ServerException {
         return super.getById(id);
     }
 
+    /**
+     * 查询当前请求。
+     */
     @Override
     public Page<Sms> list(SmsVo message) throws ServerException {
         return super.page(new Page<>(message.getCurrent(), message.getPageSize()),
@@ -44,11 +53,17 @@ public class SmsMessageServiceImpl extends ServiceImpl<SmsMessageMapper, Sms> im
                         .orderByDesc(Sms::getCreatedAt));
     }
 
+    /**
+     * 删除当前请求。
+     */
     @Override
     public Boolean delete(String id) throws ServerException {
         return removeById(id);
     }
 
+    /**
+     * 保存当前请求。
+     */
     @Override
     public boolean save(Sms message) throws ServerException {
         String id = message.getId();
@@ -59,6 +74,9 @@ public class SmsMessageServiceImpl extends ServiceImpl<SmsMessageMapper, Sms> im
         }
     }
 
+    /**
+     * 获取按用户Id。
+     */
     @Override
     public Sms getByUserId(String userId) throws ServerException {
         return getOne(Wrappers.lambdaQuery(Sms.class)

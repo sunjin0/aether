@@ -35,6 +35,9 @@ import java.util.LinkedHashMap;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
+/**
+ * 实现知识库文档索引业务服务。
+ */
 @Service
 public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndexService {
 
@@ -54,17 +57,20 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
     private final KnowledgeChunkSplitter chunkSplitter;
     private final TransactionAfterCommitExecutor afterCommitExecutor;
 
+    /**
+     * 创建 {@code KnowledgeDocumentIndexServiceImpl} 实例。
+     */
     public KnowledgeDocumentIndexServiceImpl(KnowledgeDocumentService knowledgeDocumentService,
-                                         KnowledgeDocumentChunkService knowledgeDocumentChunkService,
-                                         KnowledgeBaseService knowledgeBaseService,
-                                         ModelProviderService modelProviderService,
-                                         ModelCatalogService modelCatalogService,
-                                         KnowledgeEmbeddingService knowledgeEmbeddingService,
-                                         KnowledgeIndexJobService knowledgeIndexJobService,
-                                         KnowledgeIndexWorker knowledgeIndexWorker,
-                                         KnowledgeDocumentVersionService knowledgeDocumentVersionService,
-                                         KnowledgeChunkSplitter chunkSplitter,
-                                         TransactionAfterCommitExecutor afterCommitExecutor) {
+                                             KnowledgeDocumentChunkService knowledgeDocumentChunkService,
+                                             KnowledgeBaseService knowledgeBaseService,
+                                             ModelProviderService modelProviderService,
+                                             ModelCatalogService modelCatalogService,
+                                             KnowledgeEmbeddingService knowledgeEmbeddingService,
+                                             KnowledgeIndexJobService knowledgeIndexJobService,
+                                             KnowledgeIndexWorker knowledgeIndexWorker,
+                                             KnowledgeDocumentVersionService knowledgeDocumentVersionService,
+                                             KnowledgeChunkSplitter chunkSplitter,
+                                             TransactionAfterCommitExecutor afterCommitExecutor) {
         this.knowledgeDocumentService = knowledgeDocumentService;
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
         this.knowledgeBaseService = knowledgeBaseService;
@@ -78,14 +84,19 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         this.afterCommitExecutor = afterCommitExecutor;
     }
 
+    /**
+     * 处理queueReindex。
+     */
     @Override
     public String queueReindex(KnowledgeDocument document, KnowledgeDocumentVersion version, String jobType) {
         if (document == null || StringUtils.isBlank(document.getId()) || version == null || StringUtils.isBlank(version.getId())) {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.document-version.required"));
         }
         KnowledgeIndexJob job = new KnowledgeIndexJob();
-        job.setKnowledgeBaseId(document.getKnowledgeBaseId()); job.setDocumentId(document.getId());
-        job.setDocumentVersionId(version.getId()); job.setJobType(StringUtils.defaultIfBlank(jobType, KnowledgeJobType.REINDEX));
+        job.setKnowledgeBaseId(document.getKnowledgeBaseId());
+        job.setDocumentId(document.getId());
+        job.setDocumentVersionId(version.getId());
+        job.setJobType(StringUtils.defaultIfBlank(jobType, KnowledgeJobType.REINDEX));
         job.setStatus(KnowledgeIndexJobStatus.PENDING);
         job.setRetryCount(0);
         job.setMaxRetryCount(3);
@@ -97,12 +108,18 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         return job.getId();
     }
 
+    /**
+     * 处理reindex。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void reindex(KnowledgeDocument document) {
         reindex(document, null);
     }
 
+    /**
+     * 处理reindex。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void reindex(KnowledgeDocument document, KnowledgeDocumentVersion version) {
@@ -188,6 +205,9 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         updateKnowledgeBaseIndexStatus(knowledgeBase.getId(), KB_INDEX_STATUS_DONE);
     }
 
+    /**
+     * 加载ExistingEmbeddings。
+     */
     private Map<String, String> loadExistingEmbeddings(String documentId, String documentVersionId, ModelProvider provider) {
         List<KnowledgeDocumentChunk> existing = knowledgeDocumentChunkService.list(
                 Wrappers.lambdaQuery(KnowledgeDocumentChunk.class)
@@ -219,11 +239,17 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
                 + "\",\"embeddingModel\":\"" + jsonEscape(provider.getDefaultModel()) + "\"}";
     }
 
+    /**
+     * 构建EmbeddingInput。
+     */
     private String buildEmbeddingInput(KnowledgeChunkSplitter.Segment segment) {
         String sectionPath = StringUtils.defaultIfBlank(segment.getSectionPath(), "ROOT");
         return "章节：" + sectionPath + "\n内容：\n" + segment.getContent();
     }
 
+    /**
+     * 处理matchesEmbedding模型。
+     */
     private boolean matchesEmbeddingModel(String metadata, ModelProvider provider) {
         if (StringUtils.isBlank(metadata)) {
             return false;
@@ -237,6 +263,9 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         }
     }
 
+    /**
+     * 处理sha256。
+     */
     private String sha256(String content) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(content.getBytes(StandardCharsets.UTF_8));
@@ -250,10 +279,16 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         }
     }
 
+    /**
+     * 处理jsonEscape。
+     */
     private String jsonEscape(String value) {
         return StringUtils.defaultString(value).replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    /**
+     * 更新文档状态。
+     */
     private void updateDocumentStatus(String documentId, Integer status, Integer chunkCount) {
         KnowledgeDocument update = new KnowledgeDocument();
         update.setId(documentId);
@@ -264,6 +299,9 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         knowledgeDocumentService.updateById(update);
     }
 
+    /**
+     * 更新知识库Base索引状态。
+     */
     private void updateKnowledgeBaseIndexStatus(String knowledgeBaseId, Integer indexStatus) {
         KnowledgeBase update = new KnowledgeBase();
         update.setId(knowledgeBaseId);
@@ -271,9 +309,15 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         knowledgeBaseService.updateById(update);
     }
 
+    /**
+     * 获取EmbeddingProvider。
+     */
     private ModelProvider getEmbeddingProvider(KnowledgeBase knowledgeBase) {
         if (StringUtils.isBlank(knowledgeBase.getEmbeddingModelId())) return null;
-        try { return modelCatalogService.resolveProvider(knowledgeBase.getEmbeddingModelId(), "EMBEDDING"); }
-        catch (Exception e) { return null; }
+        try {
+            return modelCatalogService.resolveProvider(knowledgeBase.getEmbeddingModelId(), "EMBEDDING");
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

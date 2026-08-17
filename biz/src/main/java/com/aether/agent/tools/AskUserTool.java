@@ -37,10 +37,16 @@ public class AskUserTool implements Tool {
     private static final String INTERACTION_STATUS_PENDING = "pending";
     private final AgentMessageService agentMessageService;
 
+    /**
+     * 创建 {@code AskUserTool} 实例。
+     */
     public AskUserTool(AgentMessageService agentMessageService) {
         this.agentMessageService = agentMessageService;
     }
 
+    /**
+     * 获取Tool。
+     */
     @Override
     public AgentTool getTool() {
         AgentTool tool = new AgentTool();
@@ -54,11 +60,17 @@ public class AskUserTool implements Tool {
         return tool;
     }
 
+    /**
+     * 处理supports。
+     */
     @Override
     public boolean supports(String toolName) {
         return TOOL_NAME.equals(toolName);
     }
 
+    /**
+     * 处理当前请求。
+     */
     @Override
     public ToolResult handle(String conversationId, Map<String, Object> arguments) {
         List<JSONObject> questions = normalizeQuestions(arguments);
@@ -80,6 +92,9 @@ public class AskUserTool implements Tool {
         return ToolResult.waitingUser(message, buildContextContent(questions));
     }
 
+    /**
+     * 规范化Questions。
+     */
     private List<JSONObject> normalizeQuestions(Map<String, Object> arguments) {
         if (arguments == null || !(arguments.get("questions") instanceof List)) {
             throw new ServerException(400, I18nUtils.getMessage("agent.ask.user.questions.required"));
@@ -104,6 +119,9 @@ public class AskUserTool implements Tool {
         return questions;
     }
 
+    /**
+     * 规范化Question。
+     */
     private JSONObject normalizeQuestion(Map<String, Object> inputMap) {
         JSONObject input = new JSONObject(inputMap);
         String id = StringUtils.defaultString(input.getString("id")).trim();
@@ -153,6 +171,9 @@ public class AskUserTool implements Tool {
         return normalized;
     }
 
+    /**
+     * 规范化Type。
+     */
     private String normalizeType(String rawType, JSONObject input) {
         String type = StringUtils.defaultString(rawType).trim().toLowerCase();
         if ("choice".equals(type) || "choices".equals(type) || "select".equals(type) || "option".equals(type)
@@ -168,6 +189,9 @@ public class AskUserTool implements Tool {
         return StringUtils.isBlank(type) && input.getJSONArray("options") != null ? "choice" : type;
     }
 
+    /**
+     * 构建GroupTitle。
+     */
     private String buildGroupTitle(Map<String, Object> arguments, List<JSONObject> questions) {
         Object title = arguments.get("question") == null ? arguments.get("title") : arguments.get("question");
         if (title != null && StringUtils.isNotBlank(title.toString())) {
@@ -176,6 +200,9 @@ public class AskUserTool implements Tool {
         return questions.size() == 1 ? questions.get(0).getString("question") : "请确认以下 " + questions.size() + " 个问题后继续。";
     }
 
+    /**
+     * 构建ContextContent。
+     */
     private String buildContextContent(List<JSONObject> questions) {
         List<String> items = new ArrayList<>();
         for (JSONObject question : questions) {
@@ -184,6 +211,9 @@ public class AskUserTool implements Tool {
         return "需要用户回复：" + StringUtils.join(items, "；");
     }
 
+    /**
+     * 构建ParametersSchema。
+     */
     private String buildParametersSchema() {
         JSONObject optionProperties = new JSONObject();
         optionProperties.put("id", new JSONObject().fluentPut("type", "string").fluentPut("maxLength", 64));
@@ -220,6 +250,9 @@ public class AskUserTool implements Tool {
         return JSON.toJSONString(schema);
     }
 
+    /**
+     * 处理truncate。
+     */
     private String truncate(String value, int maxLength) {
         return value == null || value.length() <= maxLength ? value : value.substring(0, maxLength);
     }

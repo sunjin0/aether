@@ -12,6 +12,9 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 实现知识库文档Version业务服务。
+ */
 @Service
 public class KnowledgeDocumentVersionServiceImpl
         extends ServiceImpl<KnowledgeDocumentVersionMapper, KnowledgeDocumentVersion>
@@ -19,10 +22,16 @@ public class KnowledgeDocumentVersionServiceImpl
 
     private final KnowledgeDocumentMapper documentMapper;
 
+    /**
+     * 创建 {@code KnowledgeDocumentVersionServiceImpl} 实例。
+     */
     public KnowledgeDocumentVersionServiceImpl(KnowledgeDocumentMapper documentMapper) {
         this.documentMapper = documentMapper;
     }
 
+    /**
+     * 创建下一个Version。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocumentVersion createNextVersion(KnowledgeDocument snapshot) {

@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** 可复用的工作流画布模板。 */
+/**
+ * 可复用的工作流画布模板。
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_template")

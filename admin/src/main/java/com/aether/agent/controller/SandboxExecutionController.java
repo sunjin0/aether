@@ -21,19 +21,34 @@ import java.io.IOException;
 @RequestMapping("/api/internal/sandbox")
 public class SandboxExecutionController {
     private final SkillArtifactExecutionService executionService;
-    public SandboxExecutionController(SkillArtifactExecutionService executionService) { this.executionService = executionService; }
 
+    /**
+     * 创建 {@code SandboxExecutionController} 实例。
+     */
+    public SandboxExecutionController(SkillArtifactExecutionService executionService) {
+        this.executionService = executionService;
+    }
+
+    /**
+     * 处理request。
+     */
     @PostMapping("/requests")
     public WebResponse<ArtifactGenerationVo> request(@RequestHeader("X-Aether-Delegation") String token,
-                                                       @RequestBody ArtifactGenerationRequestDto request) {
+                                                     @RequestBody ArtifactGenerationRequestDto request) {
         return WebResponse.OK(executionService.request(token, request));
     }
 
+    /**
+     * 处理claim。
+     */
     @PostMapping("/runner/claim")
     public WebResponse<SandboxExecutionTaskVo> claim(@RequestHeader("X-Aether-Runner-Token") String token) {
         return WebResponse.OK(executionService.claimNext(token));
     }
 
+    /**
+     * 处理complete。
+     */
     @PostMapping("/runner/executions/{executionId}/complete")
     public WebResponse<Void> complete(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId,
                                       @RequestParam("file") MultipartFile file, @RequestParam("sha256") String sha256,
@@ -43,6 +58,9 @@ public class SandboxExecutionController {
         return WebResponse.OK("Artifact accepted");
     }
 
+    /**
+     * 处理fail。
+     */
     @PostMapping("/runner/executions/{executionId}/fail")
     public WebResponse<Void> fail(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId,
                                   @RequestParam("reason") String reason, @RequestParam(value = "logSummary", required = false) String logSummary) {
@@ -50,12 +68,18 @@ public class SandboxExecutionController {
         return WebResponse.OK("Execution marked failed");
     }
 
+    /**
+     * 处理heartbeat。
+     */
     @PostMapping("/runner/executions/{executionId}/heartbeat")
     public WebResponse<Boolean> heartbeat(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId,
                                           @RequestParam(value = "logSummary", required = false) String logSummary) {
         return WebResponse.OK(executionService.heartbeat(token, executionToken, executionId, logSummary));
     }
 
+    /**
+     * 取消Requested。
+     */
     @GetMapping("/runner/executions/{executionId}/cancel")
     public WebResponse<Boolean> cancelRequested(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId) {
         return WebResponse.OK(executionService.cancelRequested(token, executionToken, executionId));

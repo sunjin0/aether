@@ -2,6 +2,9 @@ package com.aether.enums;
 
 import lombok.Getter;
 
+/**
+ * 表示资源Type。
+ */
 @Getter
 public enum ResourceType {
     /**
@@ -14,6 +17,9 @@ public enum ResourceType {
     PERMISSION("Resource_Type_Permission");
     private final String code;
 
+    /**
+     * 创建 {@code ResourceType} 实例。
+     */
     ResourceType(String code) {
         this.code = code;
     }

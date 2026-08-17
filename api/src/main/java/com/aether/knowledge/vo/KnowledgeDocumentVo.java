@@ -26,7 +26,9 @@ public class KnowledgeDocumentVo extends BaseEntity {
     @ApiModelProperty(value = "来源URL")
     private String sourceUrl;
 
-    /** 文档来源：text-文本/Markdown，file-上传文件。 */
+    /**
+     * 文档来源：text-文本/Markdown，file-上传文件。
+     */
     private String sourceType;
     private String originalFileName;
     private String fileExtension;
@@ -36,16 +38,26 @@ public class KnowledgeDocumentVo extends BaseEntity {
     private String storageBucket;
     private String storageObjectKey;
     private Integer currentVersionNo;
-    /** 当前可编辑草稿版本 ID。 */
+    /**
+     * 当前可编辑草稿版本 ID。
+     */
     private String draftVersionId;
-    /** 当前已提交待审批版本 ID。 */
+    /**
+     * 当前已提交待审批版本 ID。
+     */
     private String submittedVersionId;
-    /** DRAFT/AI_REVIEWING/AI_REVIEWED/SUBMITTED/APPROVED/REJECTED。 */
+    /**
+     * DRAFT/AI_REVIEWING/AI_REVIEWED/SUBMITTED/APPROVED/REJECTED。
+     */
     private String reviewStatus;
     private Long reviewUpdatedAt;
-    /** 编辑草稿时必传，用于乐观并发控制。 */
+    /**
+     * 编辑草稿时必传，用于乐观并发控制。
+     */
     private String expectedChecksum;
-    /** 索引状态：0-未索引，1-索引中，2-已完成，3-失败。 */
+    /**
+     * 索引状态：0-未索引，1-索引中，2-已完成，3-失败。
+     */
     private Integer indexStatus;
     private String parserType;
     private String indexErrorMessage;

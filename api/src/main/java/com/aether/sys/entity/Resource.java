@@ -1,7 +1,7 @@
 package com.aether.sys.entity;
 
-import com.baomidou.mybatisplus.annotation.TableName;
 import com.aether.entity.BaseEntity;
+import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;

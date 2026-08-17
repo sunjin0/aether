@@ -2,6 +2,9 @@ package com.aether.permission;
 
 import java.lang.annotation.*;
 
+/**
+ * 表示权限。
+ */
 @Target({ElementType.METHOD, ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
@@ -29,6 +32,9 @@ public @interface Permission {
      */
     Type type() default Type.Read;
 
+    /**
+     * 表示Type。
+     */
     enum Type {
         Read, Write
     }

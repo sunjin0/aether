@@ -4,7 +4,9 @@ import lombok.Data;
 
 import java.util.List;
 
-/** 创建或编辑 Skill 草稿的请求参数。 */
+/**
+ * 创建或编辑 Skill 草稿的请求参数。
+ */
 @Data
 public class AgentSkillDraftDto {
     private String name;

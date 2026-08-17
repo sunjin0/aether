@@ -26,7 +26,7 @@ import java.util.HashMap;
 
 /**
  * 全局过滤器（替代GlobalInterceptor）
- *
+ * <p>
  * 解决的问题：
  * 1. ThreadLocal内存泄漏 - 使用try-finally确保清理
  * 2. NPE风险 - 增加null检查
@@ -43,10 +43,16 @@ public class GlobalFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(GlobalFilter.class);
     private final ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider;
 
+    /**
+     * 创建 {@code GlobalFilter} 实例。
+     */
     public GlobalFilter(ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider) {
         this.serviceTokenVerifierProvider = serviceTokenVerifierProvider;
     }
 
+    /**
+     * 处理doFilterInternal。
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
@@ -114,6 +120,9 @@ public class GlobalFilter extends OncePerRequestFilter {
         }
     }
 
+    /**
+     * 处理Exception。
+     */
     private void handleException(HttpServletResponse response, ServerException e) throws IOException {
         log.error("过滤器异常：", e);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);

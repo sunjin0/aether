@@ -30,6 +30,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证管理员偏好控制器的行为。
+ */
 @ExtendWith(MockitoExtension.class)
 class AdminPreferenceControllerTest {
 
@@ -42,6 +45,9 @@ class AdminPreferenceControllerTest {
 
     private AdminPreferenceController controller;
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
         TableInfoHelper.initTableInfo(
@@ -54,11 +60,17 @@ class AdminPreferenceControllerTest {
         CurrentUser.set(user);
     }
 
+    /**
+     * 处理tearDown。
+     */
     @AfterEach
     void tearDown() {
         CurrentUser.remove();
     }
 
+    /**
+     * 查询判断是否为AlwaysScopedTo当前用户。
+     */
     @Test
     void listIsAlwaysScopedToCurrentUser() {
         Page<AdminPreference> result = new Page<AdminPreference>();
@@ -79,6 +91,9 @@ class AdminPreferenceControllerTest {
         assertTrue(wrapper.getSqlSegment().contains("admin_id"));
     }
 
+    /**
+     * 保存IgnoresSubmitted管理员IdAndCreatesExplicit偏好。
+     */
     @Test
     void saveIgnoresSubmittedAdminIdAndCreatesExplicitPreference() {
         when(i18nService.getMessage(any(String.class))).thenReturn("ok");

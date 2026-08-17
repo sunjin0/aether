@@ -28,11 +28,17 @@ public class McpClient {
     private final McpTransportFactory transportFactory;
     private final McpSessionManager sessionManager;
 
+    /**
+     * 创建 {@code McpClient} 实例。
+     */
     public McpClient(McpTransportFactory transportFactory, McpSessionManager sessionManager) {
         this.transportFactory = transportFactory;
         this.sessionManager = sessionManager;
     }
 
+    /**
+     * 处理supportsTransport。
+     */
     public boolean supportsTransport(String transportType) {
         return transportFactory.supports(transportType);
     }
@@ -50,6 +56,9 @@ public class McpClient {
         }
     }
 
+    /**
+     * 查询Tools。
+     */
     public List<McpToolDefinition> listTools(AgentMcpServer server) {
         McpSession session = getOrInitialize(server);
         JSONObject result = request(server, session, "tools/list", new JSONObject());
@@ -72,6 +81,9 @@ public class McpClient {
         return definitions;
     }
 
+    /**
+     * 处理callTool。
+     */
     public JSONObject callTool(AgentMcpServer server, String toolName, Map<String, Object> arguments) {
         McpSession session = getOrInitialize(server);
         JSONObject params = new JSONObject();
@@ -80,6 +92,9 @@ public class McpClient {
         return request(server, session, "tools/call", params);
     }
 
+    /**
+     * 获取OrInitialize。
+     */
     private McpSession getOrInitialize(AgentMcpServer server) {
         McpSession session = sessionManager.getSession(server);
         if (session.isInitialized()) {
@@ -94,6 +109,9 @@ public class McpClient {
         return session;
     }
 
+    /**
+     * 处理initialize。
+     */
     private void initialize(AgentMcpServer server, McpSession session) {
         JSONObject params = new JSONObject();
         params.put("protocolVersion", "2025-06-18");
@@ -107,6 +125,9 @@ public class McpClient {
         notification(server, session, "notifications/initialized");
     }
 
+    /**
+     * 处理request。
+     */
     private JSONObject request(AgentMcpServer server, McpSession session, String method, JSONObject params) {
         JSONObject body = new JSONObject();
         body.put("jsonrpc", "2.0");
@@ -125,6 +146,9 @@ public class McpClient {
         return result == null ? new JSONObject() : result;
     }
 
+    /**
+     * 处理notification。
+     */
     private void notification(AgentMcpServer server, McpSession session, String method) {
         JSONObject body = new JSONObject();
         body.put("jsonrpc", "2.0");
@@ -134,6 +158,9 @@ public class McpClient {
         updateSession(session, response);
     }
 
+    /**
+     * 发送当前请求。
+     */
     private McpResponse send(AgentMcpServer server, McpSession session, JSONObject body) {
         try {
             McpTransport transport = transportFactory.getTransport(server.getTransport());
@@ -143,6 +170,9 @@ public class McpClient {
         }
     }
 
+    /**
+     * 更新会话。
+     */
     private void updateSession(McpSession session, McpResponse response) {
         if (response != null && StringUtils.isNotBlank(response.getSessionId())) {
             session.setSessionId(response.getSessionId());
@@ -150,6 +180,9 @@ public class McpClient {
         session.setLastAccessAt(System.currentTimeMillis());
     }
 
+    /**
+     * 解析JsonRpcResponse。
+     */
     private JSONObject parseJsonRpcResponse(String body) {
         String payload = extractPayload(body);
         if (StringUtils.isBlank(payload)) {
@@ -162,6 +195,9 @@ public class McpClient {
         }
     }
 
+    /**
+     * 处理extractPayload。
+     */
     private String extractPayload(String body) {
         if (StringUtils.isBlank(body)) {
             return body;

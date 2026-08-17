@@ -24,10 +24,16 @@ public class ConversationCacheService {
 
     private final RedisTemplate<String, Object> redisTemplate;
 
+    /**
+     * 创建 {@code ConversationCacheService} 实例。
+     */
     public ConversationCacheService(@Qualifier("objectRedisTemplate") RedisTemplate<String, Object> redisTemplate) {
         this.redisTemplate = redisTemplate;
     }
 
+    /**
+     * 获取当前请求。
+     */
     @SuppressWarnings("unchecked")
     public List<ModelChatMessage> get(String conversationId) {
         try {
@@ -48,6 +54,9 @@ public class ConversationCacheService {
         }
     }
 
+    /**
+     * 处理put。
+     */
     public void put(String conversationId, List<ModelChatMessage> context) {
         try {
             String cacheKey = key(conversationId);
@@ -63,6 +72,9 @@ public class ConversationCacheService {
 
     private static final long MAX_CACHE_SIZE = 20;
 
+    /**
+     * 处理append。
+     */
     public void append(String conversationId, ModelChatMessage message) {
         try {
             String cacheKey = key(conversationId);
@@ -76,6 +88,9 @@ public class ConversationCacheService {
         }
     }
 
+    /**
+     * 处理evict。
+     */
     public void evict(String conversationId) {
         try {
             redisTemplate.delete(key(conversationId));
@@ -84,6 +99,9 @@ public class ConversationCacheService {
         }
     }
 
+    /**
+     * 处理size。
+     */
     public long size(String conversationId) {
         try {
             Long size = redisTemplate.opsForList().size(key(conversationId));
@@ -94,6 +112,9 @@ public class ConversationCacheService {
         }
     }
 
+    /**
+     * 获取Recent。
+     */
     public List<ModelChatMessage> getRecent(String conversationId, int count) {
         try {
             List<Object> cached = redisTemplate.opsForList().range(key(conversationId), -count, -1);
@@ -113,6 +134,9 @@ public class ConversationCacheService {
         }
     }
 
+    /**
+     * 处理key。
+     */
     private String key(String conversationId) {
         return CACHE_KEY_PREFIX + conversationId;
     }

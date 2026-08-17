@@ -76,6 +76,9 @@ public class AgentToolWorkflow {
     private final ExecutorService readOnlyToolExecutor = new ThreadPoolExecutor(2, 8, 30L, TimeUnit.SECONDS,
             new ArrayBlockingQueue<Runnable>(64), new ThreadPoolExecutor.CallerRunsPolicy());
 
+    /**
+     * 创建 {@code AgentToolWorkflow} 实例。
+     */
     public AgentToolWorkflow(ToolCallParser toolCallParser, AgentToolCatalog toolCatalog,
                              AgentToolService agentToolService, AgentToolCallLogService toolCallLogService,
                              AgentMcpServerService mcpServerService, AgentRunService agentRunService, AgentMessageService messageService,
@@ -93,39 +96,53 @@ public class AgentToolWorkflow {
         this.toolRegistry = toolRegistry;
     }
 
-    /** 解析模型返回的 function/tool calls，异常格式由解析器降级为空列表。 */
+    /**
+     * 解析模型返回的 function/tool calls，异常格式由解析器降级为空列表。
+     */
     public List<ToolCall> parseCalls(ModelChatResponse response) {
         return toolCallParser.parse(response);
     }
 
-    /** 返回请求模型时可公开的工具定义。 */
+    /**
+     * 返回请求模型时可公开的工具定义。
+     */
     public List<AgentTool> getRequestTools(String agentId) {
         return toolCatalog.getRequestTools(agentId);
     }
 
-    /** Skill 运行时使用已冻结的 MCP 工具，并保留平台内置交互工具。 */
+    /**
+     * Skill 运行时使用已冻结的 MCP 工具，并保留平台内置交互工具。
+     */
     public List<AgentTool> getRequestTools(List<AgentTool> scopedTools) {
         List<AgentTool> tools = new ArrayList<>(scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools);
         tools.addAll(toolRegistry.getTools());
         return tools;
     }
 
-    /** 返回 Agent 已绑定且处于可用状态的工具。 */
+    /**
+     * 返回 Agent 已绑定且处于可用状态的工具。
+     */
     public List<AgentTool> getBoundTools(String agentId) {
         return toolCatalog.getBoundTools(agentId);
     }
 
-    /** 工具或绑定关系变更时，使指定 Agent 的工具缓存立即失效。 */
+    /**
+     * 工具或绑定关系变更时，使指定 Agent 的工具缓存立即失效。
+     */
     public void evictToolCache(String agentId) {
         toolCatalog.evict(agentId);
     }
 
-    /** 工具配置变更时，清理所有绑定该工具的 Agent 缓存。 */
+    /**
+     * 工具配置变更时，清理所有绑定该工具的 Agent 缓存。
+     */
     public void evictToolCacheByToolId(String toolId) {
         toolCatalog.evictByToolId(toolId);
     }
 
-    /** Revokes temporary approvals when a conversation's policy becomes stricter. */
+    /**
+     * Revokes temporary approvals when a conversation's policy becomes stricter.
+     */
     public void revokeTemporaryGrants(String userId, String agentId, String conversationId) {
         if (StringUtils.isAnyBlank(userId, agentId, conversationId)) return;
         try {
@@ -136,7 +153,9 @@ public class AgentToolWorkflow {
         }
     }
 
-    /** 判断模型是否请求了平台内置工具（例如询问用户）。 */
+    /**
+     * 判断模型是否请求了平台内置工具（例如询问用户）。
+     */
     public boolean hasInternalCall(ModelChatResponse response) {
         for (ToolCall call : parseCalls(response)) {
             if (toolRegistry.getHandler(call.getName()) != null) {
@@ -159,7 +178,9 @@ public class AgentToolWorkflow {
         return null;
     }
 
-    /** 从询问用户工具参数中提取可展示的问题，供聊天层进行容错提示。 */
+    /**
+     * 从询问用户工具参数中提取可展示的问题，供聊天层进行容错提示。
+     */
     public String extractQuestionText(ModelChatResponse response) {
         List<ToolCall> calls = parseCalls(response);
         if (calls.isEmpty()) {
@@ -183,7 +204,7 @@ public class AgentToolWorkflow {
      * 单个工具失败不会阻断其余调用，避免一个不稳定的 MCP 服务影响整轮对话。
      */
     public List<ToolExecutionResult> executeMcpCalls(ModelChatResponse response, AgentDefinition agent,
-                                                      String userId, String runId) {
+                                                     String userId, String runId) {
         List<ToolExecutionResult> results = new ArrayList<>();
         Map<String, AgentTool> toolMap = new HashMap<>();
         for (AgentTool tool : getBoundTools(agent.getId())) {
@@ -215,25 +236,38 @@ public class AgentToolWorkflow {
         return results;
     }
 
-    /** 仅执行本次请求冻结作用域内的 MCP 工具，防止模型伪造调用绕过 Skill 收敛。 */
+    /**
+     * 仅执行本次请求冻结作用域内的 MCP 工具，防止模型伪造调用绕过 Skill 收敛。
+     */
     public List<ToolExecutionResult> executeMcpCalls(ModelChatResponse response, AgentDefinition agent,
-                                                       String userId, String runId, List<AgentTool> scopedTools) {
+                                                     String userId, String runId, List<AgentTool> scopedTools) {
         List<ToolExecutionResult> results = new ArrayList<>();
         Map<String, AgentTool> toolMap = new HashMap<>();
-        for (AgentTool tool : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools) toolMap.put(tool.getName(), tool);
+        for (AgentTool tool : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools)
+            toolMap.put(tool.getName(), tool);
         List<ToolCall> calls = parseCalls(response);
         if (canExecuteReadOnlyCallsInParallel(calls, toolMap)) {
             return executeReadOnlyCallsInParallel(calls, toolMap, agent, userId, runId);
         }
         for (ToolCall call : calls) {
             AgentTool tool = toolMap.get(call.getName());
-            if (tool == null) { ToolExecutionResult failure = ToolExecutionResult.failure("工具未在本次 Skill 作用域内: " + call.getName(), STATUS_SECURITY_BLOCK); failure.setToolCallId(call.getId()); results.add(failure); saveAudit(runId, call, null, agent.getId(), failure); continue; }
+            if (tool == null) {
+                ToolExecutionResult failure = ToolExecutionResult.failure("工具未在本次 Skill 作用域内: " + call.getName(), STATUS_SECURITY_BLOCK);
+                failure.setToolCallId(call.getId());
+                results.add(failure);
+                saveAudit(runId, call, null, agent.getId(), failure);
+                continue;
+            }
             ToolExecutionResult result = executeMcpCall(tool, call, runId, userId, agent.getId());
-            results.add(result); saveAudit(runId, call, tool, agent.getId(), result);
+            results.add(result);
+            saveAudit(runId, call, tool, agent.getId(), result);
         }
         return results;
     }
 
+    /**
+     * 判断是否可以执行ReadOnlyCallsInParallel。
+     */
     private boolean canExecuteReadOnlyCallsInParallel(List<ToolCall> calls, Map<String, AgentTool> toolMap) {
         if (calls == null || calls.size() < 2 || calls.size() > MAX_PARALLEL_READ_ONLY_CALLS) return false;
         for (ToolCall call : calls) {
@@ -243,10 +277,13 @@ public class AgentToolWorkflow {
         return true;
     }
 
+    /**
+     * 执行ReadOnlyCallsInParallel。
+     */
     private List<ToolExecutionResult> executeReadOnlyCallsInParallel(List<ToolCall> calls,
-                                                                       Map<String, AgentTool> toolMap,
-                                                                       AgentDefinition agent, String userId,
-                                                                       String runId) {
+                                                                     Map<String, AgentTool> toolMap,
+                                                                     AgentDefinition agent, String userId,
+                                                                     String runId) {
         long startedAt = System.currentTimeMillis();
         List<Callable<ToolExecutionResult>> tasks = new ArrayList<>();
         for (ToolCall call : calls) {
@@ -276,15 +313,24 @@ public class AgentToolWorkflow {
         }
     }
 
+    /**
+     * 执行McpCall。
+     */
     private ToolExecutionResult executeMcpCall(AgentTool tool, ToolCall call, String runId,
-                                                String userId, String agentId) {
+                                               String userId, String agentId) {
         ToolExecutionResult result;
-        try { result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId); }
-        catch (Exception e) { result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED); }
+        try {
+            result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId);
+        } catch (Exception e) {
+            result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED);
+        }
         result.setToolCallId(call.getId());
         return result;
     }
 
+    /**
+     * 处理shutdownReadOnlyToolExecutor。
+     */
     @PreDestroy
     public void shutdownReadOnlyToolExecutor() {
         readOnlyToolExecutor.shutdown();
@@ -349,11 +395,15 @@ public class AgentToolWorkflow {
         return message;
     }
 
-    /** 使用本次运行冻结工具集创建审批卡片。 */
+    /**
+     * 使用本次运行冻结工具集创建审批卡片。
+     */
     public AgentMessage createMcpApproval(String conversationId, ModelChatResponse response,
                                           AgentDefinition agent, String userId, String runId, List<AgentTool> scopedTools) {
-        List<ToolCall> calls = parseCalls(response); if (calls.isEmpty()) return null;
-        ToolCall call = null; AgentTool tool = null;
+        List<ToolCall> calls = parseCalls(response);
+        if (calls.isEmpty()) return null;
+        ToolCall call = null;
+        AgentTool tool = null;
         for (ToolCall candidate : calls) {
             for (AgentTool item : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools) {
                 if (candidate.getName().equals(item.getName()) && shouldRequestApproval(runId, item, candidate, userId, agent.getId())) {
@@ -369,16 +419,38 @@ public class AgentToolWorkflow {
         String requestUrl = resolveMcpRequestUrl(tool);
         AgentToolCallLog audit = savePendingAudit(runId, call, tool, agent.getId(), requestUrl);
         JSONObject config = new JSONObject();
-        config.put("type", "group"); config.put("layout", "confirm"); config.put("question", "请确认 MCP 工具调用");
+        config.put("type", "group");
+        config.put("layout", "confirm");
+        config.put("question", "请确认 MCP 工具调用");
         config.put("questions", buildApprovalQuestions("high".equals(risk.getLevel()) ? "AI 请求执行高危 MCP 工具操作，请核对调用详情后确认。" : "AI 请求调用 MCP 工具，请核对调用详情后确认。"));
-        config.put("approvalType", MCP_APPROVAL_TYPE); config.put("auditLogId", audit.getId()); config.put("runId", runId); config.put("toolId", tool.getId()); config.put("toolCallId", call.getId()); config.put("toolName", call.getName()); config.put("arguments", call.getArguments()); config.put("riskLevel", risk.getLevel()); config.put("riskReason", risk.getReason()); config.put("riskEvidence", risk.getEvidence()); config.put("approval", buildApprovalDetail(tool, call, requestUrl, risk, audit.getId()));
-        AgentMessage message = new AgentMessage(); message.setConversationId(conversationId); message.setRole("assistant"); message.setMessageType("interaction"); message.setInteractionType("group"); message.setInteractionStatus("pending"); message.setContent(config.getString("question")); message.setQuestionConfig(config.toJSONString()); messageService.save(message);
+        config.put("approvalType", MCP_APPROVAL_TYPE);
+        config.put("auditLogId", audit.getId());
+        config.put("runId", runId);
+        config.put("toolId", tool.getId());
+        config.put("toolCallId", call.getId());
+        config.put("toolName", call.getName());
+        config.put("arguments", call.getArguments());
+        config.put("riskLevel", risk.getLevel());
+        config.put("riskReason", risk.getReason());
+        config.put("riskEvidence", risk.getEvidence());
+        config.put("approval", buildApprovalDetail(tool, call, requestUrl, risk, audit.getId()));
+        AgentMessage message = new AgentMessage();
+        message.setConversationId(conversationId);
+        message.setRole("assistant");
+        message.setMessageType("interaction");
+        message.setInteractionType("group");
+        message.setInteractionStatus("pending");
+        message.setContent(config.getString("question"));
+        message.setQuestionConfig(config.toJSONString());
+        messageService.save(message);
         return message;
     }
 
-    /** 在用户确认后执行 MCP 工具，并将执行结果重新包装为模型可识别的 tool call。 */
+    /**
+     * 在用户确认后执行 MCP 工具，并将执行结果重新包装为模型可识别的 tool call。
+     */
     public ApprovalExecution executeApprovedMcpTool(AgentMessage question, Map<String, Object> answer,
-                                                      AgentDefinition agent, String userId) {
+                                                    AgentDefinition agent, String userId) {
         JSONObject config = JSONObject.parseObject(question.getQuestionConfig());
         if (!MCP_APPROVAL_TYPE.equals(config.getString("approvalType"))) {
             return null;
@@ -416,9 +488,9 @@ public class AgentToolWorkflow {
      * 本方法只负责复用同一执行器、十分钟授权与工具审计，不接受未确认的调用。
      */
     public ToolExecutionResult executeWorkflowApprovedMcpTool(String toolId, String toolName,
-                                                               Map<String, Object> arguments, String runId,
-                                                               String userId, String agentId, boolean allowTenMinutes,
-                                                               String idempotencyKey) {
+                                                              Map<String, Object> arguments, String runId,
+                                                              String userId, String agentId, boolean allowTenMinutes,
+                                                              String idempotencyKey) {
         AgentTool tool = agentToolService.getById(toolId);
         ToolCall call = new ToolCall("workflow-" + runId, toolName,
                 arguments == null ? new HashMap<String, Object>() : arguments);
@@ -426,8 +498,11 @@ public class AgentToolWorkflow {
         if (!isAvailable(tool)) {
             result = ToolExecutionResult.failure("待确认的工具已不存在或被禁用", STATUS_FAILED);
         } else {
-            try { result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId, idempotencyKey); }
-            catch (Exception e) { result = ToolExecutionResult.failure("MCP 工具执行失败: " + e.getMessage(), STATUS_FAILED); }
+            try {
+                result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId, idempotencyKey);
+            } catch (Exception e) {
+                result = ToolExecutionResult.failure("MCP 工具执行失败: " + e.getMessage(), STATUS_FAILED);
+            }
         }
         result.setToolCallId(call.getId());
         saveAudit(runId, call, tool, agentId, result);
@@ -435,11 +510,17 @@ public class AgentToolWorkflow {
         return result;
     }
 
+    /**
+     * 执行McpTool。
+     */
     private ToolExecutionResult executeMcpTool(AgentTool tool, Map<String, Object> arguments,
                                                String runId, String userId, String agentDefinitionId) {
         return executeMcpTool(tool, arguments, runId, userId, agentDefinitionId, null);
     }
 
+    /**
+     * 执行McpTool。
+     */
     private ToolExecutionResult executeMcpTool(AgentTool tool, Map<String, Object> arguments,
                                                String runId, String userId, String agentDefinitionId, String idempotencyKey) {
         ToolExecutionContext context = new ToolExecutionContext();
@@ -452,6 +533,9 @@ public class AgentToolWorkflow {
         return executorFactory.getExecutor("mcp").execute(context);
     }
 
+    /**
+     * 查找BoundTool。
+     */
     private AgentTool findBoundTool(String agentId, String name) {
         for (AgentTool tool : getBoundTools(agentId)) {
             if (name.equals(tool.getName())) {
@@ -461,6 +545,9 @@ public class AgentToolWorkflow {
         return null;
     }
 
+    /**
+     * 构建ApprovalQuestions。
+     */
     private JSONArray buildApprovalQuestions(String prompt) {
         JSONObject question = new JSONObject();
         question.put("id", "decision");
@@ -474,7 +561,9 @@ public class AgentToolWorkflow {
         return new JSONArray().fluentAdd(question);
     }
 
-    /** 构造前端确认面板所需详情；服务端续跑仍使用 config 顶层字段。 */
+    /**
+     * 构造前端确认面板所需详情；服务端续跑仍使用 config 顶层字段。
+     */
     private JSONObject buildApprovalDetail(AgentTool tool, ToolCall call, String requestUrl,
                                            ToolCallRiskAnalyzer.Risk risk, String auditLogId) {
         JSONObject approval = new JSONObject();
@@ -494,11 +583,17 @@ public class AgentToolWorkflow {
         return approval;
     }
 
+    /**
+     * 获取Arguments。
+     */
     private Map<String, Object> getArguments(JSONObject config) {
         JSONObject jsonArguments = config.getJSONObject("arguments");
         return jsonArguments == null ? new HashMap<String, Object>() : jsonArguments.toJavaObject(Map.class);
     }
 
+    /**
+     * 构建ToolCallResponse。
+     */
     private ModelChatResponse buildToolCallResponse(String toolCallId, String toolName, Map<String, Object> arguments) {
         JSONObject function = new JSONObject();
         function.put("name", toolName);
@@ -512,6 +607,9 @@ public class AgentToolWorkflow {
         return response;
     }
 
+    /**
+     * 解析ApprovalDecision。
+     */
     private String resolveApprovalDecision(Map<String, Object> answer) {
         if (answer == null || !(answer.get("answers") instanceof Map)) {
             return "reject";
@@ -529,10 +627,16 @@ public class AgentToolWorkflow {
         return confirm instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) confirm).get("confirmed")) ? "once" : "reject";
     }
 
+    /**
+     * 判断是否为Available。
+     */
     private boolean isAvailable(AgentTool tool) {
         return tool != null && !Boolean.TRUE.equals(tool.getDeleted()) && Integer.valueOf(1).equals(tool.getStatus());
     }
 
+    /**
+     * 判断是否拥有ActiveGrant。
+     */
     private boolean hasActiveGrant(String userId, String agentId, String toolId, String conversationId) {
         if (StringUtils.isBlank(conversationId)) return false;
         try {
@@ -543,23 +647,32 @@ public class AgentToolWorkflow {
         }
     }
 
+    /**
+     * 判断是否为ToolIn运行Scope。
+     */
     private boolean isToolInRunScope(String runId, String toolId, String agentId) {
         com.aether.agent.entity.AgentRun run = agentRunService.getById(runId);
-        if (run == null || !agentId.equals(run.getAgentDefinitionId()) || StringUtils.isBlank(run.getSkillSnapshot())) return false;
+        if (run == null || !agentId.equals(run.getAgentDefinitionId()) || StringUtils.isBlank(run.getSkillSnapshot()))
+            return false;
         try {
             JSONArray toolIds = JSONObject.parseObject(run.getSkillSnapshot()).getJSONArray("toolIds");
             return toolIds != null && toolIds.contains(toolId);
-        } catch (Exception ignored) { return false; }
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
-    /** The run snapshot wins over mutable session settings. Legacy runs default to ask. */
+    /**
+     * The run snapshot wins over mutable session settings. Legacy runs default to ask.
+     */
     private boolean shouldRequestApproval(String runId, AgentTool tool, ToolCall call, String userId, String agentId) {
         String policy = APPROVAL_ASK;
         com.aether.agent.entity.AgentRun run = agentRunService.getById(runId);
         if (hasActiveGrant(userId, agentId, tool.getId(), run == null ? null : run.getConversationId())) return false;
         if (run != null && StringUtils.isNotBlank(run.getSkillSnapshot())) {
-            try { policy = StringUtils.defaultIfBlank(JSONObject.parseObject(run.getSkillSnapshot()).getString("toolApprovalPolicy"), APPROVAL_ASK); }
-            catch (Exception ignored) { /* legacy runs default to ask */ }
+            try {
+                policy = StringUtils.defaultIfBlank(JSONObject.parseObject(run.getSkillSnapshot()).getString("toolApprovalPolicy"), APPROVAL_ASK);
+            } catch (Exception ignored) { /* legacy runs default to ask */ }
         }
         if (APPROVAL_NEVER.equals(policy)) {
             return false;
@@ -570,6 +683,9 @@ public class AgentToolWorkflow {
         return true;
     }
 
+    /**
+     * 保存Grant。
+     */
     private void saveGrant(String userId, String agentId, String toolId, String conversationId) {
         if (StringUtils.isBlank(conversationId)) return;
         try {
@@ -580,10 +696,16 @@ public class AgentToolWorkflow {
         }
     }
 
+    /**
+     * 处理grantKey。
+     */
     private String grantKey(String userId, String agentId, String toolId, String conversationId) {
         return TOOL_APPROVAL_GRANT_KEY_PREFIX + userId + ":" + agentId + ":" + conversationId + ":" + toolId;
     }
 
+    /**
+     * 解析McpRequestUrl。
+     */
     private String resolveMcpRequestUrl(AgentTool tool) {
         if (tool == null || StringUtils.isBlank(tool.getMcpServerId())) {
             return null;
@@ -592,15 +714,20 @@ public class AgentToolWorkflow {
         return server == null ? null : server.getBaseUrl();
     }
 
+    /**
+     * 保存PendingAudit。
+     */
     private AgentToolCallLog savePendingAudit(String runId, ToolCall call, AgentTool tool,
-                                               String agentId, String requestUrl) {
+                                              String agentId, String requestUrl) {
         ToolExecutionResult pending = ToolExecutionResult.failure("等待用户确认，尚未发送到 MCP 服务", STATUS_PENDING_APPROVAL);
         pending.setRequestUrl(requestUrl);
         pending.setRequestMethod("MCP tools/call");
         return saveAudit(runId, call, tool, agentId, pending);
     }
 
-    /** 保存调用审计，统一截断大字段，避免日志表因异常响应内容写入失败。 */
+    /**
+     * 保存调用审计，统一截断大字段，避免日志表因异常响应内容写入失败。
+     */
     private AgentToolCallLog saveAudit(String runId, ToolCall call, AgentTool tool,
                                        String agentId, ToolExecutionResult result) {
         AgentToolCallLog log = new AgentToolCallLog();
@@ -624,6 +751,9 @@ public class AgentToolWorkflow {
         return log;
     }
 
+    /**
+     * 更新ApprovalAudit。
+     */
     private void updateApprovalAudit(String auditLogId, ToolExecutionResult result, boolean confirmed) {
         if (StringUtils.isBlank(auditLogId)) {
             return;
@@ -643,24 +773,49 @@ public class AgentToolWorkflow {
         toolCallLogService.updateById(update);
     }
 
+    /**
+     * 处理truncate。
+     */
     private String truncate(String value, int maxLength) {
         return value == null || value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 
-    /** 用户确认后的执行结果，供聊天服务继续构造下一轮模型上下文。 */
+    /**
+     * 用户确认后的执行结果，供聊天服务继续构造下一轮模型上下文。
+     */
     public static class ApprovalExecution {
         private final String runId;
         private final ModelChatResponse toolCallResponse;
         private final ToolExecutionResult result;
 
+        /**
+         * 创建 {@code ApprovalExecution} 实例。
+         */
         public ApprovalExecution(String runId, ModelChatResponse toolCallResponse, ToolExecutionResult result) {
             this.runId = runId;
             this.toolCallResponse = toolCallResponse;
             this.result = result;
         }
 
-        public String getRunId() { return runId; }
-        public ModelChatResponse getToolCallResponse() { return toolCallResponse; }
-        public ToolExecutionResult getResult() { return result; }
+        /**
+         * 获取运行Id。
+         */
+        public String getRunId() {
+            return runId;
+        }
+
+        /**
+         * 获取ToolCallResponse。
+         */
+        public ModelChatResponse getToolCallResponse() {
+            return toolCallResponse;
+        }
+
+        /**
+         * 获取结果。
+         */
+        public ToolExecutionResult getResult() {
+            return result;
+        }
     }
 }

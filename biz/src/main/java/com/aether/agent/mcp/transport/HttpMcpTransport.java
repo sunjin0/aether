@@ -26,6 +26,9 @@ public class HttpMcpTransport implements McpTransport {
 
     private static final int DEFAULT_TIMEOUT_MS = 30000;
 
+    /**
+     * 处理supports。
+     */
     @Override
     public boolean supports(String transport) {
         return StringUtils.isBlank(transport)
@@ -33,6 +36,9 @@ public class HttpMcpTransport implements McpTransport {
                 || "streamable_http".equalsIgnoreCase(transport);
     }
 
+    /**
+     * 发送当前请求。
+     */
     @Override
     public McpResponse send(AgentMcpServer server, McpSession session, JSONObject body) {
         RestTemplate restTemplate = createRestTemplate(server);
@@ -49,6 +55,9 @@ public class HttpMcpTransport implements McpTransport {
         return mcpResponse;
     }
 
+    /**
+     * 创建RestTemplate。
+     */
     private RestTemplate createRestTemplate(AgentMcpServer server) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         int timeout = server.getTimeoutMs() == null ? DEFAULT_TIMEOUT_MS : server.getTimeoutMs();
@@ -57,6 +66,9 @@ public class HttpMcpTransport implements McpTransport {
         return new RestTemplate(requestFactory);
     }
 
+    /**
+     * 创建Headers。
+     */
     private HttpHeaders createHeaders(AgentMcpServer server, McpSession session) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(new MediaType("application", "json", StandardCharsets.UTF_8));
@@ -69,6 +81,9 @@ public class HttpMcpTransport implements McpTransport {
         return headers;
     }
 
+    /**
+     * 处理applyCustomHeaders。
+     */
     private void applyCustomHeaders(HttpHeaders headers, String headersJson) {
         if (StringUtils.isBlank(headersJson)) {
             return;
@@ -81,6 +96,9 @@ public class HttpMcpTransport implements McpTransport {
         }
     }
 
+    /**
+     * 处理applyAuth。
+     */
     private void applyAuth(HttpHeaders headers, AgentMcpServer server) {
         if (StringUtils.isBlank(server.getAuthType()) || "none".equalsIgnoreCase(server.getAuthType())
                 || StringUtils.isBlank(server.getAuthToken())) {

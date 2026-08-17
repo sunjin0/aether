@@ -43,8 +43,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.security.MessageDigest;
+
 import com.alibaba.fastjson2.JSONObject;
 
+/**
+ * 提供知识库文档相关的 REST 接口。
+ */
 @Api(tags = "Agent知识库文档 API")
 @Validated
 @RestController
@@ -64,16 +68,19 @@ public class KnowledgeDocumentController {
     private final KnowledgeAccessService knowledgeAccessService;
     private final KnowledgeDocumentWorkflowService workflowService;
 
+    /**
+     * 创建 {@code KnowledgeDocumentController} 实例。
+     */
     public KnowledgeDocumentController(KnowledgeDocumentService knowledgeDocumentService,
-                                   KnowledgeDocumentChunkService knowledgeDocumentChunkService,
-                                   KnowledgeDocumentIndexService knowledgeDocumentIndexService,
-                                   KnowledgeDocumentVersionService knowledgeDocumentVersionService,
-                                   ObjectStorageService objectStorageService,
-                                   KnowledgeDocumentContentExtractor contentExtractor,
-                                   KnowledgeDocumentMarkdownFormatter markdownFormatter,
-                                   KnowledgeAccessService knowledgeAccessService,
-                                   KnowledgeDocumentWorkflowService workflowService,
-                                   @Value("${knowledge.storage.bucket:${MINIO_KNOWLEDGE_BUCKET:aether-knowledge}}") String knowledgeBucket) {
+                                       KnowledgeDocumentChunkService knowledgeDocumentChunkService,
+                                       KnowledgeDocumentIndexService knowledgeDocumentIndexService,
+                                       KnowledgeDocumentVersionService knowledgeDocumentVersionService,
+                                       ObjectStorageService objectStorageService,
+                                       KnowledgeDocumentContentExtractor contentExtractor,
+                                       KnowledgeDocumentMarkdownFormatter markdownFormatter,
+                                       KnowledgeAccessService knowledgeAccessService,
+                                       KnowledgeDocumentWorkflowService workflowService,
+                                       @Value("${knowledge.storage.bucket:${MINIO_KNOWLEDGE_BUCKET:aether-knowledge}}") String knowledgeBucket) {
         this.knowledgeDocumentService = knowledgeDocumentService;
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
         this.knowledgeDocumentIndexService = knowledgeDocumentIndexService;
@@ -86,7 +93,9 @@ public class KnowledgeDocumentController {
         this.knowledgeBucket = knowledgeBucket;
     }
 
-    /** 按当前用户可见知识库分页查询文档。 */
+    /**
+     * 按当前用户可见知识库分页查询文档。
+     */
     @ApiOperation("文档列表")
     @PostMapping("/list")
     public WebResponse<List<KnowledgeDocumentVo>> list(@RequestBody KnowledgeDocumentVo vo) {
@@ -112,7 +121,9 @@ public class KnowledgeDocumentController {
         return WebResponse.Page(list, result.getTotal());
     }
 
-    /** 查询文档基础信息，并执行知识库可读性校验。 */
+    /**
+     * 查询文档基础信息，并执行知识库可读性校验。
+     */
     @ApiOperation("文档详情")
     @GetMapping("/{id}")
     public WebResponse<KnowledgeDocumentVo> detail(@PathVariable @NotBlank String id) {
@@ -122,7 +133,9 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(vo);
     }
 
-    /** 创建文本/Markdown 文档草稿，并按知识库配置触发 AI 审核。 */
+    /**
+     * 创建文本/Markdown 文档草稿，并按知识库配置触发 AI 审核。
+     */
     @ApiOperation("新增文档并同步索引")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping
@@ -149,7 +162,9 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(saved ? I18nUtils.getMessage("knowledge.document.create.success") : I18nUtils.getMessage("knowledge.document.create.fail"), document.getId());
     }
 
-    /** 上传单个知识文档，完成对象存储、内容抽取和草稿创建。 */
+    /**
+     * 上传单个知识文档，完成对象存储、内容抽取和草稿创建。
+     */
     @ApiOperation("Upload knowledge document")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/upload")
@@ -158,25 +173,40 @@ public class KnowledgeDocumentController {
                                       @RequestParam("file") MultipartFile file,
                                       @RequestParam(value = "title", required = false) String title) throws Exception {
         KnowledgeBase base = knowledgeAccessService.requireWritable(knowledgeBaseId);
-        if (file == null || file.isEmpty() || file.getSize() > 50L * 1024 * 1024) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.invalid"));
+        if (file == null || file.isEmpty() || file.getSize() > 50L * 1024 * 1024)
+            throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.invalid"));
         String name = StringUtils.defaultIfBlank(file.getOriginalFilename(), "document.txt");
         String lower = name.toLowerCase();
-        if (!(lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".pdf") || lower.endsWith(".docx") || lower.endsWith(".xlsx"))) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.unsupported-type"));
+        if (!(lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".pdf") || lower.endsWith(".docx") || lower.endsWith(".xlsx")))
+            throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.unsupported-type"));
         byte[] bytes = file.getBytes();
         KnowledgeDocument document = new KnowledgeDocument();
-        document.setKnowledgeBaseId(knowledgeBaseId); document.setTitle(StringUtils.defaultIfBlank(title, name)); document.setSourceType(KnowledgeDocumentSourceType.FILE);
+        document.setKnowledgeBaseId(knowledgeBaseId);
+        document.setTitle(StringUtils.defaultIfBlank(title, name));
+        document.setSourceType(KnowledgeDocumentSourceType.FILE);
         String contentType = storageContentType(name, file.getContentType());
-        document.setOriginalFileName(name); document.setFileExtension(name.substring(name.lastIndexOf('.') + 1)); document.setMimeType(contentType);
+        document.setOriginalFileName(name);
+        document.setFileExtension(name.substring(name.lastIndexOf('.') + 1));
+        document.setMimeType(contentType);
         String extractedContent = contentExtractor.extract(name, bytes);
-        document.setFileSize(file.getSize()); document.setFileChecksum(sha256(bytes)); document.setContent(null);
-        document.setStatus(0); document.setIndexStatus(0); document.setCurrentVersionNo(0);
-        if (!knowledgeDocumentService.save(document)) throw new ServerException(500, I18nUtils.getMessage("knowledge.document.create.fail"));
+        document.setFileSize(file.getSize());
+        document.setFileChecksum(sha256(bytes));
+        document.setContent(null);
+        document.setStatus(0);
+        document.setIndexStatus(0);
+        document.setCurrentVersionNo(0);
+        if (!knowledgeDocumentService.save(document))
+            throw new ServerException(500, I18nUtils.getMessage("knowledge.document.create.fail"));
         String key = "knowledge/" + knowledgeBaseId + "/" + document.getId() + "/1/" + name.replaceAll("[^a-zA-Z0-9._-]", "_");
         boolean uploaded = false;
         try {
             objectStorageService.upload(knowledgeBucket, key, bytes, contentType);
             uploaded = true;
-            KnowledgeDocument storage = new KnowledgeDocument(); storage.setId(document.getId()); storage.setStorageBucket(knowledgeBucket); storage.setStorageObjectKey(key); knowledgeDocumentService.updateById(storage);
+            KnowledgeDocument storage = new KnowledgeDocument();
+            storage.setId(document.getId());
+            storage.setStorageBucket(knowledgeBucket);
+            storage.setStorageObjectKey(key);
+            knowledgeDocumentService.updateById(storage);
             KnowledgeDocument snapshot = knowledgeDocumentService.getById(document.getId());
             snapshot.setContent(extractedContent);
             KnowledgeDocumentVersion draft = workflowService.createDraft(snapshot, null);
@@ -185,20 +215,26 @@ public class KnowledgeDocumentController {
         } catch (Exception e) {
             knowledgeDocumentService.removeById(document.getId());
             if (uploaded) {
-                try { objectStorageService.removeObject(knowledgeBucket, key); }
-                catch (Exception cleanupError) { log.warn("Failed to clean up abandoned knowledge object: {}", key, cleanupError); }
+                try {
+                    objectStorageService.removeObject(knowledgeBucket, key);
+                } catch (Exception cleanupError) {
+                    log.warn("Failed to clean up abandoned knowledge object: {}", key, cleanupError);
+                }
             }
             throw e;
         }
     }
 
-    /** 批量上传文档；单个文件失败不会影响其它文件继续处理。 */
+    /**
+     * 批量上传文档；单个文件失败不会影响其它文件继续处理。
+     */
     @ApiOperation("Batch upload knowledge documents")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/upload/batch")
     public WebResponse<List<UploadResult>> uploadBatch(@RequestParam("knowledgeBaseId") String knowledgeBaseId,
-                                                        @RequestParam("files") MultipartFile[] files) {
-        if (files == null || files.length == 0) throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.invalid"));
+                                                       @RequestParam("files") MultipartFile[] files) {
+        if (files == null || files.length == 0)
+            throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.invalid"));
         List<UploadResult> results = new ArrayList<>();
         for (MultipartFile file : files) {
             UploadResult result = new UploadResult();
@@ -217,23 +253,75 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(results);
     }
 
-    /** 批量上传中单个文件的处理结果。 */
+    /**
+     * 批量上传中单个文件的处理结果。
+     */
     public static class UploadResult {
         private String fileName;
         private boolean success;
         private String versionId;
         private String message;
-        public String getFileName() { return fileName; }
-        public void setFileName(String fileName) { this.fileName = fileName; }
-        public boolean isSuccess() { return success; }
-        public void setSuccess(boolean success) { this.success = success; }
-        public String getVersionId() { return versionId; }
-        public void setVersionId(String versionId) { this.versionId = versionId; }
-        public String getMessage() { return message; }
-        public void setMessage(String message) { this.message = message; }
+
+        /**
+         * 获取文件Name。
+         */
+        public String getFileName() {
+            return fileName;
+        }
+
+        /**
+         * 处理set文件Name。
+         */
+        public void setFileName(String fileName) {
+            this.fileName = fileName;
+        }
+
+        /**
+         * 判断是否为Success。
+         */
+        public boolean isSuccess() {
+            return success;
+        }
+
+        /**
+         * 处理setSuccess。
+         */
+        public void setSuccess(boolean success) {
+            this.success = success;
+        }
+
+        /**
+         * 获取VersionId。
+         */
+        public String getVersionId() {
+            return versionId;
+        }
+
+        /**
+         * 处理setVersionId。
+         */
+        public void setVersionId(String versionId) {
+            this.versionId = versionId;
+        }
+
+        /**
+         * 获取消息。
+         */
+        public String getMessage() {
+            return message;
+        }
+
+        /**
+         * 处理set消息。
+         */
+        public void setMessage(String message) {
+            this.message = message;
+        }
     }
 
-    /** Ensures UTF-8 response metadata for text formats, including old stored objects on preview. */
+    /**
+     * Ensures UTF-8 response metadata for text formats, including old stored objects on preview.
+     */
     private String storageContentType(String fileName, String fallback) {
         String lower = StringUtils.lowerCase(StringUtils.defaultString(fileName));
         if (lower.endsWith(".md")) return "text/markdown; charset=UTF-8";
@@ -241,16 +329,23 @@ public class KnowledgeDocumentController {
         return fallback;
     }
 
+    /**
+     * 预览Url。
+     */
     @ApiOperation("Preview knowledge document")
     @GetMapping("/{id}/preview-url")
     public WebResponse<String> previewUrl(@PathVariable @NotBlank String id) {
         KnowledgeDocument document = getExisting(id);
-        if (StringUtils.isBlank(document.getStorageObjectKey())) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.source-file.not-found"));
+        if (StringUtils.isBlank(document.getStorageObjectKey()))
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.source-file.not-found"));
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.preview-url.ready"), objectStorageService.presignedGetUrl(
                 document.getStorageBucket(), document.getStorageObjectKey(), 600,
                 storageContentType(document.getOriginalFileName(), document.getMimeType())));
     }
 
+    /**
+     * 文档版本列表。
+     */
     @ApiOperation("文档版本列表")
     @GetMapping("/{id}/versions")
     public WebResponse<List<KnowledgeDocumentVersion>> versions(@PathVariable @NotBlank String id) {
@@ -261,6 +356,9 @@ public class KnowledgeDocumentController {
                 .orderByDesc(KnowledgeDocumentVersion::getVersionNo)));
     }
 
+    /**
+     * 处理version详情。
+     */
     @GetMapping("/version/{versionId}")
     public WebResponse<KnowledgeDocumentVersion> versionDetail(@PathVariable @NotBlank String versionId) {
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
@@ -272,6 +370,9 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(version);
     }
 
+    /**
+     * Preview original document version file。
+     */
     @ApiOperation("Preview original document version file")
     @GetMapping("/version/{versionId}/preview-url")
     public WebResponse<String> versionPreviewUrl(@PathVariable @NotBlank String versionId) {
@@ -316,6 +417,9 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.content.recognized"), content);
     }
 
+    /**
+     * 文档版本分块列表。
+     */
     @ApiOperation("文档版本分块列表")
     @GetMapping("/version/{versionId}/chunk/list")
     public WebResponse<List<KnowledgeDocumentChunkVo>> versionChunks(@PathVariable @NotBlank String versionId) {
@@ -341,13 +445,17 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(chunks);
     }
 
+    /**
+     * 回滚到指定文档版本并异步索引。
+     */
     @ApiOperation("回滚到指定文档版本并异步索引")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping({"/version/{versionId}/rollback", "/version/{versionId}/revise"})
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<String> rollback(@PathVariable @NotBlank String versionId) {
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
-        if (version == null || Boolean.TRUE.equals(version.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
+        if (version == null || Boolean.TRUE.equals(version.getDeleted()))
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
         KnowledgeDocument document = getExisting(version.getKnowledgeDocumentId());
         knowledgeAccessService.requireWritable(document.getKnowledgeBaseId());
         KnowledgeDocument snapshot = knowledgeDocumentService.getById(document.getId());
@@ -360,6 +468,9 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.version.rollback.success"), draft.getId());
     }
 
+    /**
+     * 更新当前请求。
+     */
     @ApiOperation("Update knowledge document")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PutMapping("/{id}")
@@ -388,6 +499,9 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("knowledge.document.update.success") : I18nUtils.getMessage("knowledge.document.update.fail"));
     }
 
+    /**
+     * 删除当前请求。
+     */
     @ApiOperation("删除文档")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
@@ -406,12 +520,18 @@ public class KnowledgeDocumentController {
                     .eq(KnowledgeDocumentVersion::getKnowledgeDocumentId, id));
         }
         if (removed && StringUtils.isNotBlank(existing.getStorageBucket()) && StringUtils.isNotBlank(existing.getStorageObjectKey())) {
-            try { objectStorageService.removeObject(existing.getStorageBucket(), existing.getStorageObjectKey()); }
-            catch (Exception e) { log.warn("Failed to remove knowledge source object: {}", existing.getStorageObjectKey(), e); }
+            try {
+                objectStorageService.removeObject(existing.getStorageBucket(), existing.getStorageObjectKey());
+            } catch (Exception e) {
+                log.warn("Failed to remove knowledge source object: {}", existing.getStorageObjectKey(), e);
+            }
         }
         return WebResponse.OK(removed ? I18nUtils.getMessage("knowledge.document.delete.success") : I18nUtils.getMessage("knowledge.document.delete.fail"));
     }
 
+    /**
+     * 重建文档索引。
+     */
     @ApiOperation("重建文档索引")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/{id}/reindex")
@@ -426,25 +546,35 @@ public class KnowledgeDocumentController {
                         .eq(KnowledgeDocumentVersion::getKnowledgeDocumentId, id)
                         .eq(KnowledgeDocumentVersion::getVersionNo, document.getCurrentVersionNo())
                         .eq(KnowledgeDocumentVersion::getDeleted, false), false);
-        if (version == null) throw new ServerException(404, I18nUtils.getMessage("knowledge.document.published-version.not-found"));
+        if (version == null)
+            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.published-version.not-found"));
         String jobId = knowledgeDocumentIndexService.queueReindex(document, version, KnowledgeJobType.REINDEX);
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.reindex.queued", new Object[]{jobId}));
     }
 
+    /**
+     * 更新Draft。
+     */
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PutMapping("/version/{versionId}/draft")
     public WebResponse<KnowledgeDocumentVersion> updateDraft(@PathVariable @NotBlank String versionId,
-                                                              @RequestBody com.aether.knowledge.vo.KnowledgeDraftUpdateVo vo) {
+                                                             @RequestBody com.aether.knowledge.vo.KnowledgeDraftUpdateVo vo) {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.draft.save.success"),
                 workflowService.updateDraft(versionId, vo.getContent(), vo.getExpectedChecksum()));
     }
 
+    /**
+     * 处理startAi审核。
+     */
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/version/{versionId}/ai-review")
     public WebResponse<String> startAiReview(@PathVariable @NotBlank String versionId) {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.start.success"), workflowService.startAiReview(versionId));
     }
 
+    /**
+     * 提交当前请求。
+     */
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/version/{versionId}/submit")
     public WebResponse<String> submit(@PathVariable @NotBlank String versionId,
@@ -453,6 +583,9 @@ public class KnowledgeDocumentController {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.submit.success"), task.getId());
     }
 
+    /**
+     * 获取Existing。
+     */
     private KnowledgeDocument getExisting(String id) {
         KnowledgeDocument document = knowledgeDocumentService.getById(id);
         if (document == null || Boolean.TRUE.equals(document.getDeleted())) {
@@ -462,6 +595,9 @@ public class KnowledgeDocumentController {
         return document;
     }
 
+    /**
+     * 解析当前VersionId。
+     */
     private String resolveCurrentVersionId(KnowledgeDocument document) {
         if (document.getCurrentVersionNo() == null || document.getCurrentVersionNo() <= 0) return null;
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getOne(
@@ -472,6 +608,9 @@ public class KnowledgeDocumentController {
         return version == null ? null : version.getId();
     }
 
+    /**
+     * 处理startAi审核IfConfigured。
+     */
     private void startAiReviewIfConfigured(KnowledgeBase base, KnowledgeDocumentVersion draft) {
         boolean autoStart = true;
         if (StringUtils.isNotBlank(base.getReviewConfig())) {
@@ -485,6 +624,9 @@ public class KnowledgeDocumentController {
         if (autoStart) workflowService.startAiReview(draft.getId());
     }
 
+    /**
+     * 处理sha256。
+     */
     private String sha256(byte[] bytes) throws Exception {
         byte[] hash = MessageDigest.getInstance("SHA-256").digest(bytes);
         StringBuilder out = new StringBuilder();

@@ -12,28 +12,49 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证Email控制器的行为。
+ */
 class EmailControllerTest {
 
+    /**
+     * 处理setUp。
+     */
     @BeforeEach
     void setUp() {
     }
 
+    /**
+     * 处理tearDown。
+     */
     @AfterEach
     void tearDown() {
     }
 
+    /**
+     * 查询当前请求。
+     */
     @Test
     void list() {
     }
 
+    /**
+     * 处理info。
+     */
     @Test
     void info() {
     }
 
+    /**
+     * 保存当前请求。
+     */
     @Test
     void save() {
     }
 
+    /**
+     * 删除当前请求。
+     */
     @Test
     void delete() {
     }

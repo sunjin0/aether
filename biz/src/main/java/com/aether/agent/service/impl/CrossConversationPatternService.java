@@ -48,6 +48,9 @@ public class CrossConversationPatternService {
     @Autowired
     private PreferenceReasoningEngine reasoningEngine;
 
+    /**
+     * 处理analyzeRecentPatterns。
+     */
     @Scheduled(cron = "0 0 3 * * ?")
     public void analyzeRecentPatterns() {
         log.info("Starting cross-conversation pattern analysis");
@@ -129,8 +132,11 @@ public class CrossConversationPatternService {
         log.info("Cross-conversation pattern analysis completed");
     }
 
+    /**
+     * 处理detectAnd保存Pattern。
+     */
     private void detectAndSavePattern(String userId, String category,
-                                       List<PatternSignal> signals, String keyName, String description) {
+                                      List<PatternSignal> signals, String keyName, String description) {
         if (signals.size() < 3) {
             return;
         }
@@ -186,6 +192,9 @@ public class CrossConversationPatternService {
         recordPatternEvidence(pref, supportingSignals, dominantPattern);
     }
 
+    /**
+     * 处理recordPatternEvidence。
+     */
     private void recordPatternEvidence(AdminPreference preference,
                                        List<PatternSignal> signals,
                                        String value) {
@@ -221,6 +230,9 @@ public class CrossConversationPatternService {
         }
     }
 
+    /**
+     * 查找DominantPattern。
+     */
     private String findDominantPattern(List<String> signals) {
         Map<String, Integer> freq = new HashMap<>();
         for (String signal : signals) {
@@ -233,6 +245,9 @@ public class CrossConversationPatternService {
                 .orElse(null);
     }
 
+    /**
+     * 处理detectLanguagePattern。
+     */
     private String detectLanguagePattern(String content) {
         String lower = content.toLowerCase();
         String[] zhCN = {"用中文", "中文回答", "请用中文", "in chinese", "chinese please",
@@ -253,6 +268,9 @@ public class CrossConversationPatternService {
         return null;
     }
 
+    /**
+     * 处理detectToolPattern。
+     */
     private String detectToolPattern(String content) {
         String lower = content.toLowerCase();
         String[] commandLine = {"shell", "terminal", "命令行", "在终端", "bash", "zsh",
@@ -272,6 +290,9 @@ public class CrossConversationPatternService {
         return null;
     }
 
+    /**
+     * 处理detect格式化Pattern。
+     */
     private String detectFormatPattern(String content) {
         String lower = content.toLowerCase();
         if (lower.contains("简洁") || lower.contains("简短") || lower.contains("brief")
@@ -299,6 +320,9 @@ public class CrossConversationPatternService {
         return null;
     }
 
+    /**
+     * 处理detectTechStackPattern。
+     */
     private String detectTechStackPattern(String content) {
         String lower = content.toLowerCase();
         Map<String, String[]> techMap = new LinkedHashMap<>();
@@ -319,25 +343,40 @@ public class CrossConversationPatternService {
         return null;
     }
 
+    /**
+     * 表示PatternSignal。
+     */
     private static class PatternSignal {
         private final String value;
         private final String conversationId;
         private final String messageId;
 
+        /**
+         * 创建 {@code PatternSignal} 实例。
+         */
         PatternSignal(String value, String conversationId, String messageId) {
             this.value = value;
             this.conversationId = conversationId;
             this.messageId = messageId;
         }
 
+        /**
+         * 获取Value。
+         */
         String getValue() {
             return value;
         }
 
+        /**
+         * 获取会话Id。
+         */
         String getConversationId() {
             return conversationId;
         }
 
+        /**
+         * 获取消息Id。
+         */
         String getMessageId() {
             return messageId;
         }
