@@ -11,6 +11,7 @@ import com.aether.agent.skill.service.AgentArtifactService;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
+import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -96,7 +97,7 @@ public class SandboxTaskController {
     @PostMapping("/tasks/{id}/approve")
     public WebResponse<Void> approve(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) {
         tasks.approve(id, user(), body == null ? null : body.getReason());
-        return WebResponse.OK("Task approved");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.task.approve.success"));
     }
 
     /**
@@ -105,7 +106,7 @@ public class SandboxTaskController {
     @PostMapping("/tasks/{id}/reject")
     public WebResponse<Void> reject(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) {
         tasks.reject(id, user(), body == null ? null : body.getReason());
-        return WebResponse.OK("Task rejected");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.task.reject.success"));
     }
 
     /**
@@ -114,10 +115,10 @@ public class SandboxTaskController {
     @PostMapping("/tasks/{id}/decision")
     public WebResponse<Void> decision(@PathVariable @NotBlank String id, @RequestBody SandboxDecisionDto body) {
         if (body == null || !StringUtils.equalsAnyIgnoreCase(body.getDecision(), "APPROVE", "REJECT"))
-            throw new ServerException(400, "decision must be APPROVE or REJECT");
+            throw new ServerException(400, I18nUtils.getMessage("sandbox.task.decision.invalid"));
         if (StringUtils.equalsIgnoreCase("APPROVE", body.getDecision())) tasks.approve(id, user(), body.getReason());
         else tasks.reject(id, user(), body.getReason());
-        return WebResponse.OK("Task decision recorded");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.task.decision.success"));
     }
 
     /**
@@ -126,7 +127,7 @@ public class SandboxTaskController {
     @PostMapping("/tasks/{id}/cancel")
     public WebResponse<Void> cancel(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) {
         tasks.cancel(id, user(), body == null ? null : body.getReason());
-        return WebResponse.OK("Cancellation requested");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.task.cancel.success"));
     }
 
     /**
@@ -160,7 +161,7 @@ public class SandboxTaskController {
     @Permission(path = "/agent/sandbox")
     public WebResponse<Void> setTemplateEnabled(@PathVariable @NotBlank String id, @RequestParam boolean enabled) {
         tasks.setTemplateEnabled(id, enabled);
-        return WebResponse.OK("Template state updated");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.template.status.update.success"));
     }
 
     /**
@@ -246,7 +247,7 @@ public class SandboxTaskController {
     @PostMapping("/runner/tasks/{id}/events")
     public WebResponse<Void> runnerEvent(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody SandboxRunnerEventDto event) {
         tasks.runnerEvent(id, execution, runner(runner, runnerId), event);
-        return WebResponse.OK("Event accepted");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.runner.event.accepted"));
     }
 
     /**
@@ -255,7 +256,7 @@ public class SandboxTaskController {
     @PostMapping("/runner/tasks/{id}/usage")
     public WebResponse<Void> usage(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody SandboxRunnerUsageDto usage) {
         tasks.reportUsage(id, execution, runner(runner, runnerId), usage);
-        return WebResponse.OK("Usage accepted");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.runner.usage.accepted"));
     }
 
     /**
@@ -264,7 +265,7 @@ public class SandboxTaskController {
     @PostMapping("/runner/tasks/{id}/succeed")
     public WebResponse<Void> succeed(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody(required = false) SandboxDecisionDto body) {
         tasks.succeed(id, execution, runner(runner, runnerId), body == null ? null : body.getReason());
-        return WebResponse.OK("Task completed");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.runner.task.completed"));
     }
 
     /**
@@ -273,7 +274,7 @@ public class SandboxTaskController {
     @PostMapping("/runner/tasks/{id}/artifacts")
     public WebResponse<Void> completeArtifact(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestParam("file") MultipartFile file, @RequestParam("sha256") String sha256, @RequestParam(value = "summary", required = false) String summary, @RequestParam(value = "finalArtifact", defaultValue = "true") boolean finalArtifact) throws IOException {
         tasks.completeArtifact(id, execution, runner(runner, runnerId), file.getOriginalFilename(), file.getContentType(), file.getBytes(), sha256, summary, finalArtifact);
-        return WebResponse.OK("Artifact accepted");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.runner.artifact.accepted"));
     }
 
     /**
@@ -282,7 +283,7 @@ public class SandboxTaskController {
     @PostMapping("/runner/tasks/{id}/fail")
     public WebResponse<Void> fail(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestParam("code") String code, @RequestParam("reason") String reason, @RequestParam(value = "summary", required = false) String summary) {
         tasks.fail(id, execution, runner(runner, runnerId), code, reason, summary);
-        return WebResponse.OK("Task failed");
+        return WebResponse.OK(I18nUtils.getMessage("sandbox.runner.task.failed"));
     }
 
     /**
@@ -290,7 +291,7 @@ public class SandboxTaskController {
      */
     private String user() {
         String id = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
-        if (StringUtils.isBlank(id)) throw new ServerException(401, "Unauthorized");
+        if (StringUtils.isBlank(id)) throw new ServerException(401, I18nUtils.getMessage("sandbox.user.unauthorized"));
         return id;
     }
 
@@ -299,7 +300,7 @@ public class SandboxTaskController {
      */
     private String requireRunner(String supplied) {
         if (StringUtils.isBlank(runnerToken) || !MessageDigest.isEqual(runnerToken.getBytes(StandardCharsets.UTF_8), StringUtils.defaultString(supplied).getBytes(StandardCharsets.UTF_8)))
-            throw new ServerException(401, "Sandbox runner unauthorized");
+            throw new ServerException(401, I18nUtils.getMessage("sandbox.runner.unauthorized"));
         return supplied;
     }
 
@@ -309,7 +310,7 @@ public class SandboxTaskController {
     private String runner(String token, String id) {
         requireRunner(token);
         if (StringUtils.isBlank(id) || !id.matches("[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"))
-            throw new ServerException(401, "Sandbox runner identity is invalid");
+            throw new ServerException(401, I18nUtils.getMessage("sandbox.runner.identity.invalid"));
         return id;
     }
 }
