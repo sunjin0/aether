@@ -61,6 +61,7 @@ public class DeepAgentRunService {
     private final AdminPreferenceService adminPreferenceService;
     private final SkillArtifactExecutionService artifactExecutionService;
     private final AgentRunPlanService planService;
+    private final ToolRouterService toolRouterService;
     private final DeepAgentConfig config;
 
     /**
@@ -83,6 +84,7 @@ public class DeepAgentRunService {
                                AdminPreferenceService adminPreferenceService,
                                SkillArtifactExecutionService artifactExecutionService,
                                AgentRunPlanService planService,
+                               ToolRouterService toolRouterService,
                                DeepAgentConfig config) {
         this.agentRunService = agentRunService;
         this.agentRunStepService = agentRunStepService;
@@ -101,6 +103,7 @@ public class DeepAgentRunService {
         this.adminPreferenceService = adminPreferenceService;
         this.artifactExecutionService = artifactExecutionService;
         this.planService = planService;
+        this.toolRouterService = toolRouterService;
         this.config = config;
     }
 
@@ -211,7 +214,9 @@ public class DeepAgentRunService {
                 registerCallback.accept(runId);
             }
             List<AgentTool> resolvedTools = skillContext == null ? toolCatalog.getBoundTools(agent.getId()) : skillContext.getTools();
-            List<String> allowedTools = resolvedTools.stream()
+            List<AgentTool> routedTools = toolRouterService.route(resolvedTools,
+                    skillContext == null ? java.util.Collections.<String>emptySet() : skillContext.getRequiredToolIds(), task);
+            List<String> allowedTools = routedTools.stream()
                     .filter(t -> t.getMcpToolName() != null)
                     .map(AgentTool::getMcpToolName)
                     .collect(Collectors.toList());

@@ -5,6 +5,7 @@ import com.aether.agent.entity.AgentToolBinding;
 import com.aether.agent.mapper.AgentToolMapper;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.service.ToolRoutingIndexService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,15 +26,18 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final AgentToolBindingService agentToolBindingService;
+    private final ToolRoutingIndexService toolRoutingIndexService;
 
     /**
      * 创建 {@code AgentToolServiceImpl} 实例。
      */
     @Autowired
     public AgentToolServiceImpl(RedisTemplate<String, Object> redisTemplate,
-                                AgentToolBindingService agentToolBindingService) {
+                                AgentToolBindingService agentToolBindingService,
+                                ToolRoutingIndexService toolRoutingIndexService) {
         this.redisTemplate = redisTemplate;
         this.agentToolBindingService = agentToolBindingService;
+        this.toolRoutingIndexService = toolRoutingIndexService;
     }
 
     /**
@@ -44,6 +48,7 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
         boolean saved = super.save(entity);
         if (saved) {
             evictRelatedCaches(entity.getId());
+            toolRoutingIndexService.scheduleIndexTool(entity.getId());
         }
         return saved;
     }
@@ -56,6 +61,7 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
         boolean updated = super.updateById(entity);
         if (updated) {
             evictRelatedCaches(entity.getId());
+            toolRoutingIndexService.scheduleIndexTool(entity.getId());
         }
         return updated;
     }
@@ -68,6 +74,7 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
         boolean removed = super.removeById(id);
         if (removed) {
             evictRelatedCaches(id.toString());
+            toolRoutingIndexService.scheduleIndexTool(id.toString());
         }
         return removed;
     }

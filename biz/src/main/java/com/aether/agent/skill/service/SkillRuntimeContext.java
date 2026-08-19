@@ -17,6 +17,10 @@ public class SkillRuntimeContext {
     private String systemPrompt;
     private List<AgentTool> tools = Collections.emptyList();
     private Set<String> knowledgeBaseIds = Collections.emptySet();
+    /**
+     * Skill 声明为 required 的工具 id，路由时必须常驻保留。
+     */
+    private Set<String> requiredToolIds = Collections.emptySet();
     private String snapshot;
     private boolean installed;
 

@@ -15,6 +15,7 @@ import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.service.ToolRouterService;
 import com.aether.agent.tools.ToolCallParser.ToolCall;
 import com.aether.agent.tools.core.Tool;
 import com.aether.agent.tools.core.ToolRegistry;
@@ -49,6 +50,7 @@ import javax.annotation.PreDestroy;
  */
 @Component
 public class AgentToolWorkflow {
+    private static final int MAX_TOOL_SCHEMA_CHARS = 16000;
     private static final Logger log = LoggerFactory.getLogger(AgentToolWorkflow.class);
     private static final String MCP_APPROVAL_TYPE = "mcp_tool_approval";
     private static final String TOOL_APPROVAL_GRANT_KEY_PREFIX = "agent:tool-approval:";
@@ -72,6 +74,7 @@ public class AgentToolWorkflow {
     private final ToolExecutorFactory executorFactory;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ToolRegistry toolRegistry;
+    private final ToolRouterService toolRouterService;
     private final ToolCallRiskAnalyzer riskAnalyzer = new ToolCallRiskAnalyzer();
     private final ExecutorService readOnlyToolExecutor = new ThreadPoolExecutor(2, 8, 30L, TimeUnit.SECONDS,
             new ArrayBlockingQueue<Runnable>(64), new ThreadPoolExecutor.CallerRunsPolicy());
@@ -83,7 +86,7 @@ public class AgentToolWorkflow {
                              AgentToolService agentToolService, AgentToolCallLogService toolCallLogService,
                              AgentMcpServerService mcpServerService, AgentRunService agentRunService, AgentMessageService messageService,
                              ToolExecutorFactory executorFactory, RedisTemplate<String, Object> redisTemplate,
-                             ToolRegistry toolRegistry) {
+                             ToolRegistry toolRegistry, ToolRouterService toolRouterService) {
         this.toolCallParser = toolCallParser;
         this.toolCatalog = toolCatalog;
         this.agentToolService = agentToolService;
@@ -94,6 +97,7 @@ public class AgentToolWorkflow {
         this.executorFactory = executorFactory;
         this.redisTemplate = redisTemplate;
         this.toolRegistry = toolRegistry;
+        this.toolRouterService = toolRouterService;
     }
 
     /**
@@ -114,8 +118,36 @@ public class AgentToolWorkflow {
      * Skill 运行时使用已冻结的 MCP 工具，并保留平台内置交互工具。
      */
     public List<AgentTool> getRequestTools(List<AgentTool> scopedTools) {
-        List<AgentTool> tools = new ArrayList<>(scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools);
-        tools.addAll(toolRegistry.getTools());
+        return getRequestTools(scopedTools, null, java.util.Collections.<String>emptySet());
+    }
+
+    /**
+     * 返回请求模型时可公开的工具定义。内置交互工具与 Skill required 工具常驻保留，
+     * 其余工具按关键字匹配与 query 向量召回 Top-K 裁剪以节省上下文，未匹配的工具不携带；
+     * query 为空时不裁剪。
+     */
+    public List<AgentTool> getRequestTools(List<AgentTool> scopedTools, String query, Set<String> requiredToolIds) {
+        List<AgentTool> builtInTools = toolRegistry.getTools();
+        List<AgentTool> candidates = new ArrayList<>(scopedTools == null
+                ? java.util.Collections.<AgentTool>emptyList() : scopedTools);
+        candidates.addAll(builtInTools);
+        Set<String> protectedToolIds = new java.util.HashSet<>(requiredToolIds == null
+                ? java.util.Collections.<String>emptySet() : requiredToolIds);
+        for (AgentTool builtIn : builtInTools) {
+            if (builtIn != null && builtIn.getId() != null) protectedToolIds.add(builtIn.getId());
+        }
+        List<AgentTool> routed = toolRouterService.route(candidates, protectedToolIds, query);
+        List<AgentTool> tools = new ArrayList<>();
+        int schemaChars = 0;
+        for (AgentTool tool : routed) {
+            int size = StringUtils.length(tool.getName()) + StringUtils.length(tool.getDescription())
+                    + StringUtils.length(tool.getParametersSchema()) + StringUtils.length(tool.getMcpInputSchema());
+            if (!tools.isEmpty() && schemaChars + size > MAX_TOOL_SCHEMA_CHARS) {
+                continue;
+            }
+            tools.add(tool);
+            schemaChars += size;
+        }
         return tools;
     }
 

@@ -191,7 +191,8 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(agentToolWorkflow.getRequestTools(skillContext.getTools()));
+            request.setTools(agentToolWorkflow.getRequestTools(skillContext.getTools(),
+                    effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getRequiredToolIds()));
 
             // 在任何模型调用前冻结本次 Skill 装配结果，失败运行同样可追溯。
             runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(),
@@ -373,7 +374,8 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setAgent(agent);
             request.setProvider(provider);
             request.setMessages(context);
-            request.setTools(agentToolWorkflow.getRequestTools(skillContext.getTools()));
+            request.setTools(agentToolWorkflow.getRequestTools(skillContext.getTools(),
+                    effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getRequiredToolIds()));
 
             // SSE 首个分片到达前即保存运行快照，避免连接中断时丢失实际授权上下文。
             runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(),
@@ -601,7 +603,8 @@ public class AgentChatServiceImpl implements AgentChatService {
             // MCP (or ask_user) again, otherwise the model can immediately ask
             // the same confirmation a second time.
             boolean approvalRejected = approvalExecution != null && !approvalExecution.getResult().isSuccess();
-            request.setTools(approvalRejected ? Collections.<AgentTool>emptyList() : agentToolWorkflow.getRequestTools(skillContext.getTools()));
+            request.setTools(approvalRejected ? Collections.<AgentTool>emptyList()
+                    : agentToolWorkflow.getRequestTools(skillContext.getTools(), answerContent, skillContext.getRequiredToolIds()));
 
             // 回答分支同样在模型调用前固化 Skill 快照；已存在的审批续跑运行保留其原始快照。
             if (runId == null) {

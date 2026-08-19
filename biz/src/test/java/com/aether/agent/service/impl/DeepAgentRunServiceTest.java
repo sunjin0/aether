@@ -94,7 +94,7 @@ class DeepAgentRunServiceTest {
         service = new DeepAgentRunService(agentRunService, agentRunStepService,
                 signingClient, agentConversationService, agentMessageService,
                 toolCallLogService,
-                delegationTokenService, toolCatalog, knowledgeContextService, conversationContextService, agentSessionService, agentTaskService, agentTaskEventService, agentSessionMemoryService, adminPreferenceService, artifactExecutionService, planService, config);
+                delegationTokenService, toolCatalog, knowledgeContextService, conversationContextService, agentSessionService, agentTaskService, agentTaskEventService, agentSessionMemoryService, adminPreferenceService, artifactExecutionService, planService, org.mockito.Mockito.mock(ToolRouterService.class), config);
     }
 
     /**

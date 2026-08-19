@@ -33,6 +33,7 @@ import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.service.ToolRouterService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
@@ -136,7 +137,8 @@ class AgentChatServiceImplTest {
                 agentMessageService,
                 toolExecutorFactory,
                 redisTemplate,
-                toolRegistry);
+                toolRegistry,
+                org.mockito.Mockito.mock(ToolRouterService.class));
         service = new AgentChatServiceImpl(
                 agentDefinitionService,
                 modelProviderService,

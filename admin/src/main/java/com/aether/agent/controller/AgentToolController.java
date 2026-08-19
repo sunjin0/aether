@@ -10,6 +10,8 @@ import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.service.ToolRoutingConfigService;
+import com.aether.agent.service.ToolRoutingIndexService;
 import com.aether.agent.mcp.McpClient;
 import com.aether.agent.mcp.McpToolDefinition;
 import com.aether.agent.tools.AgentToolCatalog;
@@ -59,6 +61,8 @@ public class AgentToolController {
     private final AgentMcpServerService agentMcpServerService;
     private final ToolExecutorFactory toolExecutorFactory;
     private final DictService dictService;
+    private final ToolRoutingConfigService routingConfigService;
+    private final ToolRoutingIndexService routingIndexService;
 
     @Autowired(required = false)
     private McpClient mcpClient;
@@ -73,12 +77,16 @@ public class AgentToolController {
                                AgentToolCallLogService agentToolCallLogService,
                                AgentMcpServerService agentMcpServerService,
                                ToolExecutorFactory toolExecutorFactory,
-                               DictService dictService) {
+                               DictService dictService,
+                               ToolRoutingConfigService routingConfigService,
+                               ToolRoutingIndexService routingIndexService) {
         this.agentToolService = agentToolService;
         this.agentToolCallLogService = agentToolCallLogService;
         this.agentMcpServerService = agentMcpServerService;
         this.toolExecutorFactory = toolExecutorFactory;
         this.dictService = dictService;
+        this.routingConfigService = routingConfigService;
+        this.routingIndexService = routingIndexService;
     }
 
     /**
@@ -570,5 +578,25 @@ public class AgentToolController {
      */
     private long defaultLong(Long value) {
         return value == null ? 0L : value;
+    }
+
+    /**
+     * 处理routing配置。
+     */
+    @GetMapping("/routing-config")
+    public WebResponse<java.util.Map<String, Object>> routingConfig() {
+        return WebResponse.OK(routingConfigService.get());
+    }
+
+    /**
+     * 更新Routing配置。
+     */
+    @PutMapping("/routing-config")
+    public WebResponse<Void> updateRoutingConfig(@RequestBody java.util.Map<String, Object> dto) {
+        String modelId = dto == null ? null : (String) dto.get("embeddingModelId");
+        Integer topK = dto == null ? null : (Integer) dto.get("topK");
+        routingConfigService.update(modelId, topK);
+        routingIndexService.reindexAllTools();
+        return WebResponse.OK(I18nUtils.getMessage("agent.tool.routing.config.update.success"));
     }
 }
