@@ -33,6 +33,7 @@ import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.KnowledgeContextService;
 import com.aether.agent.service.InteractionReplyService;
 import com.aether.agent.service.ConversationContextService;
+import com.aether.agent.service.CapabilityIndexService;
 import com.aether.agent.service.QueryRewriteService;
 import com.aether.agent.service.ChatRunService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
@@ -101,6 +102,10 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     @Autowired(required = false)
     private SkillArtifactExecutionService artifactExecutionService;
+
+    /** Optional to preserve direct construction used by legacy unit tests. */
+    @Autowired(required = false)
+    private CapabilityIndexService capabilityIndexService;
 
     /**
      * 默认关闭，避免每轮聊天在主模型调用前额外等待一次同步模型重写。
@@ -1420,7 +1425,7 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 用冻结后的 Skill 指令替换历史中的 Agent 系统提示词，避免同一请求出现两套策略。
      */
     private void applySkillPrompt(List<ModelChatMessage> context, SkillRuntimeContext skillContext) {
-        if (context == null || skillContext == null || !skillContext.isInstalled()) return;
+        if (context == null || skillContext == null || StringUtils.isBlank(skillContext.getSystemPrompt())) return;
         if (!context.isEmpty() && "system".equals(context.get(0).getRole()))
             context.set(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
         else context.add(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
@@ -1447,7 +1452,9 @@ public class AgentChatServiceImpl implements AgentChatService {
     private SkillRuntimeContext resolveSkillContext(AgentDefinition agent, AgentChatDto dto, String routingQuery, ModelProvider provider) {
         if (skillContextService != null) return skillContextService.resolve(agent, dto, routingQuery, provider);
         SkillRuntimeContext context = new SkillRuntimeContext();
-        context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt()));
+        String prompt = StringUtils.defaultString(agent.getSystemPrompt());
+        if (capabilityIndexService != null) prompt += capabilityIndexService.buildIndex(agent.getId(), null);
+        context.setSystemPrompt(prompt);
         context.setTools(agentToolWorkflow.getBoundTools(agent.getId()));
         context.setSnapshot("{\"installed\":false}");
         return context;

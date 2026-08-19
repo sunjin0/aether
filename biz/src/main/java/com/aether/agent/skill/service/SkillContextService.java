@@ -6,6 +6,7 @@ import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.AgentMcpServerService;
+import com.aether.agent.service.CapabilityIndexService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillKnowledgeBinding;
@@ -58,6 +59,7 @@ public class SkillContextService {
     private final ObjectStorageService objectStorageService;
     private final String resourceBucket;
     private final SkillRouterService skillRouterService;
+    private final CapabilityIndexService capabilityIndexService;
 
     /**
  * 创建 {@code SkillContextService} 实例。
@@ -68,12 +70,13 @@ public SkillContextService(AgentSkillService skillService, AgentSkillVersionServ
                                AgentToolCatalog toolCatalog, AgentMcpServerService mcpServerService,
                                ObjectStorageService objectStorageService,
                                @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket,
-                               SkillRouterService skillRouterService) {
+                               SkillRouterService skillRouterService, CapabilityIndexService capabilityIndexService) {
         this.skillService = skillService; this.versionService = versionService; this.toolBindingService = toolBindingService;
         this.knowledgeBindingService = knowledgeBindingService;
         this.resourceService = resourceService; this.toolCatalog = toolCatalog; this.mcpServerService = mcpServerService;
         this.objectStorageService = objectStorageService; this.resourceBucket = resourceBucket;
         this.skillRouterService = skillRouterService;
+        this.capabilityIndexService = capabilityIndexService;
     }
 
     /**
@@ -92,8 +95,9 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
                 .sorted((left, right) -> Integer.compare(left.getPriority() == null ? 0 : left.getPriority(), right.getPriority() == null ? 0 : right.getPriority()))
                 .collect(Collectors.toList());
         SkillRuntimeContext context = new SkillRuntimeContext();
+        List<AgentDefinitionSkillBinding> allInstallations = installations;
         if (installations.isEmpty()) {
-            context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt()));
+            context.setSystemPrompt(withCapabilityIndex(agent, installations));
             List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
             context.setTools(boundTools);
             context.setKnowledgeBaseIds(null);
@@ -107,7 +111,7 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
         if (!route.isMatched()) {
             if (dto != null && dto.getSkillInputs() != null && !dto.getSkillInputs().isEmpty()) throw new ServerException(422, I18nUtils.getMessage("skill.context.no-active-skill"));
             List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
-            context.setSystemPrompt(StringUtils.defaultString(agent.getSystemPrompt())); context.setTools(boundTools); context.setKnowledgeBaseIds(null);
+            context.setSystemPrompt(withCapabilityIndex(agent, allInstallations)); context.setTools(boundTools); context.setKnowledgeBaseIds(null);
             Map<String, Object> snapshot = new LinkedHashMap<>(); snapshot.put("routing", route); snapshot.put("toolIds", boundTools.stream().map(AgentTool::getId).collect(Collectors.toList()));
             context.setSnapshot(JSON.toJSONString(snapshot)); return context;
         }
@@ -117,6 +121,7 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
         List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
         Set<String> boundToolIds = boundTools.stream().map(AgentTool::getId).collect(Collectors.toSet());
         Set<String> declaredToolIds = null, declaredKnowledgeBaseIds = null;
+        Set<String> requiredToolIds = new LinkedHashSet<>();
         StringBuilder prompt = new StringBuilder(StringUtils.defaultString(agent.getSystemPrompt()));
         List<Map<String, Object>> snapshotSkills = new ArrayList<>();
         Set<String> installedCodes = new LinkedHashSet<>();
@@ -131,6 +136,7 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
             for (AgentSkillToolBinding declaration : declarations) {
                 AgentTool tool = boundTools.stream().filter(item -> declaration.getToolId().equals(item.getId())).findFirst().orElse(null);
                 if (Boolean.TRUE.equals(declaration.getRequired()) && (!boundToolIds.contains(declaration.getToolId()) || !isLiveMcpTool(tool))) throw new ServerException(422, I18nUtils.getMessage("skill.context.required-tool.unavailable", new Object[]{declaration.getToolId()}));
+                if (Boolean.TRUE.equals(declaration.getRequired())) requiredToolIds.add(declaration.getToolId());
             }
             declaredToolIds = merge(declaredToolIds, toolIds);
             Set<String> knowledgeIds = knowledgeBindingService.list(Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class).eq(AgentSkillKnowledgeBinding::getSkillVersionId, version.getId()))
@@ -153,10 +159,11 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
             prompt.append("\n\n[Artifact Generation]\nUse generate_artifact for file output. Provide title, content and format only; never select a Skill, script or template. This Skill's instructions above are the applicable document specification.");
         }
         prompt.append("\n\n[Platform Constraints]\n工具审批、安全与审计由平台统一控制。知识库引用规则由检索上下文统一提供。");
+        prompt.append(capabilityIndexService.buildIndex(agent.getId(), allInstallations));
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("installed", true); snapshot.put("routing", route); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
         snapshot.put("knowledgeBaseIds", declaredKnowledgeBaseIds == null ? Collections.emptySet() : declaredKnowledgeBaseIds);
-        context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools); context.setKnowledgeBaseIds(declaredKnowledgeBaseIds == null ? Collections.<String>emptySet() : declaredKnowledgeBaseIds); context.setSnapshot(JSON.toJSONString(snapshot));
+        context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools); context.setKnowledgeBaseIds(declaredKnowledgeBaseIds == null ? Collections.<String>emptySet() : declaredKnowledgeBaseIds); context.setRequiredToolIds(requiredToolIds); context.setSnapshot(JSON.toJSONString(snapshot));
         return context;
     }
 
@@ -165,6 +172,13 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
  */
 private Set<String> merge(Set<String> current, Set<String> next) { if (current == null) return new LinkedHashSet<>(next); current.addAll(next); return current; }
 
+    /**
+     * 在系统提示末尾追加能力索引（工具 + 全部已装 Skill）。
+     */
+    private String withCapabilityIndex(AgentDefinition agent, List<AgentDefinitionSkillBinding> installations) {
+        String base = StringUtils.defaultString(agent.getSystemPrompt());
+        return base + capabilityIndexService.buildIndex(agent.getId(), installations);
+    }
     /** Caches immutable Skill version content; request-specific inputs are deliberately appended outside this cache. */
     private String resolveStaticPrompt(AgentSkill skill, AgentSkillVersion version, List<AgentSkillResource> resources) {
         String key = staticPromptCacheKey(skill, version, resources);

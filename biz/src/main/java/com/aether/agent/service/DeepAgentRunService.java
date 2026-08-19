@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -63,6 +64,10 @@ public class DeepAgentRunService {
     private final AgentRunPlanService planService;
     private final ToolRouterService toolRouterService;
     private final DeepAgentConfig config;
+
+    /** Optional to preserve direct construction used by legacy unit tests. */
+    @Autowired(required = false)
+    private CapabilityIndexService capabilityIndexService;
 
     /**
      * 创建 {@code DeepAgentRunService} 实例。
@@ -140,6 +145,18 @@ public class DeepAgentRunService {
                            String task, String attachmentContent, String attachments,
                            List<Map<String, Object>> sources, Consumer<String> registerCallback) {
         return startRunInternal(agent, userId, conversationId, task, attachmentContent, attachments, sources, null, registerCallback);
+    }
+
+    /**
+     * 解析系统提示：Skill 已装配时复用其提示（已含能力索引），否则在 Agent 基础提示后追加能力索引。
+     */
+    private String resolveSystemPrompt(AgentDefinition agent, SkillRuntimeContext skillContext) {
+        String base = skillContext == null ? (agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "") : skillContext.getSystemPrompt();
+        if (StringUtils.isBlank(base)) return "";
+        if (skillContext == null && capabilityIndexService != null) {
+            return base + capabilityIndexService.buildIndex(agent.getId(), null);
+        }
+        return base;
     }
 
     /**
@@ -241,7 +258,7 @@ public class DeepAgentRunService {
             taskState.put("routing", route.name());
             request.put("task_state", taskState);
             request.put("conversation_memory", conversationMemory);
-            request.put("system_prompt", skillContext == null ? (agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "") : skillContext.getSystemPrompt());
+            request.put("system_prompt", resolveSystemPrompt(agent, skillContext));
             request.put("knowledge_sources", knowledgeSources);
             request.put("allowed_tools", allowedTools);
             request.put("tool_approval_policy", readToolApprovalPolicy(run.getSkillSnapshot()));

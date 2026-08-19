@@ -5,6 +5,7 @@ import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.service.AgentMcpServerService;
+import com.aether.agent.service.CapabilityIndexService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillKnowledgeBinding;
@@ -52,13 +53,15 @@ class SkillContextServiceTest {
     private final AgentMcpServerService mcpServerService = mock(AgentMcpServerService.class);
     private final ObjectStorageService objectStorageService = mock(ObjectStorageService.class);
     private final SkillRouterService skillRouterService = mock(SkillRouterService.class);
-    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, resourceService, toolCatalog, mcpServerService, objectStorageService, "aether-skill", skillRouterService);
+    private final CapabilityIndexService capabilityIndexService = mock(CapabilityIndexService.class);
+    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, resourceService, toolCatalog, mcpServerService, objectStorageService, "aether-skill", skillRouterService, capabilityIndexService);
 
     /**
      * 处理configureMcpServer。
      */
     @BeforeEach
     void configureMcpServer() {
+        when(capabilityIndexService.buildIndex(any(), any())).thenReturn("");
         AgentMcpServer server = new AgentMcpServer();
         server.setId("mcp1");
         server.setStatus(1);
@@ -89,6 +92,23 @@ class SkillContextServiceTest {
         assertEquals(2, context.getTools().size());
         assertNull(context.getKnowledgeBaseIds());
         assertTrue(context.getSnapshot().contains("\"installed\":false"));
+    }
+
+    /**
+     * 处理appendsCapabilityIndexToBasePrompt。
+     */
+    @Test
+    void appendsCapabilityIndexToBasePrompt() {
+        when(capabilityIndexService.buildIndex(any(), any())).thenReturn("\n\n[可用能力 / Available capabilities]\n- http: HTTP 请求");
+        AgentDefinition agent = agent("a1", "base");
+        when(skillService.listBindings("a1")).thenReturn(Collections.emptyList());
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.emptyList());
+
+        SkillRuntimeContext context = service.resolve(agent, new AgentChatDto());
+
+        assertTrue(context.getSystemPrompt().startsWith("base"));
+        assertTrue(context.getSystemPrompt().contains("可用能力"));
+        assertTrue(context.getSystemPrompt().contains("- http: HTTP 请求"));
     }
 
     /**
