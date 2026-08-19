@@ -3,6 +3,8 @@ package com.aether.agent.service;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
+import com.aether.agent.entity.AgentSession;
+import com.aether.agent.entity.AgentSessionMemory;
 import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatMessage;
@@ -40,12 +42,17 @@ public class ConversationContextService {
     private static final int MIN_INPUT_BUDGET_TOKENS = 256;
     private static final int MIN_OPTIONAL_SYSTEM_TOKENS = 128;
     private static final int MESSAGE_BASE_TOKENS = 4;
+    private static final int SESSION_MEMORY_LIMIT = 6;
+    private static final int SESSION_MEMORY_ENTRY_CHARS = 300;
+    private static final int SESSION_MEMORY_BUDGET_PERCENT = 15;
 
     private final AgentMessageService messageService;
     private final ConversationCacheService cacheService;
     private final ConversationSummaryService summaryService;
     private final AgentRunService runService;
     private final AgentToolCallLogService toolCallLogService;
+    private final AgentSessionService sessionService;
+    private final AgentSessionMemoryService sessionMemoryService;
 
     /**
      * 创建 {@code ConversationContextService} 实例。
@@ -59,17 +66,32 @@ public class ConversationContextService {
     /**
      * 创建 {@code ConversationContextService} 实例。
      */
-    @Autowired
     public ConversationContextService(AgentMessageService messageService,
                                       ConversationCacheService cacheService,
                                       ConversationSummaryService summaryService,
                                       AgentRunService runService,
                                       AgentToolCallLogService toolCallLogService) {
+        this(messageService, cacheService, summaryService, runService, toolCallLogService, null, null);
+    }
+
+    /**
+     * 创建 {@code ConversationContextService} 实例。
+     */
+    @Autowired
+    public ConversationContextService(AgentMessageService messageService,
+                                      ConversationCacheService cacheService,
+                                      ConversationSummaryService summaryService,
+                                      AgentRunService runService,
+                                      AgentToolCallLogService toolCallLogService,
+                                      AgentSessionService sessionService,
+                                      AgentSessionMemoryService sessionMemoryService) {
         this.messageService = messageService;
         this.cacheService = cacheService;
         this.summaryService = summaryService;
         this.runService = runService;
         this.toolCallLogService = toolCallLogService;
+        this.sessionService = sessionService;
+        this.sessionMemoryService = sessionMemoryService;
     }
 
     /**
@@ -194,6 +216,46 @@ public class ConversationContextService {
         }
         addMessages(context, uncoveredMessages);
         return context;
+    }
+
+    /**
+     * 将活跃会话记忆渲染为一段有预算约束的 system 消息；无记忆或服务不可用时返回 null。
+     * 标准聊天与 Deep 会话共用同一渲染块。
+     */
+    public ModelChatMessage renderSessionMemory(String conversationId, String userId, String agentDefinitionId) {
+        if (sessionService == null || sessionMemoryService == null) return null;
+        if (StringUtils.isBlank(conversationId) || StringUtils.isBlank(userId)) return null;
+        AgentSession session = sessionService.getOrCreate(conversationId, userId, agentDefinitionId);
+        if (session == null) return null;
+        List<AgentSessionMemory> memories = sessionMemoryService.listInjectableForModel(session.getId(), SESSION_MEMORY_LIMIT);
+        if (memories == null || memories.isEmpty()) return null;
+        StringBuilder block = new StringBuilder("【会话记忆】");
+        int included = 0;
+        for (AgentSessionMemory memory : memories) {
+            if (memory == null || StringUtils.isBlank(memory.getContent())) continue;
+            if (included >= SESSION_MEMORY_LIMIT) break;
+            block.append("\n- ").append(abbreviate(memory.getContent(), SESSION_MEMORY_ENTRY_CHARS));
+            included++;
+        }
+        if (included == 0) return null;
+        int budget = getInputTokenBudget(null, null) * SESSION_MEMORY_BUDGET_PERCENT / 100;
+        return new ModelChatMessage("system", abbreviateToTokenBudget(block.toString(),
+                Math.max(MIN_OPTIONAL_SYSTEM_TOKENS, budget)));
+    }
+
+    /**
+     * 将会话记忆块插入受保护系统提示之后、历史与摘要之前。
+     */
+    public void injectSessionMemory(List<ModelChatMessage> context,
+                                    String conversationId, String userId, String agentDefinitionId) {
+        if (context == null || context.isEmpty()) return;
+        ModelChatMessage memory = renderSessionMemory(conversationId, userId, agentDefinitionId);
+        if (memory == null) return;
+        int insertIndex = 1;
+        if (!"system".equals(context.get(0).getRole())) {
+            insertIndex = 0;
+        }
+        context.add(insertIndex, memory);
     }
 
     /**

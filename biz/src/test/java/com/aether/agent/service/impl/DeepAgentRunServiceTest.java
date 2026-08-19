@@ -139,7 +139,7 @@ class DeepAgentRunServiceTest {
         when(agentTaskService.create("session-1", "user-1", "agent-1", "你好")).thenReturn(taskRecord);
         AgentSessionMemory durableMemory = new AgentSessionMemory();
         durableMemory.setContent("上次已确认合同存在付款风险");
-        when(agentSessionMemoryService.listInjectable("session-1", 12)).thenReturn(Collections.singletonList(durableMemory));
+        when(agentSessionMemoryService.listInjectableForModel("session-1", 12)).thenReturn(Collections.singletonList(durableMemory));
         AdminPreference preference = new AdminPreference();
         preference.setCategory("format");
         preference.setKeyName("output_format");
@@ -216,7 +216,7 @@ class DeepAgentRunServiceTest {
         AgentSessionMemory relevant = new AgentSessionMemory();
         relevant.setImportance(80);
         relevant.setContent("合同风险已完成初步核查");
-        when(agentSessionMemoryService.listInjectable("session-memory", 12))
+        when(agentSessionMemoryService.listInjectableForModel("session-memory", 12))
                 .thenReturn(Arrays.asList(unrelated, relevant));
 
         List<Map<String, String>> memory = (List<Map<String, String>>) ReflectionTestUtils.invokeMethod(

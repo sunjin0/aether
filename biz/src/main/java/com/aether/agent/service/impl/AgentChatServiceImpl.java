@@ -191,8 +191,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         String runId = null;
 
         try {
-            SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveContent(rewrittenContent, dto.getMessage()), provider);
-            List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveContent(rewrittenContent, dto.getMessage()), provider);
+            List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId(), userId);
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
                     context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds(), dto.getRetrievalMode());
@@ -362,7 +362,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             callback.onStatus("preparing", "正在准备对话上下文");
             SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveContent(rewrittenContent, dto.getMessage()), provider);
             long skillResolvedAt = System.currentTimeMillis();
-            List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId(), userId);
             long contextBuiltAt = System.currentTimeMillis();
             applySkillPrompt(context, skillContext);
             callback.onStatus("retrieving", "正在检索资料");
@@ -594,7 +594,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
 
             SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, answerContent, provider);
-            List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
+            List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId(), userId);
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
                     context, userId, conversation.getId(), agent.getId(), answerContent, skillContext.getKnowledgeBaseIds(), dto.getRetrievalMode());
@@ -1444,8 +1444,10 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 当对话超过阈值时，使用摘要+最近消息的模式。
      */
     private List<ModelChatMessage> buildContextWithSummary(AgentDefinition agent, ModelProvider provider,
-                                                           String conversationId) {
-        return conversationContextService.buildWithSummary(agent, provider, conversationId);
+                                                           String conversationId, String userId) {
+        List<ModelChatMessage> context = conversationContextService.buildWithSummary(agent, provider, conversationId);
+        conversationContextService.injectSessionMemory(context, conversationId, userId, agent.getId());
+        return context;
     }
 
     /**

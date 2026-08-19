@@ -3,6 +3,8 @@ package com.aether.agent.service;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
+import com.aether.agent.entity.AgentSession;
+import com.aether.agent.entity.AgentSessionMemory;
 import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatMessage;
@@ -45,6 +47,10 @@ class ConversationContextServiceTest {
     private AgentRunService runService;
     @Mock
     private AgentToolCallLogService toolCallLogService;
+    @Mock
+    private AgentSessionService sessionService;
+    @Mock
+    private AgentSessionMemoryService sessionMemoryService;
 
     private ConversationContextService service;
     private AgentDefinition agent;
@@ -300,6 +306,55 @@ class ConversationContextServiceTest {
         assertTrue(service.estimateContextTokens(context) <= 288);
         assertTrue(context.stream().noneMatch(item -> repeat('旧', 700).equals(item.getContent())));
         assertTrue(context.stream().anyMatch(item -> "最新问题".equals(item.getContent())));
+    }
+
+    /**
+     * 注入会话记忆：活跃且非受限的记忆渲染为 system 块，插在系统提示之后。
+     */
+    @Test
+    void injectsActiveSessionMemoryAfterSystemPrompt() {
+        ConversationContextService memoryAwareService = new ConversationContextService(
+                messageService, cacheService, summaryService, runService, toolCallLogService,
+                sessionService, sessionMemoryService);
+        agent.setId("agent-1");
+        agent.setSystemPrompt("基础系统提示");
+        AgentSession session = new AgentSession();
+        session.setId("session-1");
+        when(sessionService.getOrCreate("conversation-1", "user-1", "agent-1")).thenReturn(session);
+        AgentSessionMemory memory = new AgentSessionMemory();
+        memory.setSessionId("session-1");
+        memory.setMemoryType("GOAL");
+        memory.setContent("项目使用 Java 8");
+        memory.setImportance(90);
+        memory.setSensitivityLevel("NORMAL");
+        memory.setStatus(AgentSessionMemory.STATUS_ACTIVE);
+        when(sessionMemoryService.listInjectableForModel("session-1", 6))
+                .thenReturn(Collections.singletonList(memory));
+        List<AgentMessage> history = messagesAscending(1, 2);
+        when(messageService.count(any())).thenReturn(2L);
+        when(messageService.list(any())).thenReturn(history);
+
+        List<ModelChatMessage> context = memoryAwareService.buildWithSummary(agent, provider, "conversation-1");
+        memoryAwareService.injectSessionMemory(context, "conversation-1", "user-1", "agent-1");
+
+        assertEquals("system", context.get(1).getRole());
+        assertTrue(context.get(1).getContent().contains("【会话记忆】"));
+        assertTrue(context.get(1).getContent().contains("项目使用 Java 8"));
+    }
+
+    /**
+     * 无会话服务时注入为空操作，保持既有行为。
+     */
+    @Test
+    void injectSessionMemoryIsNoOpWhenServicesAbsent() {
+        List<ModelChatMessage> context = new ArrayList<ModelChatMessage>();
+        context.add(new ModelChatMessage("system", "基础系统提示"));
+        context.add(new ModelChatMessage("user", "历史消息"));
+
+        service.injectSessionMemory(context, "conversation-1", "user-1", "agent-1");
+
+        assertEquals(2, context.size());
+        assertEquals("user", context.get(1).getRole());
     }
 
     /**

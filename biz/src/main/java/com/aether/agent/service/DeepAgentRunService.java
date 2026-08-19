@@ -309,7 +309,7 @@ public class DeepAgentRunService {
         List<Map<String, String>> result = new ArrayList<Map<String, String>>();
         addConfirmedPreferences(result, userId);
         if (agentSessionMemoryService != null && StringUtils.isNotBlank(sessionId)) {
-            List<AgentSessionMemory> memories = agentSessionMemoryService.listInjectable(sessionId, 12);
+            List<AgentSessionMemory> memories = agentSessionMemoryService.listInjectableForModel(sessionId, 12);
             if (memories != null) {
                 memories = new ArrayList<AgentSessionMemory>(memories);
                 memories.sort((left, right) -> Integer.compare(memoryRelevance(right, currentTask), memoryRelevance(left, currentTask)));

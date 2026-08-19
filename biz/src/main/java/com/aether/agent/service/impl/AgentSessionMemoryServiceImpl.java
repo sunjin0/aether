@@ -56,6 +56,26 @@ public class AgentSessionMemoryServiceImpl extends ServiceImpl<AgentSessionMemor
     }
 
     /**
+     * 以治理规则过滤的活跃记忆：仅 {@code ACTIVE} 且未过期、非敏感受限的记忆进入模型输入。
+     */
+    @Override
+    public List<AgentSessionMemory> listInjectableForModel(String sessionId, int limit) {
+        if (StringUtils.isBlank(sessionId) || limit <= 0) return java.util.Collections.emptyList();
+        long now = System.currentTimeMillis();
+        return list(Wrappers.lambdaQuery(AgentSessionMemory.class)
+                .eq(AgentSessionMemory::getSessionId, sessionId)
+                .eq(AgentSessionMemory::getDeleted, false)
+                .and(query -> query.isNull(AgentSessionMemory::getStatus)
+                        .or().eq(AgentSessionMemory::getStatus, AgentSessionMemory.STATUS_ACTIVE))
+                .and(query -> query.isNull(AgentSessionMemory::getExpiresAt).or()
+                        .gt(AgentSessionMemory::getExpiresAt, now))
+                .ne(AgentSessionMemory::getSensitivityLevel, "RESTRICTED")
+                .orderByDesc(AgentSessionMemory::getImportance)
+                .orderByDesc(AgentSessionMemory::getCreatedAt)
+                .last("limit " + Math.min(limit, 12)));
+    }
+
+    /**
      * 处理expireDueMemories。
      */
     @Override
