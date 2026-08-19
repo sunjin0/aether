@@ -216,10 +216,10 @@ class ConversationContextServiceTest {
     }
 
     /**
-     * 处理restoresAuditedToolCallsAs历史记录SummaryBeforeTheirAssistantAnswer。
+     * 处理restoresAuditedToolCallsAs工具结果BeforeTheirAssistantAnswer。
      */
     @Test
-    void restoresAuditedToolCallsAsHistorySummaryBeforeTheirAssistantAnswer() {
+    void restoresAuditedToolCallsAsToolResultsBeforeTheirAssistantAnswer() {
         AgentMessage answer = message(1);
         answer.setRole("assistant");
         when(messageService.list(any())).thenReturn(Collections.singletonList(answer));
@@ -247,7 +247,8 @@ class ConversationContextServiceTest {
                 toolAwareService.buildFromHistory(agent, "conversation-1");
 
         assertEquals(2, context.size());
-        assertEquals("assistant", context.get(0).getRole());
+        assertEquals("tool", context.get(0).getRole());
+        assertEquals("call-1", context.get(0).getToolCallId());
         assertNull(context.get(0).getToolCalls());
         assertTrue(context.get(0).getContent().contains("lookup"));
         assertTrue(context.get(0).getContent().contains("{\"name\":\"Aether\"}"));

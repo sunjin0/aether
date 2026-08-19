@@ -91,6 +91,7 @@ public class ModelCatalogServiceImpl extends ServiceImpl<ModelCatalogMapper, Mod
         ModelProvider resolved = new ModelProvider();
         BeanUtils.copyProperties(source, resolved);
         resolved.setDefaultModel(item.getName());
+        if (item.getContextWindow() != null) resolved.setContextWindow(item.getContextWindow());
         if (StringUtils.isNotBlank(item.getEndpointOverride())) resolved.setApiBaseUrl(item.getEndpointOverride());
         return resolved;
     }

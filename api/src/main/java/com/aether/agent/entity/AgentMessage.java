@@ -92,6 +92,12 @@ public class AgentMessage extends BaseEntity {
     @ApiModelProperty(value = "Reasoning tokens")
     private Integer reasoningTokens;
 
+    @ApiModelProperty(value = "Estimated tokens contributed when used as history")
+    private Integer contextTokens;
+
+    @ApiModelProperty(value = "Input context budget of the source model call")
+    private Integer contextBudgetTokens;
+
     @ApiModelProperty(value = "Latency in milliseconds")
     private Integer latencyMs;
 

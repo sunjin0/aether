@@ -1,0 +1,1 @@
+ALTER TABLE agent_run_context_metric ADD COLUMN IF NOT EXISTS tool_definition_tokens INTEGER NOT NULL DEFAULT 0;

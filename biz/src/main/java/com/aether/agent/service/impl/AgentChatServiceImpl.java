@@ -33,7 +33,9 @@ import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.KnowledgeContextService;
 import com.aether.agent.service.InteractionReplyService;
 import com.aether.agent.service.ConversationContextService;
+import com.aether.agent.service.ContextMetricService;
 import com.aether.agent.service.CapabilityIndexService;
+import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.service.QueryRewriteService;
 import com.aether.agent.service.ChatRunService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
@@ -102,6 +104,10 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     @Autowired(required = false)
     private SkillArtifactExecutionService artifactExecutionService;
+
+    /** Optional to preserve direct construction used by legacy unit tests. */
+    @Autowired(required = false)
+    private ContextMetricService contextMetricService;
 
     /** Optional to preserve direct construction used by legacy unit tests. */
     @Autowired(required = false)
@@ -181,7 +187,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
         String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent,
-                dto.getAttachmentContent(), dto.getAttachments());
+                dto.getAttachmentContent(), dto.getAttachments(), agent, provider);
         String runId = null;
 
         try {
@@ -204,11 +210,11 @@ public class AgentChatServiceImpl implements AgentChatService {
                     modelInputSnapshot(request), null, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
-            ModelChatResponse modelResponse = modelClient.chat(request);
+            ModelChatResponse modelResponse = dispatchChat(modelClient, request, runId, 1);
             // ask_user 的强制重试仅服务于聊天交互模式；工作流已由人工节点统一处理，
             // 不能让普通 Agent 节点因模型回答中包含问句而额外发起一次模型调用。
             if (Boolean.TRUE.equals(dto.getInteractive())) {
-                modelResponse = retryAskUserWhenPlainQuestion(modelResponse, modelClient, request);
+                modelResponse = retryAskUserWhenPlainQuestion(modelResponse, modelClient, request, runId, 2);
             }
 
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
@@ -242,7 +248,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 // Persist any model text produced before it requested the tool.
                 // The non-streaming response can only return one message, so the
                 // prelude is recovered through normal conversation history.
-                saveAssistantPreludeIfPresent(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime);
+                saveAssistantPreludeIfPresent(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime, agent, provider);
                 AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), modelResponse, agent, userId, runId, skillContext.getTools());
                 if (approval != null) {
                     updateConversationMessageCount(conversation.getId());
@@ -262,7 +268,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
                 // 继续调用模型
                 request.setMessages(context);
-                modelResponse = modelClient.chat(request);
+                modelResponse = dispatchChat(modelClient, request, runId, iteration + 1);
             }
 
             long latencyMs = System.currentTimeMillis() - startTime;
@@ -270,7 +276,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (!authenticityCheck.isValid()) {
                 log.warn("拦截疑似工具结果幻觉回答: conversationId={}, attempted={}, succeeded={}, reason={}",
                         conversation.getId(), toolCallAttempted, toolCallSucceeded, authenticityCheck.getReason());
-                ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, modelResponse, authenticityCheck);
+                ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, modelResponse, authenticityCheck, runId);
                 ToolAuthenticityCheck retryCheck = checkToolAuthenticity(retryResponse.getContent(), false, false);
                 if (retryCheck.isValid()) {
                     modelResponse = retryResponse;
@@ -288,7 +294,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 modelResponse.setSources(null);
             }
 
-            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider);
             knowledgeContextService.recordCitationsAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     modelResponse.getSources());
             knowledgeContextService.recordRetrievalOutcomeAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
@@ -341,7 +347,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         long conversationResolvedAt = System.currentTimeMillis();
         String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent,
-                dto.getAttachmentContent(), dto.getAttachments());
+                dto.getAttachmentContent(), dto.getAttachments(), agent, provider);
         long userPersistedAt = System.currentTimeMillis();
         String runId = null;
 
@@ -392,7 +398,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
             ForwardingStreamCallback streamCallback = createStreamCallback(callback, conversation.getId(), thinkingEnabled);
             long modelStreamStartedAt = System.currentTimeMillis();
-            ModelStreamResponse modelResponse = modelClient.stream(request, streamCallback);
+            ModelStreamResponse modelResponse = dispatchStream(modelClient, request, streamCallback, runId, 1);
             recordModelStreamLatency(streamCallback, modelStreamStartedAt);
 
             // 推理未开启时，过滤掉模型可能返回的reasoning_content和reasoning_tokens
@@ -420,7 +426,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 iteration++;
                 toolCallAttempted = true;
                 AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
-                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
+                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime, agent, provider);
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
@@ -481,7 +487,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 request.setMessages(context);
                 streamCallback = createStreamCallback(callback, conversation.getId(), thinkingEnabled);
                 modelStreamStartedAt = System.currentTimeMillis();
-                modelResponse = modelClient.stream(request, streamCallback);
+                modelResponse = dispatchStream(modelClient, request, streamCallback, runId, iteration + 1);
                 recordModelStreamLatency(streamCallback, modelStreamStartedAt);
 
                 // 推理未开启时，过滤掉reasoning_content
@@ -499,7 +505,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (!authenticityCheck.isValid()) {
                 log.warn("拦截疑似工具结果幻觉流式回答: conversationId={}, attempted={}, succeeded={}, reason={}",
                         conversation.getId(), toolCallAttempted, toolCallSucceeded, authenticityCheck.getReason());
-                ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, chatResponse, authenticityCheck);
+                ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, chatResponse, authenticityCheck, runId);
                 ToolAuthenticityCheck retryCheck = checkToolAuthenticity(retryResponse.getContent(), false, false);
                 if (retryCheck.isValid()) {
                     modelResponse = toStreamResponse(retryResponse, modelResponse);
@@ -523,7 +529,7 @@ public class AgentChatServiceImpl implements AgentChatService {
 
 
             long finalPersistStartedAt = System.currentTimeMillis();
-            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider);
             knowledgeContextService.recordCitationsAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     modelResponse.getSources());
             knowledgeContextService.recordRetrievalOutcomeAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
@@ -620,7 +626,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             ModelClient modelClient = modelClientFactory.getClient(provider);
             ForwardingStreamCallback streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
             long modelStreamStartedAt = System.currentTimeMillis();
-            ModelStreamResponse modelResponse = modelClient.stream(request, streamCallback);
+            ModelStreamResponse modelResponse = dispatchStream(modelClient, request, streamCallback, runId, 1);
             recordModelStreamLatency(streamCallback, modelStreamStartedAt);
 
             if (!thinkingEnabled && StringUtils.isBlank(modelResponse.getToolCalls())) {
@@ -641,7 +647,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 iteration++;
                 toolCallAttempted = true;
                 AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
-                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
+                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime, agent, provider);
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
@@ -698,7 +704,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 request.setMessages(context);
                 streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
                 modelStreamStartedAt = System.currentTimeMillis();
-                modelResponse = modelClient.stream(request, streamCallback);
+                modelResponse = dispatchStream(modelClient, request, streamCallback, runId, iteration + 1);
                 recordModelStreamLatency(streamCallback, modelStreamStartedAt);
                 if (!thinkingEnabled && StringUtils.isBlank(modelResponse.getToolCalls())) {
                     modelResponse.setReasoningContent(null);
@@ -712,7 +718,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             long latencyMs = System.currentTimeMillis() - startTime;
             ToolAuthenticityCheck authenticityCheck = checkToolAuthenticity(modelResponse.getContent(), toolCallAttempted, toolCallSucceeded);
             if (!authenticityCheck.isValid()) {
-                ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, chatResponse, authenticityCheck);
+                ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, chatResponse, authenticityCheck, runId);
                 ToolAuthenticityCheck retryCheck = checkToolAuthenticity(retryResponse.getContent(), false, false);
                 if (retryCheck.isValid()) {
                     modelResponse = toStreamResponse(retryResponse, modelResponse);
@@ -735,7 +741,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 modelResponse.setSources(null);
             }
 
-            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs);
+            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider);
             knowledgeContextService.recordCitationsAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     modelResponse.getSources());
             knowledgeContextService.recordRetrievalOutcomeAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
@@ -977,7 +983,8 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 保存用户消息。
      */
     private AgentMessage saveUserMessage(String conversationId, String content, String rewrittenContent,
-                                         String attachmentContent, String attachments) {
+                                          String attachmentContent, String attachments,
+                                          AgentDefinition agent, ModelProvider provider) {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
         message.setRole("user");
@@ -986,6 +993,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setRewrittenContent(rewrittenContent);
         message.setAttachmentContent(attachmentContent);
         message.setAttachments(attachments);
+        message.setContextTokens(conversationContextService.estimateTokens(
+                effectiveContent(rewrittenContent, content), agent == null ? null : agent.getModel()));
+        message.setContextBudgetTokens(conversationContextService.getInputTokenBudget(agent, provider));
         agentMessageService.save(message);
 
         // 更新缓存：添加用户消息
@@ -1063,6 +1073,11 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 保存Assistant消息。
      */
     private AgentMessage saveAssistantMessage(String conversationId, ModelChatResponse modelResponse, long latencyMs) {
+        return saveAssistantMessage(conversationId, modelResponse, latencyMs, null, null);
+    }
+
+    private AgentMessage saveAssistantMessage(String conversationId, ModelChatResponse modelResponse, long latencyMs,
+                                              AgentDefinition agent, ModelProvider provider) {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
         message.setRole("assistant");
@@ -1075,6 +1090,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setCompletionTokens(modelResponse.getCompletionTokens());
         message.setTotalTokens(modelResponse.getTotalTokens());
         message.setReasoningTokens(modelResponse.getReasoningTokens());
+        populateAssistantContextMetrics(message, modelResponse.getContent(), agent, provider);
         if (modelResponse.getSources() != null && !modelResponse.getSources().isEmpty()) {
             message.setCitations(JSON.toJSONString(modelResponse.getSources()));
         }
@@ -1091,6 +1107,11 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 保存Assistant消息。
      */
     private AgentMessage saveAssistantMessage(String conversationId, ModelStreamResponse modelResponse, long latencyMs) {
+        return saveAssistantMessage(conversationId, modelResponse, latencyMs, null, null);
+    }
+
+    private AgentMessage saveAssistantMessage(String conversationId, ModelStreamResponse modelResponse, long latencyMs,
+                                              AgentDefinition agent, ModelProvider provider) {
         AgentMessage message = new AgentMessage();
         message.setConversationId(conversationId);
         message.setRole("assistant");
@@ -1103,6 +1124,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         message.setCompletionTokens(modelResponse.getCompletionTokens());
         message.setTotalTokens(modelResponse.getTotalTokens());
         message.setReasoningTokens(modelResponse.getReasoningTokens());
+        populateAssistantContextMetrics(message, modelResponse.getContent(), agent, provider);
         if (modelResponse.getSources() != null && !modelResponse.getSources().isEmpty()) {
             message.setCitations(JSON.toJSONString(modelResponse.getSources()));
         }
@@ -1119,6 +1141,11 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 保存AssistantPreludeIfPresent。
      */
     private AgentMessage saveAssistantPreludeIfPresent(String conversationId, ModelChatResponse response, long latencyMs) {
+        return saveAssistantPreludeIfPresent(conversationId, response, latencyMs, null, null);
+    }
+
+    private AgentMessage saveAssistantPreludeIfPresent(String conversationId, ModelChatResponse response, long latencyMs,
+                                                       AgentDefinition agent, ModelProvider provider) {
         if (response == null || StringUtils.isBlank(response.getContent())) {
             return null;
         }
@@ -1130,7 +1157,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         prelude.setCompletionTokens(response.getCompletionTokens());
         prelude.setTotalTokens(response.getTotalTokens());
         prelude.setReasoningTokens(response.getReasoningTokens());
-        return saveAssistantMessage(conversationId, prelude, latencyMs);
+        return saveAssistantMessage(conversationId, prelude, latencyMs, agent, provider);
     }
 
     /**
@@ -1529,6 +1556,14 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (StringUtils.length(content) <= MAX_TOOL_CONTEXT_CHARS) {
             return content;
         }
+        String compactJson = compactJsonToolContext(content);
+        if (compactJson != null) {
+            return compactJson;
+        }
+        String compactLines = compactLineToolContext(content);
+        if (compactLines != null) {
+            return compactLines;
+        }
         int headLength = MAX_TOOL_CONTEXT_CHARS * 3 / 4;
         int tailLength = MAX_TOOL_CONTEXT_CHARS - headLength;
         return "[工具返回内容过长，已从 " + content.length() + " 字符压缩为首尾片段；"
@@ -1536,6 +1571,46 @@ public class AgentChatServiceImpl implements AgentChatService {
                 + content.substring(0, headLength)
                 + "\n...[中间 " + (content.length() - headLength - tailLength) + " 字符已省略]...\n"
                 + content.substring(content.length() - tailLength);
+    }
+
+    private String compactJsonToolContext(String content) {
+        try {
+            Object parsed = JSON.parse(content);
+            if (parsed instanceof JSONObject) {
+                JSONObject object = (JSONObject) parsed;
+                JSONObject compact = new JSONObject();
+                for (String key : object.keySet()) {
+                    if (!"debug".equalsIgnoreCase(key) && !"metadata".equalsIgnoreCase(key)
+                            && !"trace".equalsIgnoreCase(key) && !"logs".equalsIgnoreCase(key)) {
+                        compact.put(key, object.get(key));
+                    }
+                }
+                String result = "[工具 JSON 结果已移除调试字段]\n" + compact.toJSONString();
+                return result.length() <= MAX_TOOL_CONTEXT_CHARS ? result : null;
+            }
+            if (parsed instanceof JSONArray) {
+                JSONArray values = (JSONArray) parsed;
+                JSONArray sample = new JSONArray();
+                for (int i = 0; i < Math.min(values.size(), 10); i++) sample.add(values.get(i));
+                String result = "[工具列表共 " + values.size() + " 项，仅保留前 " + sample.size() + " 项]\n"
+                        + sample.toJSONString();
+                return result.length() <= MAX_TOOL_CONTEXT_CHARS ? result : null;
+            }
+        } catch (Exception ignored) {
+            // Not JSON; fall through to line-oriented compaction.
+        }
+        return null;
+    }
+
+    private String compactLineToolContext(String content) {
+        String[] lines = content.split("\\r?\\n");
+        if (lines.length <= 80) return null;
+        StringBuilder compact = new StringBuilder("[工具输出共 ").append(lines.length)
+                .append(" 行，仅保留首尾关键行]\n");
+        for (int i = 0; i < 40; i++) compact.append(lines[i]).append('\n');
+        compact.append("...[").append(lines.length - 80).append(" 行已省略]...\n");
+        for (int i = lines.length - 40; i < lines.length; i++) compact.append(lines[i]).append('\n');
+        return compact.toString();
     }
 
     /**
@@ -1598,15 +1673,16 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 重试Ask用户WhenPlainQuestion。
      */
     private ModelChatResponse retryAskUserWhenPlainQuestion(ModelChatResponse response,
-                                                            ModelClient modelClient,
-                                                            ModelChatRequest request) {
+                                                             ModelClient modelClient,
+                                                             ModelChatRequest request,
+                                                             String runId, int attemptNo) {
         if (response == null || hasToolCalls(response) || !looksLikeUserQuestion(response.getContent())) {
             return response;
         }
         log.warn("交互式模式下模型返回了普通问句，强制重试 ask_user: content={}", truncate(response.getContent(), 200));
         try {
             request.setToolChoiceName(ASK_USER_TOOL_NAME);
-            return modelClient.chat(request);
+            return dispatchChat(modelClient, request, runId, attemptNo);
         } finally {
             request.setToolChoiceName(null);
         }
@@ -1683,8 +1759,8 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 原始模型回复不会被改写，重试请求仅增加约束提示并移除工具定义。
      */
     private ModelChatResponse retryToolAuthenticity(ModelClient modelClient, ModelChatRequest request,
-                                                    ModelChatResponse originalResponse,
-                                                    ToolAuthenticityCheck check) {
+                                                     ModelChatResponse originalResponse,
+                                                     ToolAuthenticityCheck check, String runId) {
         List<ModelChatMessage> originalMessages = request.getMessages();
         List<AgentTool> originalTools = request.getTools();
         String originalToolChoice = request.getToolChoiceName();
@@ -1696,7 +1772,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setMessages(retryMessages);
             request.setTools(Collections.<AgentTool>emptyList());
             request.setToolChoiceName(null);
-            ModelChatResponse retryResponse = modelClient.chat(request);
+            ModelChatResponse retryResponse = dispatchChat(modelClient, request, runId, 99);
             return retryResponse == null ? originalResponse : retryResponse;
         } catch (Exception e) {
             log.warn("工具结果幻觉重试失败，将执行安全降级: reason={}", e.getMessage());
@@ -1705,6 +1781,38 @@ public class AgentChatServiceImpl implements AgentChatService {
             request.setMessages(originalMessages);
             request.setTools(originalTools);
             request.setToolChoiceName(originalToolChoice);
+        }
+    }
+
+    /** Dispatch a normal response while preserving the exact input assembled for this call. */
+    private ModelChatResponse dispatchChat(ModelClient client, ModelChatRequest request, String runId, int attemptNo) {
+AgentRunContextMetric preliminary = contextMetricService == null ? null
+                : contextMetricService.recordPreliminary(runId, attemptNo, request.getMessages(),
+                        request.getTools(), request.getAgent(), request.getProvider());
+        ModelChatResponse response = client.chat(request);
+        if (contextMetricService != null) contextMetricService.recordFinal(preliminary,
+                response == null ? null : response.getPromptTokens());
+        return response;
+    }
+
+    /** Dispatch a stream while persisting both its estimated and provider-reported input usage. */
+    private ModelStreamResponse dispatchStream(ModelClient client, ModelChatRequest request,
+                                               ModelStreamCallback callback, String runId, int attemptNo) {
+AgentRunContextMetric preliminary = contextMetricService == null ? null
+                : contextMetricService.recordPreliminary(runId, attemptNo, request.getMessages(),
+                        request.getTools(), request.getAgent(), request.getProvider());
+        ModelStreamResponse response = client.stream(request, callback);
+        if (contextMetricService != null) contextMetricService.recordFinal(preliminary,
+                response == null ? null : response.getPromptTokens());
+        return response;
+    }
+
+    private void populateAssistantContextMetrics(AgentMessage message, String content,
+                                                 AgentDefinition agent, ModelProvider provider) {
+        message.setContextTokens(conversationContextService.estimateTokens(content,
+                agent == null ? null : agent.getModel()));
+        if (agent != null || provider != null) {
+            message.setContextBudgetTokens(conversationContextService.getInputTokenBudget(agent, provider));
         }
     }
 

@@ -197,6 +197,44 @@ public class ConversationContextService {
     }
 
     /**
+     * Prepares a summary after a completed reply when recent context already occupies most of
+     * the next request budget. The next call still enforces its budget synchronously.
+     */
+    public void refreshSummaryAfterReply(AgentDefinition agent, ModelProvider provider, String conversationId) {
+        if (summaryService == null) {
+            return;
+        }
+        long messageCount = countMessages(conversationId);
+        if (messageCount <= KEEP_RECENT_MESSAGES) {
+            return;
+        }
+        List<AgentMessage> recent = queryRecentMessages(conversationId, HISTORY_MESSAGE_LIMIT);
+        Collections.reverse(recent);
+        List<ModelChatMessage> context = new ArrayList<ModelChatMessage>();
+        addMessages(context, recent);
+        int threshold = getInputTokenBudget(agent, provider) * 3 / 5;
+        if (messageCount <= SUMMARY_TRIGGER_THRESHOLD && estimateContextTokens(context,
+                agent == null ? null : agent.getModel()) < threshold) {
+            return;
+        }
+        SummarySnapshot summary = summaryService.get(conversationId);
+        List<AgentMessage> candidates = summary == null
+                ? queryOldestMessages(conversationId, (int) Math.min(SUMMARY_BATCH_SIZE,
+                        messageCount - KEEP_RECENT_MESSAGES))
+                : queryMessagesAfter(conversationId, summary);
+        int compressCount = Math.min(SUMMARY_BATCH_SIZE,
+                Math.max(0, candidates.size() - KEEP_RECENT_MESSAGES));
+        if (summary == null) {
+            compressCount = candidates.size();
+        }
+        if (compressCount > 0) {
+            summaryService.refreshAsync(conversationId, summary,
+                    limitSummaryBatch(new ArrayList<AgentMessage>(candidates.subList(0, compressCount))),
+                    agent, provider);
+        }
+    }
+
+    /**
      * 创建SystemContext。
      */
     private List<ModelChatMessage> createSystemContext(AgentDefinition agent) {
@@ -359,10 +397,6 @@ public class ConversationContextService {
      * 新增Tool运行。
      */
     private void addToolRun(List<ModelChatMessage> context, List<AgentToolCallLog> logs) {
-        // Historical tool calls do not retain the provider's reasoning_content. Replaying them as
-        // OpenAI tool protocol messages therefore makes DeepSeek thinking mode reject the next
-        // request. Preserve the useful audit context as ordinary assistant text instead.
-        StringBuilder summary = new StringBuilder("【历史工具执行】");
         for (AgentToolCallLog log : logs) {
             String content;
             if (Integer.valueOf(0).equals(log.getStatus())) {
@@ -371,11 +405,12 @@ public class ConversationContextService {
                 content = "工具执行未成功，status=" + log.getStatus()
                         + ", error=" + StringUtils.defaultString(log.getErrorMsg());
             }
-            summary.append("\n- ").append(StringUtils.defaultIfBlank(log.getToolName(), "unknown_tool"))
+            StringBuilder result = new StringBuilder("【历史工具执行】")
+                    .append(StringUtils.defaultIfBlank(log.getToolName(), "unknown_tool"))
                     .append(" arguments=").append(truncate(StringUtils.defaultIfBlank(log.getArguments(), "{}"), 1000))
                     .append(" result=").append(truncate(content, 4000));
+            context.add(new ModelChatMessage("tool", result.toString(), null, log.getToolCallId()));
         }
-        context.add(new ModelChatMessage("assistant", summary.toString()));
     }
 
     /**

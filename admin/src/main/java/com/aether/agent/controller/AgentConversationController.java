@@ -4,16 +4,19 @@ import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
+import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentRunService;
+import com.aether.agent.service.AgentRunContextMetricService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.ConversationCacheService;
 import com.aether.agent.service.ConversationSummaryService;
 import com.aether.agent.tools.AgentToolWorkflow;
 import com.aether.agent.vo.AgentConversationLifecycleVo;
+import com.aether.agent.vo.AgentConversationContextVo;
 import com.aether.agent.vo.AgentConversationVo;
 import com.aether.agent.vo.AgentMessageStatisticsVo;
 import com.aether.agent.vo.AgentMessageVo;
@@ -65,6 +68,7 @@ public class AgentConversationController {
     private final AgentDefinitionService agentDefinitionService;
     private final AgentMessageService agentMessageService;
     private final AgentRunService agentRunService;
+    private final AgentRunContextMetricService agentRunContextMetricService;
     private final AgentToolCallLogService agentToolCallLogService;
     private final AdminPreferenceEventService adminPreferenceEventService;
     private final AdminPreferenceService adminPreferenceService;
@@ -80,6 +84,7 @@ public class AgentConversationController {
                                        AgentDefinitionService agentDefinitionService,
                                        AgentMessageService agentMessageService,
                                        AgentRunService agentRunService,
+                                       AgentRunContextMetricService agentRunContextMetricService,
                                        AgentToolCallLogService agentToolCallLogService,
                                        AdminPreferenceEventService adminPreferenceEventService,
                                        AdminPreferenceService adminPreferenceService,
@@ -90,12 +95,31 @@ public class AgentConversationController {
         this.agentDefinitionService = agentDefinitionService;
         this.agentMessageService = agentMessageService;
         this.agentRunService = agentRunService;
+        this.agentRunContextMetricService = agentRunContextMetricService;
         this.agentToolCallLogService = agentToolCallLogService;
         this.adminPreferenceEventService = adminPreferenceEventService;
         this.adminPreferenceService = adminPreferenceService;
         this.conversationCacheService = conversationCacheService;
         this.conversationSummaryService = conversationSummaryService;
         this.agentToolWorkflow = agentToolWorkflow;
+    }
+
+    /**
+     * 保留既有手工构造调用；运行时使用包含上下文指标服务的完整构造器。
+     */
+    public AgentConversationController(AgentConversationService agentConversationService,
+                                       AgentDefinitionService agentDefinitionService,
+                                       AgentMessageService agentMessageService,
+                                       AgentRunService agentRunService,
+                                       AgentToolCallLogService agentToolCallLogService,
+                                       AdminPreferenceEventService adminPreferenceEventService,
+                                       AdminPreferenceService adminPreferenceService,
+                                       ConversationCacheService conversationCacheService,
+                                       ConversationSummaryService conversationSummaryService,
+                                       AgentToolWorkflow agentToolWorkflow) {
+        this(agentConversationService, agentDefinitionService, agentMessageService, agentRunService, null,
+                agentToolCallLogService, adminPreferenceEventService, adminPreferenceService,
+                conversationCacheService, conversationSummaryService, agentToolWorkflow);
     }
 
     /**
@@ -178,6 +202,62 @@ public class AgentConversationController {
         aggregateToolCallLogs(id, list);
 
         return WebResponse.Page(list, result.getTotal());
+    }
+
+    /**
+     * 查询最近一次已完成调用的上下文容量度量。
+     */
+    @ApiOperation("查询会话上下文容量")
+    @GetMapping("/{id}/context")
+    public WebResponse<AgentConversationContextVo> context(@PathVariable @NotBlank String id) {
+        getOwnedConversation(id);
+        if (agentRunContextMetricService == null) {
+            return WebResponse.OK(null);
+        }
+        List<AgentRun> runs = agentRunService.list(Wrappers.lambdaQuery(AgentRun.class)
+                .eq(AgentRun::getConversationId, id)
+                .eq(AgentRun::getDeleted, false)
+                .orderByDesc(AgentRun::getCreatedAt));
+        if (runs.isEmpty()) {
+            return WebResponse.OK(null);
+        }
+        List<String> runIds = runs.stream().map(AgentRun::getId).collect(Collectors.toList());
+        List<AgentRunContextMetric> metrics = agentRunContextMetricService.list(Wrappers.lambdaQuery(AgentRunContextMetric.class)
+                .in(AgentRunContextMetric::getRunId, runIds)
+                .eq(AgentRunContextMetric::getMetricPhase, "FINAL")
+                .eq(AgentRunContextMetric::getDeleted, false)
+                .orderByDesc(AgentRunContextMetric::getCreatedAt)
+                .last("limit 1"));
+        if (metrics.isEmpty()) {
+            return WebResponse.OK(null);
+        }
+        AgentRunContextMetric metric = metrics.get(0);
+        AgentConversationContextVo vo = new AgentConversationContextVo();
+        BeanUtils.copyProperties(metric, vo);
+        int used = metric.getPromptTokens() == null ? metric.getEstimatedPromptTokens() : metric.getPromptTokens();
+        if (metric.getInputBudgetTokens() != null && metric.getInputBudgetTokens() > 0) {
+            vo.setOccupancyPercent(Math.round(used * 10000.0D / metric.getInputBudgetTokens()) / 100.0D);
+        }
+        // Sections sum to the local message estimate; tool definitions are measured
+        // separately. The residual versus the provider-reported total is chat-template
+        // framing and tokenizer difference, exposed so the breakdown reconciles with
+        // the occupancy ring. The tool-definition estimate is clamped so the sections
+        // never overshoot the provider total.
+        Integer toolDefinitionTokens = metric.getToolDefinitionTokens() == null
+                ? 0 : metric.getToolDefinitionTokens();
+        vo.setToolDefinitionTokens(toolDefinitionTokens);
+        if (metric.getPromptTokens() != null && metric.getEstimatedPromptTokens() != null) {
+            int room = Math.max(0, metric.getPromptTokens() - metric.getEstimatedPromptTokens());
+            if (toolDefinitionTokens > room) {
+                toolDefinitionTokens = room;
+                vo.setToolDefinitionTokens(toolDefinitionTokens);
+            }
+            vo.setFramingTokens(Math.max(0,
+                    metric.getPromptTokens() - metric.getEstimatedPromptTokens() - toolDefinitionTokens));
+        } else {
+            vo.setFramingTokens(0);
+        }
+        return WebResponse.OK(vo);
     }
 
     /**
