@@ -95,12 +95,13 @@ public class SkillRouterService {
                 item.ruleMatched = true;
                 candidateIds.add(item.version.getId());
             }
+        addKeywordCandidates(query, available, candidateIds);
         addSemanticCandidates(query, available, candidateIds);
         if (candidateIds.isEmpty()) {
             decision.setReason("NO_CANDIDATE");
             return cache(cacheKey, decision, startedAt);
         }
-        List<Candidate> candidates = available.stream().filter(c -> candidateIds.contains(c.version.getId())).sorted(Comparator.comparing((Candidate c) -> !c.ruleMatched).thenComparing(c -> c.priority == null ? Integer.MAX_VALUE : c.priority).thenComparing(c -> c.vectorScore == null ? Double.NEGATIVE_INFINITY : -c.vectorScore)).limit(MAX_CANDIDATES).collect(Collectors.toList());
+        List<Candidate> candidates = available.stream().filter(c -> candidateIds.contains(c.version.getId())).sorted(Comparator.comparing((Candidate c) -> !c.ruleMatched).thenComparing(c -> !c.keywordMatched).thenComparing(c -> c.priority == null ? Integer.MAX_VALUE : c.priority).thenComparing(c -> c.vectorScore == null ? Double.NEGATIVE_INFINITY : -c.vectorScore)).limit(MAX_CANDIDATES).collect(Collectors.toList());
         for (Candidate item : candidates) decision.getCandidates().add(item.audit());
         return cache(cacheKey, classify(agent, chatProvider, query, candidates, decision), startedAt);
     }
@@ -167,7 +168,18 @@ public class SkillRouterService {
         AgentSkillVersion version = versionService.getById(binding.getSkillVersionId());
         if (skill == null || version == null || !Integer.valueOf(1).equals(skill.getStatus()) || !Integer.valueOf(1).equals(version.getStatus()) || StringUtils.isBlank(version.getRoutingSummary()))
             return null;
-        return new Candidate(skill, version, parse(version.getTriggerTerms()), parse(version.getExcludeTerms()), parse(version.getRoutingExamples()), binding.getPriority());
+        return new Candidate(skill, version, parse(version.getTriggerTerms()), parse(version.getExcludeTerms()), parse(version.getRoutingKeywords()), parse(version.getRoutingExamples()), binding.getPriority());
+    }
+
+    /**
+     * 新增KeywordCandidates。
+     */
+    private void addKeywordCandidates(String query, List<Candidate> available, Set<String> output) {
+        for (Candidate item : available)
+            if (!matchesAny(query, item.excludeTerms) && matchesAny(query, item.keywords)) {
+                item.keywordMatched = true;
+                output.add(item.version.getId());
+            }
     }
 
     /**
@@ -274,19 +286,21 @@ public class SkillRouterService {
     private static class Candidate {
         final AgentSkill skill;
         final AgentSkillVersion version;
-        final List<String> triggerTerms, excludeTerms, examples;
+        final List<String> triggerTerms, excludeTerms, keywords, examples;
         final Integer priority;
         boolean ruleMatched;
+        boolean keywordMatched;
         Double vectorScore;
 
         /**
          * 创建 {@code Candidate} 实例。
          */
-        Candidate(AgentSkill s, AgentSkillVersion v, List<String> t, List<String> e, List<String> x, Integer p) {
+        Candidate(AgentSkill s, AgentSkillVersion v, List<String> t, List<String> e, List<String> k, List<String> x, Integer p) {
             skill = s;
             version = v;
             triggerTerms = t;
             excludeTerms = e;
+            keywords = k;
             examples = x;
             priority = p;
         }
@@ -311,6 +325,7 @@ public class SkillRouterService {
         Map<String, Object> audit() {
             Map<String, Object> r = metadata();
             r.put("ruleMatched", ruleMatched);
+            r.put("keywordMatched", keywordMatched);
             r.put("vectorScore", vectorScore);
             r.put("priority", priority);
             return r;

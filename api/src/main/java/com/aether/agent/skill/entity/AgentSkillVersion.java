@@ -21,6 +21,7 @@ public class AgentSkillVersion extends BaseEntity {
     private String routingSummary;
     private String triggerTerms;
     private String excludeTerms;
+    private String routingKeywords;
     private String routingExamples;
     private Integer status;
     private String changeNote;

@@ -22,6 +22,7 @@ public class AgentSkillDraftDto {
     private String routingSummary;
     private java.util.List<String> triggerTerms;
     private java.util.List<String> excludeTerms;
+    private java.util.List<String> routingKeywords;
     private java.util.List<String> routingExamples;
     private String changeNote;
     private List<AgentSkillToolDto> tools;

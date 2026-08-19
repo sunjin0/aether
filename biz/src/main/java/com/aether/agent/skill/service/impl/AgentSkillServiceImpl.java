@@ -135,6 +135,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         draft.setRoutingSummary(source.getRoutingSummary());
         draft.setTriggerTerms(source.getTriggerTerms());
         draft.setExcludeTerms(source.getExcludeTerms());
+        draft.setRoutingKeywords(source.getRoutingKeywords());
         draft.setRoutingExamples(source.getRoutingExamples());
         versionService.save(draft);
         for (AgentSkillToolBinding sourceBinding : toolBindingService.list(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, source.getId()))) {
@@ -708,6 +709,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         target.setRoutingSummary(source.getRoutingSummary());
         target.setTriggerTerms(JSON.toJSONString(source.getTriggerTerms() == null ? Collections.emptyList() : source.getTriggerTerms()));
         target.setExcludeTerms(JSON.toJSONString(source.getExcludeTerms() == null ? Collections.emptyList() : source.getExcludeTerms()));
+        target.setRoutingKeywords(JSON.toJSONString(source.getRoutingKeywords() == null ? Collections.emptyList() : source.getRoutingKeywords()));
         target.setRoutingExamples(JSON.toJSONString(source.getRoutingExamples() == null ? Collections.emptyList() : source.getRoutingExamples()));
     }
 
@@ -718,11 +720,14 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         try {
             List<String> trigger = JSON.parseArray(StringUtils.defaultIfBlank(draft.getTriggerTerms(), "[]"), String.class);
             List<String> exclude = JSON.parseArray(StringUtils.defaultIfBlank(draft.getExcludeTerms(), "[]"), String.class);
+            List<String> keywords = JSON.parseArray(StringUtils.defaultIfBlank(draft.getRoutingKeywords(), "[]"), String.class);
             List<String> examples = JSON.parseArray(StringUtils.defaultIfBlank(draft.getRoutingExamples(), "[]"), String.class);
-            if (trigger.size() > 20 || exclude.size() > 20 || examples.size() > 5)
-                result.getBlockers().add("路由关键词最多 20 个，示例最多 5 个");
+            if (trigger.size() > 20 || exclude.size() > 20 || keywords.size() > 50 || examples.size() > 5)
+                result.getBlockers().add("路由关键词最多 50 个，示例最多 5 个");
             for (String value : trigger)
                 if (exclude.contains(value)) result.getBlockers().add("触发词和排除词不能重复：" + value);
+            for (String value : keywords)
+                if (exclude.contains(value)) result.getBlockers().add("关键字和排除词不能重复：" + value);
         } catch (Exception e) {
             result.getBlockers().add("路由发现配置必须是有效列表");
         }

@@ -73,7 +73,7 @@ public class SkillRoutingIndexService {
         if (version == null || !Integer.valueOf(1).equals(version.getStatus())) return;
         AgentSkill skill = skillMapper.selectById(version.getSkillId());
         if (skill == null) return;
-        String content = skill.getName() + "\n" + StringUtils.defaultString(version.getRoutingSummary()) + "\n" + StringUtils.defaultString(skill.getCategory()) + "\n" + StringUtils.defaultString(skill.getTags()) + "\n" + StringUtils.defaultString(version.getTriggerTerms()) + "\n" + StringUtils.defaultString(version.getRoutingExamples());
+        String content = skill.getName() + "\n" + StringUtils.defaultString(version.getRoutingSummary()) + "\n" + StringUtils.defaultString(skill.getCategory()) + "\n" + StringUtils.defaultString(skill.getTags()) + "\n" + StringUtils.defaultString(version.getTriggerTerms()) + "\n" + StringUtils.defaultString(version.getRoutingKeywords()) + "\n" + StringUtils.defaultString(version.getRoutingExamples());
         AgentSkillRoutingIndex index = mapper.selectOne(Wrappers.lambdaQuery(AgentSkillRoutingIndex.class).eq(AgentSkillRoutingIndex::getSkillVersionId, versionId));
         if (index == null) {
             index = new AgentSkillRoutingIndex();
