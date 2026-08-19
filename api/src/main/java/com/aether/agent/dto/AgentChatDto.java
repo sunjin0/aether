@@ -38,6 +38,9 @@ public class AgentChatDto {
     @ApiModelProperty(value = "Reasoning effort: low/medium/high")
     private String reasoningEffort;
 
+    @ApiModelProperty(value = "Knowledge retrieval mode for this turn: AUTO, ENABLED, DISABLED")
+    private String retrievalMode;
+
     @ApiModelProperty(value = "Temporary conversation")
     private Boolean temporary;
 

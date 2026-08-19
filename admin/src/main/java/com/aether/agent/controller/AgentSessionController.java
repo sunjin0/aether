@@ -180,7 +180,7 @@ public class AgentSessionController {
             systemContext.add(new ModelChatMessage("system", skillContext.getSystemPrompt()));
         }
         List<Map<String, Object>> sources = knowledgeContext.enhance(systemContext, userId, conversationId,
-                agent.getId(), message, skillContext.getKnowledgeBaseIds());
+                agent.getId(), message, skillContext.getKnowledgeBaseIds(), input.getRetrievalMode());
         String runId = deepAgentRuns.startRun(agent, userId, conversationId, message, null, null, sources, skillContext, null);
         AgentTask task = tasks.getOne(Wrappers.lambdaQuery(AgentTask.class).eq(AgentTask::getCurrentRunId, runId)
                 .eq(AgentTask::getUserId, userId).eq(AgentTask::getDeleted, false));

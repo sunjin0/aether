@@ -150,6 +150,58 @@ class KnowledgeContextServiceTest {
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anySet());
     }
 
+    @Test
+    void skipsRetrievalWhenDisabledForUnscopedTurn() {
+        KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
+        KnowledgeContextService service = new KnowledgeContextService(mock(AdminPreferenceService.class), retrievalService,
+                mock(KnowledgeDocumentService.class));
+
+        service.enhance(new ArrayList<ModelChatMessage>(), "user-1", "conversation-1", "agent-1",
+                "请检索资料", null, "DISABLED");
+
+        verify(retrievalService, org.mockito.Mockito.never()).retrieve(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anySet());
+    }
+
+    /**
+     * A matched Skill with no bound knowledge base exposes an empty (non-null) set; a
+     * per-turn DISABLED must still win because there is no scoped KB to protect.
+     */
+    @Test
+    void skipsRetrievalWhenDisabledWithEmptyScopedSet() {
+        KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
+        KnowledgeContextService service = new KnowledgeContextService(mock(AdminPreferenceService.class), retrievalService,
+                mock(KnowledgeDocumentService.class));
+
+        service.enhance(new ArrayList<ModelChatMessage>(), "user-1", "conversation-1", "agent-1",
+                "请检索资料", Collections.<String>emptySet(), "DISABLED");
+
+        verify(retrievalService, org.mockito.Mockito.never()).retrieve(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anySet());
+    }
+
+    /**
+     * A Skill with an actually bound knowledge base is a frozen contract; DISABLED must not bypass it.
+     */
+    @Test
+    void stillRetrievesWhenDisabledWithBoundScopedKnowledge() {
+        KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
+        KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
+        result.setRetrievalAttempted(true);
+        when(retrievalService.retrieve(org.mockito.ArgumentMatchers.eq("agent-1"),
+                org.mockito.ArgumentMatchers.eq("请检索资料"),
+                org.mockito.ArgumentMatchers.anySet())).thenReturn(result);
+        KnowledgeContextService service = new KnowledgeContextService(mock(AdminPreferenceService.class), retrievalService,
+                mock(KnowledgeDocumentService.class));
+
+        service.enhance(new ArrayList<ModelChatMessage>(), "user-1", "conversation-1", "agent-1",
+                "请检索资料", Collections.singleton("kb-1"), "DISABLED");
+
+        verify(retrievalService).retrieve(org.mockito.ArgumentMatchers.eq("agent-1"),
+                org.mockito.ArgumentMatchers.eq("请检索资料"),
+                org.mockito.ArgumentMatchers.anySet());
+    }
+
     /**
      * 处理recordsWhetherRetrievedChunkWasCitedWithoutPersistingRaw查询。
      */

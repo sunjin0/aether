@@ -142,15 +142,26 @@ public class KnowledgeContextService {
      * 按 Skill 冻结后的知识库集合检索，避免平台知识库在受限运行中被自动加入。
      */
     public List<Map<String, Object>> enhance(List<ModelChatMessage> context, String userId, String conversationId,
-                                             String agentId, String query, Set<String> knowledgeBaseIds) {
-        return enhanceScoped(context, userId, conversationId, agentId, query, knowledgeBaseIds);
+                                              String agentId, String query, Set<String> knowledgeBaseIds) {
+        return enhance(context, userId, conversationId, agentId, query, knowledgeBaseIds, "AUTO");
+    }
+
+    /**
+     * Adds preferences for every turn and performs retrieval only when enabled for this request.
+     */
+    public List<Map<String, Object>> enhance(List<ModelChatMessage> context, String userId, String conversationId,
+                                              String agentId, String query, Set<String> knowledgeBaseIds,
+                                              String retrievalMode) {
+        return enhanceScoped(context, userId, conversationId, agentId, query, knowledgeBaseIds,
+                "DISABLED".equalsIgnoreCase(retrievalMode), "ENABLED".equalsIgnoreCase(retrievalMode));
     }
 
     /**
      * 处理enhanceScoped。
      */
     private List<Map<String, Object>> enhanceScoped(List<ModelChatMessage> context, String userId, String conversationId,
-                                                    String agentId, String query, Set<String> knowledgeBaseIds) {
+                                                     String agentId, String query, Set<String> knowledgeBaseIds,
+                                                     boolean retrievalDisabled, boolean retrievalForced) {
         List<Map<String, Object>> sources = new ArrayList<>();
         if (context == null) return sources;
         int insertIndex = 0;
@@ -158,7 +169,12 @@ public class KnowledgeContextService {
         long preferenceStartedAt = System.currentTimeMillis();
         String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
         ChatLatencyMetrics.record("chat.preference_context", System.currentTimeMillis() - preferenceStartedAt);
-        KnowledgeRetrievalResult retrieval = shouldSkipRetrieval(query, knowledgeBaseIds)
+        // A Skill-scoped knowledge base is part of the frozen runtime contract and cannot be
+        // bypassed by a per-turn UI preference. An empty set is equivalent to "no scoped
+        // knowledge base" so a per-turn disable still wins when no KB is actually bound.
+        boolean hasScopedKnowledge = knowledgeBaseIds != null && !knowledgeBaseIds.isEmpty();
+        boolean canDisableRetrieval = retrievalDisabled && !hasScopedKnowledge;
+        KnowledgeRetrievalResult retrieval = (canDisableRetrieval || (!retrievalForced && shouldSkipRetrieval(query, knowledgeBaseIds)))
                 ? new KnowledgeRetrievalResult() : retrievalService.retrieve(agentId, query, knowledgeBaseIds);
         if (retrieval == null) retrieval = new KnowledgeRetrievalResult();
         List<KnowledgeDocumentChunk> chunks = retrieval.getChunks() == null ? Collections.<KnowledgeDocumentChunk>emptyList() : retrieval.getChunks();
@@ -218,7 +234,7 @@ public class KnowledgeContextService {
      * Skip only unambiguous casual turns for non-Skill chats; scoped Skill knowledge is always retrieved.
      */
     private boolean shouldSkipRetrieval(String query, Set<String> knowledgeBaseIds) {
-        return knowledgeBaseIds == null && StringUtils.isNotBlank(query)
+        return (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty()) && StringUtils.isNotBlank(query)
                 && CASUAL_QUERY_PATTERN.matcher(query.trim()).matches();
     }
 

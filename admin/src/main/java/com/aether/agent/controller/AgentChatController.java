@@ -698,7 +698,8 @@ public class AgentChatController {
                         ctx.add(new ModelChatMessage("system", skillContext.getSystemPrompt()));
                     String taskContext = buildDeepTaskContext(dto);
                     List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                            ctx, userId, conversationId, agent.getId(), taskContext, skillContext.getKnowledgeBaseIds());
+                            ctx, userId, conversationId, agent.getId(), taskContext, skillContext.getKnowledgeBaseIds(),
+                            dto.getRetrievalMode());
 
                     AgentStreamCallback callback = new AgentStreamCallback() {
                         /**

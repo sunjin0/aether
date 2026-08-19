@@ -195,7 +195,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds());
+                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds(), dto.getRetrievalMode());
             enforceSkillBudget(context, agent, provider, skillContext);
             conversationContextService.enforceBudget(context, agent, provider);
             ModelChatRequest request = new ModelChatRequest();
@@ -367,7 +367,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             applySkillPrompt(context, skillContext);
             callback.onStatus("retrieving", "正在检索资料");
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds());
+                    context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds(), dto.getRetrievalMode());
             long retrievalCompletedAt = System.currentTimeMillis();
             enforceSkillBudget(context, agent, provider, skillContext);
             conversationContextService.enforceBudget(context, agent, provider);
@@ -597,7 +597,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId());
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
-                    context, userId, conversation.getId(), agent.getId(), answerContent, skillContext.getKnowledgeBaseIds());
+                    context, userId, conversation.getId(), agent.getId(), answerContent, skillContext.getKnowledgeBaseIds(), dto.getRetrievalMode());
             approvalExecution = agentToolWorkflow.executeApprovedMcpTool(question, dto.getAnswer(), agent, userId);
             if (approvalExecution != null) {
                 runId = approvalExecution.getRunId();
