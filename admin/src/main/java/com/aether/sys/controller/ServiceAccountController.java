@@ -79,7 +79,7 @@ public class ServiceAccountController {
      * 服务账号列表。
      */
     @ApiOperation("服务账号列表")
-    @Permission(path = "/sys/service-account")
+    @Permission(path = "/service-account/manage")
     @PostMapping("/api/sys/service-account/list")
     public WebResponse<List<ServiceAccountVo>> list(@RequestBody(required = false) ServiceAccountVo query) {
         long current = query == null || query.getCurrent() == null ? 1L : query.getCurrent();
@@ -94,7 +94,7 @@ public class ServiceAccountController {
      * 创建当前请求。
      */
     @ApiOperation("创建服务账号；明文密钥只在本次响应中返回")
-    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
+    @Permission(path = "/service-account/manage", type = Permission.Type.Write)
     @PostMapping("/api/sys/service-account")
     public WebResponse<ServiceAccountSecretVo> create(@RequestBody ServiceAccountCreateDto dto, HttpServletResponse response) {
         noStore(response);
@@ -105,7 +105,7 @@ public class ServiceAccountController {
      * 更新当前请求。
      */
     @ApiOperation("编辑服务账号；客户端 ID 与密钥不可直接修改")
-    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
+    @Permission(path = "/service-account/manage", type = Permission.Type.Write)
     @PutMapping("/api/sys/service-account/{id}")
     public WebResponse<Void> update(@PathVariable String id, @RequestBody ServiceAccountUpdateDto dto) {
         serviceAccountService.update(id, dto);
@@ -116,7 +116,7 @@ public class ServiceAccountController {
      * 轮换服务账号密钥；旧令牌立即失效。
      */
     @ApiOperation("轮换服务账号密钥；旧令牌立即失效")
-    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
+    @Permission(path = "/service-account/manage", type = Permission.Type.Write)
     @PostMapping("/api/sys/service-account/{id}/rotate-secret")
     public WebResponse<ServiceAccountSecretVo> rotateSecret(@PathVariable String id, HttpServletResponse response) {
         noStore(response);
@@ -127,7 +127,7 @@ public class ServiceAccountController {
      * 启用或禁用服务账号；状态变更后旧令牌立即失效。
      */
     @ApiOperation("启用或禁用服务账号；状态变更后旧令牌立即失效")
-    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
+    @Permission(path = "/service-account/manage", type = Permission.Type.Write)
     @PostMapping("/api/sys/service-account/{id}/enabled")
     public WebResponse<Void> enabled(@PathVariable String id, @RequestParam boolean enabled) {
         serviceAccountService.setEnabled(id, enabled);
@@ -138,7 +138,7 @@ public class ServiceAccountController {
      * 删除当前请求。
      */
     @ApiOperation("删除服务账号；已签发令牌立即失效")
-    @Permission(path = "/sys/service-account", type = Permission.Type.Write)
+    @Permission(path = "/service-account/manage", type = Permission.Type.Write)
     @DeleteMapping("/api/sys/service-account/{id}")
     public WebResponse<Void> delete(@PathVariable String id) {
         serviceAccountService.delete(id);
@@ -149,7 +149,7 @@ public class ServiceAccountController {
      * 服务账号外部接入使用情况。
      */
     @ApiOperation("服务账号外部接入使用情况")
-    @Permission(path = "/sys/service-account")
+    @Permission(path = "/service-account/monitor")
     @GetMapping("/api/sys/service-account/usage")
     public WebResponse<ServiceAccountUsageVo> usage() {
         List<ServiceAccount> accounts = serviceAccountService.list(Wrappers.lambdaQuery(ServiceAccount.class)
