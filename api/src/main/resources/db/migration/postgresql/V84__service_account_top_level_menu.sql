@@ -24,7 +24,7 @@ VALUES
      'View service-account usage, token consumption, and hot Agent/workflow rankings / 查看服务账号使用次数、Token 消耗及高频 Agent、工作流',
      0, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
      (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, 2),
-    ('perm_service_account_monitor_read', 'Read', '可读', NULL, 'Resource_Type_Permission', NULL,
+    ('perm_sa_monitor_read', 'Read', '可读', NULL, 'Resource_Type_Permission', NULL,
      'service_account_monitor', TRUE,
      'View service-account usage monitoring / 查看服务账号使用监控',
      0, FALSE, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
@@ -37,7 +37,7 @@ WITH root_role AS (
     SELECT id FROM sys_role WHERE name = 'root' AND deleted = FALSE ORDER BY created_at LIMIT 1
 ), resource_ids AS (
     SELECT id FROM sys_resource
-    WHERE id IN ('menu_service_account', 'sys_service_account', 'service_account_monitor', 'perm_service_account_monitor_read')
+    WHERE id IN ('menu_service_account', 'sys_service_account', 'service_account_monitor', 'perm_sa_monitor_read')
 )
 INSERT INTO sys_role_resource (id, role_id, resource_id, state, deleted, created_at, updated_at, sort_num)
 SELECT md5('root:' || root_role.id || ':' || resource_ids.id), root_role.id, resource_ids.id, 0, FALSE,
@@ -55,7 +55,7 @@ WITH roles_with_service_account AS (
     WHERE resource_id = 'sys_service_account' AND deleted = FALSE
 ), resource_ids AS (
     SELECT id FROM sys_resource
-    WHERE id IN ('menu_service_account', 'service_account_monitor', 'perm_service_account_monitor_read')
+    WHERE id IN ('menu_service_account', 'service_account_monitor', 'perm_sa_monitor_read')
 )
 INSERT INTO sys_role_resource (id, role_id, resource_id, state, deleted, created_at, updated_at, sort_num)
 SELECT md5('service-account-menu:' || roles_with_service_account.role_id || ':' || resource_ids.id),
