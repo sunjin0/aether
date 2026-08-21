@@ -11,4 +11,5 @@ public class ServiceAccountUsageItemVo {
     private String name;
     private Long calls;
     private Long tokens;
+    private Double percent;
 }

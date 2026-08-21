@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.*;
 import javax.servlet.http.HttpServletResponse;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -151,25 +152,75 @@ public class ServiceAccountController {
     @ApiOperation("服务账号外部接入使用情况")
     @Permission(path = "/service-account/monitor")
     @GetMapping("/api/sys/service-account/usage")
-    public WebResponse<ServiceAccountUsageVo> usage() {
+    public WebResponse<ServiceAccountUsageVo> usage(@RequestParam(required = false, defaultValue = "7") Integer days) {
+        int rangeDays = normalizeDays(days);
+        long now = System.currentTimeMillis();
+        long rangeMillis = rangeDays * 24L * 60L * 60L * 1000L;
+        long rangeStart = now - rangeMillis;
+        long previousRangeStart = rangeStart - rangeMillis;
+        long last24HoursStart = now - 24L * 60L * 60L * 1000L;
+        long previous24HoursStart = last24HoursStart - 24L * 60L * 60L * 1000L;
         List<ServiceAccount> accounts = serviceAccountService.list(Wrappers.lambdaQuery(ServiceAccount.class)
                 .eq(ServiceAccount::getDeleted, false));
         Map<String, ServiceAccount> accountByPrincipal = new HashMap<String, ServiceAccount>();
         for (ServiceAccount account : accounts) accountByPrincipal.put("sa:" + account.getId(), account);
         List<AgentRun> runs = accountByPrincipal.isEmpty() ? new ArrayList<AgentRun>() : agentRunService.list(
                 Wrappers.lambdaQuery(AgentRun.class).in(AgentRun::getUserId, accountByPrincipal.keySet())
+                        .ge(AgentRun::getCreatedAt, rangeStart)
                         .eq(AgentRun::getDeleted, false));
         List<AgentWorkflowInstance> instances = accountByPrincipal.isEmpty() ? new ArrayList<AgentWorkflowInstance>() : workflowInstanceService.list(
                 Wrappers.lambdaQuery(AgentWorkflowInstance.class).in(AgentWorkflowInstance::getUserId, accountByPrincipal.keySet())
+                        .ge(AgentWorkflowInstance::getCreatedAt, rangeStart)
+                        .eq(AgentWorkflowInstance::getDeleted, false));
+        List<AgentRun> previousRuns = accountByPrincipal.isEmpty() ? new ArrayList<AgentRun>() : agentRunService.list(
+                Wrappers.lambdaQuery(AgentRun.class).in(AgentRun::getUserId, accountByPrincipal.keySet())
+                        .ge(AgentRun::getCreatedAt, previousRangeStart)
+                        .lt(AgentRun::getCreatedAt, rangeStart)
+                        .eq(AgentRun::getDeleted, false));
+        List<AgentWorkflowInstance> previousInstances = accountByPrincipal.isEmpty() ? new ArrayList<AgentWorkflowInstance>() : workflowInstanceService.list(
+                Wrappers.lambdaQuery(AgentWorkflowInstance.class).in(AgentWorkflowInstance::getUserId, accountByPrincipal.keySet())
+                        .ge(AgentWorkflowInstance::getCreatedAt, previousRangeStart)
+                        .lt(AgentWorkflowInstance::getCreatedAt, rangeStart)
+                        .eq(AgentWorkflowInstance::getDeleted, false));
+        List<AgentRun> previous24Runs = accountByPrincipal.isEmpty() ? new ArrayList<AgentRun>() : agentRunService.list(
+                Wrappers.lambdaQuery(AgentRun.class).in(AgentRun::getUserId, accountByPrincipal.keySet())
+                        .ge(AgentRun::getCreatedAt, previous24HoursStart)
+                        .lt(AgentRun::getCreatedAt, last24HoursStart)
+                        .eq(AgentRun::getDeleted, false));
+        List<AgentWorkflowInstance> previous24Instances = accountByPrincipal.isEmpty() ? new ArrayList<AgentWorkflowInstance>() : workflowInstanceService.list(
+                Wrappers.lambdaQuery(AgentWorkflowInstance.class).in(AgentWorkflowInstance::getUserId, accountByPrincipal.keySet())
+                        .ge(AgentWorkflowInstance::getCreatedAt, previous24HoursStart)
+                        .lt(AgentWorkflowInstance::getCreatedAt, last24HoursStart)
                         .eq(AgentWorkflowInstance::getDeleted, false));
         ServiceAccountUsageVo usage = new ServiceAccountUsageVo();
+        long previousServiceAccountCount = accounts.stream()
+                .filter(account -> account.getCreatedAt() != null && account.getCreatedAt() < rangeStart).count();
+        long previousCalls = previousRuns.size() + previousInstances.size();
+        long previousTokens = previousRuns.stream().mapToLong(run -> run.getTotalTokens() == null ? 0L : run.getTotalTokens()).sum();
+        long previous24Calls = previous24Runs.size() + previous24Instances.size();
+        usage.setRangeDays(rangeDays);
+        usage.setServiceAccountCount((long) accounts.size());
         usage.setAgentCalls((long) runs.size());
         usage.setWorkflowStarts((long) instances.size());
         usage.setTotalCalls(usage.getAgentCalls() + usage.getWorkflowStarts());
         usage.setTotalTokens(runs.stream().mapToLong(run -> run.getTotalTokens() == null ? 0L : run.getTotalTokens()).sum());
-        usage.setAccounts(accountUsage(accounts, runs, instances));
-        usage.setAgents(agentUsage(runs));
-        usage.setWorkflows(workflowUsage(instances));
+        usage.setLast24HoursCalls(last24HoursCalls(runs, instances, last24HoursStart));
+        usage.setServiceAccountDelta(usage.getServiceAccountCount() - previousServiceAccountCount);
+        usage.setServiceAccountGrowthRate(growthRate(usage.getServiceAccountDelta(), previousServiceAccountCount));
+        usage.setTotalCallsDelta(usage.getTotalCalls() - previousCalls);
+        usage.setTotalCallsGrowthRate(growthRate(usage.getTotalCallsDelta(), previousCalls));
+        usage.setTotalTokensDelta(usage.getTotalTokens() - previousTokens);
+        usage.setTotalTokensGrowthRate(growthRate(usage.getTotalTokensDelta(), previousTokens));
+        usage.setLast24HoursCallsDelta(usage.getLast24HoursCalls() - previous24Calls);
+        usage.setLast24HoursCallsGrowthRate(growthRate(usage.getLast24HoursCallsDelta(), previous24Calls));
+        usage.setAccountTotal((long) accounts.size());
+        usage.setAgentTotal(runs.stream().filter(run -> run.getAgentDefinitionId() != null)
+                .map(AgentRun::getAgentDefinitionId).distinct().count());
+        usage.setWorkflowTotal(instances.stream().filter(instance -> instance.getWorkflowId() != null)
+                .map(AgentWorkflowInstance::getWorkflowId).distinct().count());
+        usage.setAccounts(accountUsage(accounts, runs, instances, usage.getTotalCalls()));
+        usage.setAgents(agentUsage(runs, usage.getAgentCalls()));
+        usage.setWorkflows(workflowUsage(instances, usage.getWorkflowStarts()));
         return WebResponse.OK(usage);
     }
 
@@ -187,7 +238,7 @@ public class ServiceAccountController {
     }
 
     private List<ServiceAccountUsageItemVo> accountUsage(List<ServiceAccount> accounts, List<AgentRun> runs,
-                                                         List<AgentWorkflowInstance> instances) {
+                                                         List<AgentWorkflowInstance> instances, long totalCalls) {
         List<ServiceAccountUsageItemVo> result = new ArrayList<ServiceAccountUsageItemVo>();
         for (ServiceAccount account : accounts) {
             String principal = "sa:" + account.getId();
@@ -200,13 +251,14 @@ public class ServiceAccountController {
             item.setName(account.getName());
             item.setCalls(agentCalls + workflowStarts);
             item.setTokens(tokens);
+            item.setPercent(percent(item.getCalls(), totalCalls));
             result.add(item);
         }
         result.sort((left, right) -> Long.compare(right.getCalls(), left.getCalls()));
         return result;
     }
 
-    private List<ServiceAccountUsageItemVo> agentUsage(List<AgentRun> runs) {
+    private List<ServiceAccountUsageItemVo> agentUsage(List<AgentRun> runs, long totalCalls) {
         Map<String, ServiceAccountUsageItemVo> map = new HashMap<String, ServiceAccountUsageItemVo>();
         for (AgentRun run : runs) {
             if (run.getAgentDefinitionId() == null) continue;
@@ -222,10 +274,11 @@ public class ServiceAccountController {
             item.setCalls(item.getCalls() + 1);
             item.setTokens(item.getTokens() + (run.getTotalTokens() == null ? 0L : run.getTotalTokens()));
         }
+        applyPercent(map.values(), totalCalls);
         return sortedUsage(map);
     }
 
-    private List<ServiceAccountUsageItemVo> workflowUsage(List<AgentWorkflowInstance> instances) {
+    private List<ServiceAccountUsageItemVo> workflowUsage(List<AgentWorkflowInstance> instances, long totalCalls) {
         Map<String, ServiceAccountUsageItemVo> map = new HashMap<String, ServiceAccountUsageItemVo>();
         for (AgentWorkflowInstance instance : instances) {
             if (instance.getWorkflowId() == null) continue;
@@ -240,6 +293,7 @@ public class ServiceAccountController {
             });
             item.setCalls(item.getCalls() + 1);
         }
+        applyPercent(map.values(), totalCalls);
         return sortedUsage(map);
     }
 
@@ -247,6 +301,32 @@ public class ServiceAccountController {
         List<ServiceAccountUsageItemVo> result = new ArrayList<ServiceAccountUsageItemVo>(map.values());
         result.sort((left, right) -> Long.compare(right.getCalls(), left.getCalls()));
         return result.stream().limit(10).collect(Collectors.toList());
+    }
+
+    private long last24HoursCalls(List<AgentRun> runs, List<AgentWorkflowInstance> instances, long last24HoursStart) {
+        long agentCalls = runs.stream().filter(run -> run.getCreatedAt() != null && run.getCreatedAt() >= last24HoursStart).count();
+        long workflowStarts = instances.stream()
+                .filter(instance -> instance.getCreatedAt() != null && instance.getCreatedAt() >= last24HoursStart).count();
+        return agentCalls + workflowStarts;
+    }
+
+    private void applyPercent(Collection<ServiceAccountUsageItemVo> items, long totalCalls) {
+        for (ServiceAccountUsageItemVo item : items) item.setPercent(percent(item.getCalls(), totalCalls));
+    }
+
+    private double percent(long value, long total) {
+        if (total <= 0L) return 0D;
+        return Math.round(value * 10000D / total) / 100D;
+    }
+
+    private double growthRate(long delta, long previous) {
+        if (previous <= 0L) return 0D;
+        return Math.round(delta * 10000D / previous) / 100D;
+    }
+
+    private int normalizeDays(Integer days) {
+        if (days == null) return 7;
+        return Math.max(1, Math.min(days, 90));
     }
 
     /**
