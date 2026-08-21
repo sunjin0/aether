@@ -121,4 +121,6 @@ knife4j:
 # MCP 服务会校验 Java 签发的短期委派 JWT；本地默认值必须与 mcp 容器保持一致。
 aether:
   deep-agent:
+    base-url: ${AETHER_DEEP_AGENT_BASE_URL:http://localhost:8010}
+    shared-secret: ${AETHER_DEEP_AGENT_SHARED_SECRET:aether-deep-agent-dev-secret-change-me}
     mcp-delegation-secret: ${AETHER_MCP_DELEGATION_SECRET:aether-mcp-delegation-dev-secret-change-me}

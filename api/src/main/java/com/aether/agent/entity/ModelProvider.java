@@ -36,6 +36,15 @@ public class ModelProvider extends BaseEntity {
     @ApiModelProperty(value = "模型上下文窗口大小（token）")
     private Integer contextWindow;
 
+    @ApiModelProperty(value = "是否允许用于会话摘要/记忆压缩出站")
+    private Boolean compressionOutboundAllowed;
+
+    @ApiModelProperty(value = "模型处理区域，如 CN/US/EU/GLOBAL")
+    private String processingRegion;
+
+    @ApiModelProperty(value = "数据处理许可说明")
+    private String dataProcessingPolicy;
+
     @ApiModelProperty(value = "状态：0-禁用，1-启用")
     private Integer status;
 

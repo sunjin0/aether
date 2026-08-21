@@ -100,6 +100,25 @@ class ConversationContextServiceTest {
     }
 
     /**
+     * 受保护系统提示和当前用户输入超预算时必须失败，不能静默截断。
+     */
+    @Test
+    void protectedSystemAndCurrentUserOverflowFailsWithoutSilentTruncation() {
+        String protectedSystem = String.join("", Collections.nCopies(400, "系统策略"));
+        String currentInput = String.join("", Collections.nCopies(300, "当前输入"));
+        List<ModelChatMessage> context = new ArrayList<>();
+        context.add(new ModelChatMessage("system", protectedSystem));
+        context.add(new ModelChatMessage("user", currentInput));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> service.enforceTokenBudget(context, 120));
+
+        assertTrue(exception.getMessage().contains("Context exceeds model input budget"));
+        assertEquals(protectedSystem, context.get(0).getContent());
+        assertEquals(currentInput, context.get(1).getContent());
+    }
+
+    /**
      * 处理long会话WithoutSummaryAlwaysContainsLatest用户消息。
      */
     @Test
@@ -340,6 +359,36 @@ class ConversationContextServiceTest {
         assertEquals("system", context.get(1).getRole());
         assertTrue(context.get(1).getContent().contains("【会话记忆】"));
         assertTrue(context.get(1).getContent().contains("项目使用 Java 8"));
+    }
+
+    /**
+     * Deep 与标准聊天共享同一会话记忆渲染块，并在摘要/历史之前提供。
+     */
+    @Test
+    void sharedConversationMemoryUsesUnifiedMemoryBlockBeforeHistory() {
+        ConversationContextService memoryAwareService = new ConversationContextService(
+                messageService, cacheService, summaryService, runService, toolCallLogService,
+                sessionService, sessionMemoryService);
+        AgentSessionMemory memory = new AgentSessionMemory();
+        memory.setSessionId("session-1");
+        memory.setMemoryType("FACT");
+        memory.setContent("项目使用 PostgreSQL");
+        memory.setImportance(80);
+        memory.setSensitivityLevel("NORMAL");
+        memory.setStatus(AgentSessionMemory.STATUS_ACTIVE);
+        when(sessionMemoryService.listInjectableForModel("session-1", 6))
+                .thenReturn(Collections.singletonList(memory));
+        when(summaryService.get("conversation-1")).thenReturn(null);
+        when(messageService.list(any())).thenReturn(messagesDescending(1, 2));
+
+        List<ModelChatMessage> context = memoryAwareService.buildSharedConversationMemory(
+                "conversation-1", "session-1");
+
+        assertEquals("system", context.get(0).getRole());
+        assertTrue(context.get(0).getContent().contains("【会话记忆】"));
+        assertTrue(context.get(0).getContent().contains("项目使用 PostgreSQL"));
+        assertEquals("assistant", context.get(1).getRole());
+        assertEquals("user", context.get(2).getRole());
     }
 
     /**

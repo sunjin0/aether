@@ -153,6 +153,7 @@ class AgentChatServiceImplTest {
                         new ConversationCacheService(redisTemplate),
                         new ConversationSummaryService(redisTemplate, modelClientFactory)),
                 adminPreferenceExtractionService,
+                null,
                 new QueryRewriteService(modelClientFactory), null, modelCatalogService);
         HashMap<String, String> user = new HashMap<>();
         user.put("userId", "user-1");

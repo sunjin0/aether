@@ -27,10 +27,14 @@ import com.aether.local.CurrentUser;
 import com.aether.permission.Permission;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -42,6 +46,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Collections;
 import java.math.BigDecimal;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /**
  * 持续 Deep Agent Session 与 Task 查询接口。
@@ -50,6 +56,9 @@ import java.math.BigDecimal;
 @Permission(path = "/agent/chat")
 @RequestMapping("/api/agent/session")
 public class AgentSessionController {
+    private static final int IDEMPOTENCY_KEY_MAX_LENGTH = 128;
+    private static final String IDEMPOTENCY_PROCESSING = "__PROCESSING__";
+
     private final AgentSessionService sessions;
     private final AgentTaskService tasks;
     private final AgentRunPlanService plans;
@@ -61,6 +70,9 @@ public class AgentSessionController {
     private final AgentConversationService conversations;
     private final KnowledgeContextService knowledgeContext;
     private final SkillContextService skillContextService;
+    @Autowired(required = false)
+    @Qualifier("objectRedisTemplate")
+    private RedisTemplate<String, Object> redisTemplate;
 
     /**
      * 创建 {@code AgentSessionController} 实例。
@@ -349,17 +361,15 @@ public class AgentSessionController {
      */
     @DeleteMapping("/{sessionId}/memory/{memoryId}")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
-    public WebResponse<Void> deleteMemory(@PathVariable String sessionId, @PathVariable String memoryId) {
-        requireOwnedSession(sessionId);
-        AgentSessionMemory memory = sessionMemories.getById(memoryId);
-        if (memory == null || Boolean.TRUE.equals(memory.getDeleted()) || !sessionId.equals(memory.getSessionId())) {
-            throw new ServerException(404, "记忆不存在");
-        }
-        AgentSessionMemory update = new AgentSessionMemory();
-        update.setId(memoryId);
-        update.setDeleted(true);
-        sessionMemories.updateById(update);
-        return WebResponse.OK((Void) null);
+    public WebResponse<Void> deleteMemory(@PathVariable String sessionId,
+                                          @PathVariable String memoryId,
+                                          @RequestHeader(value = "If-Match", required = false) String ifMatch,
+                                          @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return withIdempotency(sessionId, "delete:" + memoryId, idempotencyKey, () -> {
+            requireOwnedSession(sessionId);
+            sessionMemories.deleteMemory(sessionId, memoryId, expectedVersion(ifMatch), "用户删除会话记忆");
+            return WebResponse.OK((Void) null);
+        });
     }
 
     /**
@@ -454,6 +464,58 @@ public class AgentSessionController {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
         if (StringUtils.isBlank(userId)) throw new ServerException(401, "未登录");
         return userId;
+    }
+
+    /**
+     * 解析记忆版本。
+     */
+    private Integer expectedVersion(String ifMatch) {
+        if (StringUtils.isBlank(ifMatch)) {
+            throw new ServerException(400, "If-Match 不能为空");
+        }
+        String normalized = StringUtils.remove(StringUtils.trimToEmpty(ifMatch), '"');
+        try {
+            return Integer.valueOf(normalized);
+        } catch (NumberFormatException e) {
+            throw new ServerException(400, "If-Match 必须是记忆版本号");
+        }
+    }
+
+    /**
+     * 执行带 HTTP 幂等键的 Session 记忆写入。
+     */
+    @SuppressWarnings("unchecked")
+    private <T> WebResponse<T> withIdempotency(String sessionId, String action,
+                                               String idempotencyKey, Supplier<WebResponse<T>> operation) {
+        String normalized = StringUtils.trimToEmpty(idempotencyKey);
+        if (StringUtils.isBlank(normalized)) {
+            throw new ServerException(400, "Idempotency-Key 不能为空");
+        }
+        if (normalized.length() > IDEMPOTENCY_KEY_MAX_LENGTH) {
+            throw new ServerException(400, "Idempotency-Key 不能超过128个字符");
+        }
+        if (redisTemplate == null) {
+            return operation.get();
+        }
+        String cacheKey = "agent:session:memory:idempotency:" + currentUserId()
+                + ":" + sessionId + ":" + action + ":" + normalized;
+        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(
+                cacheKey, IDEMPOTENCY_PROCESSING, 24, TimeUnit.HOURS);
+        if (!Boolean.TRUE.equals(acquired)) {
+            Object cached = redisTemplate.opsForValue().get(cacheKey);
+            if (cached instanceof WebResponse) {
+                return (WebResponse<T>) cached;
+            }
+            throw new ServerException(409, "重复请求正在处理中，请稍后重试");
+        }
+        try {
+            WebResponse<T> response = operation.get();
+            redisTemplate.opsForValue().set(cacheKey, response, 24, TimeUnit.HOURS);
+            return response;
+        } catch (RuntimeException e) {
+            redisTemplate.delete(cacheKey);
+            throw e;
+        }
     }
 
     /**

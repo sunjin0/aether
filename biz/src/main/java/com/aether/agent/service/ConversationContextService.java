@@ -160,6 +160,22 @@ public class ConversationContextService {
     }
 
     /**
+     * Builds the shared conversation memory shape used by both standard and Deep Agent execution.
+     */
+    public List<ModelChatMessage> buildSharedConversationMemory(String conversationId, String sessionId) {
+        List<ModelChatMessage> result = new ArrayList<ModelChatMessage>();
+        ModelChatMessage memory = renderSessionMemoryForSession(sessionId);
+        if (memory != null) {
+            result.add(memory);
+        }
+        List<ModelChatMessage> history = buildDeepSessionMemory(conversationId);
+        if (history != null) {
+            result.addAll(history);
+        }
+        return result;
+    }
+
+    /**
      * 从持久化消息构建系统提示与最近 20 条用户/助手消息。
      */
     public List<ModelChatMessage> buildFromHistory(AgentDefinition agent, String conversationId) {
@@ -227,7 +243,15 @@ public class ConversationContextService {
         if (StringUtils.isBlank(conversationId) || StringUtils.isBlank(userId)) return null;
         AgentSession session = sessionService.getOrCreate(conversationId, userId, agentDefinitionId);
         if (session == null) return null;
-        List<AgentSessionMemory> memories = sessionMemoryService.listInjectableForModel(session.getId(), SESSION_MEMORY_LIMIT);
+        return renderSessionMemoryForSession(session.getId());
+    }
+
+    /**
+     * 将已解析会话的活跃记忆渲染为统一 system 块，供标准聊天和 Deep Agent 共用。
+     */
+    public ModelChatMessage renderSessionMemoryForSession(String sessionId) {
+        if (sessionMemoryService == null || StringUtils.isBlank(sessionId)) return null;
+        List<AgentSessionMemory> memories = sessionMemoryService.listInjectableForModel(sessionId, SESSION_MEMORY_LIMIT);
         if (memories == null || memories.isEmpty()) return null;
         StringBuilder block = new StringBuilder("【会话记忆】");
         int included = 0;
@@ -563,7 +587,7 @@ public class ConversationContextService {
             removeHistoryGroup(context, candidate);
         }
         trimOptionalSystemsToTokenBudget(context, maxTokens);
-        trimProtectedContentToTokenBudget(context, maxTokens);
+        rejectIfOverTokenBudget(context, maxTokens);
     }
 
     private static final Map<String, Double> MODEL_TOKEN_RATIOS;
@@ -679,30 +703,14 @@ public class ConversationContextService {
     }
 
     /**
-     * 处理trimProtectedContentTo令牌Budget。
+     * 受保护上下文仍超预算时明确失败，不能静默裁剪系统提示或当前输入。
      */
-    private void trimProtectedContentToTokenBudget(List<ModelChatMessage> context, int maxTokens) {
-        while (true) {
-            int currentTotal = estimateContextTokens(context);
-            if (currentTotal <= maxTokens) {
-                return;
-            }
-            int longestIndex = -1;
-            int longestTokens = 0;
-            for (int i = 0; i < context.size(); i++) {
-                int tokens = estimateTokens(context.get(i).getContent());
-                if (tokens > longestTokens) {
-                    longestIndex = i;
-                    longestTokens = tokens;
-                }
-            }
-            if (longestIndex < 0) {
-                return;
-            }
-            int excess = currentTotal - maxTokens;
-            int target = Math.max(0, longestTokens - excess);
-            ModelChatMessage message = context.get(longestIndex);
-            replaceContent(message, abbreviateToTokenBudget(message.getContent(), target));
+    private void rejectIfOverTokenBudget(List<ModelChatMessage> context, int maxTokens) {
+        int currentTotal = estimateContextTokens(context);
+        if (currentTotal > maxTokens) {
+            throw new IllegalArgumentException(
+                    "Context exceeds model input budget after trimming optional sections: "
+                            + currentTotal + "/" + maxTokens + " tokens");
         }
     }
 

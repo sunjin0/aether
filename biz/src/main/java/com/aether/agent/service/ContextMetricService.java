@@ -6,6 +6,7 @@ import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatMessage;
 import com.alibaba.fastjson2.JSONObject;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
@@ -37,10 +38,22 @@ public class ContextMetricService {
                                                     List<ModelChatMessage> messages,
                                                     List<AgentTool> tools,
                                                     AgentDefinition agent, ModelProvider provider) {
+        return recordPreliminary(runId, attemptNo, "ANSWER", "NOT_NEEDED",
+                messages, tools, agent, provider);
+    }
+
+    /**
+     * 记录指定模型调用类型的派发前上下文指标。
+     */
+    public AgentRunContextMetric recordPreliminary(String runId, int attemptNo,
+                                                   String callType, String compressionStatus,
+                                                   List<ModelChatMessage> messages,
+                                                   List<AgentTool> tools,
+                                                   AgentDefinition agent, ModelProvider provider) {
         AgentRunContextMetric metric = new AgentRunContextMetric();
         metric.setModelCallId(newId());
         metric.setRunId(runId);
-        metric.setCallType("ANSWER");
+        metric.setCallType(StringUtils.defaultIfBlank(callType, "ANSWER"));
         metric.setAttemptNo(attemptNo);
         metric.setMetricPhase("PRELIMINARY");
         int window = provider != null && provider.getContextWindow() != null && provider.getContextWindow() > 0
@@ -57,7 +70,8 @@ public class ContextMetricService {
         metric.setSystemTokens(0).setSkillTokens(0).setTaskTokens(0).setMemoryTokens(0)
                 .setSummaryTokens(0).setHistoryTokens(0).setToolTokens(0).setToolDefinitionTokens(0)
                 .setRagTokens(0).setCurrentMessageTokens(0).setTrimmedMessageCount(0)
-                .setCompressedMessageCount(0).setCompressionStatus("NOT_NEEDED");
+                .setCompressedMessageCount(0)
+                .setCompressionStatus(StringUtils.defaultIfBlank(compressionStatus, "NOT_NEEDED"));
         classify(metric, messages, agent == null ? null : agent.getModel());
         metric.setToolDefinitionTokens(estimateToolTokens(tools, agent == null ? null : agent.getModel()));
         metricService.save(metric);
@@ -65,6 +79,14 @@ public class ContextMetricService {
     }
 
     public AgentRunContextMetric recordFinal(AgentRunContextMetric preliminary, Integer providerPromptTokens) {
+        return recordFinal(preliminary, providerPromptTokens, null);
+    }
+
+    /**
+     * 记录指定最终压缩状态的不可变最终指标。
+     */
+    public AgentRunContextMetric recordFinal(AgentRunContextMetric preliminary, Integer providerPromptTokens,
+                                             String compressionStatus) {
         if (preliminary == null) return null;
         AgentRunContextMetric finalMetric = new AgentRunContextMetric();
         org.springframework.beans.BeanUtils.copyProperties(preliminary, finalMetric);
@@ -72,8 +94,36 @@ public class ContextMetricService {
         finalMetric.setSourceModelCallId(preliminary.getModelCallId());
         finalMetric.setMetricPhase("FINAL");
         finalMetric.setPromptTokens(providerPromptTokens);
+        if (StringUtils.isNotBlank(compressionStatus)) {
+            finalMetric.setCompressionStatus(compressionStatus);
+            if ("SYNC_COMPLETED".equals(compressionStatus)) {
+                finalMetric.setCompressedMessageCount(1);
+            }
+        }
         metricService.save(finalMetric);
         return finalMetric;
+    }
+
+    /**
+     * 基于最近一次指定类型的初步指标，写入不可变最终指标。
+     */
+    public AgentRunContextMetric recordFinalForLatestPreliminary(String runId, String callType,
+                                                                 Integer providerPromptTokens,
+                                                                 String compressionStatus) {
+        if (StringUtils.isBlank(runId)) {
+            return null;
+        }
+        List<AgentRunContextMetric> preliminaries = metricService.list(Wrappers.lambdaQuery(AgentRunContextMetric.class)
+                .eq(AgentRunContextMetric::getRunId, runId)
+                .eq(AgentRunContextMetric::getCallType, StringUtils.defaultIfBlank(callType, "ANSWER"))
+                .eq(AgentRunContextMetric::getMetricPhase, "PRELIMINARY")
+                .eq(AgentRunContextMetric::getDeleted, false)
+                .orderByDesc(AgentRunContextMetric::getCreatedAt)
+                .last("limit 1"));
+        if (preliminaries == null || preliminaries.isEmpty()) {
+            return null;
+        }
+        return recordFinal(preliminaries.get(0), providerPromptTokens, compressionStatus);
     }
 
     /**
@@ -126,6 +176,9 @@ public class ContextMetricService {
             int tokens = conversationContextService.estimateContextTokens(java.util.Collections.singletonList(message), model);
             String content = StringUtils.defaultString(message.getContent());
             if (content.startsWith("【Skill") || content.startsWith("【技能")) metric.setSkillTokens(metric.getSkillTokens() + tokens);
+            else if (content.startsWith("【当前Deep任务】")) metric.setTaskTokens(metric.getTaskTokens() + tokens);
+            else if (content.startsWith("【会话记忆】") || content.startsWith("【用户已确认偏好】"))
+                metric.setMemoryTokens(metric.getMemoryTokens() + tokens);
             else if (content.startsWith("【运行时上下文】")) metric.setRagTokens(metric.getRagTokens() + tokens);
             else if (content.startsWith("【对话历史摘要】")) metric.setSummaryTokens(metric.getSummaryTokens() + tokens);
             else if ("tool".equals(message.getRole())) metric.setToolTokens(metric.getToolTokens() + tokens);

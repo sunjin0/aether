@@ -5,12 +5,18 @@ import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.AgentRunContextMetric;
+import com.aether.agent.entity.AgentSession;
+import com.aether.agent.entity.AgentSessionMemory;
 import com.aether.agent.entity.AgentToolCallLog;
+import com.aether.agent.dto.SessionMemoryCorrectionDto;
+import com.aether.agent.dto.SessionMemoryFeedbackDto;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentRunContextMetricService;
+import com.aether.agent.service.AgentSessionService;
+import com.aether.agent.service.AgentSessionMemoryService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.ConversationCacheService;
 import com.aether.agent.service.ConversationSummaryService;
@@ -18,6 +24,7 @@ import com.aether.agent.tools.AgentToolWorkflow;
 import com.aether.agent.vo.AgentConversationLifecycleVo;
 import com.aether.agent.vo.AgentConversationContextVo;
 import com.aether.agent.vo.AgentConversationVo;
+import com.aether.agent.vo.AgentContextOperationsMetricsVo;
 import com.aether.agent.vo.AgentMessageStatisticsVo;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.agent.vo.AgentToolCallLogVo;
@@ -39,6 +46,8 @@ import io.swagger.annotations.ApiOperation;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -52,6 +61,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -63,18 +74,23 @@ import java.util.stream.Collectors;
 @Permission(path = "/agent/conversation")
 @RequestMapping("/api/agent/conversation")
 public class AgentConversationController {
+    private static final int IDEMPOTENCY_KEY_MAX_LENGTH = 128;
+    private static final String IDEMPOTENCY_PROCESSING = "__PROCESSING__";
 
     private final AgentConversationService agentConversationService;
     private final AgentDefinitionService agentDefinitionService;
     private final AgentMessageService agentMessageService;
     private final AgentRunService agentRunService;
     private final AgentRunContextMetricService agentRunContextMetricService;
+    private final AgentSessionService agentSessionService;
+    private final AgentSessionMemoryService agentSessionMemoryService;
     private final AgentToolCallLogService agentToolCallLogService;
     private final AdminPreferenceEventService adminPreferenceEventService;
     private final AdminPreferenceService adminPreferenceService;
     private final ConversationCacheService conversationCacheService;
     private final ConversationSummaryService conversationSummaryService;
     private final AgentToolWorkflow agentToolWorkflow;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     /**
      * 创建 {@code AgentConversationController} 实例。
@@ -85,23 +101,29 @@ public class AgentConversationController {
                                        AgentMessageService agentMessageService,
                                        AgentRunService agentRunService,
                                        AgentRunContextMetricService agentRunContextMetricService,
+                                       AgentSessionService agentSessionService,
+                                       AgentSessionMemoryService agentSessionMemoryService,
                                        AgentToolCallLogService agentToolCallLogService,
                                        AdminPreferenceEventService adminPreferenceEventService,
                                        AdminPreferenceService adminPreferenceService,
                                        ConversationCacheService conversationCacheService,
                                        ConversationSummaryService conversationSummaryService,
-                                       AgentToolWorkflow agentToolWorkflow) {
+                                       AgentToolWorkflow agentToolWorkflow,
+                                       @Qualifier("objectRedisTemplate") RedisTemplate<String, Object> redisTemplate) {
         this.agentConversationService = agentConversationService;
         this.agentDefinitionService = agentDefinitionService;
         this.agentMessageService = agentMessageService;
         this.agentRunService = agentRunService;
         this.agentRunContextMetricService = agentRunContextMetricService;
+        this.agentSessionService = agentSessionService;
+        this.agentSessionMemoryService = agentSessionMemoryService;
         this.agentToolCallLogService = agentToolCallLogService;
         this.adminPreferenceEventService = adminPreferenceEventService;
         this.adminPreferenceService = adminPreferenceService;
         this.conversationCacheService = conversationCacheService;
         this.conversationSummaryService = conversationSummaryService;
         this.agentToolWorkflow = agentToolWorkflow;
+        this.redisTemplate = redisTemplate;
     }
 
     /**
@@ -118,8 +140,8 @@ public class AgentConversationController {
                                        ConversationSummaryService conversationSummaryService,
                                        AgentToolWorkflow agentToolWorkflow) {
         this(agentConversationService, agentDefinitionService, agentMessageService, agentRunService, null,
-                agentToolCallLogService, adminPreferenceEventService, adminPreferenceService,
-                conversationCacheService, conversationSummaryService, agentToolWorkflow);
+                null, null, agentToolCallLogService, adminPreferenceEventService, adminPreferenceService,
+                conversationCacheService, conversationSummaryService, agentToolWorkflow, null);
     }
 
     /**
@@ -171,6 +193,19 @@ public class AgentConversationController {
         AgentConversationVo vo = new AgentConversationVo();
         BeanUtils.copyProperties(conversation, vo);
         return WebResponse.OK(vo);
+    }
+
+    /**
+     * 查询上下文组装、压缩和容量压力的运营聚合指标。
+     */
+    @ApiOperation("查询上下文运营指标")
+    @GetMapping("/context/operations/metrics")
+    public WebResponse<AgentContextOperationsMetricsVo> contextOperationsMetrics(
+            @RequestParam(value = "sinceCreatedAt", required = false) Long sinceCreatedAt) {
+        if (agentRunContextMetricService == null) {
+            return WebResponse.OK(null);
+        }
+        return WebResponse.OK(agentRunContextMetricService.operationsMetrics(sinceCreatedAt));
     }
 
     /**
@@ -232,6 +267,13 @@ public class AgentConversationController {
             return WebResponse.OK(null);
         }
         AgentRunContextMetric metric = metrics.get(0);
+        return WebResponse.OK(toContextVo(metric));
+    }
+
+    /**
+     * 转换上下文容量度量。
+     */
+    private AgentConversationContextVo toContextVo(AgentRunContextMetric metric) {
         AgentConversationContextVo vo = new AgentConversationContextVo();
         BeanUtils.copyProperties(metric, vo);
         int used = metric.getPromptTokens() == null ? metric.getEstimatedPromptTokens() : metric.getPromptTokens();
@@ -257,7 +299,83 @@ public class AgentConversationController {
         } else {
             vo.setFramingTokens(0);
         }
-        return WebResponse.OK(vo);
+        return vo;
+    }
+
+    /**
+     * 查询会话可见记忆。
+     */
+    @ApiOperation("查询会话记忆")
+    @GetMapping("/{id}/memory")
+    public WebResponse<List<AgentSessionMemory>> memory(@PathVariable @NotBlank String id) {
+        AgentConversation conversation = getOwnedConversation(id);
+        AgentSession session = requireSession(conversation);
+        return WebResponse.OK(agentSessionMemoryService.listInjectable(session.getId(), 100));
+    }
+
+    /**
+     * 通过取代旧记录修正记忆。
+     */
+    @ApiOperation("修正会话记忆")
+    @Permission(path = "/agent/conversation", type = Permission.Type.Write)
+    @PutMapping("/{id}/memory/{memoryId}")
+    public WebResponse<AgentSessionMemory> correctMemory(@PathVariable @NotBlank String id,
+                                                         @PathVariable @NotBlank String memoryId,
+                                                         @RequestHeader(value = "If-Match", required = false) String ifMatch,
+                                                         @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                                         @RequestBody SessionMemoryCorrectionDto dto) {
+        return withIdempotency(id, "correct:" + memoryId, idempotencyKey, () -> {
+            AgentConversation conversation = getOwnedConversation(id);
+            AgentSession session = requireSession(conversation);
+            Integer version = expectedVersion(ifMatch, dto == null ? null : dto.getMemoryVersion());
+            AgentSessionMemory replacement = agentSessionMemoryService.correctMemory(session.getId(), memoryId,
+                    dto == null ? null : dto.getContent(), dto == null ? null : dto.getReason(), version);
+            evictConversationMemoryAfterCommit(id, conversation.getUserId());
+            return WebResponse.OK(replacement);
+        });
+    }
+
+    /**
+     * 从未来上下文移除记忆。
+     */
+    @ApiOperation("删除会话记忆")
+    @Permission(path = "/agent/conversation", type = Permission.Type.Write)
+    @DeleteMapping("/{id}/memory/{memoryId}")
+    public WebResponse<Void> deleteMemory(@PathVariable @NotBlank String id,
+                                          @PathVariable @NotBlank String memoryId,
+                                          @RequestHeader(value = "If-Match", required = false) String ifMatch,
+                                          @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                          @RequestParam(value = "reason", required = false) String reason) {
+        return withIdempotency(id, "delete:" + memoryId, idempotencyKey, () -> {
+            AgentConversation conversation = getOwnedConversation(id);
+            AgentSession session = requireSession(conversation);
+            agentSessionMemoryService.deleteMemory(session.getId(), memoryId, expectedVersion(ifMatch, null), reason);
+            evictConversationMemoryAfterCommit(id, conversation.getUserId());
+            return WebResponse.OK((Void) null);
+        });
+    }
+
+    /**
+     * 反馈会话记忆准确性或过期状态。
+     */
+    @ApiOperation("反馈会话记忆")
+    @Permission(path = "/agent/conversation", type = Permission.Type.Write)
+    @PostMapping("/{id}/memory/feedback")
+    public WebResponse<AgentSessionMemory> memoryFeedback(@PathVariable @NotBlank String id,
+                                                          @RequestHeader(value = "If-Match", required = false) String ifMatch,
+                                                          @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                                          @RequestBody SessionMemoryFeedbackDto dto) {
+        if (dto == null || StringUtils.isBlank(dto.getMemoryId())) {
+            throw new ServerException(400, "记忆反馈参数不完整");
+        }
+        return withIdempotency(id, "feedback:" + dto.getMemoryId(), idempotencyKey, () -> {
+            AgentConversation conversation = getOwnedConversation(id);
+            AgentSession session = requireSession(conversation);
+            AgentSessionMemory result = agentSessionMemoryService.feedback(session.getId(), dto.getMemoryId(),
+                    expectedVersion(ifMatch, dto.getMemoryVersion()), dto.getVerdict(), dto.getReason());
+            evictConversationMemoryAfterCommit(id, conversation.getUserId());
+            return WebResponse.OK(result);
+        });
     }
 
     /**
@@ -292,7 +410,7 @@ public class AgentConversationController {
             messageToRunMap.putIfAbsent(run.getMessageId(), run);
         }
 
-        // 4. 一次性查询所有 run 的 tool_call_log
+        // 4. 一次性查询所有 run 的 tool_call_log 和最终上下文指标
         List<String> runIds = runs.stream()
                 .map(AgentRun::getId)
                 .distinct()
@@ -303,12 +421,24 @@ public class AgentConversationController {
                 .eq(AgentToolCallLog::getDeleted, false)
                 .orderByAsc(AgentToolCallLog::getCreatedAt));
 
+        List<AgentRunContextMetric> finalMetrics = agentRunContextMetricService == null
+                ? Collections.emptyList()
+                : agentRunContextMetricService.list(Wrappers.lambdaQuery(AgentRunContextMetric.class)
+                .in(AgentRunContextMetric::getRunId, runIds)
+                .eq(AgentRunContextMetric::getMetricPhase, "FINAL")
+                .eq(AgentRunContextMetric::getDeleted, false)
+                .orderByDesc(AgentRunContextMetric::getCreatedAt));
+
         // 5. 建立 runId -> logs 映射
         Map<String, List<AgentToolCallLogVo>> runToLogsMap = new HashMap<>();
         for (AgentToolCallLog log : allLogs) {
             AgentToolCallLogVo logVo = new AgentToolCallLogVo();
             BeanUtils.copyProperties(log, logVo);
             runToLogsMap.computeIfAbsent(log.getRunId(), k -> new ArrayList<>()).add(logVo);
+        }
+        Map<String, AgentConversationContextVo> runToContextMetricMap = new HashMap<>();
+        for (AgentRunContextMetric metric : finalMetrics) {
+            runToContextMetricMap.putIfAbsent(metric.getRunId(), toContextVo(metric));
         }
 
         // 6. 组装到 AgentMessageVo
@@ -319,6 +449,7 @@ public class AgentConversationController {
                     msgVo.setRunId(run.getId());
                     List<AgentToolCallLogVo> logs = runToLogsMap.get(run.getId());
                     msgVo.setToolCallLogs(logs != null ? logs : Collections.emptyList());
+                    msgVo.setContextMetric(runToContextMetricMap.get(run.getId()));
                 }
             }
         }
@@ -458,6 +589,77 @@ public class AgentConversationController {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
         return conversation;
+    }
+
+    /**
+     * 查询会话对应的统一 Session。
+     */
+    private AgentSession requireSession(AgentConversation conversation) {
+        if (agentSessionService == null || agentSessionMemoryService == null) {
+            throw new ServerException(500, "Agent Session 服务不可用");
+        }
+        AgentSession session = agentSessionService.getOne(Wrappers.lambdaQuery(AgentSession.class)
+                .eq(AgentSession::getConversationId, conversation.getId())
+                .eq(AgentSession::getUserId, conversation.getUserId())
+                .eq(AgentSession::getDeleted, false));
+        if (session == null) {
+            session = agentSessionService.getOrCreate(conversation.getId(), conversation.getUserId(),
+                    conversation.getAgentDefinitionId());
+        }
+        return session;
+    }
+
+    /**
+     * 解析乐观版本。
+     */
+    private Integer expectedVersion(String ifMatch, Integer fallback) {
+        if (StringUtils.isBlank(ifMatch)) {
+            return fallback;
+        }
+        String normalized = StringUtils.remove(StringUtils.trimToEmpty(ifMatch), '"');
+        try {
+            return Integer.valueOf(normalized);
+        } catch (NumberFormatException e) {
+            throw new ServerException(400, "If-Match 必须是记忆版本号");
+        }
+    }
+
+    /**
+     * 执行带 HTTP 幂等键的记忆写入。
+     */
+    @SuppressWarnings("unchecked")
+    private <T> WebResponse<T> withIdempotency(String conversationId, String action,
+                                               String idempotencyKey, Supplier<WebResponse<T>> operation) {
+        String normalized = StringUtils.trimToEmpty(idempotencyKey);
+        if (StringUtils.isBlank(normalized)) {
+            throw new ServerException(400, "Idempotency-Key 不能为空");
+        }
+        if (normalized.length() > IDEMPOTENCY_KEY_MAX_LENGTH) {
+            throw new ServerException(400, "Idempotency-Key 不能超过128个字符");
+        }
+        if (redisTemplate == null) {
+            return operation.get();
+        }
+        String userId = CurrentUser.getUser().get("userId");
+        String cacheKey = "agent:conversation:memory:idempotency:" + userId + ":" + conversationId
+                + ":" + action + ":" + normalized;
+        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(
+                cacheKey, IDEMPOTENCY_PROCESSING, 24, TimeUnit.HOURS);
+        if (!Boolean.TRUE.equals(acquired)) {
+            Object cached = redisTemplate.opsForValue().get(cacheKey);
+            if (cached instanceof WebResponse) {
+                return (WebResponse<T>) cached;
+            }
+            throw new ServerException(409, "重复请求正在处理中，请稍后重试");
+        }
+        try {
+            WebResponse<T> response = operation.get();
+            redisTemplate.opsForValue().set(cacheKey, response, 24, TimeUnit.HOURS);
+            return response;
+        } catch (RuntimeException e) {
+            redisTemplate.delete(cacheKey);
+            throw e;
+        }
     }
 
     /**

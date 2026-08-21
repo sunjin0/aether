@@ -39,6 +39,7 @@ import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.service.QueryRewriteService;
 import com.aether.agent.service.ChatRunService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
+import com.aether.agent.service.AgentSessionMemoryExtractionService;
 import com.aether.agent.skill.service.SkillContextService;
 import com.aether.agent.skill.service.SkillRuntimeContext;
 import com.aether.agent.skill.service.SkillArtifactExecutionService;
@@ -99,6 +100,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final InteractionReplyService interactionReplyService;
     private final ConversationContextService conversationContextService;
     private final AdminPreferenceExtractionService adminPreferenceExtractionService;
+    private final AgentSessionMemoryExtractionService sessionMemoryExtractionService;
     private final QueryRewriteService queryRewriteService;
     private final SkillContextService skillContextService;
 
@@ -134,6 +136,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                                 InteractionReplyService interactionReplyService,
                                 ConversationContextService conversationContextService,
                                 AdminPreferenceExtractionService adminPreferenceExtractionService,
+                                AgentSessionMemoryExtractionService sessionMemoryExtractionService,
                                 QueryRewriteService queryRewriteService, SkillContextService skillContextService,
                                 ModelCatalogService modelCatalogService) {
         this.agentDefinitionService = agentDefinitionService;
@@ -148,6 +151,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         this.interactionReplyService = interactionReplyService;
         this.conversationContextService = conversationContextService;
         this.adminPreferenceExtractionService = adminPreferenceExtractionService;
+        this.sessionMemoryExtractionService = sessionMemoryExtractionService;
         this.queryRewriteService = queryRewriteService;
         this.skillContextService = skillContextService;
     }
@@ -169,7 +173,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                                 QueryRewriteService queryRewriteService) {
         this(agentDefinitionService, modelProviderService, agentConversationService, agentMessageService, chatRunService,
                 modelClientFactory, agentToolWorkflow, knowledgeContextService, interactionReplyService,
-                conversationContextService, adminPreferenceExtractionService, queryRewriteService, null, null);
+                conversationContextService, adminPreferenceExtractionService, null, queryRewriteService, null, null);
     }
 
     /**
@@ -300,6 +304,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             knowledgeContextService.recordRetrievalOutcomeAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     effectiveContent(rewrittenContent, dto.getMessage()), sources, modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
+            extractSessionMemoryAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
                 runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), modelResponse, latencyMs,
@@ -535,6 +540,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             knowledgeContextService.recordRetrievalOutcomeAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     effectiveContent(rewrittenContent, dto.getMessage()), sources, modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
+            extractSessionMemoryAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
                 runId = saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), chatResponse, latencyMs,
@@ -747,6 +753,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             knowledgeContextService.recordRetrievalOutcomeAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     answerContent, sources, modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), answerMessage, assistantMessage, agent, provider);
+            extractSessionMemoryAsync(userId, conversation.getId(), answerMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
             if (runId == null) {
                 saveRun(agent, provider, userId, conversation.getId(), assistantMessage.getId(), answerContent, chatResponse, latencyMs,
@@ -1668,6 +1675,21 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                                              AgentDefinition agent,
                                              ModelProvider provider) {
         adminPreferenceExtractionService.extractAsync(userId, conversationId, userMessage, assistantMessage, agent, provider);
+    }
+
+    /**
+     * 处理extract会话MemoryAsync。
+     */
+    private void extractSessionMemoryAsync(String userId,
+                                           String conversationId,
+                                           AgentMessage userMessage,
+                                           AgentMessage assistantMessage,
+                                           AgentDefinition agent,
+                                           ModelProvider provider) {
+        if (sessionMemoryExtractionService == null) {
+            return;
+        }
+        sessionMemoryExtractionService.extractAsync(userId, conversationId, userMessage, assistantMessage, agent, provider);
     }
 
 

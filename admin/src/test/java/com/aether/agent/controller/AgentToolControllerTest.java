@@ -6,6 +6,8 @@ import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.service.ToolRoutingConfigService;
+import com.aether.agent.service.ToolRoutingIndexService;
 import com.aether.agent.vo.AgentToolFacetsVo;
 import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
@@ -53,7 +55,9 @@ class AgentToolControllerTest {
                 mock(AgentToolCallLogService.class),
                 mcpServerService,
                 mock(ToolExecutorFactory.class),
-                dictService
+                dictService,
+                mock(ToolRoutingConfigService.class),
+                mock(ToolRoutingIndexService.class)
         );
 
         WebResponse<AgentToolFacetsVo> response = controller.facets();
@@ -91,7 +95,9 @@ class AgentToolControllerTest {
                 mock(AgentToolCallLogService.class),
                 mcpServerService,
                 mock(ToolExecutorFactory.class),
-                dictService
+                dictService,
+                mock(ToolRoutingConfigService.class),
+                mock(ToolRoutingIndexService.class)
         );
 
         List<AgentToolFacetsVo.Item> sources = controller.facets().getData().getSources();

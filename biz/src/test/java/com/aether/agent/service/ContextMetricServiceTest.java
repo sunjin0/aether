@@ -12,12 +12,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ContextMetricServiceTest {
@@ -116,5 +119,52 @@ class ContextMetricServiceTest {
 
         assertTrue(preliminary.getToolDefinitionTokens() > 0);
         assertTrue(preliminary.getToolDefinitionTokens() < 100);
+    }
+
+    @Test
+    void classifiesDeepTaskMemoryAndRetrievalSections() {
+        ConversationContextService context = new ConversationContextService(null, null, null);
+        ContextMetricService service = new ContextMetricService(context, metricStore);
+        AgentDefinition agent = new AgentDefinition();
+        agent.setModel("deepseek");
+        List<ModelChatMessage> messages = Arrays.asList(
+                new ModelChatMessage("system", "【会话记忆】\n- 已确认目标"),
+                new ModelChatMessage("system", "【用户已确认偏好】\n- 表格输出"),
+                new ModelChatMessage("system", "【当前Deep任务】{\"status\":\"RUNNING\"}"),
+                new ModelChatMessage("system", "【运行时上下文】[{\"chunkId\":\"c1\"}]"),
+                new ModelChatMessage("user", "继续分析"));
+
+        AgentRunContextMetric preliminary = service.recordPreliminary("run-deep", 2,
+                "DEEP_STEP", "NOT_NEEDED", messages, null, agent, null);
+
+        assertEquals("DEEP_STEP", preliminary.getCallType());
+        assertTrue(preliminary.getMemoryTokens() > 0);
+        assertTrue(preliminary.getTaskTokens() > 0);
+        assertTrue(preliminary.getRagTokens() > 0);
+        assertTrue(preliminary.getCurrentMessageTokens() > 0);
+    }
+
+    @Test
+    void recordsFinalFromLatestPreliminaryWithoutMutatingIt() {
+        ConversationContextService context = new ConversationContextService(null, null, null);
+        ContextMetricService service = new ContextMetricService(context, metricStore);
+        AgentRunContextMetric preliminary = new AgentRunContextMetric();
+        preliminary.setModelCallId("call-pre");
+        preliminary.setRunId("run-deep");
+        preliminary.setCallType("DEEP_STEP");
+        preliminary.setAttemptNo(2);
+        preliminary.setMetricPhase("PRELIMINARY");
+        preliminary.setCompressionStatus("NOT_NEEDED");
+        preliminary.setCompressedMessageCount(0);
+        when(metricStore.list(any())).thenReturn(Collections.singletonList(preliminary));
+
+        AgentRunContextMetric finalMetric = service.recordFinalForLatestPreliminary(
+                "run-deep", "DEEP_STEP", 456, "NOT_NEEDED");
+
+        assertEquals("FINAL", finalMetric.getMetricPhase());
+        assertEquals("call-pre", finalMetric.getSourceModelCallId());
+        assertNotEquals("call-pre", finalMetric.getModelCallId());
+        assertEquals(Integer.valueOf(456), finalMetric.getPromptTokens());
+        verify(metricStore).save(finalMetric);
     }
 }

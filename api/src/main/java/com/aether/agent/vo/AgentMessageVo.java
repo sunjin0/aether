@@ -101,6 +101,9 @@ public class AgentMessageVo extends BaseEntity {
     @ApiModelProperty(value = "Tool call logs")
     private List<AgentToolCallLogVo> toolCallLogs;
 
+    @ApiModelProperty(value = "Final context metric for the model call that produced this assistant message")
+    private AgentConversationContextVo contextMetric;
+
     private Long current;
     private Long pageSize;
 }

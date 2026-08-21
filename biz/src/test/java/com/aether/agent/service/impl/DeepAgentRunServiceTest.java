@@ -79,6 +79,10 @@ class DeepAgentRunServiceTest {
     @Mock
     private AgentRunPlanService planService;
     @Mock
+    private ToolRouterService toolRouterService;
+    @Mock
+    private ContextMetricService contextMetricService;
+    @Mock
     private DeepAgentConfig config;
 
     private DeepAgentRunService service;
@@ -91,10 +95,13 @@ class DeepAgentRunServiceTest {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), AgentRun.class);
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), AgentConversation.class);
         lenient().when(agentSessionService.claimTask(anyString(), anyString())).thenReturn(true);
+        lenient().when(toolRouterService.route(anyList(), anySet(), anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         service = new DeepAgentRunService(agentRunService, agentRunStepService,
                 signingClient, agentConversationService, agentMessageService,
                 toolCallLogService,
-                delegationTokenService, toolCatalog, knowledgeContextService, conversationContextService, agentSessionService, agentTaskService, agentTaskEventService, agentSessionMemoryService, adminPreferenceService, artifactExecutionService, planService, org.mockito.Mockito.mock(ToolRouterService.class), config);
+                delegationTokenService, toolCatalog, knowledgeContextService, conversationContextService, agentSessionService, agentTaskService, agentTaskEventService, agentSessionMemoryService, adminPreferenceService, artifactExecutionService, planService, toolRouterService, config);
+        ReflectionTestUtils.setField(service, "contextMetricService", contextMetricService);
     }
 
     /**
@@ -129,17 +136,16 @@ class DeepAgentRunServiceTest {
             msg.setId("message-1");
             return true;
         });
-        when(conversationContextService.buildDeepSessionMemory("conversation-1"))
-                .thenReturn(Collections.singletonList(new com.aether.agent.model.ModelChatMessage("assistant", "前序结论")));
+        when(conversationContextService.buildSharedConversationMemory("conversation-1", "session-1"))
+                .thenReturn(Arrays.asList(
+                        new com.aether.agent.model.ModelChatMessage("system", "【会话记忆】\n- 上次已确认合同存在付款风险"),
+                        new com.aether.agent.model.ModelChatMessage("assistant", "前序结论")));
         AgentSession session = new AgentSession();
         session.setId("session-1");
         when(agentSessionService.getOrCreate("conversation-1", "user-1", "agent-1")).thenReturn(session);
         AgentTask taskRecord = new AgentTask();
         taskRecord.setId("task-1");
         when(agentTaskService.create("session-1", "user-1", "agent-1", "你好")).thenReturn(taskRecord);
-        AgentSessionMemory durableMemory = new AgentSessionMemory();
-        durableMemory.setContent("上次已确认合同存在付款风险");
-        when(agentSessionMemoryService.listInjectableForModel("session-1", 12)).thenReturn(Collections.singletonList(durableMemory));
         AdminPreference preference = new AdminPreference();
         preference.setCategory("format");
         preference.setKeyName("output_format");
@@ -160,12 +166,14 @@ class DeepAgentRunServiceTest {
         assertEquals("RUNNING", ((Map<String, Object>) requestCaptor.getValue().get("task_state")).get("status"));
         List<Map<String, String>> memory = (List<Map<String, String>>) requestCaptor.getValue().get("conversation_memory");
         assertTrue(memory.get(0).get("content").contains("【用户已确认偏好】"));
-        assertEquals("【已完成任务结论】上次已确认合同存在付款风险", memory.get(1).get("content"));
+        assertEquals("【会话记忆】\n- 上次已确认合同存在付款风险", memory.get(1).get("content"));
         assertEquals("前序结论", memory.get(2).get("content"));
         assertEquals("DEEP", runCaptor.getValue().getExecutionMode());
         assertEquals("你好", runCaptor.getValue().getInputContent());
         assertEquals("run-1", runCaptor.getValue().getExternalRunId());
         assertEquals("[]", runCaptor.getValue().getRetrievalSources());
+        verify(contextMetricService).recordPreliminary(eq("run-1"), eq(1), eq("DEEP_STEP"),
+                eq("NOT_NEEDED"), anyList(), anyList(), eq(agent), isNull());
         verify(agentConversationService).update(isNull(), any());
     }
 
@@ -209,20 +217,17 @@ class DeepAgentRunServiceTest {
      */
     @Test
     @SuppressWarnings("unchecked")
-    void prioritizesSessionMemoryRelevantToCurrentTask() {
-        AgentSessionMemory unrelated = new AgentSessionMemory();
-        unrelated.setImportance(80);
-        unrelated.setContent("上次已生成市场报表");
-        AgentSessionMemory relevant = new AgentSessionMemory();
-        relevant.setImportance(80);
-        relevant.setContent("合同风险已完成初步核查");
-        when(agentSessionMemoryService.listInjectableForModel("session-memory", 12))
-                .thenReturn(Arrays.asList(unrelated, relevant));
+    void usesSharedConversationMemoryRenderer() {
+        when(conversationContextService.buildSharedConversationMemory("conversation-memory", "session-memory"))
+                .thenReturn(Collections.singletonList(
+                        new com.aether.agent.model.ModelChatMessage("system", "【会话记忆】\n- 合同风险已完成初步核查")));
 
         List<Map<String, String>> memory = (List<Map<String, String>>) ReflectionTestUtils.invokeMethod(
-                service, "buildConversationMemory", "", "session-memory", "", "继续处理合同风险");
+                service, "buildConversationMemory", "conversation-memory", "session-memory", "");
 
-        assertEquals("【已完成任务结论】合同风险已完成初步核查", memory.get(0).get("content"));
+        assertEquals("【会话记忆】\n- 合同风险已完成初步核查", memory.get(0).get("content"));
+        verify(conversationContextService).buildSharedConversationMemory("conversation-memory", "session-memory");
+        verify(agentSessionMemoryService, never()).listInjectableForModel(anyString(), anyInt());
     }
 
     /**
@@ -621,6 +626,8 @@ class DeepAgentRunServiceTest {
         assertEquals("message-1", completed.getMessageId());
         verify(agentRunService, times(2)).update(isNull(), any());
         verify(agentConversationService).update(isNull(), any());
+        verify(contextMetricService).recordFinalForLatestPreliminary(
+                "run-1", "DEEP_STEP", 12, "NOT_NEEDED");
     }
 
     /**

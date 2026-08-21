@@ -40,6 +40,9 @@ public class AgentDefinition extends BaseEntity {
      */
     private String modelId;
 
+    @ApiModelProperty(value = "上下文压缩模型目录ID；为空时跟随聊天模型")
+    private String contextCompressionModelId;
+
     @ApiModelProperty(value = "使用的模型名称")
     private String model;
 

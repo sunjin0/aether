@@ -21,8 +21,11 @@ public class AgentSessionMemory extends BaseEntity {
     private String content;
     private String summary;
     private String sourceMessageId;
+    private String sourceEventRange;
     private String sourceTaskId;
     private String sourceRunId;
+    private String extractorVersion;
+    private String candidateHash;
     private Integer importance;
     private Integer confidence;
     private String status;

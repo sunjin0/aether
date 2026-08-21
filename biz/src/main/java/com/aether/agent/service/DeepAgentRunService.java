@@ -68,6 +68,8 @@ public class DeepAgentRunService {
     /** Optional to preserve direct construction used by legacy unit tests. */
     @Autowired(required = false)
     private CapabilityIndexService capabilityIndexService;
+    @Autowired(required = false)
+    private ContextMetricService contextMetricService;
 
     /**
      * 创建 {@code DeepAgentRunService} 实例。
@@ -176,7 +178,7 @@ public class DeepAgentRunService {
                 : agentTaskService.create(sessionId, userId, agent.getId(), task);
         // Read durable history before saving this request's user message so that
         // the current task is supplied only once to the Deep Agent.
-        List<Map<String, String>> conversationMemory = buildConversationMemory(conversationId, sessionId, userId, task);
+        List<Map<String, String>> conversationMemory = buildConversationMemory(conversationId, sessionId, userId);
         if (route.reuseTask && taskRecord != null) {
             // 延续同一任务：注入任务身份提示，避免 Deep Agent 当作全新任务重新开始而丢失目标上下文。
             conversationMemory.add(continuationContextHint(taskRecord));
@@ -289,6 +291,7 @@ public class DeepAgentRunService {
                 settleActiveRunBeforeContinuation(taskRecord.getCurrentRunId());
             }
 
+            recordDeepPreliminary(run, agent, request, routedTools);
             ResponseEntity<String> response = signingClient.signedPost("/v1/runs", request);
             if (response.getStatusCode() != HttpStatus.ACCEPTED) {
                 throw new RuntimeException("外部服务返回非 202: " + response.getStatusCodeValue());
@@ -305,25 +308,11 @@ public class DeepAgentRunService {
     /**
      * 构建会话Memory。
      */
-    private List<Map<String, String>> buildConversationMemory(String conversationId, String sessionId, String userId, String currentTask) {
+    private List<Map<String, String>> buildConversationMemory(String conversationId, String sessionId, String userId) {
         List<Map<String, String>> result = new ArrayList<Map<String, String>>();
         addConfirmedPreferences(result, userId);
-        if (agentSessionMemoryService != null && StringUtils.isNotBlank(sessionId)) {
-            List<AgentSessionMemory> memories = agentSessionMemoryService.listInjectableForModel(sessionId, 12);
-            if (memories != null) {
-                memories = new ArrayList<AgentSessionMemory>(memories);
-                memories.sort((left, right) -> Integer.compare(memoryRelevance(right, currentTask), memoryRelevance(left, currentTask)));
-            }
-            if (memories != null) for (AgentSessionMemory memory : memories.subList(0, Math.min(4, memories.size()))) {
-                if (StringUtils.isBlank(memory.getContent())) continue;
-                Map<String, String> item = new LinkedHashMap<String, String>();
-                item.put("role", "system");
-                item.put("content", "【已完成任务结论】" + memory.getContent());
-                result.add(item);
-            }
-        }
         if (conversationContextService != null && StringUtils.isNotBlank(conversationId)) {
-            List<ModelChatMessage> messages = conversationContextService.buildDeepSessionMemory(conversationId);
+            List<ModelChatMessage> messages = conversationContextService.buildSharedConversationMemory(conversationId, sessionId);
             if (messages != null) for (ModelChatMessage message : messages) {
                 if (message == null || StringUtils.isBlank(message.getContent())) continue;
                 String role = message.getRole();
@@ -335,25 +324,6 @@ public class DeepAgentRunService {
             }
         }
         return result;
-    }
-
-    /**
-     * 不跨越 Session 权限边界，仅在已允许注入的记忆集合中按当前任务做轻量相关性排序。
-     */
-    private int memoryRelevance(AgentSessionMemory memory, String currentTask) {
-        if (memory == null) return Integer.MIN_VALUE;
-        String content = StringUtils.defaultString(memory.getContent()).toLowerCase(Locale.ROOT);
-        int score = memory.getImportance() == null ? 0 : memory.getImportance();
-        if (StringUtils.isBlank(currentTask) || StringUtils.isBlank(content)) return score;
-        String normalized = currentTask.toLowerCase(Locale.ROOT).replaceAll("[^\\p{IsHan}a-z0-9]+", " ").trim();
-        for (String word : normalized.split("\\s+")) {
-            if (word.length() >= 2 && content.contains(word)) score += 30;
-        }
-        String han = normalized.replaceAll("[^\\p{IsHan}]", "");
-        for (int index = 0; index + 1 < han.length(); index++) {
-            if (content.contains(han.substring(index, index + 2))) score += 8;
-        }
-        return score;
     }
 
     /**
@@ -910,6 +880,7 @@ public class DeepAgentRunService {
                 .eq(AgentConversation::getId, run.getConversationId())
                 .setSql("message_count = message_count + 1"));
         recordKnowledgeOutcomeAfterCommit(run, message);
+        recordDeepFinalMetric(runId, promptTokens);
         if (agentSessionMemoryService != null) {
             agentSessionMemoryService.recordTaskConclusion(run.getSessionId(), run.getTaskId(), runId, content);
         }
@@ -1073,6 +1044,10 @@ public class DeepAgentRunService {
                         nextRun.getAgentDefinitionId(), toolNames));
                 agentTaskService.updateStatus(next.getId(), "RUNNING", nextRun.getId(), null);
                 agentSessionService.updateTaskState(sessionId, next.getId(), "RUNNING");
+                AgentDefinition metricAgent = new AgentDefinition();
+                metricAgent.setId(nextRun.getAgentDefinitionId());
+                metricAgent.setModel(nextRun.getModel());
+                recordDeepPreliminary(nextRun, metricAgent, request, Collections.<AgentTool>emptyList());
                 ResponseEntity<String> response = signingClient.signedPost("/v1/runs", request);
                 if (response.getStatusCode() != HttpStatus.ACCEPTED) {
                     throw new IllegalStateException("排队 Deep Agent 请求失败: " + response.getStatusCodeValue());
@@ -1134,6 +1109,66 @@ public class DeepAgentRunService {
             result.add(ks);
         }
         return result;
+    }
+
+    /**
+     * 记录 Deep Agent 派发给外部运行时的上下文估算指标。
+     */
+    @SuppressWarnings("unchecked")
+    private void recordDeepPreliminary(AgentRun run, AgentDefinition agent, Map<String, Object> request,
+                                       List<AgentTool> tools) {
+        if (contextMetricService == null || run == null || request == null) {
+            return;
+        }
+        List<ModelChatMessage> messages = new ArrayList<ModelChatMessage>();
+        String systemPrompt = objectString(request.get("system_prompt"));
+        if (StringUtils.isNotBlank(systemPrompt)) {
+            messages.add(new ModelChatMessage("system", systemPrompt));
+        }
+        Object memoryObject = request.get("conversation_memory");
+        if (memoryObject instanceof List) {
+            for (Object entryObject : (List<?>) memoryObject) {
+                if (!(entryObject instanceof Map)) continue;
+                Map<?, ?> entry = (Map<?, ?>) entryObject;
+                String role = StringUtils.defaultIfBlank(objectString(entry.get("role")), "system");
+                String content = objectString(entry.get("content"));
+                if (StringUtils.isNotBlank(content)) {
+                    messages.add(new ModelChatMessage(role, content));
+                }
+            }
+        }
+        Object taskState = request.get("task_state");
+        if (taskState != null) {
+            messages.add(new ModelChatMessage("system", "【当前Deep任务】" + JSON.toJSONString(taskState)));
+        }
+        Object knowledgeSources = request.get("knowledge_sources");
+        if (knowledgeSources instanceof List && !((List<?>) knowledgeSources).isEmpty()) {
+            messages.add(new ModelChatMessage("system", "【运行时上下文】" + JSON.toJSONString(knowledgeSources)));
+        }
+        String task = objectString(request.get("task"));
+        if (StringUtils.isNotBlank(task)) {
+            messages.add(new ModelChatMessage("user", task));
+        }
+        contextMetricService.recordPreliminary(run.getId(),
+                run.getAttemptNo() == null ? 1 : run.getAttemptNo(),
+                "DEEP_STEP", "NOT_NEEDED", messages, tools, agent, null);
+    }
+
+    /**
+     * 空值安全的字符串转换。
+     */
+    private String objectString(Object value) {
+        return value == null ? "" : StringUtils.trimToEmpty(String.valueOf(value));
+    }
+
+    /**
+     * Deep 完成回调返回 provider 用量后，写入对应最终指标。
+     */
+    private void recordDeepFinalMetric(String runId, Integer promptTokens) {
+        if (contextMetricService == null) {
+            return;
+        }
+        contextMetricService.recordFinalForLatestPreliminary(runId, "DEEP_STEP", promptTokens, "NOT_NEEDED");
     }
 
     /**
