@@ -110,6 +110,11 @@ public class ModelChatRequest {
     private Map<Integer, Double> logitBias;
 
     /**
+     * 供应商特有参数，例如 Azure apiVersion/deployment 或 Anthropic beta 开关。
+     */
+    private Map<String, Object> providerOptions;
+
+    /**
      * 工具选择模式（none/auto/required）
      */
     private String toolChoice;

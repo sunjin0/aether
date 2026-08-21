@@ -18,6 +18,7 @@ import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -77,10 +78,25 @@ public class PooledHttpClient {
      * 调用方必须在使用完InputStream后关闭它。
      */
     public HttpStreamResult postStream(String url, String jsonBody, String authorization) {
+        java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
+        if (authorization != null) {
+            headers.put("Authorization", authorization);
+        }
+        return postStream(url, jsonBody, headers);
+    }
+
+    /**
+     * 发送POST请求并返回响应流（用于SSE），支持不同模型供应商的自定义认证头。
+     */
+    public HttpStreamResult postStream(String url, String jsonBody, Map<String, String> headers) {
         HttpPost post = new HttpPost(url);
         post.setHeader("Content-Type", "application/json");
-        if (authorization != null) {
-            post.setHeader("Authorization", authorization);
+        if (headers != null) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    post.setHeader(entry.getKey(), entry.getValue());
+                }
+            }
         }
         post.setEntity(new StringEntity(jsonBody, "UTF-8"));
 

@@ -15,7 +15,7 @@ public class ModelProviderDto {
     @ApiModelProperty(value = "供应商名称")
     private String name;
 
-    @ApiModelProperty(value = "供应商类型：openai、azure、anthropic、local")
+    @ApiModelProperty(value = "供应商类型：openai、local、local-openai-compatible、azure、azure-openai、anthropic、qwen-compatible")
     private String type;
 
     @ApiModelProperty(value = "API基础地址")
