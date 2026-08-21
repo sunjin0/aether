@@ -29,8 +29,7 @@ class ContextMetricServiceTest {
 
     @Test
     void recordsSectionEstimatesAndImmutableFinalSnapshot() {
-        ConversationContextService context = new ConversationContextService(null, null, null);
-        ContextMetricService service = new ContextMetricService(context, metricStore);
+        ContextMetricService service = new ContextMetricService(metricStore);
         AgentDefinition agent = new AgentDefinition();
         agent.setModel("gpt-4o");
         agent.setMaxTokens(1000);
@@ -49,7 +48,7 @@ class ContextMetricServiceTest {
         AgentRunContextMetric finalMetric = service.recordFinal(preliminary, 321);
 
         assertEquals("PRELIMINARY", preliminary.getMetricPhase());
-        assertEquals(context.getInputTokenBudget(agent, provider), preliminary.getInputBudgetTokens());
+        assertEquals(service.getInputTokenBudget(agent, provider), preliminary.getInputBudgetTokens());
         assertTrue(preliminary.getSystemTokens() > 0);
         assertTrue(preliminary.getSkillTokens() > 0);
         assertTrue(preliminary.getRagTokens() > 0);
@@ -69,8 +68,7 @@ class ContextMetricServiceTest {
 
     @Test
     void recordsToolDefinitionTokensWhenToolsAreSent() {
-        ConversationContextService context = new ConversationContextService(null, null, null);
-        ContextMetricService service = new ContextMetricService(context, metricStore);
+        ContextMetricService service = new ContextMetricService(metricStore);
         AgentDefinition agent = new AgentDefinition();
         agent.setModel("deepseek");
         agent.setMaxTokens(1000);
@@ -94,8 +92,7 @@ class ContextMetricServiceTest {
 
     @Test
     void ignoresToolsWithBlankCodeLikeTheWireSerializer() {
-        ConversationContextService context = new ConversationContextService(null, null, null);
-        ContextMetricService service = new ContextMetricService(context, metricStore);
+        ContextMetricService service = new ContextMetricService(metricStore);
         AgentDefinition agent = new AgentDefinition();
         agent.setModel("deepseek");
         agent.setMaxTokens(1000);
@@ -123,8 +120,7 @@ class ContextMetricServiceTest {
 
     @Test
     void classifiesDeepTaskMemoryAndRetrievalSections() {
-        ConversationContextService context = new ConversationContextService(null, null, null);
-        ContextMetricService service = new ContextMetricService(context, metricStore);
+        ContextMetricService service = new ContextMetricService(metricStore);
         AgentDefinition agent = new AgentDefinition();
         agent.setModel("deepseek");
         List<ModelChatMessage> messages = Arrays.asList(
@@ -146,8 +142,7 @@ class ContextMetricServiceTest {
 
     @Test
     void recordsFinalFromLatestPreliminaryWithoutMutatingIt() {
-        ConversationContextService context = new ConversationContextService(null, null, null);
-        ContextMetricService service = new ContextMetricService(context, metricStore);
+        ContextMetricService service = new ContextMetricService(metricStore);
         AgentRunContextMetric preliminary = new AgentRunContextMetric();
         preliminary.setModelCallId("call-pre");
         preliminary.setRunId("run-deep");

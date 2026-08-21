@@ -10,7 +10,11 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** Records immutable estimated and provider-reported context metrics per model call. */
@@ -18,13 +22,29 @@ import java.util.UUID;
 public class ContextMetricService {
     private static final int DEFAULT_CONTEXT_WINDOW_TOKENS = 32768;
     private static final int DEFAULT_OUTPUT_RESERVE_TOKENS = 2048;
+    private static final int MIN_INPUT_BUDGET_TOKENS = 256;
+    private static final int MESSAGE_BASE_TOKENS = 4;
+    private static final Map<String, Double> MODEL_TOKEN_RATIOS;
 
-    private final ConversationContextService conversationContextService;
     private final AgentRunContextMetricService metricService;
 
-    public ContextMetricService(ConversationContextService conversationContextService,
-                                AgentRunContextMetricService metricService) {
-        this.conversationContextService = conversationContextService;
+    static {
+        Map<String, Double> ratios = new HashMap<>();
+        ratios.put("gpt-4o", 3.5);
+        ratios.put("gpt-4-turbo", 3.5);
+        ratios.put("gpt-4", 3.5);
+        ratios.put("gpt-3.5-turbo", 3.5);
+        ratios.put("claude-3-5", 4.0);
+        ratios.put("claude-3", 4.0);
+        ratios.put("qwen", 3.0);
+        ratios.put("deepseek", 3.5);
+        ratios.put("gemma", 3.0);
+        ratios.put("llama", 3.0);
+        ratios.put("mistral", 3.5);
+        MODEL_TOKEN_RATIOS = Collections.unmodifiableMap(ratios);
+    }
+
+    public ContextMetricService(AgentRunContextMetricService metricService) {
         this.metricService = metricService;
     }
 
@@ -64,8 +84,8 @@ public class ContextMetricService {
         metric.setContextWindowTokens(window);
         metric.setOutputReserveTokens(outputReserve);
         metric.setSafetyReserveTokens(safetyReserve);
-        metric.setInputBudgetTokens(conversationContextService.getInputTokenBudget(agent, provider));
-        metric.setEstimatedPromptTokens(conversationContextService.estimateContextTokens(messages,
+        metric.setInputBudgetTokens(getInputTokenBudget(agent, provider));
+        metric.setEstimatedPromptTokens(estimateContextTokens(messages,
                 agent == null ? null : agent.getModel()));
         metric.setSystemTokens(0).setSkillTokens(0).setTaskTokens(0).setMemoryTokens(0)
                 .setSummaryTokens(0).setHistoryTokens(0).setToolTokens(0).setToolDefinitionTokens(0)
@@ -160,9 +180,71 @@ public class ContextMetricService {
             JSONObject toolDefinition = new JSONObject();
             toolDefinition.put("type", "function");
             toolDefinition.put("function", function);
-            total += conversationContextService.estimateTokens(toolDefinition.toJSONString(), model);
+            total += estimateTokens(toolDefinition.toJSONString(), model);
         }
         return total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
+    }
+
+    /**
+     * 返回为本次模型请求预留输出和安全余量后的可用输入 token 数。
+     */
+    int getInputTokenBudget(AgentDefinition agent, ModelProvider provider) {
+        int contextWindow = provider != null && provider.getContextWindow() != null
+                && provider.getContextWindow() > 0
+                ? provider.getContextWindow() : DEFAULT_CONTEXT_WINDOW_TOKENS;
+        int completionReserve = agent != null && agent.getMaxTokens() != null
+                && agent.getMaxTokens() > 0
+                ? agent.getMaxTokens() : DEFAULT_OUTPUT_RESERVE_TOKENS;
+        int safetyReserve = Math.max(512, contextWindow / 20);
+        return Math.max(MIN_INPUT_BUDGET_TOKENS,
+                contextWindow - completionReserve - safetyReserve);
+    }
+
+    /**
+     * 估算消息上下文 token 数。
+     */
+    int estimateContextTokens(List<ModelChatMessage> context, String model) {
+        if (context == null || context.isEmpty()) {
+            return 0;
+        }
+        long total = 0;
+        for (ModelChatMessage message : context) {
+            if (message.getCachedTokens() != null) {
+                total += message.getCachedTokens();
+                continue;
+            }
+            int tokens = MESSAGE_BASE_TOKENS;
+            tokens += estimateTokens(message.getRole(), model);
+            tokens += estimateTokens(message.getContent(), model);
+            tokens += estimateTokens(message.getToolCalls(), model);
+            tokens += estimateTokens(message.getToolCallId(), model);
+            message.setCachedTokens(tokens);
+            total += tokens;
+        }
+        return total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
+    }
+
+    /**
+     * 估算字符串 token 数。
+     */
+    int estimateTokens(String value, String model) {
+        if (StringUtils.isEmpty(value)) {
+            return 0;
+        }
+        return (int) Math.ceil(value.getBytes(StandardCharsets.UTF_8).length / resolveTokenDivisor(model));
+    }
+
+    private double resolveTokenDivisor(String model) {
+        if (model == null) {
+            return 3.0;
+        }
+        String lowerModel = model.toLowerCase();
+        for (Map.Entry<String, Double> entry : MODEL_TOKEN_RATIOS.entrySet()) {
+            if (lowerModel.startsWith(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return 3.0;
     }
 
     private void classify(AgentRunContextMetric metric, List<ModelChatMessage> messages, String model) {
@@ -173,7 +255,7 @@ public class ContextMetricService {
         }
         for (int i = 0; i < messages.size(); i++) {
             ModelChatMessage message = messages.get(i);
-            int tokens = conversationContextService.estimateContextTokens(java.util.Collections.singletonList(message), model);
+            int tokens = estimateContextTokens(java.util.Collections.singletonList(message), model);
             String content = StringUtils.defaultString(message.getContent());
             if (content.startsWith("【Skill") || content.startsWith("【技能")) metric.setSkillTokens(metric.getSkillTokens() + tokens);
             else if (content.startsWith("【当前Deep任务】")) metric.setTaskTokens(metric.getTaskTokens() + tokens);
