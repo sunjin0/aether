@@ -47,4 +47,9 @@ public interface ServiceAccountService extends IService<ServiceAccount>, Service
      * 校验调用账号对工作流的范围和额度，并记录一次业务启动额度。
      */
     void assertWorkflowStartAllowed(String id, String workflowId);
+
+    /**
+     * 校验调用账号对 Agent 的范围和额度，并记录一次业务调用额度。
+     */
+    void assertAgentCallAllowed(String id, String agentId);
 }

@@ -33,6 +33,36 @@ services:
         aliases:
           - aether-admin
 
+  front:
+    build:
+      context: .
+      dockerfile: front/Dockerfile
+    container_name: aether-front
+    restart: unless-stopped
+    mem_limit: 1g
+    mem_reservation: 768m
+    ports:
+      - "${FRONT_PORT:-8081}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_REDIS_HOST: ${REDIS_HOST:-redis}
+      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/aether}
+      DB_USERNAME: ${DB_USERNAME:-sunjin}
+      DB_PASSWORD: ${DB_PASSWORD:-192837}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_KNOWLEDGE_BUCKET: ${MINIO_KNOWLEDGE_BUCKET:-aether-knowledge}
+      MINIO_FILE_BUCKET: ${MINIO_FILE_BUCKET:-aether}
+      AETHER_DEEP_AGENT_BASE_URL: ${AETHER_DEEP_AGENT_BASE_URL:-http://aether-deep-agent:8010}
+      AETHER_DEEP_AGENT_SHARED_SECRET: ${AETHER_DEEP_AGENT_SHARED_SECRET:-aether-deep-agent-dev-secret-change-me}
+      AETHER_DEEP_AGENT_MCP_DELEGATION_SECRET: ${AETHER_MCP_DELEGATION_SECRET:-aether-mcp-delegation-dev-secret-change-me}
+    networks:
+      aether-services:
+        aliases:
+          - aether-front
+
 networks:
   aether-services:
     external: true

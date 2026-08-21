@@ -11,7 +11,8 @@ import java.util.List;
 public class ServiceAccountUpdateDto {
     private String name;
     private String description;
-    private List<String> roleIds;
     private List<String> allowedWorkflowIds;
+    private List<String> allowedAgentIds;
     private Integer maxStartsPerHour;
+    private Integer maxAgentCallsPerHour;
 }

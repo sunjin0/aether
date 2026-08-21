@@ -13,6 +13,7 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
+import com.aether.sys.service.impl.ServiceAccountServiceImpl;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -140,7 +141,8 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
             start.setBusinessId(render(trigger.getBusinessIdTemplate(), trigger, scheduledAt));
             start.setIdempotencyKey("schedule:" + trigger.getId() + ":" + scheduledAt);
             start.setVariables(variables);
-            executionService.startBusiness(trigger.getWorkflowId(), start, account.getUserId());
+            executionService.startBusiness(trigger.getWorkflowId(), start,
+                    ServiceAccountServiceImpl.principalId(account.getId()));
             update(new LambdaUpdateWrapper<AgentWorkflowScheduleTrigger>().set(AgentWorkflowScheduleTrigger::getLastTriggeredAt, now)
                     .set(AgentWorkflowScheduleTrigger::getLastErrorMessage, null).set(AgentWorkflowScheduleTrigger::getLockedUntil, null)
                     .set(AgentWorkflowScheduleTrigger::getNextFireAt, nextFireAt(trigger.getCronExpression(), now))

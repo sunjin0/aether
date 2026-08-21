@@ -2,6 +2,7 @@ package com.aether.agent.controller;
 
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.AgentRunStep;
+import com.aether.agent.runtime.DeepRunEventHub;
 import com.aether.agent.service.AgentRunStepService;
 import com.aether.agent.service.DeepAgentRunService;
 import com.aether.exception.ServerException;
@@ -25,13 +26,16 @@ public class DeepRunStreamController {
     private static final long TIMEOUT_MS = 15 * 60 * 1000L;
     private final DeepAgentRunService deepAgentRunService;
     private final AgentRunStepService agentRunStepService;
+    private final DeepRunEventHub eventHub;
 
     /**
      * 创建 {@code DeepRunStreamController} 实例。
      */
-    public DeepRunStreamController(DeepAgentRunService deepAgentRunService, AgentRunStepService agentRunStepService) {
+    public DeepRunStreamController(DeepAgentRunService deepAgentRunService, AgentRunStepService agentRunStepService,
+                                   DeepRunEventHub eventHub) {
         this.deepAgentRunService = deepAgentRunService;
         this.agentRunStepService = agentRunStepService;
+        this.eventHub = eventHub;
     }
 
     /**
@@ -46,7 +50,7 @@ public class DeepRunStreamController {
         }
         SseEmitter emitter = new SseEmitter(TIMEOUT_MS);
         emitter.send(SseEmitter.event().comment("connected"));
-        DeepRunEventHub.add(runId, emitter);
+        eventHub.add(runId, emitter);
         for (AgentRunStep step : agentRunStepService.listByRunId(runId)) {
             if ("message.delta".equals(step.getEventType())) {
                 continue;

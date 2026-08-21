@@ -10,16 +10,16 @@ import java.util.List;
 @Data
 public class ServiceAccountVo {
     private String id;
-    private String userId;
     private String name;
     private String description;
     private String clientId;
     private Boolean enabled;
     private List<String> allowedWorkflowIds;
+    private List<String> allowedAgentIds;
     private Integer maxStartsPerHour;
+    private Integer maxAgentCallsPerHour;
     private Long lastUsedAt;
     private Long createdAt;
-    private List<String> roleIds;
     private Long current;
     private Long pageSize;
 }

@@ -91,6 +91,43 @@ services:
       minio:
         condition: service_healthy
 
+  front:
+    build:
+      # 直接由 BuildKit 从 Git 仓库拉取源码，部署机无需预先检出项目。
+      context: "${AETHER_ADMIN_GIT_URL:-https://github.com/sunjin0/aether.git}#${AETHER_ADMIN_GIT_REF:-master}"
+      dockerfile: front/Dockerfile
+    container_name: aether-front
+    restart: unless-stopped
+    ports:
+      - "${FRONT_PORT:-8081}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_REDIS_HOST: ${REDIS_HOST:-redis}
+      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/aether}
+      DB_USERNAME: ${DB_USERNAME:-aether}
+      DB_PASSWORD: ${DB_PASSWORD:-aether_dev}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:${MINIO_API_PORT:-19000}}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_KNOWLEDGE_BUCKET: ${MINIO_KNOWLEDGE_BUCKET:-aether-knowledge}
+      MINIO_FILE_BUCKET: ${MINIO_FILE_BUCKET:-aether}
+      AETHER_DEEP_AGENT_BASE_URL: ${AETHER_DEEP_AGENT_BASE_URL:-http://aether-deep-agent:8010}
+      AETHER_DEEP_AGENT_SHARED_SECRET: ${AETHER_DEEP_AGENT_SHARED_SECRET:-aether-deep-agent-dev-secret-change-me}
+      AETHER_DEEP_AGENT_MCP_DELEGATION_SECRET: ${AETHER_MCP_DELEGATION_SECRET:-aether-mcp-delegation-dev-secret-change-me}
+    networks:
+      aether-services:
+        aliases: [ aether-front ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      admin:
+        condition: service_started
+
   deep-agent:
     build:
       context: "${AETHER_DEEP_AGENT_GIT_URL:-https://github.com/sunjin0/aether-deep-agent-service.git}#${AETHER_DEEP_AGENT_GIT_REF:-master}"

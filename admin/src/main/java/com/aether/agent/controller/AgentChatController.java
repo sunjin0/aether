@@ -21,6 +21,7 @@ import com.aether.agent.service.DeepAgentRunService;
 import com.aether.agent.service.KnowledgeContextService;
 import com.aether.agent.skill.service.SkillContextService;
 import com.aether.agent.skill.service.SkillRuntimeContext;
+import com.aether.agent.runtime.DeepRunEventHub;
 import com.aether.agent.vo.AgentConversationVo;
 import com.aether.agent.vo.AgentChatAttachmentVo;
 import com.aether.agent.vo.AgentMessageVo;
@@ -100,6 +101,7 @@ public class AgentChatController {
     private final SkillContextService skillContextService;
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
+    private final DeepRunEventHub deepRunEventHub;
     /**
      * Bounded SSE worker pool: a cached pool can otherwise exhaust native memory under slow clients.
      */
@@ -113,9 +115,11 @@ public class AgentChatController {
     @Autowired
     public AgentChatController(AgentChatService agentChatService, AgentConversationService agentConversationService,
                                AgentMessageService agentMessageService, ChatAttachmentService chatAttachmentService,
-                               AgentDefinitionService agentDefinitionService, DeepAgentRunService deepAgentRunService,
-                               DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
-                               DeepAgentConfig deepAgentConfig, SkillContextService skillContextService, ModelProviderService modelProviderService, ModelCatalogService modelCatalogService) {
+                                AgentDefinitionService agentDefinitionService, DeepAgentRunService deepAgentRunService,
+                                DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
+                                DeepAgentConfig deepAgentConfig, SkillContextService skillContextService,
+                                ModelProviderService modelProviderService, ModelCatalogService modelCatalogService,
+                                DeepRunEventHub deepRunEventHub) {
         this.agentChatService = agentChatService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
@@ -128,6 +132,7 @@ public class AgentChatController {
         this.skillContextService = skillContextService;
         this.modelProviderService = modelProviderService;
         this.modelCatalogService = modelCatalogService;
+        this.deepRunEventHub = deepRunEventHub;
     }
 
     /**
@@ -139,7 +144,8 @@ public class AgentChatController {
                                DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
                                DeepAgentConfig deepAgentConfig) {
         this(agentChatService, agentConversationService, agentMessageService, chatAttachmentService, agentDefinitionService,
-                deepAgentRunService, deepAgentCallbackController, knowledgeContextService, deepAgentConfig, null, null, null);
+                deepAgentRunService, deepAgentCallbackController, knowledgeContextService, deepAgentConfig, null, null, null,
+                new DeepRunEventHub());
     }
 
     /**
@@ -231,7 +237,7 @@ public class AgentChatController {
         try {
             emitter.send(SseEmitter.event().comment("connected"));
             String runId = deepAgentRunService.resumeToolApproval(conversation.getId(), dto.getParentMessageId(), userId, dto.getAnswer());
-            DeepRunEventHub.add(runId, emitter);
+            deepRunEventHub.add(runId, emitter);
             JSONObject accepted = new JSONObject();
             accepted.put("runId", runId);
             accepted.put("conversationId", conversation.getId());

@@ -41,6 +41,7 @@ import java.util.HashMap;
 public class GlobalFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalFilter.class);
+    private static final String PRINCIPAL_TYPE_SERVICE_ACCOUNT = "SERVICE_ACCOUNT";
     private final ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider;
 
     /**
@@ -67,6 +68,8 @@ public class GlobalFilter extends OncePerRequestFilter {
                     String token = AesUtil.decrypt(authorization.replace("Bearer ", ""));
                     // 校验token（签名+过期时间）
                     String userId = TokenUtils.getUserId(token);
+                    String principalType = TokenUtils.getClaim(token, "principalType");
+                    String principalId = TokenUtils.getClaim(token, "principalId");
                     String serviceAccountId = TokenUtils.getClaim(token, "serviceAccountId");
                     if (serviceAccountId != null && !serviceAccountId.isEmpty()) {
                         ServiceTokenVerifier verifier = serviceTokenVerifierProvider.getIfAvailable();
@@ -74,7 +77,15 @@ public class GlobalFilter extends OncePerRequestFilter {
                         if (verifier == null || !verifier.isActive(serviceAccountId, tokenVersion)) {
                             throw new ServerException(401, I18nUtils.getMessage("service-account.token.expired"));
                         }
+                        if (!isServiceAccountPathAllowed(request.getRequestURI())) {
+                            throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
+                        }
+                        payload.put("principalType", PRINCIPAL_TYPE_SERVICE_ACCOUNT);
+                        payload.put("principalId", principalId != null && !principalId.isEmpty() ? principalId : userId);
                         payload.put("serviceAccountId", serviceAccountId);
+                    } else if (principalType != null && !principalType.isEmpty()) {
+                        payload.put("principalType", principalType);
+                        payload.put("principalId", principalId);
                     }
                     payload.put("userId", userId);
                     payload.put("token", token);
@@ -142,5 +153,13 @@ public class GlobalFilter extends OncePerRequestFilter {
             webResponse = WebResponse.Error(message, null);
         }
         response.getWriter().write(JSON.toJSONString(webResponse));
+    }
+
+    /**
+     * 服务账号 token 只允许访问外部业务接入 API，不能进入后台管理面。
+     */
+    private boolean isServiceAccountPathAllowed(String uri) {
+        if (uri == null) return false;
+        return uri.startsWith("/api/business/") || "/api/auth/service-account/token".equals(uri);
     }
 }

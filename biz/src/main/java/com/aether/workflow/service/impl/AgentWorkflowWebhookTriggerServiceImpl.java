@@ -15,6 +15,7 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
+import com.aether.sys.service.impl.ServiceAccountServiceImpl;
 import com.aether.utils.AesUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.apache.commons.lang3.StringUtils;
@@ -139,7 +140,8 @@ public class AgentWorkflowWebhookTriggerServiceImpl
             start.setBusinessId(businessId);
             start.setIdempotencyKey(idempotencyKey);
             start.setVariables(variables);
-            AgentWorkflowInstance instance = executionService.startBusiness(trigger.getWorkflowId(), start, account.getUserId());
+            AgentWorkflowInstance instance = executionService.startBusiness(trigger.getWorkflowId(), start,
+                    ServiceAccountServiceImpl.principalId(account.getId()));
             trigger.setLastTriggeredAt(System.currentTimeMillis());
             trigger.setLastErrorMessage(null);
             updateById(trigger);

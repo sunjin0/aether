@@ -131,13 +131,24 @@ public class DeepAgentRunService {
     }
 
     /**
+     * 使用外部幂等键创建 Deep 运行；幂等键必须在首次插入前写入，避免并发重复派发。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public String startBusinessRun(AgentDefinition agent, String userId, String conversationId,
+                                   String task, String externalRunId, Consumer<String> registerCallback) {
+        return startRunInternal(agent, userId, conversationId, task, null, null,
+                null, null, registerCallback, externalRunId);
+    }
+
+    /**
      * 使用调用方已解析的 Skill 上下文创建 Deep 运行，避免在此处重新扩大工具范围。
      */
     public String startRun(AgentDefinition agent, String userId, String conversationId,
                            String task, String attachmentContent, String attachments,
                            List<Map<String, Object>> sources, SkillRuntimeContext skillContext,
                            Consumer<String> registerCallback) {
-        return startRunInternal(agent, userId, conversationId, task, attachmentContent, attachments, sources, skillContext, registerCallback);
+        return startRunInternal(agent, userId, conversationId, task, attachmentContent, attachments, sources, skillContext,
+                registerCallback, null);
     }
 
     /**
@@ -146,7 +157,8 @@ public class DeepAgentRunService {
     public String startRun(AgentDefinition agent, String userId, String conversationId,
                            String task, String attachmentContent, String attachments,
                            List<Map<String, Object>> sources, Consumer<String> registerCallback) {
-        return startRunInternal(agent, userId, conversationId, task, attachmentContent, attachments, sources, null, registerCallback);
+        return startRunInternal(agent, userId, conversationId, task, attachmentContent, attachments, sources, null,
+                registerCallback, null);
     }
 
     /**
@@ -167,7 +179,7 @@ public class DeepAgentRunService {
     private String startRunInternal(AgentDefinition agent, String userId, String conversationId,
                                     String task, String attachmentContent, String attachments,
                                     List<Map<String, Object>> sources, SkillRuntimeContext skillContext,
-                                    Consumer<String> registerCallback) {
+                                    Consumer<String> registerCallback, String externalRunId) {
         AgentConversation conversation = agentConversationService.getById(conversationId);
         initializeConversationTitle(conversation, task);
         AgentSession session = agentSessionService == null ? null
@@ -207,6 +219,9 @@ public class DeepAgentRunService {
         run.setExecutionMode("DEEP");
         run.setModel(agent.getModel());
         run.setSkillSnapshot(snapshotWithToolApprovalPolicy(skillContext, conversation));
+        if (StringUtils.isNotBlank(externalRunId)) {
+            run.setExternalRunId(externalRunId);
+        }
         agentRunService.save(run);
         String runId = run.getId();
         boolean dispatchImmediately = taskRecord == null || agentSessionService == null || route.reuseTask
@@ -222,7 +237,9 @@ public class DeepAgentRunService {
                         route.eventSummary());
             }
         }
-        run.setExternalRunId(runId);
+        if (StringUtils.isBlank(externalRunId)) {
+            run.setExternalRunId(runId);
+        }
         run.setRetrievalSources(JSON.toJSONString(sources == null ? Collections.emptyList() : sources));
         if (!agentRunService.updateById(run)) {
             throw new IllegalStateException("保存 Deep Agent 运行元数据失败");

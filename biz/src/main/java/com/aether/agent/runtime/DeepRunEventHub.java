@@ -1,5 +1,6 @@
-package com.aether.agent.controller;
+package com.aether.agent.runtime;
 
+import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -10,20 +11,15 @@ import java.util.concurrent.CopyOnWriteArraySet;
 /**
  * In-memory fan-out for live Deep Run SSE subscribers. Durable replay is served from agent_run_step.
  */
-final class DeepRunEventHub {
-    private static final ConcurrentHashMap<String, Set<SseEmitter>> SUBSCRIBERS = new ConcurrentHashMap<>();
-
-    /**
-     * 创建 {@code DeepRunEventHub} 实例。
-     */
-    private DeepRunEventHub() {
-    }
+@Component
+public class DeepRunEventHub {
+    private final ConcurrentHashMap<String, Set<SseEmitter>> subscribers = new ConcurrentHashMap<String, Set<SseEmitter>>();
 
     /**
      * 新增当前请求。
      */
-    static void add(String runId, SseEmitter emitter) {
-        SUBSCRIBERS.computeIfAbsent(runId, ignored -> new CopyOnWriteArraySet<>()).add(emitter);
+    public void add(String runId, SseEmitter emitter) {
+        subscribers.computeIfAbsent(runId, ignored -> new CopyOnWriteArraySet<SseEmitter>()).add(emitter);
         Runnable remove = () -> remove(runId, emitter);
         emitter.onCompletion(remove);
         emitter.onTimeout(remove);
@@ -33,8 +29,8 @@ final class DeepRunEventHub {
     /**
      * 发布当前请求。
      */
-    static void publish(String runId, String event, String data, boolean terminal) {
-        Set<SseEmitter> emitters = SUBSCRIBERS.get(runId);
+    public void publish(String runId, String event, String data, boolean terminal) {
+        Set<SseEmitter> emitters = subscribers.get(runId);
         if (emitters == null) return;
         for (SseEmitter emitter : emitters) {
             try {
@@ -51,10 +47,10 @@ final class DeepRunEventHub {
     /**
      * 移除当前请求。
      */
-    private static void remove(String runId, SseEmitter emitter) {
-        Set<SseEmitter> emitters = SUBSCRIBERS.get(runId);
+    private void remove(String runId, SseEmitter emitter) {
+        Set<SseEmitter> emitters = subscribers.get(runId);
         if (emitters == null) return;
         emitters.remove(emitter);
-        if (emitters.isEmpty()) SUBSCRIBERS.remove(runId, emitters);
+        if (emitters.isEmpty()) subscribers.remove(runId, emitters);
     }
 }

@@ -12,7 +12,6 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("sys_service_account")
 public class ServiceAccount extends BaseEntity {
-    private String userId;
     private String name;
     private String description;
     private String clientId;
@@ -30,8 +29,16 @@ public class ServiceAccount extends BaseEntity {
      */
     private String allowedWorkflowIds;
     /**
+     * JSON 数组；为空数组表示不允许调用任何 Agent。
+     */
+    private String allowedAgentIds;
+    /**
      * 每小时最大业务启动次数；0 表示不限制。
      */
     private Integer maxStartsPerHour;
+    /**
+     * 每小时最大 Agent 调用次数；0 表示不限制。
+     */
+    private Integer maxAgentCallsPerHour;
     private Long lastUsedAt;
 }

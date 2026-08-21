@@ -1,5 +1,9 @@
 package com.aether.sys.controller;
 
+import com.aether.agent.entity.AgentDefinition;
+import com.aether.agent.entity.AgentRun;
+import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.service.AgentRunService;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
@@ -8,10 +12,15 @@ import com.aether.sys.dto.ServiceAccountTokenDto;
 import com.aether.sys.dto.ServiceAccountUpdateDto;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
-import com.aether.sys.service.UserService;
 import com.aether.sys.vo.ServiceAccountSecretVo;
 import com.aether.sys.vo.ServiceAccountTokenVo;
+import com.aether.sys.vo.ServiceAccountUsageItemVo;
+import com.aether.sys.vo.ServiceAccountUsageVo;
 import com.aether.sys.vo.ServiceAccountVo;
+import com.aether.workflow.entity.AgentWorkflow;
+import com.aether.workflow.entity.AgentWorkflowInstance;
+import com.aether.workflow.service.AgentWorkflowInstanceService;
+import com.aether.workflow.service.AgentWorkflowService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.swagger.annotations.Api;
@@ -21,7 +30,10 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletResponse;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import com.alibaba.fastjson2.JSON;
@@ -33,14 +45,24 @@ import com.alibaba.fastjson2.JSON;
 @RestController
 public class ServiceAccountController {
     private final ServiceAccountService serviceAccountService;
-    private final UserService userService;
+    private final AgentRunService agentRunService;
+    private final AgentDefinitionService agentDefinitionService;
+    private final AgentWorkflowInstanceService workflowInstanceService;
+    private final AgentWorkflowService workflowService;
 
     /**
      * 创建 {@code ServiceAccountController} 实例。
      */
-    public ServiceAccountController(ServiceAccountService serviceAccountService, UserService userService) {
+    public ServiceAccountController(ServiceAccountService serviceAccountService,
+                                    AgentRunService agentRunService,
+                                    AgentDefinitionService agentDefinitionService,
+                                    AgentWorkflowInstanceService workflowInstanceService,
+                                    AgentWorkflowService workflowService) {
         this.serviceAccountService = serviceAccountService;
-        this.userService = userService;
+        this.agentRunService = agentRunService;
+        this.agentDefinitionService = agentDefinitionService;
+        this.workflowInstanceService = workflowInstanceService;
+        this.workflowService = workflowService;
     }
 
     /**
@@ -124,15 +146,107 @@ public class ServiceAccountController {
     }
 
     /**
+     * 服务账号外部接入使用情况。
+     */
+    @ApiOperation("服务账号外部接入使用情况")
+    @Permission(path = "/sys/service-account")
+    @GetMapping("/api/sys/service-account/usage")
+    public WebResponse<ServiceAccountUsageVo> usage() {
+        List<ServiceAccount> accounts = serviceAccountService.list(Wrappers.lambdaQuery(ServiceAccount.class)
+                .eq(ServiceAccount::getDeleted, false));
+        Map<String, ServiceAccount> accountByPrincipal = new HashMap<String, ServiceAccount>();
+        for (ServiceAccount account : accounts) accountByPrincipal.put("sa:" + account.getId(), account);
+        List<AgentRun> runs = accountByPrincipal.isEmpty() ? new ArrayList<AgentRun>() : agentRunService.list(
+                Wrappers.lambdaQuery(AgentRun.class).in(AgentRun::getUserId, accountByPrincipal.keySet())
+                        .eq(AgentRun::getDeleted, false));
+        List<AgentWorkflowInstance> instances = accountByPrincipal.isEmpty() ? new ArrayList<AgentWorkflowInstance>() : workflowInstanceService.list(
+                Wrappers.lambdaQuery(AgentWorkflowInstance.class).in(AgentWorkflowInstance::getUserId, accountByPrincipal.keySet())
+                        .eq(AgentWorkflowInstance::getDeleted, false));
+        ServiceAccountUsageVo usage = new ServiceAccountUsageVo();
+        usage.setAgentCalls((long) runs.size());
+        usage.setWorkflowStarts((long) instances.size());
+        usage.setTotalCalls(usage.getAgentCalls() + usage.getWorkflowStarts());
+        usage.setTotalTokens(runs.stream().mapToLong(run -> run.getTotalTokens() == null ? 0L : run.getTotalTokens()).sum());
+        usage.setAccounts(accountUsage(accounts, runs, instances));
+        usage.setAgents(agentUsage(runs));
+        usage.setWorkflows(workflowUsage(instances));
+        return WebResponse.OK(usage);
+    }
+
+    /**
      * VO当前请求。
      */
     private ServiceAccountVo vo(ServiceAccount account) {
         ServiceAccountVo result = new ServiceAccountVo();
         BeanUtils.copyProperties(account, result);
-        result.setRoleIds(userService.getRoleIdsByUserId(account.getUserId()));
         result.setAllowedWorkflowIds(account.getAllowedWorkflowIds() == null ? java.util.Collections.<String>emptyList()
                 : JSON.parseArray(account.getAllowedWorkflowIds(), String.class));
+        result.setAllowedAgentIds(account.getAllowedAgentIds() == null ? java.util.Collections.<String>emptyList()
+                : JSON.parseArray(account.getAllowedAgentIds(), String.class));
         return result;
+    }
+
+    private List<ServiceAccountUsageItemVo> accountUsage(List<ServiceAccount> accounts, List<AgentRun> runs,
+                                                         List<AgentWorkflowInstance> instances) {
+        List<ServiceAccountUsageItemVo> result = new ArrayList<ServiceAccountUsageItemVo>();
+        for (ServiceAccount account : accounts) {
+            String principal = "sa:" + account.getId();
+            long agentCalls = runs.stream().filter(run -> principal.equals(run.getUserId())).count();
+            long workflowStarts = instances.stream().filter(item -> principal.equals(item.getUserId())).count();
+            long tokens = runs.stream().filter(run -> principal.equals(run.getUserId()))
+                    .mapToLong(run -> run.getTotalTokens() == null ? 0L : run.getTotalTokens()).sum();
+            ServiceAccountUsageItemVo item = new ServiceAccountUsageItemVo();
+            item.setId(account.getId());
+            item.setName(account.getName());
+            item.setCalls(agentCalls + workflowStarts);
+            item.setTokens(tokens);
+            result.add(item);
+        }
+        result.sort((left, right) -> Long.compare(right.getCalls(), left.getCalls()));
+        return result;
+    }
+
+    private List<ServiceAccountUsageItemVo> agentUsage(List<AgentRun> runs) {
+        Map<String, ServiceAccountUsageItemVo> map = new HashMap<String, ServiceAccountUsageItemVo>();
+        for (AgentRun run : runs) {
+            if (run.getAgentDefinitionId() == null) continue;
+            ServiceAccountUsageItemVo item = map.computeIfAbsent(run.getAgentDefinitionId(), id -> {
+                ServiceAccountUsageItemVo value = new ServiceAccountUsageItemVo();
+                value.setId(id);
+                AgentDefinition agent = agentDefinitionService.getById(id);
+                value.setName(agent == null ? id : agent.getName());
+                value.setCalls(0L);
+                value.setTokens(0L);
+                return value;
+            });
+            item.setCalls(item.getCalls() + 1);
+            item.setTokens(item.getTokens() + (run.getTotalTokens() == null ? 0L : run.getTotalTokens()));
+        }
+        return sortedUsage(map);
+    }
+
+    private List<ServiceAccountUsageItemVo> workflowUsage(List<AgentWorkflowInstance> instances) {
+        Map<String, ServiceAccountUsageItemVo> map = new HashMap<String, ServiceAccountUsageItemVo>();
+        for (AgentWorkflowInstance instance : instances) {
+            if (instance.getWorkflowId() == null) continue;
+            ServiceAccountUsageItemVo item = map.computeIfAbsent(instance.getWorkflowId(), id -> {
+                ServiceAccountUsageItemVo value = new ServiceAccountUsageItemVo();
+                value.setId(id);
+                AgentWorkflow workflow = workflowService.getById(id);
+                value.setName(workflow == null ? id : workflow.getName());
+                value.setCalls(0L);
+                value.setTokens(0L);
+                return value;
+            });
+            item.setCalls(item.getCalls() + 1);
+        }
+        return sortedUsage(map);
+    }
+
+    private List<ServiceAccountUsageItemVo> sortedUsage(Map<String, ServiceAccountUsageItemVo> map) {
+        List<ServiceAccountUsageItemVo> result = new ArrayList<ServiceAccountUsageItemVo>(map.values());
+        result.sort((left, right) -> Long.compare(right.getCalls(), left.getCalls()));
+        return result.stream().limit(10).collect(Collectors.toList());
     }
 
     /**

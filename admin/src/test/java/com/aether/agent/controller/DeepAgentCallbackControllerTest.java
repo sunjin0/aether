@@ -11,6 +11,8 @@ import com.aether.agent.service.AgentRunPlanService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.runtime.DeepAgentCallbackRegistry;
+import com.aether.agent.runtime.DeepRunEventHub;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -100,10 +102,9 @@ class DeepAgentCallbackControllerTest {
         assertEquals("Reference", response.getSources().get(0).get("title"));
         assertNull(response.getRawResponse());
 
-        @SuppressWarnings("unchecked")
-        Map<String, AgentStreamCallback> activeCallbacks =
-                (Map<String, AgentStreamCallback>) ReflectionTestUtils.getField(controller, "activeCallbacks");
-        assertFalse(activeCallbacks.containsKey("run-1"));
+        DeepAgentCallbackRegistry registry =
+                (DeepAgentCallbackRegistry) ReflectionTestUtils.getField(controller, "callbackRegistry");
+        assertNull(registry.get("run-1"));
     }
 
     /**
@@ -141,10 +142,9 @@ class DeepAgentCallbackControllerTest {
 
         verify(streamCallback, never()).onDone(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(ModelStreamResponse.class));
-        @SuppressWarnings("unchecked")
-        Map<String, AgentStreamCallback> activeCallbacks =
-                (Map<String, AgentStreamCallback>) ReflectionTestUtils.getField(controller, "activeCallbacks");
-        assertEquals(streamCallback, activeCallbacks.get("run-1"));
+        DeepAgentCallbackRegistry registry =
+                (DeepAgentCallbackRegistry) ReflectionTestUtils.getField(controller, "callbackRegistry");
+        assertEquals(streamCallback, registry.get("run-1"));
     }
 
     /**
@@ -173,10 +173,9 @@ class DeepAgentCallbackControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         verify(streamCallback, never()).onError(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString());
-        @SuppressWarnings("unchecked")
-        Map<String, AgentStreamCallback> activeCallbacks =
-                (Map<String, AgentStreamCallback>) ReflectionTestUtils.getField(controller, "activeCallbacks");
-        assertEquals(streamCallback, activeCallbacks.get("run-1"));
+        DeepAgentCallbackRegistry registry =
+                (DeepAgentCallbackRegistry) ReflectionTestUtils.getField(controller, "callbackRegistry");
+        assertEquals(streamCallback, registry.get("run-1"));
     }
 
     /**
@@ -279,7 +278,8 @@ class DeepAgentCallbackControllerTest {
      * 控制器当前请求。
      */
     private DeepAgentCallbackController controller() {
-        return new DeepAgentCallbackController(deepAgentRunService, agentMessageService, config, planService,
-                agentDefinitionService, modelProviderService, modelCatalogService);
+        DeepAgentCallbackRegistry registry = new DeepAgentCallbackRegistry(deepAgentRunService, agentMessageService);
+        return new DeepAgentCallbackController(deepAgentRunService, config, planService,
+                agentDefinitionService, modelProviderService, modelCatalogService, registry, new DeepRunEventHub());
     }
 }

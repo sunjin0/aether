@@ -6,7 +6,6 @@ import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.AgentDefinitionService;
-import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.agent.service.AgentStreamCallback;
@@ -14,6 +13,8 @@ import com.aether.agent.service.DeepAgentRunService;
 import com.aether.agent.service.AgentRunPlanService;
 import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.ModelProviderService;
+import com.aether.agent.runtime.DeepAgentCallbackRegistry;
+import com.aether.agent.runtime.DeepRunEventHub;
 import com.aether.utils.AesUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -35,7 +36,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 提供Deep智能体回调相关的 REST 接口。
@@ -48,75 +48,52 @@ public class DeepAgentCallbackController {
     private static final String HMAC_ALGORITHM = "HmacSHA256";
 
     private final DeepAgentRunService deepAgentRunService;
-    private final AgentMessageService agentMessageService;
     private final DeepAgentConfig config;
     private final AgentRunPlanService planService;
     private final AgentDefinitionService agentDefinitionService;
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
-    private final Map<String, AgentStreamCallback> activeCallbacks = new ConcurrentHashMap<>();
+    private final DeepAgentCallbackRegistry callbackRegistry;
+    private final DeepRunEventHub eventHub;
 
     /**
      * 创建 {@code DeepAgentCallbackController} 实例。
      */
-    public DeepAgentCallbackController(DeepAgentRunService deepAgentRunService, AgentMessageService agentMessageService,
+    public DeepAgentCallbackController(DeepAgentRunService deepAgentRunService,
                                        DeepAgentConfig config, AgentRunPlanService planService,
                                        AgentDefinitionService agentDefinitionService, ModelProviderService modelProviderService,
-                                       ModelCatalogService modelCatalogService) {
+                                       ModelCatalogService modelCatalogService,
+                                       DeepAgentCallbackRegistry callbackRegistry,
+                                       DeepRunEventHub eventHub) {
         this.deepAgentRunService = deepAgentRunService;
-        this.agentMessageService = agentMessageService;
         this.config = config;
         this.planService = planService;
         this.agentDefinitionService = agentDefinitionService;
         this.modelProviderService = modelProviderService;
         this.modelCatalogService = modelCatalogService;
+        this.callbackRegistry = callbackRegistry;
+        this.eventHub = eventHub;
     }
 
     /**
      * 处理register回调。
      */
     public void registerCallback(String runId, AgentStreamCallback callback) {
-        activeCallbacks.put(runId, callback);
+        callbackRegistry.register(runId, callback);
     }
 
     /**
      * 移除回调。
      */
     public void removeCallback(String runId) {
-        activeCallbacks.remove(runId);
+        callbackRegistry.remove(runId);
     }
 
     /**
      * 处理reconcileTerminal回调。
      */
     public void reconcileTerminalCallback(String runId) {
-        AgentStreamCallback callback = activeCallbacks.get(runId);
-        if (callback == null || callback.isClosed()) return;
-        AgentRun run = deepAgentRunService.getDeepRunForReconciliation(runId);
-        if (Integer.valueOf(0).equals(run.getStatus()) && run.getMessageId() != null) {
-            AgentMessage message = agentMessageService.getById(run.getMessageId());
-            if (message != null && !Boolean.TRUE.equals(message.getDeleted())) {
-                ModelStreamResponse response = new ModelStreamResponse();
-                response.setContent(message.getContent());
-                response.setReasoningContent(message.getReasoningContent());
-                response.setToolCalls(message.getToolCalls());
-                response.setModel(message.getModel());
-                response.setPromptTokens(message.getPromptTokens());
-                response.setCompletionTokens(message.getCompletionTokens());
-                response.setTotalTokens(message.getTotalTokens());
-                response.setReasoningTokens(message.getReasoningTokens());
-                if (message.getCitations() != null)
-                    response.setSources(sourceList(JSON.parseObject("{\"sources\":" + message.getCitations() + "}"), "sources"));
-                try {
-                    callback.onDone(run.getConversationId(), message.getId(), response);
-                } finally {
-                    removeCallback(runId);
-                }
-            }
-        } else if (Integer.valueOf(1).equals(run.getStatus()) || Integer.valueOf(5).equals(run.getStatus())) {
-            notifyErrorAndRemove(runId, callback, Integer.valueOf(5).equals(run.getStatus()) ? 0 : 500,
-                    Integer.valueOf(5).equals(run.getStatus()) ? "运行已取消" : run.getErrorMsg());
-        }
+        callbackRegistry.reconcileTerminal(runId);
     }
 
     /**
@@ -147,7 +124,7 @@ public class DeepAgentCallbackController {
 
             // 文本增量只用于当前聊天 SSE；不属于可审计的执行步骤，也不应写入执行记录。
             if ("message.delta".equals(eventType)) {
-                AgentStreamCallback messageCallback = activeCallbacks.get(runId);
+                AgentStreamCallback messageCallback = callbackRegistry.get(runId);
                 if (messageCallback != null && !messageCallback.isClosed()) {
                     messageCallback.onMessage(deepAgentRunService.getDeepRunForReconciliation(runId).getConversationId(),
                             JSON.parseObject(dataJson).getString("chunk"));
@@ -164,7 +141,7 @@ public class DeepAgentCallbackController {
             }
 
             if (isNew) {
-                AgentStreamCallback callback = activeCallbacks.get(runId);
+                AgentStreamCallback callback = callbackRegistry.get(runId);
                 if (callback != null && !callback.isClosed()) {
                     JSONObject stepEvent = new JSONObject();
                     stepEvent.put("runId", runId);
@@ -173,7 +150,7 @@ public class DeepAgentCallbackController {
                     stepEvent.put("occurredAt", occurredAt);
                     stepEvent.put("data", eventData != null ? eventData : new JSONObject());
                     callback.onRunStep(runId, stepEvent.toJSONString());
-                    DeepRunEventHub.publish(runId, "run_step", stepEvent.toJSONString(), false);
+                    eventHub.publish(runId, "run_step", stepEvent.toJSONString(), false);
                 } else {
                     JSONObject stepEvent = new JSONObject();
                     stepEvent.put("runId", runId);
@@ -181,7 +158,7 @@ public class DeepAgentCallbackController {
                     stepEvent.put("eventType", eventType);
                     stepEvent.put("occurredAt", occurredAt);
                     stepEvent.put("data", eventData != null ? eventData : new JSONObject());
-                    DeepRunEventHub.publish(runId, "run_step", stepEvent.toJSONString(), false);
+                    eventHub.publish(runId, "run_step", stepEvent.toJSONString(), false);
                 }
             }
 
@@ -218,7 +195,7 @@ public class DeepAgentCallbackController {
                         }
                         AgentMessageVo approvalVo = new AgentMessageVo();
                         org.springframework.beans.BeanUtils.copyProperties(approval, approvalVo);
-                        AgentStreamCallback approvalCallback = activeCallbacks.get(runId);
+                        AgentStreamCallback approvalCallback = callbackRegistry.get(runId);
                         if (approvalCallback != null && !approvalCallback.isClosed()) {
                             approvalCallback.onQuestion(approval.getConversationId(), runId, approvalVo);
                         }
@@ -231,13 +208,13 @@ public class DeepAgentCallbackController {
                         question.put("interactionType", approval.getInteractionType());
                         question.put("interactionStatus", approval.getInteractionStatus());
                         question.put("questionConfig", JSON.parseObject(approval.getQuestionConfig()));
-                        DeepRunEventHub.publish(runId, "question", question.toJSONString(), false);
+                        eventHub.publish(runId, "question", question.toJSONString(), false);
                         break;
                     case "ask_user.required":
                         AgentMessage askUser = deepAgentRunService.createAskUserQuestion(runId, dataJson);
                         AgentMessageVo askUserVo = new AgentMessageVo();
                         org.springframework.beans.BeanUtils.copyProperties(askUser, askUserVo);
-                        AgentStreamCallback askUserCallback = activeCallbacks.get(runId);
+                        AgentStreamCallback askUserCallback = callbackRegistry.get(runId);
                         if (askUserCallback != null && !askUserCallback.isClosed()) {
                             askUserCallback.onQuestion(askUser.getConversationId(), runId, askUserVo);
                             break;
@@ -251,7 +228,7 @@ public class DeepAgentCallbackController {
                         askQuestion.put("interactionType", askUser.getInteractionType());
                         askQuestion.put("interactionStatus", askUser.getInteractionStatus());
                         askQuestion.put("questionConfig", JSON.parseObject(askUser.getQuestionConfig()));
-                        DeepRunEventHub.publish(runId, "question", askQuestion.toJSONString(), false);
+                        eventHub.publish(runId, "question", askQuestion.toJSONString(), false);
                         break;
                     case "plan.approval.required":
                         AgentMessage planApproval = deepAgentRunService.createPlanApproval(runId, dataJson);
@@ -260,7 +237,7 @@ public class DeepAgentCallbackController {
                         }
                         AgentMessageVo planApprovalVo = new AgentMessageVo();
                         org.springframework.beans.BeanUtils.copyProperties(planApproval, planApprovalVo);
-                        AgentStreamCallback planApprovalCallback = activeCallbacks.get(runId);
+                        AgentStreamCallback planApprovalCallback = callbackRegistry.get(runId);
                         if (planApprovalCallback != null && !planApprovalCallback.isClosed()) {
                             planApprovalCallback.onQuestion(planApproval.getConversationId(), runId, planApprovalVo);
                             break;
@@ -274,23 +251,23 @@ public class DeepAgentCallbackController {
                         planQuestion.put("interactionType", planApproval.getInteractionType());
                         planQuestion.put("interactionStatus", planApproval.getInteractionStatus());
                         planQuestion.put("questionConfig", JSON.parseObject(planApproval.getQuestionConfig()));
-                        DeepRunEventHub.publish(runId, "question", planQuestion.toJSONString(), false);
+                        eventHub.publish(runId, "question", planQuestion.toJSONString(), false);
                         break;
                     case "run.completed":
-                        handleCompleted(runId, dataJson, activeCallbacks.get(runId), occurredAt);
+                        handleCompleted(runId, dataJson, callbackRegistry.get(runId), occurredAt);
                         break;
                     case "run.failed":
                         JSONObject errorData = JSON.parseObject(dataJson);
                         String errorMsg = errorData.getString("error");
                         if (deepAgentRunService.markFailed(runId, errorMsg)) {
-                            notifyErrorAndRemove(runId, activeCallbacks.get(runId), 500, errorMsg);
-                            DeepRunEventHub.publish(runId, "error", "{\"code\":500,\"message\":" + JSON.toJSONString(errorMsg) + "}", true);
+                            notifyErrorAndRemove(runId, callbackRegistry.get(runId), 500, errorMsg);
+                            eventHub.publish(runId, "error", "{\"code\":500,\"message\":" + JSON.toJSONString(errorMsg) + "}", true);
                         }
                         break;
                     case "run.cancelled":
                         if (deepAgentRunService.markCancelled(runId)) {
-                            notifyErrorAndRemove(runId, activeCallbacks.get(runId), 0, "运行已取消");
-                            DeepRunEventHub.publish(runId, "error", "{\"code\":0,\"message\":\"运行已取消\"}", true);
+                            notifyErrorAndRemove(runId, callbackRegistry.get(runId), 0, "运行已取消");
+                            eventHub.publish(runId, "error", "{\"code\":0,\"message\":\"运行已取消\"}", true);
                         }
                         break;
                 }
@@ -371,7 +348,7 @@ public class DeepAgentCallbackController {
             done.put("latencyMs", completed.getLatencyMs());
             done.put("requestTime", completed.getRequestTime());
             done.put("sources", sourceList(data, "sources"));
-            DeepRunEventHub.publish(runId, "done", done.toJSONString(), true);
+            eventHub.publish(runId, "done", done.toJSONString(), true);
             removeCallback(runId);
             return;
         }
@@ -400,7 +377,7 @@ public class DeepAgentCallbackController {
             done.put("latencyMs", completed.getLatencyMs());
             done.put("requestTime", completed.getRequestTime());
             done.put("sources", response.getSources());
-            DeepRunEventHub.publish(runId, "done", done.toJSONString(), true);
+            eventHub.publish(runId, "done", done.toJSONString(), true);
         } finally {
             removeCallback(runId);
         }
@@ -414,10 +391,10 @@ public class DeepAgentCallbackController {
             try {
                 callback.onError(code, message);
             } finally {
-                removeCallback(runId);
+                callbackRegistry.remove(runId);
             }
         } else {
-            removeCallback(runId);
+            callbackRegistry.remove(runId);
         }
     }
 
