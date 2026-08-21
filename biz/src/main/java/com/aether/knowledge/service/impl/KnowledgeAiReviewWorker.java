@@ -142,8 +142,10 @@ public class KnowledgeAiReviewWorker {
                 int totalCompletionTokens = 0;
                 for (int i = 0; i < totalChunks; i++) {
                     String chunk = chunks.get(i);
+                    log.info("AI review chunk started: reviewId={}, chunk={}/{}, chars={}", reviewId, i + 1, totalChunks, chunk.length());
                     ModelChatRequest req = buildRequest(provider, model, document.getTitle(), chunk, false, i + 1, totalChunks);
                     ModelChatResponse res = clientFactory.getClient(provider).chatByProvider(req);
+                    log.info("AI review chunk completed: reviewId={}, chunk={}/{}", reviewId, i + 1, totalChunks);
                     String rc = res.getContent();
                     if (StringUtils.isBlank(rc)) continue;
                     JSONObject chunkResult = parseJson(rc);
@@ -336,6 +338,7 @@ public class KnowledgeAiReviewWorker {
      * 处理fail。
      */
     private void fail(KnowledgeAiReview review, Exception error) {
+        log.error("AI review failed: reviewId={}", review == null ? null : review.getId(), error);
         long now = System.currentTimeMillis();
         boolean reviewUpdated = reviewService.update(Wrappers.lambdaUpdate(KnowledgeAiReview.class)
                 .eq(KnowledgeAiReview::getId, review.getId())

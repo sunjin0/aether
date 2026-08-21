@@ -19,6 +19,14 @@ public class AgentContextOperationsMetricsVo {
     private Long completedRequestMetricCount = 0L;
     @ApiModelProperty(value = "Average input occupancy percentage for completed answer or Deep step calls")
     private Double averageOccupancyPercent = 0D;
+    @ApiModelProperty(value = "Completed answer or Deep step calls with provider prompt cache hit data")
+    private Long cacheObservedMetricCount = 0L;
+    @ApiModelProperty(value = "Average provider prompt cache hit rate percentage")
+    private Double averagePromptCacheHitRate = 0D;
+    @ApiModelProperty(value = "Total provider-reported cached prompt/input tokens")
+    private Long totalCachedPromptTokens = 0L;
+    @ApiModelProperty(value = "Total provider-reported uncached prompt/input tokens")
+    private Long totalUncachedPromptTokens = 0L;
     @ApiModelProperty(value = "Completed answer or Deep step calls whose input occupancy is at least 80%")
     private Long highPressureMetricCount = 0L;
     @ApiModelProperty(value = "Compression model call snapshots")

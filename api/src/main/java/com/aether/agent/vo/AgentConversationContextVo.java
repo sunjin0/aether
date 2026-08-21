@@ -20,6 +20,12 @@ public class AgentConversationContextVo {
     private Integer inputBudgetTokens;
     @ApiModelProperty(value = "Provider-reported prompt tokens")
     private Integer promptTokens;
+    @ApiModelProperty(value = "Provider-reported cached prompt/input tokens")
+    private Integer cachedPromptTokens;
+    @ApiModelProperty(value = "Provider-reported uncached prompt/input tokens")
+    private Integer uncachedPromptTokens;
+    @ApiModelProperty(value = "Provider-reported prompt cache hit rate percentage")
+    private Double promptCacheHitRate;
     @ApiModelProperty(value = "Estimated prompt tokens")
     private Integer estimatedPromptTokens;
     @ApiModelProperty(value = "Tool definition schema tokens")

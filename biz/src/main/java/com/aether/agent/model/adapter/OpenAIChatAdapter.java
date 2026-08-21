@@ -285,6 +285,10 @@ public class OpenAIChatAdapter implements ModelProviderAdapter {
         if (completionTokensDetails != null) {
             response.setReasoningTokens(completionTokensDetails.getInteger("reasoning_tokens"));
         }
+        JSONObject promptTokensDetails = usage.getJSONObject("prompt_tokens_details");
+        if (promptTokensDetails != null) {
+            applyPromptCacheUsage(response, promptTokensDetails.getInteger("cached_tokens"));
+        }
     }
 
     protected void applyUsage(ModelStreamResponse response, JSONObject usage) {
@@ -296,13 +300,43 @@ public class OpenAIChatAdapter implements ModelProviderAdapter {
         if (completionTokensDetails != null) {
             response.setReasoningTokens(completionTokensDetails.getInteger("reasoning_tokens"));
         }
+        JSONObject promptTokensDetails = usage.getJSONObject("prompt_tokens_details");
+        if (promptTokensDetails != null) {
+            applyPromptCacheUsage(response, promptTokensDetails.getInteger("cached_tokens"));
+        }
+    }
+
+    private void applyPromptCacheUsage(ModelChatResponse response, Integer cachedTokens) {
+        if (cachedTokens == null) return;
+        response.setCachedPromptTokens(normalizeCachedTokens(response.getPromptTokens(), cachedTokens));
+        if (response.getPromptTokens() != null) {
+            response.setUncachedPromptTokens(Math.max(0, response.getPromptTokens() - response.getCachedPromptTokens()));
+            if (response.getPromptTokens() > 0) {
+                response.setPromptCacheHitRate(Math.round(response.getCachedPromptTokens() * 10000D / response.getPromptTokens()) / 100D);
+            }
+        }
+    }
+
+    private void applyPromptCacheUsage(ModelStreamResponse response, Integer cachedTokens) {
+        if (cachedTokens == null) return;
+        response.setCachedPromptTokens(normalizeCachedTokens(response.getPromptTokens(), cachedTokens));
+        if (response.getPromptTokens() != null) {
+            response.setUncachedPromptTokens(Math.max(0, response.getPromptTokens() - response.getCachedPromptTokens()));
+            if (response.getPromptTokens() > 0) {
+                response.setPromptCacheHitRate(Math.round(response.getCachedPromptTokens() * 10000D / response.getPromptTokens()) / 100D);
+            }
+        }
+    }
+
+    private Integer normalizeCachedTokens(Integer promptTokens, Integer cachedTokens) {
+        int cached = Math.max(0, cachedTokens);
+        return promptTokens == null ? cached : Math.min(cached, Math.max(0, promptTokens));
     }
 
     @Override
     public ModelStreamResponse parseStream(InputStream inputStream, String defaultModel, ModelStreamCallback callback) throws IOException {
         StringBuilder content = new StringBuilder();
         StringBuilder reasoningContent = new StringBuilder();
-        StringBuilder raw = new StringBuilder();
         ModelStreamResponse response = new ModelStreamResponse();
         response.setModel(defaultModel);
         Map<Integer, JSONObject> toolCallsMap = new LinkedHashMap<>();
@@ -314,7 +348,6 @@ public class OpenAIChatAdapter implements ModelProviderAdapter {
                 if (!line.startsWith("data:")) continue;
                 String data = line.substring("data:".length()).trim();
                 if (StringUtils.isBlank(data)) continue;
-                raw.append(data).append('\n');
                 if ("[DONE]".equals(data)) break;
                 parseStreamData(data, defaultModel, callback, content, reasoningContent, response, toolCallsMap);
             }
@@ -322,13 +355,46 @@ public class OpenAIChatAdapter implements ModelProviderAdapter {
 
         response.setContent(content.toString());
         response.setReasoningContent(reasoningContent.toString());
-        response.setRawResponse(raw.toString());
         if (!toolCallsMap.isEmpty()) {
             JSONArray toolCallsArray = new JSONArray();
             toolCallsArray.addAll(toolCallsMap.values());
             response.setToolCalls(toolCallsArray.toJSONString());
         }
+        response.setRawResponse(mergedStreamResponse(response));
         return response;
+    }
+
+    /**
+     * Converts streamed deltas into one Chat Completions-shaped response for audit storage.
+     */
+    private String mergedStreamResponse(ModelStreamResponse response) {
+        JSONObject message = new JSONObject();
+        message.put("role", "assistant");
+        message.put("content", response.getContent());
+        if (StringUtils.isNotBlank(response.getReasoningContent())) {
+            message.put("reasoning_content", response.getReasoningContent());
+        }
+        if (StringUtils.isNotBlank(response.getToolCalls())) {
+            message.put("tool_calls", JSONArray.parseArray(response.getToolCalls()));
+        }
+        JSONObject choice = new JSONObject();
+        choice.put("index", 0);
+        choice.put("message", message);
+        choice.put("finish_reason", null);
+
+        JSONObject usage = new JSONObject();
+        usage.put("prompt_tokens", response.getPromptTokens());
+        usage.put("completion_tokens", response.getCompletionTokens());
+        usage.put("total_tokens", response.getTotalTokens());
+        if (response.getCachedPromptTokens() != null) {
+            usage.put("prompt_tokens_details", new JSONObject().fluentPut("cached_tokens", response.getCachedPromptTokens()));
+        }
+        if (response.getReasoningTokens() != null) {
+            usage.put("completion_tokens_details", new JSONObject().fluentPut("reasoning_tokens", response.getReasoningTokens()));
+        }
+        return new JSONObject().fluentPut("model", response.getModel())
+                .fluentPut("choices", new JSONArray().fluentAdd(choice))
+                .fluentPut("usage", usage).toJSONString();
     }
 
     protected void parseStreamData(String data, String defaultModel, ModelStreamCallback callback,

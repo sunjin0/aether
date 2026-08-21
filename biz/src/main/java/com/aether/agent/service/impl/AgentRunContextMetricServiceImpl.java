@@ -27,6 +27,7 @@ public class AgentRunContextMetricServiceImpl
         result.setSinceCreatedAt(sinceCreatedAt);
         double occupancySum = 0D;
         long occupancyCount = 0L;
+        double cacheHitRateSum = 0D;
         for (AgentRunContextMetric metric : metrics) {
             result.setTotalMetricCount(result.getTotalMetricCount() + 1);
             String callType = StringUtils.defaultIfBlank(metric.getCallType(), "ANSWER");
@@ -42,6 +43,16 @@ public class AgentRunContextMetricServiceImpl
                     if (occupancy >= HIGH_PRESSURE_THRESHOLD) {
                         result.setHighPressureMetricCount(result.getHighPressureMetricCount() + 1);
                     }
+                }
+                if (metric.getPromptCacheHitRate() != null) {
+                    result.setCacheObservedMetricCount(result.getCacheObservedMetricCount() + 1);
+                    cacheHitRateSum += metric.getPromptCacheHitRate();
+                }
+                if (metric.getCachedPromptTokens() != null) {
+                    result.setTotalCachedPromptTokens(result.getTotalCachedPromptTokens() + metric.getCachedPromptTokens());
+                }
+                if (metric.getUncachedPromptTokens() != null) {
+                    result.setTotalUncachedPromptTokens(result.getTotalUncachedPromptTokens() + metric.getUncachedPromptTokens());
                 }
             }
             if ("COMPRESSION".equals(callType)) {
@@ -67,6 +78,9 @@ public class AgentRunContextMetricServiceImpl
         }
         if (occupancyCount > 0) {
             result.setAverageOccupancyPercent(Math.round(occupancySum * 100D / occupancyCount) / 100D);
+        }
+        if (result.getCacheObservedMetricCount() > 0) {
+            result.setAveragePromptCacheHitRate(Math.round(cacheHitRateSum * 100D / result.getCacheObservedMetricCount()) / 100D);
         }
         return result;
     }

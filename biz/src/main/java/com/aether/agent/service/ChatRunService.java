@@ -35,6 +35,7 @@ public class ChatRunService {
         // agent_run input/output columns are TEXT: preserve both sides in full for audit.
         run.setInputContent(input);
         run.setOutputContent(response == null ? null : response.getContent());
+        run.setRawResponse(response == null ? null : response.getRawResponse());
         run.setModel(response == null ? agent.getModel() : response.getModel());
         run.setModelProviderId(provider.getId());
         if (response != null) {
@@ -74,6 +75,7 @@ public class ChatRunService {
         run.setId(runId);
         run.setMessageId(messageId);
         run.setOutputContent(response == null ? null : response.getContent());
+        run.setRawResponse(response == null ? null : response.getRawResponse());
         if (response != null) {
             run.setModel(response.getModel());
             run.setPromptTokens(response.getPromptTokens());

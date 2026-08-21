@@ -135,6 +135,28 @@ class KnowledgeContextServiceTest {
         org.junit.jupiter.api.Assertions.assertFalse(retrievalReceivedPreference[0]);
     }
 
+    @Test
+    void appendsRuntimeContextAfterConversationHistoryToPreserveCacheablePrefix() {
+        KnowledgeRetrievalService retrievalService = mock(KnowledgeRetrievalService.class);
+        KnowledgeRetrievalResult result = new KnowledgeRetrievalResult();
+        result.setContext("【知识库检索结果】\n片段 1");
+        when(retrievalService.retrieveWithHistory(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyList())).thenReturn(result);
+        KnowledgeContextService service = new KnowledgeContextService(mock(AdminPreferenceService.class), retrievalService,
+                mock(KnowledgeDocumentService.class));
+        ArrayList<ModelChatMessage> context = new ArrayList<>();
+        context.add(new ModelChatMessage("system", "稳定系统提示"));
+        context.add(new ModelChatMessage("user", "历史提问"));
+        context.add(new ModelChatMessage("assistant", "历史回答"));
+        context.add(new ModelChatMessage("user", "本轮提问"));
+
+        service.enhance(context, "user-1", "conversation-1", "agent-1", "本轮提问");
+
+        assertEquals("稳定系统提示", context.get(0).getContent());
+        assertEquals("本轮提问", context.get(3).getContent());
+        assertTrue(context.get(4).getContent().startsWith("【运行时上下文】"));
+    }
+
     /**
      * 处理skipsRetrieval用于CasualUnscopedTurn。
      */

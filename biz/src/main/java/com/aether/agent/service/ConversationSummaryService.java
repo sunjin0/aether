@@ -356,6 +356,17 @@ public class ConversationSummaryService {
         if (contextMetricService == null || preliminary == null) {
             return;
         }
+        if (response != null && (response.getCachedPromptTokens() != null
+                || response.getUncachedPromptTokens() != null
+                || response.getPromptCacheHitRate() != null)) {
+            contextMetricService.recordFinal(preliminary,
+                    response.getPromptTokens(),
+                    response.getCachedPromptTokens(),
+                    response.getUncachedPromptTokens(),
+                    response.getPromptCacheHitRate(),
+                    compressionStatus);
+            return;
+        }
         contextMetricService.recordFinal(preliminary,
                 response == null ? null : response.getPromptTokens(),
                 compressionStatus);

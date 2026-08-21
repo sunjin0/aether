@@ -327,7 +327,6 @@ public class DeepAgentRunService {
      */
     private List<Map<String, String>> buildConversationMemory(String conversationId, String sessionId, String userId) {
         List<Map<String, String>> result = new ArrayList<Map<String, String>>();
-        addConfirmedPreferences(result, userId);
         if (conversationContextService != null && StringUtils.isNotBlank(conversationId)) {
             List<ModelChatMessage> messages = conversationContextService.buildSharedConversationMemory(conversationId, sessionId);
             if (messages != null) for (ModelChatMessage message : messages) {
@@ -340,6 +339,9 @@ public class DeepAgentRunService {
                 result.add(item);
             }
         }
+        // Preferences are refreshed for every dispatch. Keep them behind stable history so they
+        // cannot invalidate the provider's reusable prompt prefix.
+        addConfirmedPreferences(result, userId);
         return result;
     }
 

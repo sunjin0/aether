@@ -33,7 +33,7 @@ import java.util.List;
 public class OpenAIModelClient implements ModelClient {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAIModelClient.class);
-    private static final int DEFAULT_TIMEOUT_MS = 30000;
+    private static final int DEFAULT_TIMEOUT_MS = 300000;
 
     private final PooledHttpClient pooledHttpClient;
     private final List<ModelProviderAdapter> adapters;

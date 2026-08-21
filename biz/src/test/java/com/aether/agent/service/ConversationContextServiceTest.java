@@ -328,10 +328,10 @@ class ConversationContextServiceTest {
     }
 
     /**
-     * 注入会话记忆：活跃且非受限的记忆渲染为 system 块，插在系统提示之后。
+     * 注入会话记忆：活跃且非受限的记忆渲染为 system 块，追加在稳定历史之后。
      */
     @Test
-    void injectsActiveSessionMemoryAfterSystemPrompt() {
+    void appendsActiveSessionMemoryAfterConversationHistory() {
         ConversationContextService memoryAwareService = new ConversationContextService(
                 messageService, cacheService, summaryService, runService, toolCallLogService,
                 sessionService, sessionMemoryService);
@@ -347,7 +347,7 @@ class ConversationContextServiceTest {
         memory.setImportance(90);
         memory.setSensitivityLevel("NORMAL");
         memory.setStatus(AgentSessionMemory.STATUS_ACTIVE);
-        when(sessionMemoryService.listInjectableForModel("session-1", 6))
+        when(sessionMemoryService.listInjectableForModel("session-1", 3))
                 .thenReturn(Collections.singletonList(memory));
         List<AgentMessage> history = messagesAscending(1, 2);
         when(messageService.count(any())).thenReturn(2L);
@@ -356,16 +356,16 @@ class ConversationContextServiceTest {
         List<ModelChatMessage> context = memoryAwareService.buildWithSummary(agent, provider, "conversation-1");
         memoryAwareService.injectSessionMemory(context, "conversation-1", "user-1", "agent-1");
 
-        assertEquals("system", context.get(1).getRole());
-        assertTrue(context.get(1).getContent().contains("【会话记忆】"));
-        assertTrue(context.get(1).getContent().contains("项目使用 Java 8"));
+        assertEquals("system", context.get(3).getRole());
+        assertTrue(context.get(3).getContent().contains("【会话记忆】"));
+        assertTrue(context.get(3).getContent().contains("项目使用 Java 8"));
     }
 
     /**
-     * Deep 与标准聊天共享同一会话记忆渲染块，并在摘要/历史之前提供。
+     * Deep 与标准聊天共享同一会话记忆渲染块，并追加在摘要/历史之后。
      */
     @Test
-    void sharedConversationMemoryUsesUnifiedMemoryBlockBeforeHistory() {
+    void sharedConversationMemoryAppendsUnifiedMemoryBlockAfterHistory() {
         ConversationContextService memoryAwareService = new ConversationContextService(
                 messageService, cacheService, summaryService, runService, toolCallLogService,
                 sessionService, sessionMemoryService);
@@ -376,7 +376,7 @@ class ConversationContextServiceTest {
         memory.setImportance(80);
         memory.setSensitivityLevel("NORMAL");
         memory.setStatus(AgentSessionMemory.STATUS_ACTIVE);
-        when(sessionMemoryService.listInjectableForModel("session-1", 6))
+        when(sessionMemoryService.listInjectableForModel("session-1", 3))
                 .thenReturn(Collections.singletonList(memory));
         when(summaryService.get("conversation-1")).thenReturn(null);
         when(messageService.list(any())).thenReturn(messagesDescending(1, 2));
@@ -384,11 +384,11 @@ class ConversationContextServiceTest {
         List<ModelChatMessage> context = memoryAwareService.buildSharedConversationMemory(
                 "conversation-1", "session-1");
 
-        assertEquals("system", context.get(0).getRole());
-        assertTrue(context.get(0).getContent().contains("【会话记忆】"));
-        assertTrue(context.get(0).getContent().contains("项目使用 PostgreSQL"));
-        assertEquals("assistant", context.get(1).getRole());
-        assertEquals("user", context.get(2).getRole());
+        assertEquals("assistant", context.get(0).getRole());
+        assertEquals("user", context.get(1).getRole());
+        assertEquals("system", context.get(2).getRole());
+        assertTrue(context.get(2).getContent().contains("【会话记忆】"));
+        assertTrue(context.get(2).getContent().contains("项目使用 PostgreSQL"));
     }
 
     /**

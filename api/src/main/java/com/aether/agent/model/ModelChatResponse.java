@@ -25,6 +25,12 @@ public class ModelChatResponse {
 
     private Integer reasoningTokens;
 
+    private Integer cachedPromptTokens;
+
+    private Integer uncachedPromptTokens;
+
+    private Double promptCacheHitRate;
+
     private String toolCalls;
 
     private String rawResponse;

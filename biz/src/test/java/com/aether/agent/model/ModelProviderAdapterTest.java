@@ -51,15 +51,22 @@ class ModelProviderAdapterTest {
         String stream = "data: {\"model\":\"gpt-4.1-mini\",\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"
                 + "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\"}}]}}]}\n\n"
                 + "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"a\\\"}\"}}]}}]}\n\n"
-                + "data: {\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":4,\"total_tokens\":7,\"completion_tokens_details\":{\"reasoning_tokens\":2}},\"choices\":[]}\n\n"
+                + "data: {\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":4,\"total_tokens\":14,\"prompt_tokens_details\":{\"cached_tokens\":6},\"completion_tokens_details\":{\"reasoning_tokens\":2}},\"choices\":[]}\n\n"
                 + "data: [DONE]\n\n";
         ModelStreamResponse response = adapter.parseStream(new ByteArrayInputStream(stream.getBytes(StandardCharsets.UTF_8)), "fallback", null);
 
         assertEquals("hi", response.getContent());
-        assertEquals(7, response.getTotalTokens());
+        assertEquals(14, response.getTotalTokens());
         assertEquals(2, response.getReasoningTokens());
+        assertEquals(6, response.getCachedPromptTokens());
+        assertEquals(4, response.getUncachedPromptTokens());
+        assertEquals(60D, response.getPromptCacheHitRate());
         JSONArray calls = JSONArray.parseArray(response.getToolCalls());
         assertEquals("{\"q\":\"a\"}", calls.getJSONObject(0).getJSONObject("function").getString("arguments"));
+        JSONObject raw = JSONObject.parseObject(response.getRawResponse());
+        assertEquals("hi", raw.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content"));
+        assertEquals("lookup", raw.getJSONArray("choices").getJSONObject(0).getJSONObject("message")
+                .getJSONArray("tool_calls").getJSONObject(0).getJSONObject("function").getString("name"));
     }
 
     @Test
@@ -118,16 +125,20 @@ class ModelProviderAdapterTest {
                 + "{\"type\":\"text\",\"text\":\"hello\"},"
                 + "{\"type\":\"thinking\",\"thinking\":\"plan\"},"
                 + "{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"lookup\",\"input\":{\"q\":\"a\"}}"
-                + "],\"usage\":{\"input_tokens\":5,\"output_tokens\":6}}";
+                + "],\"usage\":{\"input_tokens\":5,\"cache_creation_input_tokens\":3,\"cache_read_input_tokens\":2,\"output_tokens\":6}}";
         ModelChatResponse response = adapter.parseResponse(responseBody, "fallback");
 
         assertEquals("hello", response.getContent());
         assertEquals("plan", response.getReasoningContent());
-        assertEquals(11, response.getTotalTokens());
+        assertEquals(16, response.getTotalTokens());
+        assertEquals(10, response.getPromptTokens());
+        assertEquals(2, response.getCachedPromptTokens());
+        assertEquals(8, response.getUncachedPromptTokens());
+        assertEquals(20D, response.getPromptCacheHitRate());
         assertEquals("lookup", JSONArray.parseArray(response.getToolCalls()).getJSONObject(0).getJSONObject("function").getString("name"));
 
         String stream = "event: message_start\n"
-                + "data: {\"message\":{\"model\":\"claude-3-5-sonnet-latest\",\"usage\":{\"input_tokens\":2}}}\n\n"
+                + "data: {\"message\":{\"model\":\"claude-3-5-sonnet-latest\",\"usage\":{\"input_tokens\":2,\"cache_read_input_tokens\":6}}}\n\n"
                 + "event: content_block_delta\n"
                 + "data: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"he\"}}\n\n"
                 + "event: content_block_start\n"
@@ -139,9 +150,25 @@ class ModelProviderAdapterTest {
         ModelStreamResponse streamResponse = adapter.parseStream(new ByteArrayInputStream(stream.getBytes(StandardCharsets.UTF_8)), "fallback", null);
 
         assertEquals("he", streamResponse.getContent());
-        assertEquals(5, streamResponse.getTotalTokens());
+        assertEquals(11, streamResponse.getTotalTokens());
+        assertEquals(6, streamResponse.getCachedPromptTokens());
+        assertEquals(2, streamResponse.getUncachedPromptTokens());
+        assertEquals(75D, streamResponse.getPromptCacheHitRate());
         assertEquals("{\"q\":\"a\"}", JSONArray.parseArray(streamResponse.getToolCalls()).getJSONObject(0)
                 .getJSONObject("function").getString("arguments"));
+        JSONObject raw = JSONObject.parseObject(streamResponse.getRawResponse());
+        assertEquals("he", raw.getJSONArray("content").getJSONObject(0).getString("text"));
+        assertEquals("lookup", raw.getJSONArray("content").getJSONObject(1).getString("name"));
+    }
+
+    @Test
+    void capsMalformedProviderCacheUsageAtPromptTokens() {
+        OpenAIChatAdapter adapter = new OpenAIChatAdapter();
+        ModelChatResponse response = adapter.parseResponse("{\"model\":\"gpt-4.1-mini\",\"choices\":[{\"message\":{\"content\":\"hi\"}}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1,\"total_tokens\":11,\"prompt_tokens_details\":{\"cached_tokens\":15}}}", "fallback");
+
+        assertEquals(10, response.getCachedPromptTokens());
+        assertEquals(0, response.getUncachedPromptTokens());
+        assertEquals(100D, response.getPromptCacheHitRate());
     }
 
     @Test

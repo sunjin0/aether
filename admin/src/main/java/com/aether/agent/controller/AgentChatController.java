@@ -564,6 +564,9 @@ public class AgentChatController {
                 data.put("completionTokens", response.getCompletionTokens());
                 data.put("totalTokens", response.getTotalTokens());
                 data.put("reasoningTokens", response.getReasoningTokens());
+                data.put("cachedPromptTokens", response.getCachedPromptTokens());
+                data.put("uncachedPromptTokens", response.getUncachedPromptTokens());
+                data.put("promptCacheHitRate", response.getPromptCacheHitRate());
                 data.put("waitingUser", response.getWaitingUser());
                 data.put("sources", response.getSources());
             }
@@ -810,6 +813,9 @@ public class AgentChatController {
                                     done.put("promptTokens", response.getPromptTokens());
                                     done.put("completionTokens", response.getCompletionTokens());
                                     done.put("totalTokens", response.getTotalTokens());
+                                    done.put("cachedPromptTokens", response.getCachedPromptTokens());
+                                    done.put("uncachedPromptTokens", response.getUncachedPromptTokens());
+                                    done.put("promptCacheHitRate", response.getPromptCacheHitRate());
                                     done.put("sources", response.getSources());
                                 }
                                 emitter.send(SseEmitter.event().name("done").data(done.toJSONString()));

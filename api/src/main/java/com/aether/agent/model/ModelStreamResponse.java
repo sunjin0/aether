@@ -27,6 +27,12 @@ public class ModelStreamResponse {
 
     private Integer reasoningTokens;
 
+    private Integer cachedPromptTokens;
+
+    private Integer uncachedPromptTokens;
+
+    private Double promptCacheHitRate;
+
     /**
      * 工具调用请求（JSON格式，assistant角色时）
      */

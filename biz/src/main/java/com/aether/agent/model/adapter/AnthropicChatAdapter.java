@@ -209,11 +209,12 @@ public class AnthropicChatAdapter implements ModelProviderAdapter {
         response.setModel(StringUtils.defaultIfBlank(json.getString("model"), defaultModel));
         JSONObject usage = json.getJSONObject("usage");
         if (usage != null) {
-            response.setPromptTokens(usage.getInteger("input_tokens"));
+            response.setPromptTokens(anthropicInputTokens(usage));
             response.setCompletionTokens(usage.getInteger("output_tokens"));
             if (response.getPromptTokens() != null && response.getCompletionTokens() != null) {
                 response.setTotalTokens(response.getPromptTokens() + response.getCompletionTokens());
             }
+            applyCacheUsage(response, usage);
         }
         response.setRawResponse(responseBody);
         return response;
@@ -240,7 +241,6 @@ public class AnthropicChatAdapter implements ModelProviderAdapter {
     public ModelStreamResponse parseStream(InputStream inputStream, String defaultModel, ModelStreamCallback callback) throws IOException {
         StringBuilder content = new StringBuilder();
         StringBuilder reasoning = new StringBuilder();
-        StringBuilder raw = new StringBuilder();
         ModelStreamResponse response = new ModelStreamResponse();
         response.setModel(defaultModel);
         Map<Integer, JSONObject> toolCalls = new LinkedHashMap<>();
@@ -255,7 +255,6 @@ public class AnthropicChatAdapter implements ModelProviderAdapter {
                 } else if (line.startsWith("data:")) {
                     String data = line.substring("data:".length()).trim();
                     if (StringUtils.isBlank(data) || "[DONE]".equals(data)) continue;
-                    raw.append(data).append('\n');
                     parseStreamEvent(event, data, response, content, reasoning, toolCalls, callback);
                 }
             }
@@ -267,8 +266,38 @@ public class AnthropicChatAdapter implements ModelProviderAdapter {
             array.addAll(toolCalls.values());
             response.setToolCalls(array.toJSONString());
         }
-        response.setRawResponse(raw.toString());
+        response.setRawResponse(mergedStreamResponse(response));
         return response;
+    }
+
+    /**
+     * Converts streamed events into one Messages API-shaped response for audit storage.
+     */
+    private String mergedStreamResponse(ModelStreamResponse response) {
+        JSONArray content = new JSONArray();
+        if (StringUtils.isNotBlank(response.getReasoningContent())) {
+            content.add(new JSONObject().fluentPut("type", "thinking").fluentPut("thinking", response.getReasoningContent()));
+        }
+        if (StringUtils.isNotBlank(response.getContent())) {
+            content.add(new JSONObject().fluentPut("type", "text").fluentPut("text", response.getContent()));
+        }
+        if (StringUtils.isNotBlank(response.getToolCalls())) {
+            JSONArray calls = JSONArray.parseArray(response.getToolCalls());
+            for (int i = 0; i < calls.size(); i++) {
+                JSONObject call = calls.getJSONObject(i);
+                JSONObject function = call.getJSONObject("function");
+                content.add(new JSONObject().fluentPut("type", "tool_use")
+                        .fluentPut("id", call.getString("id"))
+                        .fluentPut("name", function == null ? null : function.getString("name"))
+                        .fluentPut("input", parseToolArguments(function == null ? null : function.getString("arguments"))));
+            }
+        }
+        JSONObject usage = new JSONObject();
+        usage.put("input_tokens", response.getUncachedPromptTokens());
+        usage.put("cache_read_input_tokens", response.getCachedPromptTokens());
+        usage.put("output_tokens", response.getCompletionTokens());
+        return new JSONObject().fluentPut("model", response.getModel())
+                .fluentPut("content", content).fluentPut("usage", usage).toJSONString();
     }
 
     private void parseStreamEvent(String event, String data, ModelStreamResponse response, StringBuilder content,
@@ -279,7 +308,8 @@ public class AnthropicChatAdapter implements ModelProviderAdapter {
             response.setModel(StringUtils.defaultIfBlank(message.getString("model"), response.getModel()));
             JSONObject usage = message.getJSONObject("usage");
             if (usage != null) {
-                response.setPromptTokens(usage.getInteger("input_tokens"));
+                response.setPromptTokens(anthropicInputTokens(usage));
+                applyCacheUsage(response, usage);
             }
             return;
         }
@@ -322,10 +352,56 @@ public class AnthropicChatAdapter implements ModelProviderAdapter {
         if ("message_delta".equals(event) && json.getJSONObject("usage") != null) {
             JSONObject usage = json.getJSONObject("usage");
             response.setCompletionTokens(usage.getInteger("output_tokens"));
+            Integer promptTokens = anthropicInputTokens(usage);
+            if (promptTokens != null) {
+                response.setPromptTokens(promptTokens);
+            }
+            applyCacheUsage(response, usage);
             if (response.getPromptTokens() != null && response.getCompletionTokens() != null) {
                 response.setTotalTokens(response.getPromptTokens() + response.getCompletionTokens());
             }
         }
+    }
+
+    private void applyCacheUsage(ModelChatResponse response, JSONObject usage) {
+        Integer cached = usage.getInteger("cache_read_input_tokens");
+        if (cached == null) return;
+        response.setCachedPromptTokens(normalizeCachedTokens(response.getPromptTokens(), cached));
+        if (response.getPromptTokens() != null) {
+            response.setUncachedPromptTokens(Math.max(0, response.getPromptTokens() - response.getCachedPromptTokens()));
+            if (response.getPromptTokens() > 0) {
+                response.setPromptCacheHitRate(Math.round(response.getCachedPromptTokens() * 10000D / response.getPromptTokens()) / 100D);
+            }
+        }
+    }
+
+    private void applyCacheUsage(ModelStreamResponse response, JSONObject usage) {
+        Integer cached = usage.getInteger("cache_read_input_tokens");
+        if (cached == null) return;
+        response.setCachedPromptTokens(normalizeCachedTokens(response.getPromptTokens(), cached));
+        if (response.getPromptTokens() != null) {
+            response.setUncachedPromptTokens(Math.max(0, response.getPromptTokens() - response.getCachedPromptTokens()));
+            if (response.getPromptTokens() > 0) {
+                response.setPromptCacheHitRate(Math.round(response.getCachedPromptTokens() * 10000D / response.getPromptTokens()) / 100D);
+            }
+        }
+    }
+
+    private Integer anthropicInputTokens(JSONObject usage) {
+        Integer input = usage.getInteger("input_tokens");
+        Integer cacheCreation = usage.getInteger("cache_creation_input_tokens");
+        Integer cacheRead = usage.getInteger("cache_read_input_tokens");
+        if (input == null && cacheCreation == null && cacheRead == null) return null;
+        return nullToZero(input) + nullToZero(cacheCreation) + nullToZero(cacheRead);
+    }
+
+    private int nullToZero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private Integer normalizeCachedTokens(Integer promptTokens, Integer cachedTokens) {
+        int cached = Math.max(0, cachedTokens);
+        return promptTokens == null ? cached : Math.min(cached, Math.max(0, promptTokens));
     }
 
     private JSONObject parseJson(String body) {

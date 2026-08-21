@@ -99,10 +99,6 @@ public class KnowledgeContextService {
         if (context == null) {
             return sources;
         }
-        int insertIndex = 0;
-        while (insertIndex < context.size() && "system".equals(context.get(insertIndex).getRole())) {
-            insertIndex++;
-        }
         long preferenceStartedAt = System.currentTimeMillis();
         String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
         ChatLatencyMetrics.record("chat.preference_context", System.currentTimeMillis() - preferenceStartedAt);
@@ -134,7 +130,7 @@ public class KnowledgeContextService {
             source.put("content", truncate(chunk.getContent(), 500));
             sources.add(source);
         }
-        appendRuntimeContext(context, insertIndex, preferenceContext, retrieval, sources);
+        appendRuntimeContext(context, preferenceContext, retrieval, sources);
         return sources;
     }
 
@@ -164,8 +160,6 @@ public class KnowledgeContextService {
                                                      boolean retrievalDisabled, boolean retrievalForced) {
         List<Map<String, Object>> sources = new ArrayList<>();
         if (context == null) return sources;
-        int insertIndex = 0;
-        while (insertIndex < context.size() && "system".equals(context.get(insertIndex).getRole())) insertIndex++;
         long preferenceStartedAt = System.currentTimeMillis();
         String preferenceContext = preferenceService.buildPreferenceContext(userId, null, conversationId);
         ChatLatencyMetrics.record("chat.preference_context", System.currentTimeMillis() - preferenceStartedAt);
@@ -194,15 +188,15 @@ public class KnowledgeContextService {
             source.put("content", truncate(chunk.getContent(), 500));
             sources.add(source);
         }
-        appendRuntimeContext(context, insertIndex, preferenceContext, retrieval, sources);
+        appendRuntimeContext(context, preferenceContext, retrieval, sources);
         return sources;
     }
 
     /**
      * Keeps request-specific guidance together without merging it into protected Skill rules.
      */
-    private void appendRuntimeContext(List<ModelChatMessage> context, int insertIndex, String preferenceContext,
-                                      KnowledgeRetrievalResult retrieval, List<Map<String, Object>> sources) {
+    private void appendRuntimeContext(List<ModelChatMessage> context, String preferenceContext,
+                                       KnowledgeRetrievalResult retrieval, List<Map<String, Object>> sources) {
         StringBuilder runtime = new StringBuilder();
         appendSection(runtime, preferenceContext);
         if (StringUtils.isNotBlank(retrieval.getContext())) {
@@ -218,7 +212,9 @@ public class KnowledgeContextService {
             appendSection(runtime, buildCitationInstruction(sources, retrieval.isStrictGrounding()));
         }
         if (runtime.length() == 0) return;
-        context.add(insertIndex, new ModelChatMessage("system", "【运行时上下文】\n" + runtime));
+        // Retrieval and preferences change per turn. Appending preserves the stable prompt/history prefix
+        // so provider-side prefix caches remain reusable across a conversation.
+        context.add(new ModelChatMessage("system", "【运行时上下文】\n" + runtime));
     }
 
     /**

@@ -5,6 +5,7 @@ import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatMessage;
+import com.aether.agent.model.ModelChatResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -64,6 +65,43 @@ class ContextMetricServiceTest {
         ArgumentCaptor<AgentRunContextMetric> saved = ArgumentCaptor.forClass(AgentRunContextMetric.class);
         verify(metricStore, org.mockito.Mockito.times(2)).save(saved.capture());
         assertEquals("PRELIMINARY", saved.getAllValues().get(0).getMetricPhase());
+    }
+
+    @Test
+    void recordsProviderPromptCacheMetricsInFinalSnapshot() {
+        ContextMetricService service = new ContextMetricService(metricStore);
+        AgentRunContextMetric preliminary = new AgentRunContextMetric();
+        preliminary.setModelCallId("call-pre");
+        preliminary.setRunId("run-cache");
+        preliminary.setMetricPhase("PRELIMINARY");
+        preliminary.setCompressionStatus("NOT_NEEDED");
+        preliminary.setCompressedMessageCount(0);
+        ModelChatResponse response = new ModelChatResponse();
+        response.setPromptTokens(1000);
+        response.setCachedPromptTokens(750);
+        response.setUncachedPromptTokens(250);
+        response.setPromptCacheHitRate(75D);
+
+        AgentRunContextMetric finalMetric = service.recordFinal(preliminary, response);
+
+        assertEquals(Integer.valueOf(1000), finalMetric.getPromptTokens());
+        assertEquals(Integer.valueOf(750), finalMetric.getCachedPromptTokens());
+        assertEquals(Integer.valueOf(250), finalMetric.getUncachedPromptTokens());
+        assertEquals(75D, finalMetric.getPromptCacheHitRate());
+        verify(metricStore).save(finalMetric);
+    }
+
+    @Test
+    void capsFinalCacheMetricsAtReportedPromptTokens() {
+        ContextMetricService service = new ContextMetricService(metricStore);
+        AgentRunContextMetric preliminary = new AgentRunContextMetric();
+        preliminary.setModelCallId("call-pre");
+
+        AgentRunContextMetric finalMetric = service.recordFinal(preliminary, 100, 150, 50, null);
+
+        assertEquals(Integer.valueOf(100), finalMetric.getCachedPromptTokens());
+        assertEquals(Integer.valueOf(0), finalMetric.getUncachedPromptTokens());
+        assertEquals(100D, finalMetric.getPromptCacheHitRate());
     }
 
     @Test

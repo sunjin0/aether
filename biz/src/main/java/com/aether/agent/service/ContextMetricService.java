@@ -5,6 +5,8 @@ import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatMessage;
+import com.aether.agent.model.ModelChatResponse;
+import com.aether.agent.model.ModelStreamResponse;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
@@ -99,7 +101,30 @@ public class ContextMetricService {
     }
 
     public AgentRunContextMetric recordFinal(AgentRunContextMetric preliminary, Integer providerPromptTokens) {
-        return recordFinal(preliminary, providerPromptTokens, null);
+        return recordFinal(preliminary, providerPromptTokens, null, null, null);
+    }
+
+    public AgentRunContextMetric recordFinal(AgentRunContextMetric preliminary, ModelChatResponse response) {
+        return recordFinal(preliminary,
+                response == null ? null : response.getPromptTokens(),
+                response == null ? null : response.getCachedPromptTokens(),
+                response == null ? null : response.getUncachedPromptTokens(),
+                response == null ? null : response.getPromptCacheHitRate());
+    }
+
+    public AgentRunContextMetric recordFinal(AgentRunContextMetric preliminary, ModelStreamResponse response) {
+        return recordFinal(preliminary,
+                response == null ? null : response.getPromptTokens(),
+                response == null ? null : response.getCachedPromptTokens(),
+                response == null ? null : response.getUncachedPromptTokens(),
+                response == null ? null : response.getPromptCacheHitRate());
+    }
+
+    public AgentRunContextMetric recordFinal(AgentRunContextMetric preliminary, Integer providerPromptTokens,
+                                             Integer cachedPromptTokens, Integer uncachedPromptTokens,
+                                             Double promptCacheHitRate) {
+        return recordFinal(preliminary, providerPromptTokens, cachedPromptTokens, uncachedPromptTokens,
+                promptCacheHitRate, null);
     }
 
     /**
@@ -107,6 +132,15 @@ public class ContextMetricService {
      */
     public AgentRunContextMetric recordFinal(AgentRunContextMetric preliminary, Integer providerPromptTokens,
                                              String compressionStatus) {
+        return recordFinal(preliminary, providerPromptTokens, null, null, null, compressionStatus);
+    }
+
+    /**
+     * 记录指定最终压缩状态和供应商缓存命中观测的不可变最终指标。
+     */
+    public AgentRunContextMetric recordFinal(AgentRunContextMetric preliminary, Integer providerPromptTokens,
+                                             Integer cachedPromptTokens, Integer uncachedPromptTokens,
+                                             Double promptCacheHitRate, String compressionStatus) {
         if (preliminary == null) return null;
         AgentRunContextMetric finalMetric = new AgentRunContextMetric();
         org.springframework.beans.BeanUtils.copyProperties(preliminary, finalMetric);
@@ -114,6 +148,8 @@ public class ContextMetricService {
         finalMetric.setSourceModelCallId(preliminary.getModelCallId());
         finalMetric.setMetricPhase("FINAL");
         finalMetric.setPromptTokens(providerPromptTokens);
+        applyPromptCacheMetrics(finalMetric, providerPromptTokens, cachedPromptTokens,
+                uncachedPromptTokens, promptCacheHitRate);
         if (StringUtils.isNotBlank(compressionStatus)) {
             finalMetric.setCompressionStatus(compressionStatus);
             if ("SYNC_COMPLETED".equals(compressionStatus)) {
@@ -122,6 +158,38 @@ public class ContextMetricService {
         }
         metricService.save(finalMetric);
         return finalMetric;
+    }
+
+    private void applyPromptCacheMetrics(AgentRunContextMetric metric, Integer promptTokens,
+                                         Integer cachedPromptTokens, Integer uncachedPromptTokens,
+                                         Double promptCacheHitRate) {
+        if (cachedPromptTokens == null && uncachedPromptTokens == null && promptCacheHitRate == null) {
+            return;
+        }
+        Integer cached = cachedPromptTokens == null ? null : Math.max(0, cachedPromptTokens);
+        Integer uncached = uncachedPromptTokens == null ? null : Math.max(0, uncachedPromptTokens);
+        if (cached != null && promptTokens != null) {
+            cached = Math.min(cached, Math.max(0, promptTokens));
+        }
+        if (uncached != null && promptTokens != null) {
+            uncached = Math.min(uncached, Math.max(0, promptTokens));
+        }
+        if (cached != null && uncached != null && promptTokens != null && cached + uncached > promptTokens) {
+            uncached = Math.max(0, promptTokens - cached);
+        }
+        if (cached != null && uncached == null && promptTokens != null) {
+            uncached = Math.max(0, promptTokens - cached);
+        }
+        if (cached == null && uncached != null && promptTokens != null) {
+            cached = Math.max(0, promptTokens - uncached);
+        }
+        metric.setCachedPromptTokens(cached);
+        metric.setUncachedPromptTokens(uncached);
+        if (promptCacheHitRate != null) {
+            metric.setPromptCacheHitRate(Math.round(promptCacheHitRate * 100D) / 100D);
+        } else if (cached != null && promptTokens != null && promptTokens > 0) {
+            metric.setPromptCacheHitRate(Math.round(cached * 10000D / promptTokens) / 100D);
+        }
     }
 
     /**

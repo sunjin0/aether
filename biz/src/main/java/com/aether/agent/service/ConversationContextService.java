@@ -31,7 +31,7 @@ import java.util.Map;
 @Service
 public class ConversationContextService {
     private static final int HISTORY_MESSAGE_LIMIT = 20;
-    private static final int SUMMARY_TRIGGER_THRESHOLD = 10;
+    private static final int SUMMARY_TRIGGER_THRESHOLD = 16;
     private static final int KEEP_RECENT_MESSAGES = 5;
     private static final int SUMMARY_BATCH_SIZE = 20;
     private static final int SUMMARY_BATCH_MAX_CHARS = 12000;
@@ -42,9 +42,9 @@ public class ConversationContextService {
     private static final int MIN_INPUT_BUDGET_TOKENS = 256;
     private static final int MIN_OPTIONAL_SYSTEM_TOKENS = 128;
     private static final int MESSAGE_BASE_TOKENS = 4;
-    private static final int SESSION_MEMORY_LIMIT = 6;
+    private static final int SESSION_MEMORY_LIMIT = 3;
     private static final int SESSION_MEMORY_ENTRY_CHARS = 300;
-    private static final int SESSION_MEMORY_BUDGET_PERCENT = 15;
+    private static final int SESSION_MEMORY_BUDGET_PERCENT = 8;
 
     private final AgentMessageService messageService;
     private final ConversationCacheService cacheService;
@@ -164,13 +164,13 @@ public class ConversationContextService {
      */
     public List<ModelChatMessage> buildSharedConversationMemory(String conversationId, String sessionId) {
         List<ModelChatMessage> result = new ArrayList<ModelChatMessage>();
-        ModelChatMessage memory = renderSessionMemoryForSession(sessionId);
-        if (memory != null) {
-            result.add(memory);
-        }
         List<ModelChatMessage> history = buildDeepSessionMemory(conversationId);
         if (history != null) {
             result.addAll(history);
+        }
+        ModelChatMessage memory = renderSessionMemoryForSession(sessionId);
+        if (memory != null) {
+            result.add(memory);
         }
         return result;
     }
@@ -268,18 +268,14 @@ public class ConversationContextService {
     }
 
     /**
-     * 将会话记忆块插入受保护系统提示之后、历史与摘要之前。
+     * Appends request-time session memory after the stable system prompt and conversation history.
      */
     public void injectSessionMemory(List<ModelChatMessage> context,
                                     String conversationId, String userId, String agentDefinitionId) {
         if (context == null || context.isEmpty()) return;
         ModelChatMessage memory = renderSessionMemory(conversationId, userId, agentDefinitionId);
         if (memory == null) return;
-        int insertIndex = 1;
-        if (!"system".equals(context.get(0).getRole())) {
-            insertIndex = 0;
-        }
-        context.add(insertIndex, memory);
+        context.add(memory);
     }
 
     /**

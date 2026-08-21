@@ -24,8 +24,8 @@ class AgentRunContextMetricServiceImplTest {
     void operationsMetricsAggregatesPressureCompressionAndTrimming() {
         AgentRunContextMetricServiceImpl service = spy(new AgentRunContextMetricServiceImpl());
         doReturn(Arrays.asList(
-                metric("ANSWER", "FINAL", "NOT_NEEDED", 900, 1000, 2, 0),
-                metric("DEEP_STEP", "FINAL", "NOT_NEEDED", 500, 1000, 0, 3),
+                metric("ANSWER", "FINAL", "NOT_NEEDED", 900, 1000, 2, 0, 600, 300, 66.67D),
+                metric("DEEP_STEP", "FINAL", "NOT_NEEDED", 500, 1000, 0, 3, 100, 400, 20D),
                 metric("COMPRESSION", "FINAL", "SYNC_COMPLETED", 120, 1000, 0, 4),
                 metric("COMPRESSION", "FINAL", "FAILED_FALLBACK", 100, 1000, 0, 0),
                 metric(null, "PRELIMINARY", null, 700, 1000, 1, 0)
@@ -37,6 +37,10 @@ class AgentRunContextMetricServiceImplTest {
         assertEquals(Long.valueOf(5L), result.getTotalMetricCount());
         assertEquals(Long.valueOf(2L), result.getCompletedRequestMetricCount());
         assertEquals(70D, result.getAverageOccupancyPercent());
+        assertEquals(Long.valueOf(2L), result.getCacheObservedMetricCount());
+        assertEquals(43.34D, result.getAveragePromptCacheHitRate());
+        assertEquals(Long.valueOf(700L), result.getTotalCachedPromptTokens());
+        assertEquals(Long.valueOf(700L), result.getTotalUncachedPromptTokens());
         assertEquals(Long.valueOf(1L), result.getHighPressureMetricCount());
         assertEquals(Long.valueOf(2L), result.getCompressionMetricCount());
         assertEquals(Long.valueOf(1L), result.getCompressionCompletedCount());
@@ -55,6 +59,15 @@ class AgentRunContextMetricServiceImplTest {
     private AgentRunContextMetric metric(String callType, String phase, String compressionStatus,
                                          Integer promptTokens, Integer budget,
                                          Integer trimmed, Integer compressed) {
+        return metric(callType, phase, compressionStatus, promptTokens, budget, trimmed, compressed,
+                null, null, null);
+    }
+
+    private AgentRunContextMetric metric(String callType, String phase, String compressionStatus,
+                                         Integer promptTokens, Integer budget,
+                                         Integer trimmed, Integer compressed,
+                                         Integer cachedPromptTokens, Integer uncachedPromptTokens,
+                                         Double promptCacheHitRate) {
         AgentRunContextMetric metric = new AgentRunContextMetric();
         metric.setCallType(callType);
         metric.setMetricPhase(phase);
@@ -63,6 +76,9 @@ class AgentRunContextMetricServiceImplTest {
         metric.setInputBudgetTokens(budget);
         metric.setTrimmedMessageCount(trimmed);
         metric.setCompressedMessageCount(compressed);
+        metric.setCachedPromptTokens(cachedPromptTokens);
+        metric.setUncachedPromptTokens(uncachedPromptTokens);
+        metric.setPromptCacheHitRate(promptCacheHitRate);
         return metric;
     }
 }

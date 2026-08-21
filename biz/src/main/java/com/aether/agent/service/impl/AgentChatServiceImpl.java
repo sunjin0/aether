@@ -1814,8 +1814,7 @@ AgentRunContextMetric preliminary = contextMetricService == null ? null
                 : contextMetricService.recordPreliminary(runId, attemptNo, request.getMessages(),
                         request.getTools(), request.getAgent(), request.getProvider());
         ModelChatResponse response = client.chat(request);
-        if (contextMetricService != null) contextMetricService.recordFinal(preliminary,
-                response == null ? null : response.getPromptTokens());
+        if (contextMetricService != null) contextMetricService.recordFinal(preliminary, response);
         return response;
     }
 
@@ -1826,8 +1825,7 @@ AgentRunContextMetric preliminary = contextMetricService == null ? null
                 : contextMetricService.recordPreliminary(runId, attemptNo, request.getMessages(),
                         request.getTools(), request.getAgent(), request.getProvider());
         ModelStreamResponse response = client.stream(request, callback);
-        if (contextMetricService != null) contextMetricService.recordFinal(preliminary,
-                response == null ? null : response.getPromptTokens());
+        if (contextMetricService != null) contextMetricService.recordFinal(preliminary, response);
         return response;
     }
 
@@ -1850,6 +1848,9 @@ AgentRunContextMetric preliminary = contextMetricService == null ? null
         streamResponse.setPromptTokens(retryResponse.getPromptTokens());
         streamResponse.setCompletionTokens(retryResponse.getCompletionTokens());
         streamResponse.setTotalTokens(retryResponse.getTotalTokens());
+        streamResponse.setCachedPromptTokens(retryResponse.getCachedPromptTokens());
+        streamResponse.setUncachedPromptTokens(retryResponse.getUncachedPromptTokens());
+        streamResponse.setPromptCacheHitRate(retryResponse.getPromptCacheHitRate());
         return streamResponse;
     }
 

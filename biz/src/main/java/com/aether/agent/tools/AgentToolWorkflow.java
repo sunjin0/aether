@@ -30,6 +30,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -148,6 +149,7 @@ public class AgentToolWorkflow {
             tools.add(tool);
             schemaChars += size;
         }
+        tools.sort(Comparator.comparing(AgentTool::getId, Comparator.nullsLast(String::compareTo)));
         return tools;
     }
 

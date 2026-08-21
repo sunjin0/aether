@@ -48,6 +48,9 @@ public class AgentRun extends BaseEntity {
     @ApiModelProperty(value = "输出内容摘要")
     private String outputContent;
 
+    @ApiModelProperty(value = "模型供应商原始响应")
+    private String rawResponse;
+
     @ApiModelProperty(value = "使用的模型")
     private String model;
 

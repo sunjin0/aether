@@ -29,6 +29,9 @@ public class AgentRunContextMetric {
     private Integer safetyReserveTokens;
     private Integer inputBudgetTokens;
     private Integer promptTokens;
+    private Integer cachedPromptTokens;
+    private Integer uncachedPromptTokens;
+    private Double promptCacheHitRate;
     private Integer estimatedPromptTokens;
     private Integer systemTokens;
     private Integer skillTokens;
