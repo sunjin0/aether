@@ -14,8 +14,8 @@ import com.aether.knowledge.service.KnowledgeDocumentVersionService;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.service.KnowledgeDocumentWorkflowService;
 import com.aether.storage.service.ObjectStorageService;
-import com.aether.knowledge.service.impl.KnowledgeDocumentContentExtractor;
-import com.aether.knowledge.service.impl.KnowledgeDocumentMarkdownFormatter;
+import com.aether.knowledge.service.impl.KnowledgeDocumentParseWorker;
+import com.aether.knowledge.workflow.TransactionAfterCommitExecutor;
 import com.aether.knowledge.vo.KnowledgeDocumentVo;
 import com.aether.knowledge.vo.KnowledgeDocumentChunkVo;
 import com.aether.entity.WebResponse;
@@ -62,8 +62,8 @@ public class KnowledgeDocumentController {
     private final KnowledgeDocumentIndexService knowledgeDocumentIndexService;
     private final KnowledgeDocumentVersionService knowledgeDocumentVersionService;
     private final ObjectStorageService objectStorageService;
-    private final KnowledgeDocumentContentExtractor contentExtractor;
-    private final KnowledgeDocumentMarkdownFormatter markdownFormatter;
+    private final KnowledgeDocumentParseWorker documentParseWorker;
+    private final TransactionAfterCommitExecutor afterCommitExecutor;
     private final String knowledgeBucket;
     private final KnowledgeAccessService knowledgeAccessService;
     private final KnowledgeDocumentWorkflowService workflowService;
@@ -76,8 +76,8 @@ public class KnowledgeDocumentController {
                                        KnowledgeDocumentIndexService knowledgeDocumentIndexService,
                                        KnowledgeDocumentVersionService knowledgeDocumentVersionService,
                                        ObjectStorageService objectStorageService,
-                                       KnowledgeDocumentContentExtractor contentExtractor,
-                                       KnowledgeDocumentMarkdownFormatter markdownFormatter,
+                                       KnowledgeDocumentParseWorker documentParseWorker,
+                                       TransactionAfterCommitExecutor afterCommitExecutor,
                                        KnowledgeAccessService knowledgeAccessService,
                                        KnowledgeDocumentWorkflowService workflowService,
                                        @Value("${knowledge.storage.bucket:${MINIO_KNOWLEDGE_BUCKET:aether-knowledge}}") String knowledgeBucket) {
@@ -86,8 +86,8 @@ public class KnowledgeDocumentController {
         this.knowledgeDocumentIndexService = knowledgeDocumentIndexService;
         this.knowledgeDocumentVersionService = knowledgeDocumentVersionService;
         this.objectStorageService = objectStorageService;
-        this.contentExtractor = contentExtractor;
-        this.markdownFormatter = markdownFormatter;
+        this.documentParseWorker = documentParseWorker;
+        this.afterCommitExecutor = afterCommitExecutor;
         this.knowledgeAccessService = knowledgeAccessService;
         this.workflowService = workflowService;
         this.knowledgeBucket = knowledgeBucket;
@@ -163,7 +163,8 @@ public class KnowledgeDocumentController {
     }
 
     /**
-     * 上传单个知识文档，完成对象存储、内容抽取和草稿创建。
+     * 上传单个知识文档。原文件持久化成功后，后台使用 AnyDoc 转换为
+     * Markdown；AnyDoc 不可用或不支持时由本地解析器处理已支持的格式。
      */
     @ApiOperation("Upload knowledge document")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
@@ -172,13 +173,11 @@ public class KnowledgeDocumentController {
     public WebResponse<String> upload(@RequestParam("knowledgeBaseId") String knowledgeBaseId,
                                       @RequestParam("file") MultipartFile file,
                                       @RequestParam(value = "title", required = false) String title) throws Exception {
-        KnowledgeBase base = knowledgeAccessService.requireWritable(knowledgeBaseId);
+        knowledgeAccessService.requireWritable(knowledgeBaseId);
+        String operatorId = knowledgeAccessService.currentAdminId();
         if (file == null || file.isEmpty() || file.getSize() > 50L * 1024 * 1024)
             throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.invalid"));
         String name = StringUtils.defaultIfBlank(file.getOriginalFilename(), "document.txt");
-        String lower = name.toLowerCase();
-        if (!(lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".pdf") || lower.endsWith(".docx") || lower.endsWith(".xlsx")))
-            throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.unsupported-type"));
         byte[] bytes = file.getBytes();
         KnowledgeDocument document = new KnowledgeDocument();
         document.setKnowledgeBaseId(knowledgeBaseId);
@@ -188,11 +187,10 @@ public class KnowledgeDocumentController {
         document.setOriginalFileName(name);
         document.setFileExtension(name.substring(name.lastIndexOf('.') + 1));
         document.setMimeType(contentType);
-        String extractedContent = contentExtractor.extract(name, bytes);
         document.setFileSize(file.getSize());
         document.setFileChecksum(sha256(bytes));
         document.setContent(null);
-        document.setStatus(0);
+        document.setStatus(1);
         document.setIndexStatus(0);
         document.setCurrentVersionNo(0);
         if (!knowledgeDocumentService.save(document))
@@ -207,11 +205,8 @@ public class KnowledgeDocumentController {
             storage.setStorageBucket(knowledgeBucket);
             storage.setStorageObjectKey(key);
             knowledgeDocumentService.updateById(storage);
-            KnowledgeDocument snapshot = knowledgeDocumentService.getById(document.getId());
-            snapshot.setContent(extractedContent);
-            KnowledgeDocumentVersion draft = workflowService.createDraft(snapshot, null);
-            startAiReviewIfConfigured(base, draft);
-            return WebResponse.OK(I18nUtils.getMessage("knowledge.document.upload.accepted-for-review"), draft.getId());
+            afterCommitExecutor.execute(() -> documentParseWorker.run(document.getId(), operatorId));
+            return WebResponse.OK(I18nUtils.getMessage("knowledge.document.upload.accepted-for-review"), document.getId());
         } catch (Exception e) {
             knowledgeDocumentService.removeById(document.getId());
             if (uploaded) {
@@ -391,31 +386,7 @@ public class KnowledgeDocumentController {
                 storageContentType(document.getOriginalFileName(), document.getMimeType())));
     }
 
-    /**
-     * Re-extracts the original version file for a reviewer to fill the draft editor.
-     * The result is deliberately not persisted here: the reviewer still confirms it
-     * by saving the edited version content.
-     */
-    @ApiOperation("重新识别版本原文件内容")
-    @Permission(path = "/knowledge/document", type = Permission.Type.Write)
-    @PostMapping("/version/{versionId}/recognize-content")
-    public WebResponse<String> recognizeVersionContent(@PathVariable @NotBlank String versionId) {
-        KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
-        if (version == null || Boolean.TRUE.equals(version.getDeleted())) {
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
-        }
-        KnowledgeDocument document = getExisting(version.getKnowledgeDocumentId());
-        knowledgeAccessService.requireWritable(document.getKnowledgeBaseId());
-        String objectKey = StringUtils.defaultIfBlank(version.getStorageObjectKey(), document.getStorageObjectKey());
-        if (StringUtils.isBlank(objectKey)) {
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.document.source-file.not-found"));
-        }
-        String bucket = StringUtils.defaultIfBlank(version.getStorageBucket(), document.getStorageBucket());
-        String fileName = StringUtils.defaultIfBlank(document.getOriginalFileName(), document.getTitle());
-        String extracted = contentExtractor.extract(fileName, objectStorageService.getObject(bucket, objectKey));
-        String content = markdownFormatter.format(knowledgeAccessService.requireReadable(document.getKnowledgeBaseId()), document.getTitle(), extracted);
-        return WebResponse.OK(I18nUtils.getMessage("knowledge.document.content.recognized"), content);
-    }
+
 
     /**
      * 文档版本分块列表。

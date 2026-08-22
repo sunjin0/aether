@@ -19,8 +19,10 @@ spring:
     always-use-message-format: false
 server:
   port: 8080
+  connection-timeout: ${SERVER_CONNECTION_TIMEOUT:600000}
+  keep-alive-timeout: ${SERVER_KEEPALIVE_TIMEOUT:600000}
 
-# 文档解析服务（Docling），配置后支持 PDF/DOCX 结构化解析及 XLSX 导入
-docling:
+# 文档解析服务（AnyDoc），将其支持的文件转换为 Markdown。
+anydoc:
   service:
-    url: http://127.0.0.1:8000
+    url: ${ANYDOC_SERVICE_URL:http://127.0.0.1:8000}

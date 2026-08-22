@@ -2,7 +2,7 @@ package com.aether.knowledge.service.impl;
 
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
-import com.aether.knowledge.client.DoclingClient;
+import com.aether.knowledge.client.AnyDocClient;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -28,13 +28,13 @@ public class KnowledgeDocumentContentExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeDocumentContentExtractor.class);
 
-    private final DoclingClient doclingClient;
+    private final AnyDocClient anyDocClient;
 
     /**
      * 创建 {@code KnowledgeDocumentContentExtractor} 实例。
      */
-    public KnowledgeDocumentContentExtractor(DoclingClient doclingClient) {
-        this.doclingClient = doclingClient;
+    public KnowledgeDocumentContentExtractor(AnyDocClient anyDocClient) {
+        this.anyDocClient = anyDocClient;
     }
 
     /**
@@ -43,21 +43,13 @@ public class KnowledgeDocumentContentExtractor {
     public String extract(String fileName, byte[] bytes) {
         String name = fileName == null ? "" : fileName.toLowerCase();
         try {
-            if (name.endsWith(".txt") || name.endsWith(".md")) {
-                return new String(bytes, StandardCharsets.UTF_8);
-            }
+            String anyDocResult = tryAnyDoc(name, bytes);
+            if (anyDocResult != null) return anyDocResult;
 
-            String doclingResult = tryDocling(name, bytes);
-            if (doclingResult != null) return doclingResult;
-
+            if (name.endsWith(".txt") || name.endsWith(".md")) return new String(bytes, StandardCharsets.UTF_8);
             if (name.endsWith(".pdf")) return extractPdf(bytes);
             if (name.endsWith(".docx")) return extractDocx(bytes);
-            if (name.endsWith(".xlsx")) {
-                if (!doclingClient.isEnabled()) {
-                    throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.docling-unavailable"));
-                }
-                return extractXlsx(bytes);
-            }
+            if (name.endsWith(".xlsx")) return extractXlsx(bytes);
         } catch (ServerException e) {
             throw e;
         } catch (Exception e) {
@@ -66,11 +58,7 @@ public class KnowledgeDocumentContentExtractor {
         throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file-type.unsupported"));
     }
 
-    /**
-     * Chat attachments are analyzed during upload. OCR is enabled for rich
-     * document formats so scanned pages and images embedded in documents are
-     * included in the model-facing text.
-     */
+    /** Chat attachments may request OCR separately from knowledge uploads. */
     public String extractForChat(String fileName, byte[] bytes) {
         String name = fileName == null ? "" : fileName.toLowerCase();
         try {
@@ -78,9 +66,9 @@ public class KnowledgeDocumentContentExtractor {
                 return new String(bytes, StandardCharsets.UTF_8);
             }
             if (name.endsWith(".pdf") || name.endsWith(".docx") || name.endsWith(".xlsx")) {
-                String content = doclingClient.convert(fileName, bytes, "markdown", true);
+                String content = anyDocClient.convertToMarkdown(fileName, bytes);
                 if (StringUtils.isNotBlank(content)) {
-                    log.info("聊天附件使用 Docling OCR 识别文档内容: {}", fileName);
+                    log.info("聊天附件使用 AnyDoc 识别文档内容: {}", fileName);
                     return content;
                 }
                 if (name.endsWith(".pdf")) return extractPdf(bytes);
@@ -88,9 +76,9 @@ public class KnowledgeDocumentContentExtractor {
                 return extractXlsx(bytes);
             }
             if (isImage(name)) {
-                String content = doclingClient.convert(fileName, bytes, "markdown", true);
+                String content = anyDocClient.convertToMarkdown(fileName, bytes);
                 if (StringUtils.isNotBlank(content)) {
-                    log.info("聊天附件使用 Docling OCR: {}", fileName);
+                    log.info("聊天附件使用 AnyDoc: {}", fileName);
                     return content;
                 }
                 return "";
@@ -104,13 +92,14 @@ public class KnowledgeDocumentContentExtractor {
     }
 
     /**
-     * 处理tryDocling。
+     * Uses AnyDoc first. Unsupported or failed conversions are handled by the
+     * native extractors for the formats they support.
      */
-    private String tryDocling(String name, byte[] bytes) {
-        if (!doclingClient.isEnabled()) return null;
-        String result = doclingClient.convert(name, bytes);
+    private String tryAnyDoc(String name, byte[] bytes) {
+        if (!anyDocClient.isEnabled()) return null;
+        String result = anyDocClient.convertToMarkdown(name, bytes);
         if (result != null) return result;
-        log.warn("Docling returned no result for {}, falling back to native extractor", name);
+        log.warn("AnyDoc returned no result for {}, falling back to native extractor", name);
         return null;
     }
 

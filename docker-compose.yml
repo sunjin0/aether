@@ -28,6 +28,7 @@ services:
       AETHER_DEEP_AGENT_MCP_DELEGATION_SECRET: ${AETHER_MCP_DELEGATION_SECRET:-aether-mcp-delegation-dev-secret-change-me}
       # 独立 Sandbox Runner 领取冻结任务的服务凭据。
       AETHER_SANDBOX_RUNNER_TOKEN: ${AETHER_SANDBOX_RUNNER_TOKEN:-aether-sandbox-runner-dev-secret-change-me}
+      ANYDOC_SERVICE_URL: ${ANYDOC_SERVICE_URL:-http://aether-mcp:8000}
     networks:
       aether-services:
         aliases:

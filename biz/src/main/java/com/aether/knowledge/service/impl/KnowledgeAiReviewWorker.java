@@ -48,7 +48,7 @@ public class KnowledgeAiReviewWorker {
     private static final Logger log = LoggerFactory.getLogger(KnowledgeAiReviewWorker.class);
     private static final int MAX_REVIEW_CHARS = 40000;
     private static final int CHUNK_OVERLAP_CHARS = 1000;
-    private static final long RUNNING_LEASE_MILLIS = 30L * 60L * 1000L;
+    private static final long RUNNING_LEASE_MILLIS = 120L * 60L * 1000L;
     private final KnowledgeAiReviewRecordService reviewService;
     private final KnowledgeAiReviewIssueService issueService;
     private final KnowledgeDocumentVersionService versionService;
@@ -216,6 +216,9 @@ public class KnowledgeAiReviewWorker {
                 + "- warning：格式/结构/可检索性问题\n"
                 + "- info：轻微优化建议、风格建议\n"
                 + "\n"
+                + "## 截断处理\n"
+                + "文档可能是截断的片段，不是完整文档。不要将以下情况报告为问题：文档突然结束、缺少后续内容、段落不完整、章节缺失。\n"
+                + "只审查实际提供的内容，对看到的文本质量进行评估。\n\n"
                 + "## 重要规则\n"
                 + "每个 issue 都必须提供 patch 修改方案，不允许只报问题不给修改。delete 操作也必须有 target.original 指明删除位置。\n"
                 + "\n"

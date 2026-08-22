@@ -202,10 +202,6 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
             if (scopedKnowledgeBaseIds != null) {
                 boundKbIds.retainAll(scopedKnowledgeBaseIds);
             }
-            List<KnowledgeBase> platformBases = scopedKnowledgeBaseIds == null ? knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
-                    .eq(KnowledgeBase::getScope, KnowledgeBaseScope.PLATFORM).eq(KnowledgeBase::getStatus, STATUS_ENABLED)
-                    .eq(KnowledgeBase::getIndexStatus, KB_INDEX_STATUS_DONE).eq(KnowledgeBase::getDeleted, false)) : Collections.emptyList();
-            if (platformBases != null) platformBases.forEach(item -> boundKbIds.add(item.getId()));
             if (boundKbIds.isEmpty()) return result;
             List<KnowledgeBase> knowledgeBases = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
                     .in(KnowledgeBase::getId, boundKbIds)
