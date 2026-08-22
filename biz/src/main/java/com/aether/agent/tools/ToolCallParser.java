@@ -1,6 +1,6 @@
 package com.aether.agent.tools;
 
-import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.agent.model.ModelChatResponse;
@@ -46,8 +46,16 @@ public List<ToolCall> parse(ModelChatResponse response) {
                     continue;
                 }
                 String argumentsJson = function.getString("arguments");
-                Map<String, Object> arguments = StringUtils.isBlank(argumentsJson)
-                        ? new HashMap<String, Object>() : JSON.parseObject(argumentsJson, Map.class);
+                // The outer response is parsed with fastjson2.  It decodes escaped
+                // control characters in the JSON string that carries function
+                // arguments (for example, "\\u001a" becomes U+001A).  Parsing that
+                // decoded value again with fastjson 1.x rejects it as an unclosed
+                // string.  Use the same parser for both layers so valid escaped
+                // content in ask_user questions is handled consistently.
+                JSONObject argumentsObject = StringUtils.isBlank(argumentsJson)
+                        ? null : JSON.parseObject(argumentsJson);
+                Map<String, Object> arguments = argumentsObject == null
+                        ? new HashMap<String, Object>() : new HashMap<String, Object>(argumentsObject);
                 calls.add(new ToolCall(item.getString("id"), function.getString("name"), arguments));
             }
         } catch (Exception e) {
