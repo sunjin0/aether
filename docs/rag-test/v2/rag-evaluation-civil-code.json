@@ -1,0 +1,402 @@
+[
+  {
+    "item": {
+      "question": "民事主体从事民事活动时，应当遵循哪些基本原则？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "总则：民事活动基本原则"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "自然人的民事权利能力从何时开始、至何时终止？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "总则：民事权利能力"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "已满十六周岁但未满十八周岁的人，在什么条件下视为完全民事行为能力人？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "总则：未成年人行为能力"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "八周岁以上的未成年人可以独立实施哪些民事法律行为？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "总则：限制民事行为能力"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "民事法律行为有效需要具备哪些条件？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "总则：民事法律行为有效要件"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "违反法律、行政法规强制性规定的民事法律行为是否当然无效？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "总则：违反强制性规定的效力"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "无效、被撤销或者确定不发生效力的民事法律行为，财产应当如何处理？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "总则：无效行为法律后果"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "一般民事权利的诉讼时效期间是多久？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "总则：普通诉讼时效"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "哪些请求权不适用诉讼时效规定？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "总则：不适用诉讼时效"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "物权的种类和内容应当由什么确定？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "物权编：物权法定"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "不动产物权的设立、变更、转让和消灭通常何时发生效力？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "物权编：不动产登记效力"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "动产物权的设立和转让通常自何时发生效力？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "物权编：动产交付效力"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "善意取得需要满足哪些主要条件？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "物权编：善意取得"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "业主对建筑物内的住宅、经营性用房等专有部分享有什么权利？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "物权编：建筑物区分所有权"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "抵押权在什么情况下设立，抵押财产是否需要转移占有？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "物权编：抵押权"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "质权自何时设立？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "物权编：质权设立"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "合同关系的主体可以是哪些主体？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "合同编：合同定义"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "依法成立的合同对当事人有什么约束力？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "合同编：合同效力"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "当事人履行合同义务时应当遵循哪些原则和附随义务？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "合同编：合同履行"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "合同成立后基础条件发生无法预见的重大变化时，当事人可以如何处理？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "合同编：情势变更"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "当事人可以解除合同的法定情形有哪些？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "合同编：法定解除"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "一方不履行合同义务或者履行不符合约定，应承担哪些违约责任？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "合同编：违约责任"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "违约损失赔偿额通常包括哪些损失，是否存在可预见性限制？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "合同编：损害赔偿范围"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "约定的违约金过分高于造成的损失时，当事人可以请求怎样处理？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "合同编：违约金调整"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "结婚应当符合哪些实质条件，男女结婚年龄分别是多少？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "婚姻家庭编：结婚条件"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "哪些亲属关系之间禁止结婚？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "婚姻家庭编：禁止结婚"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "协议离婚需要经过哪些程序，离婚冷静期是如何规定的？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "婚姻家庭编：协议离婚"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "人民法院审理离婚案件时，认定夫妻感情确已破裂的常见法定情形有哪些？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "婚姻家庭编：诉讼离婚"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "离婚时夫妻共同财产应当如何处理？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "婚姻家庭编：共同财产分割"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "继承从何时开始？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "继承编：继承开始"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "法定继承中第一顺序继承人包括哪些人？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "继承编：法定继承顺序"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "自然人可以通过哪些方式订立遗嘱？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "继承编：遗嘱形式"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "遗产分割时应当为胎儿保留多少遗产份额？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "继承编：胎儿继承份额"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "行为人因过错侵害他人民事权益造成损害的，是否应当承担侵权责任？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "侵权责任编：过错责任"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "自愿参加具有一定风险的文体活动受到损害时，其他参加者在什么情况下承担责任？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "侵权责任编：自甘风险"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "侵害他人人身权益造成财产损失时，赔偿数额应如何确定？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "侵权责任编：人身损害财产损失"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "用人单位工作人员因执行工作任务造成他人损害，通常由谁承担侵权责任？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "侵权责任编：用人单位责任"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "产品存在缺陷造成他人损害时，被侵权人可以向哪些主体请求赔偿？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "侵权责任编：产品责任"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "患者在诊疗活动中受到损害，医疗机构在哪些情形下被推定有过错？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "侵权责任编：医疗损害责任"
+    },
+    "labels": []
+  },
+  {
+    "item": {
+      "question": "从建筑物中抛掷物品或者从建筑物上坠落物品造成他人损害，无法确定侵权人时如何承担责任？",
+      "documentId": "2091092216594767873",
+      "targetType": "DOCUMENT",
+      "status": 1,
+      "remark": "侵权责任编：高空抛物"
+    },
+    "labels": []
+  }
+]

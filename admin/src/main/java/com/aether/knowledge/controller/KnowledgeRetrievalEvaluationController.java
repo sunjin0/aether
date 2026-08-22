@@ -151,7 +151,7 @@ public class KnowledgeRetrievalEvaluationController {
         run.setEvaluationSetId(id);
         run.setEvaluationSetVersionId(evaluationSetVersionId);
         run.setAgentDefinitionIdSnapshot(set.getAgentDefinitionId());
-        run.setRetrievalConfigSnapshot(retrievalConfigSnapshot(set.getAgentDefinitionId()));
+        run.setRetrievalConfigSnapshot(retrievalConfigSnapshot(set.getAgentDefinitionId(), cases, runLabels));
         run.setStatus("RUNNING");
         run.setDatasetSnapshot(datasetSnapshot);
         run.setRunConfigSnapshot(JSON.toJSONString(Collections.singletonMap("executionMode", "ASYNCHRONOUS")));
@@ -336,6 +336,7 @@ public class KnowledgeRetrievalEvaluationController {
             throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.label.not-found"));
         label.setDeleted(true);
         labelMapper.updateById(label);
+        clearLegacyTargetWhenNoLabels(caseId);
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.label.delete.success"));
     }
 
@@ -352,7 +353,27 @@ public class KnowledgeRetrievalEvaluationController {
         labelMapper.delete(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationLabel.class)
                 .eq(KnowledgeRetrievalEvaluationLabel::getEvaluationCaseId, caseId)
                 .in(KnowledgeRetrievalEvaluationLabel::getId, request.getIds()));
+        clearLegacyTargetWhenNoLabels(caseId);
         return WebResponse.OK(I18nUtils.getMessage("knowledge.evaluation.label.batch-delete.success"));
+    }
+
+    /**
+     * Labels supersede the legacy target columns on the case.  Once the last
+     * label is removed, clear those columns as well so a deleted label cannot
+     * reappear through legacy fallback during health checks or a later run.
+     */
+    private void clearLegacyTargetWhenNoLabels(String caseId) {
+        if (labelMapper.selectCount(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationLabel.class)
+                .eq(KnowledgeRetrievalEvaluationLabel::getEvaluationCaseId, caseId)
+                .eq(KnowledgeRetrievalEvaluationLabel::getDeleted, false)) > 0)
+            return;
+        KnowledgeRetrievalEvaluationCaseEntity item = caseMapper.selectById(caseId);
+        if (item == null || Boolean.TRUE.equals(item.getDeleted())) return;
+        item.setDocumentId(null);
+        item.setSectionPath(null);
+        item.setChunkId(null);
+        item.setTargetType(null);
+        caseMapper.updateById(item);
     }
 
     /**
@@ -669,7 +690,7 @@ public class KnowledgeRetrievalEvaluationController {
         KnowledgeRetrievalEvaluationRun run = new KnowledgeRetrievalEvaluationRun();
         run.setEvaluationSetId(id);
         run.setAgentDefinitionIdSnapshot(set.getAgentDefinitionId());
-        run.setRetrievalConfigSnapshot(retrievalConfigSnapshot(set.getAgentDefinitionId()));
+        run.setRetrievalConfigSnapshot(retrievalConfigSnapshot(set.getAgentDefinitionId(), cases, Collections.emptyList()));
         run.setStatus(report.getFailedCount() == 0 ? "SUCCEEDED" : report.getTotal() == 0 ? "FAILED" : "PARTIAL_FAILED");
         run.setDatasetSnapshot(JSON.toJSONString(cases));
         run.setRunConfigSnapshot(JSON.toJSONString(Collections.singletonMap("executionMode", "SYNCHRONOUS")));
@@ -1290,14 +1311,26 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * Captures the effective retriever inputs without serializing credentials.
      */
-    private String retrievalConfigSnapshot(String agentDefinitionId) {
+    private String retrievalConfigSnapshot(String agentDefinitionId,
+                                           List<KnowledgeRetrievalEvaluationCaseEntity> cases,
+                                           List<KnowledgeRetrievalEvaluationLabel> labels) {
         List<AgentKnowledgeBaseBinding> bindings = bindingService.list(Wrappers.lambdaQuery(AgentKnowledgeBaseBinding.class).eq(AgentKnowledgeBaseBinding::getAgentDefinitionId, agentDefinitionId).eq(AgentKnowledgeBaseBinding::getDeleted, false));
-        Set<String> bindingBaseIds = bindings.stream().filter(binding -> Integer.valueOf(1).equals(binding.getStatus())).map(AgentKnowledgeBaseBinding::getKnowledgeBaseId).filter(StringUtils::isNotBlank).collect(Collectors.toSet());
-        List<KnowledgeBase> bases = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class).eq(KnowledgeBase::getDeleted, false));
+        Set<String> labelledCaseIds = labels.stream().map(KnowledgeRetrievalEvaluationLabel::getEvaluationCaseId).filter(StringUtils::isNotBlank).collect(Collectors.toSet());
+        Set<String> documentIds = new HashSet<>();
+        for (KnowledgeRetrievalEvaluationLabel label : labels)
+            if (StringUtils.isNotBlank(label.getDocumentId())) documentIds.add(label.getDocumentId());
+        for (KnowledgeRetrievalEvaluationCaseEntity item : cases)
+            if (!labelledCaseIds.contains(item.getId()) && StringUtils.isNotBlank(item.getDocumentId())) documentIds.add(item.getDocumentId());
+        Set<String> targetBaseIds = documentIds.isEmpty() ? Collections.emptySet() : documentService.list(Wrappers.lambdaQuery(KnowledgeDocument.class)
+                        .in(KnowledgeDocument::getId, documentIds)
+                        .eq(KnowledgeDocument::getDeleted, false))
+                .stream().map(KnowledgeDocument::getKnowledgeBaseId).filter(StringUtils::isNotBlank).collect(Collectors.toSet());
+        List<KnowledgeBase> bases = targetBaseIds.isEmpty() ? Collections.emptyList() : knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
+                .in(KnowledgeBase::getId, targetBaseIds)
+                .eq(KnowledgeBase::getDeleted, false));
         List<Map<String, Object>> baseSnapshots = new ArrayList<>();
         Set<String> modelIds = new HashSet<>();
-        for (KnowledgeBase base : bases)
-            if (bindingBaseIds.contains(base.getId()) || "PLATFORM".equals(base.getScope()) && Integer.valueOf(1).equals(base.getStatus()) && Integer.valueOf(2).equals(base.getIndexStatus())) {
+        for (KnowledgeBase base : bases) {
                 String embeddingModelId = base.getEmbeddingModelId();
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", base.getId());
@@ -1323,7 +1356,7 @@ public class KnowledgeRetrievalEvaluationController {
                 String queryRewriteModelId = retrievalConfig.getString("queryRewriteModelId");
                 if (Boolean.TRUE.equals(retrievalConfig.getBoolean("queryRewriteEnabled"))
                         && StringUtils.isNotBlank(queryRewriteModelId)) modelIds.add(queryRewriteModelId);
-            }
+        }
         List<Map<String, Object>> modelSnapshots = new ArrayList<>();
         if (!modelIds.isEmpty()) for (ModelCatalog model : modelCatalogService.listByIds(modelIds)) {
             Map<String, Object> item = new LinkedHashMap<>();
@@ -1335,10 +1368,11 @@ public class KnowledgeRetrievalEvaluationController {
             modelSnapshots.add(item);
         }
         Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("schemaVersion", 3);
+        snapshot.put("schemaVersion", 4);
         snapshot.put("capturedAt", System.currentTimeMillis());
         snapshot.put("agentDefinitionId", agentDefinitionId);
-        snapshot.put("bindings", bindings.stream().map(binding -> {
+        snapshot.put("knowledgeBaseScope", "EVALUATION_TARGETS");
+        snapshot.put("bindings", bindings.stream().filter(binding -> targetBaseIds.contains(binding.getKnowledgeBaseId())).map(binding -> {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("knowledgeBaseId", binding.getKnowledgeBaseId());
             item.put("status", binding.getStatus());

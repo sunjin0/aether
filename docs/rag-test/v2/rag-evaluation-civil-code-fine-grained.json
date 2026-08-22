@@ -1,0 +1,138 @@
+[
+  {
+    "item": {"question": "民事活动中应当遵循哪些基本原则？", "documentId": "2091092216594767873", "sectionPath": "第一节 一般规定", "targetType": "SECTION", "status": 1, "remark": "总则｜直接问法"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第一节 一般规定", "relevanceGrade": 3, "isRequired": true, "remark": "总则基本原则"}]
+  },
+  {
+    "item": {"question": "无民事行为能力人自己签订的合同有效吗？", "documentId": "2091092216594767873", "sectionPath": "第一百四十四条 无民事行为能力人实施的民事法律行为无效。", "targetType": "SECTION", "status": 1, "remark": "总则｜口语化"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第一百四十四条 无民事行为能力人实施的民事法律行为无效。", "relevanceGrade": 3, "isRequired": true, "remark": "无民事行为能力人行为效力"}]
+  },
+  {
+    "item": {"question": "民事法律行为被撤销后，从什么时候起不具有法律约束力？", "documentId": "2091092216594767873", "sectionPath": "第一百五十五条 无效的或者被撤销的民事法律行为自始没有法律约束力。", "targetType": "SECTION", "status": 1, "remark": "总则｜边界问题"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第一百五十五条 无效的或者被撤销的民事法律行为自始没有法律约束力。", "relevanceGrade": 3, "isRequired": true, "remark": "无效与撤销后果"}]
+  },
+  {
+    "item": {"question": "法院会主动审查诉讼时效是否届满吗？", "documentId": "2091092216594767873", "sectionPath": "第一百九十三条 人民法院不得主动适用诉讼时效的规定。", "targetType": "SECTION", "status": 1, "remark": "总则｜易混淆概念"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第一百九十三条 人民法院不得主动适用诉讼时效的规定。", "relevanceGrade": 3, "isRequired": true, "remark": "诉讼时效适用"}]
+  },
+  {
+    "item": {"question": "不动产权利变动通常何时发生效力？", "documentId": "2091092216594767873", "sectionPath": "第一节 不动产登记", "targetType": "SECTION", "status": 1, "remark": "物权｜直接问法"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第一节 不动产登记", "relevanceGrade": 3, "isRequired": true, "remark": "不动产登记"}]
+  },
+  {
+    "item": {"question": "继承取得物权从何时开始生效？", "documentId": "2091092216594767873", "sectionPath": "第二百三十条 因继承取得物权的，自继承开始时发生效力。", "targetType": "SECTION", "status": 1, "remark": "物权｜例外规则"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第二百三十条 因继承取得物权的，自继承开始时发生效力。", "relevanceGrade": 3, "isRequired": true, "remark": "继承物权变动"}]
+  },
+  {
+    "item": {"question": "物权受到侵害时，权利人可以请求返还原物吗？", "documentId": "2091092216594767873", "sectionPath": "第三章 物权的保护", "targetType": "SECTION", "status": 1, "remark": "物权｜口语化"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第三章 物权的保护", "relevanceGrade": 3, "isRequired": true, "remark": "物权保护"}]
+  },
+  {
+    "item": {"question": "共同共有人对共有财产享有哪些权利？", "documentId": "2091092216594767873", "sectionPath": "第八章 共有", "targetType": "SECTION", "status": 1, "remark": "物权｜概念辨析"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第八章 共有", "relevanceGrade": 3, "isRequired": true, "remark": "共有制度"}]
+  },
+  {
+    "item": {"question": "要约一经作出，什么时候开始生效？", "documentId": "2091092216594767873", "sectionPath": "第二章 合同的订立", "targetType": "SECTION", "status": 1, "remark": "合同｜直接问法"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第二章 合同的订立", "relevanceGrade": 3, "isRequired": true, "remark": "合同订立"}]
+  },
+  {
+    "item": {"question": "承诺在合同订立中指的是什么？", "documentId": "2091092216594767873", "sectionPath": "第四百七十九条 承诺是受要约人同意要约的意思表示。", "targetType": "SECTION", "status": 1, "remark": "合同｜术语定义"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第四百七十九条 承诺是受要约人同意要约的意思表示。", "relevanceGrade": 3, "isRequired": true, "remark": "承诺定义"}]
+  },
+  {
+    "item": {"question": "合同无效、被撤销或者终止后，合同中解决争议条款还有效吗？", "documentId": "2091092216594767873", "sectionPath": "第三章 合同的效力", "targetType": "SECTION", "status": 1, "remark": "合同｜例外规则"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第三章 合同的效力", "relevanceGrade": 3, "isRequired": true, "remark": "合同效力"}]
+  },
+  {
+    "item": {"question": "合同内容约定不明确时，应当怎样履行？", "documentId": "2091092216594767873", "sectionPath": "第四章 合同的履行", "targetType": "SECTION", "status": 1, "remark": "合同｜口语化"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第四章 合同的履行", "relevanceGrade": 3, "isRequired": true, "remark": "合同履行"}]
+  },
+  {
+    "item": {"question": "合同变更的内容约定不明确，法律如何推定？", "documentId": "2091092216594767873", "sectionPath": "第六章 合同的变更和转让", "targetType": "SECTION", "status": 1, "remark": "合同｜边界问题"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第六章 合同的变更和转让", "relevanceGrade": 3, "isRequired": true, "remark": "合同变更"}]
+  },
+  {
+    "item": {"question": "哪些情形会导致合同权利义务终止？", "documentId": "2091092216594767873", "sectionPath": "第七章 合同的权利义务终止", "targetType": "SECTION", "status": 1, "remark": "合同｜枚举问题"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第七章 合同的权利义务终止", "relevanceGrade": 3, "isRequired": true, "remark": "合同权利义务终止"}]
+  },
+  {
+    "item": {"question": "自然人之间的借款合同在何时成立？", "documentId": "2091092216594767873", "sectionPath": "第十二章 借款合同", "targetType": "SECTION", "status": 1, "remark": "合同｜借款"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第十二章 借款合同", "relevanceGrade": 3, "isRequired": true, "remark": "借款合同"}]
+  },
+  {
+    "item": {"question": "保证人是否可以要求债务人提供反担保？", "documentId": "2091092216594767873", "sectionPath": "第十三章 保证合同 > 第一节 一般规定", "targetType": "SECTION", "status": 1, "remark": "合同｜保证"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第十三章 保证合同 > 第一节 一般规定", "relevanceGrade": 3, "isRequired": true, "remark": "保证合同"}]
+  },
+  {
+    "item": {"question": "直系血亲可以结婚吗？", "documentId": "2091092216594767873", "sectionPath": "第二章 结婚", "targetType": "SECTION", "status": 1, "remark": "婚姻家庭｜禁止性规定"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第二章 结婚", "relevanceGrade": 3, "isRequired": true, "remark": "结婚条件"}]
+  },
+  {
+    "item": {"question": "协议离婚后是否可以直接领取离婚证？", "documentId": "2091092216594767873", "sectionPath": "第四章 离婚", "targetType": "SECTION", "status": 1, "remark": "婚姻家庭｜离婚冷静期"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第四章 离婚", "relevanceGrade": 3, "isRequired": true, "remark": "协议离婚"}]
+  },
+  {
+    "item": {"question": "有配偶者收养子女，是否必须夫妻共同收养？", "documentId": "2091092216594767873", "sectionPath": "第一节 收养关系的成立", "targetType": "SECTION", "status": 1, "remark": "婚姻家庭｜收养"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第一节 收养关系的成立", "relevanceGrade": 3, "isRequired": true, "remark": "收养关系成立"}]
+  },
+  {
+    "item": {"question": "继承权是否因性别不同而不同？", "documentId": "2091092216594767873", "sectionPath": "第一千一百二十六条 继承权男女平等。", "targetType": "SECTION", "status": 1, "remark": "继承｜基本原则"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第一千一百二十六条 继承权男女平等。", "relevanceGrade": 3, "isRequired": true, "remark": "继承权平等"}]
+  },
+  {
+    "item": {"question": "公证遗嘱应当如何办理？", "documentId": "2091092216594767873", "sectionPath": "第一千一百三十九条 公证遗嘱由遗嘱人经公证机构办理。", "targetType": "SECTION", "status": 1, "remark": "继承｜遗嘱形式"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第一千一百三十九条 公证遗嘱由遗嘱人经公证机构办理。", "relevanceGrade": 3, "isRequired": true, "remark": "公证遗嘱"}]
+  },
+  {
+    "item": {"question": "遗嘱继承和遗赠适用哪些规则？", "documentId": "2091092216594767873", "sectionPath": "第三章 遗嘱继承和遗赠", "targetType": "SECTION", "status": 1, "remark": "继承｜章节召回"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第三章 遗嘱继承和遗赠", "relevanceGrade": 3, "isRequired": true, "remark": "遗嘱继承和遗赠"}]
+  },
+  {
+    "item": {"question": "建筑物抛掷物致人损害而查不出侵权人，如何处理？", "documentId": "2091092216594767873", "sectionPath": "第三章 责任主体的特殊规定", "targetType": "SECTION", "status": 1, "remark": "侵权｜特殊责任主体"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第三章 责任主体的特殊规定", "relevanceGrade": 3, "isRequired": true, "remark": "高空抛物责任"}]
+  },
+  {
+    "item": {"question": "医疗机构及其医务人员承担医疗损害责任的一般规则是什么？", "documentId": "2091092216594767873", "sectionPath": "第六章 医疗损害责任", "targetType": "SECTION", "status": 1, "remark": "侵权｜医疗损害"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第六章 医疗损害责任", "relevanceGrade": 3, "isRequired": true, "remark": "医疗损害责任"}]
+  },
+  {
+    "item": {"question": "高度危险活动造成他人损害，应由谁承担侵权责任？", "documentId": "2091092216594767873", "sectionPath": "第八章 高度危险责任", "targetType": "SECTION", "status": 1, "remark": "侵权｜高度危险责任"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第八章 高度危险责任", "relevanceGrade": 3, "isRequired": true, "remark": "高度危险责任"}]
+  },
+  {
+    "item": {"question": "饲养动物伤人时，饲养人或管理人是否需要承担责任？", "documentId": "2091092216594767873", "sectionPath": "第九章 饲养动物损害责任", "targetType": "SECTION", "status": 1, "remark": "侵权｜动物致害"},
+    "labels": [{"targetType": "SECTION", "documentId": "2091092216594767873", "sectionPath": "第九章 饲养动物损害责任", "relevanceGrade": 3, "isRequired": true, "remark": "饲养动物损害责任"}]
+  },
+  {
+    "item": {"question": "无民事行为能力人实施民事法律行为的效力如何？", "documentId": "2091092216594767873", "chunkId": "2091094024163631105", "targetType": "CHUNK", "status": 1, "remark": "总则｜分片精确召回"},
+    "labels": [{"targetType": "CHUNK", "documentId": "2091092216594767873", "chunkId": "2091094024163631105", "relevanceGrade": 3, "isRequired": true, "remark": "第一百四十四条对应分片"}]
+  },
+  {
+    "item": {"question": "无效或被撤销的民事法律行为是否具有溯及力？", "documentId": "2091092216594767873", "chunkId": "2091094024167825409", "targetType": "CHUNK", "status": 1, "remark": "总则｜分片精确召回"},
+    "labels": [{"targetType": "CHUNK", "documentId": "2091092216594767873", "chunkId": "2091094024167825409", "relevanceGrade": 3, "isRequired": true, "remark": "第一百五十五条对应分片"}]
+  },
+  {
+    "item": {"question": "一般诉讼时效规则应当查阅民法典的哪个部分？", "documentId": "2091092216594767873", "chunkId": "2091094024197185537", "targetType": "CHUNK", "status": 1, "remark": "总则｜分片精确召回"},
+    "labels": [{"targetType": "CHUNK", "documentId": "2091092216594767873", "chunkId": "2091094024197185537", "relevanceGrade": 3, "isRequired": true, "remark": "第九章诉讼时效对应分片"}]
+  },
+  {
+    "item": {"question": "受要约人表示同意要约，这在合同法上称为什么？", "documentId": "2091092216594767873", "chunkId": "2091094024440455169", "targetType": "CHUNK", "status": 1, "remark": "合同｜分片精确召回"},
+    "labels": [{"targetType": "CHUNK", "documentId": "2091092216594767873", "chunkId": "2091094024440455169", "relevanceGrade": 3, "isRequired": true, "remark": "第四百七十九条对应分片"}]
+  },
+  {
+    "item": {"question": "保证人可以要求债务人提供反担保吗？", "documentId": "2091092216594767873", "chunkId": "2091094024557895681", "targetType": "CHUNK", "status": 1, "remark": "合同｜分片精确召回"},
+    "labels": [{"targetType": "CHUNK", "documentId": "2091092216594767873", "chunkId": "2091094024557895681", "relevanceGrade": 3, "isRequired": true, "remark": "保证合同一般规定分片"}]
+  },
+  {
+    "item": {"question": "法律禁止结婚的亲属关系包括哪些？", "documentId": "2091092216594767873", "chunkId": "2091094024864079874", "targetType": "CHUNK", "status": 1, "remark": "婚姻家庭｜分片精确召回"},
+    "labels": [{"targetType": "CHUNK", "documentId": "2091092216594767873", "chunkId": "2091094024864079874", "relevanceGrade": 3, "isRequired": true, "remark": "结婚章节分片"}]
+  },
+  {
+    "item": {"question": "协议离婚有哪些程序和期限要求？", "documentId": "2091092216594767873", "chunkId": "2091094024893440001", "targetType": "CHUNK", "status": 1, "remark": "婚姻家庭｜分片精确召回"},
+    "labels": [{"targetType": "CHUNK", "documentId": "2091092216594767873", "chunkId": "2091094024893440001", "relevanceGrade": 3, "isRequired": true, "remark": "离婚章节分片"}]
+  },
+  {
+    "item": {"question": "遗嘱继承和遗赠的规则主要规定在哪一章？", "documentId": "2091092216594767873", "chunkId": "2091094024943771649", "targetType": "CHUNK", "status": 1, "remark": "继承｜分片精确召回"},
+    "labels": [{"targetType": "CHUNK", "documentId": "2091092216594767873", "chunkId": "2091094024943771649", "relevanceGrade": 3, "isRequired": true, "remark": "遗嘱继承和遗赠章节分片"}]
+  }
+]
