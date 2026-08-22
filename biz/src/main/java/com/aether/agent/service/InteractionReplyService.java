@@ -26,7 +26,7 @@ public class InteractionReplyService {
         String type = config.getString("type");
         if ("group".equals(type)) return renderGroupAnswer(config, answer);
         if ("choice".equals(type)) return renderChoiceAnswer(config, answer);
-        if ("confirm".equals(type)) return "用户选择：" + (confirmed(answer) ? "确认" : "取消");
+        if ("confirm".equals(type)) return "用户选择：" + confirmationForModel(answer);
         throw new ServerException(400, I18nUtils.getMessage("agent.interaction.type.unknown"));
     }
 
@@ -90,7 +90,9 @@ public class InteractionReplyService {
      * 处理renderSingle。
      */
     private String renderSingle(JSONObject config, Map<String, Object> answer) {
-        return "choice".equals(config.getString("type")) ? renderChoiceAnswer(config, answer).replaceFirst("^用户选择：", "") : (confirmed(answer) ? "确认" : "取消");
+        return "choice".equals(config.getString("type"))
+                ? renderChoiceAnswer(config, answer).replaceFirst("^用户选择：", "")
+                : confirmationForModel(answer);
     }
 
     /**
@@ -145,6 +147,15 @@ public class InteractionReplyService {
         if (!(value instanceof Boolean))
             throw new ServerException(400, I18nUtils.getMessage("agent.interaction.confirmation.required"));
         return Boolean.TRUE.equals(value);
+    }
+
+    /**
+     * Provides an unambiguous confirmation value to the model. The UI labels
+     * remain configurable, while the conversation history always carries the
+     * corresponding yes/no fact instead of the ambiguous "确认/取消" wording.
+     */
+    private String confirmationForModel(Map<String, Object> answer) {
+        return confirmed(answer) ? "是（确认）" : "否（取消）";
     }
 
     /**

@@ -72,7 +72,8 @@ public class KnowledgeReviewTaskController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<String> approve(@PathVariable String id,
                                        @RequestBody(required = false) KnowledgeReviewDecisionVo vo) {
-        return WebResponse.OK(workflowService.approve(id, vo == null ? null : vo.getComment()));
+        String indexJobId = workflowService.approve(id, vo == null ? null : vo.getComment());
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.review-task.approved"), indexJobId);
     }
 
     /**

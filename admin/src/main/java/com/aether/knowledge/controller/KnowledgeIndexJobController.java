@@ -93,6 +93,7 @@ public class KnowledgeIndexJobController {
         KnowledgeDocumentVersion version = versionService.getById(job.getDocumentVersionId());
         if (document == null || version == null)
             throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
-        return WebResponse.OK(indexService.queueReindex(document, version, KnowledgeJobType.RETRY));
+        String retryJobId = indexService.queueReindex(document, version, KnowledgeJobType.RETRY);
+        return WebResponse.OK(I18nUtils.getMessage("knowledge.index-job.retry.queued"), retryJobId);
     }
 }

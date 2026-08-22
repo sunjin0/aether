@@ -205,7 +205,7 @@ public class KnowledgeDocumentController {
             storage.setStorageBucket(knowledgeBucket);
             storage.setStorageObjectKey(key);
             knowledgeDocumentService.updateById(storage);
-            afterCommitExecutor.execute(() -> documentParseWorker.run(document.getId(), operatorId));
+            afterCommitExecutor.execute(() -> documentParseWorker.submit(document.getId(), operatorId));
             return WebResponse.OK(I18nUtils.getMessage("knowledge.document.upload.accepted-for-review"), document.getId());
         } catch (Exception e) {
             knowledgeDocumentService.removeById(document.getId());
