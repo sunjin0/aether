@@ -62,6 +62,8 @@ services:
       dockerfile: admin/Dockerfile
     container_name: aether-admin
     restart: unless-stopped
+    mem_limit: ${ADMIN_MEM_LIMIT:-1g}
+    mem_reservation: ${ADMIN_MEM_RESERVATION:-768m}
     ports:
       - "${ADMIN_PORT:-8080}:8080"
     environment:
@@ -99,6 +101,8 @@ services:
       dockerfile: front/Dockerfile
     container_name: aether-front
     restart: unless-stopped
+    mem_limit: ${FRONT_MEM_LIMIT:-1g}
+    mem_reservation: ${FRONT_MEM_RESERVATION:-768m}
     ports:
       - "${FRONT_PORT:-8081}:8080"
     environment:
@@ -167,6 +171,7 @@ services:
       context: "${AETHER_MCP_GIT_URL:-https://github.com/sunjin0/aether-mcp-server.git}#${AETHER_MCP_GIT_REF:-master}"
     container_name: aether-mcp
     restart: unless-stopped
+    cpus: "${AETHER_MCP_CPU_LIMIT:-2.0}"
     command: [ "http", "--auth", "--host", "0.0.0.0", "--port", "8000" ]
     ports:
       - "${MCP_PORT:-8000}:8000"
@@ -177,6 +182,10 @@ services:
       AETHER_VISION_API_BASE_URL: ${AETHER_VISION_API_BASE_URL:-}
       AETHER_VISION_MODEL: ${AETHER_VISION_MODEL:-}
       AETHER_VISION_API_KEY: ${AETHER_VISION_API_KEY:-}
+      AETHER_DOCUMENT_MAX_CONCURRENCY: ${AETHER_DOCUMENT_MAX_CONCURRENCY:-1}
+      AETHER_OCR_DESKEW: ${AETHER_OCR_DESKEW:-false}
+      OMP_THREAD_LIMIT: ${OMP_THREAD_LIMIT:-1}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-1}
     volumes:
       - mcp-huggingface-cache:/root/.cache/huggingface
       - mcp-docling-cache:/root/.cache/docling
@@ -193,7 +202,7 @@ services:
     container_name: aether-sandbox-runner
     restart: unless-stopped
     environment:
-      AETHER_ADMIN_INTERNAL_URL: ${AETHER_SANDBOX_ADMIN_URL:-http://aether-admin:8080}
+      AETHER_ADMIN_INTERNAL_URL: ${AETHER_ADMIN_INTERNAL_URL:-http://aether-admin:8080}
       AETHER_SANDBOX_RUNNER_TOKEN: ${AETHER_SANDBOX_RUNNER_TOKEN:-aether-sandbox-runner-dev-secret-change-me}
       AETHER_SANDBOX_PYTHON_IMAGE: ${AETHER_SANDBOX_PYTHON_IMAGE:-aether-sandbox-python:1}
       AETHER_SANDBOX_NODE_IMAGE: ${AETHER_SANDBOX_NODE_IMAGE:-aether-sandbox-node:1}
