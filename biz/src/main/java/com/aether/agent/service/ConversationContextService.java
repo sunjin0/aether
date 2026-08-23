@@ -9,6 +9,9 @@ import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.service.ConversationSummaryService.SummarySnapshot;
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
@@ -22,6 +25,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 
 
 /**
@@ -409,13 +414,17 @@ public class ConversationContextService {
         Map<String, List<List<AgentToolCallLog>>> toolHistory = loadToolHistory(messages);
         for (AgentMessage message : messages) {
             List<List<AgentToolCallLog>> runs = toolHistory.get(message.getId());
-            if (runs != null) {
-                for (List<AgentToolCallLog> logs : runs) {
-                    addToolRun(context, logs);
-                }
+            ModelChatMessage contextMessage = new ModelChatMessage(message.getRole(),
+                    AgentMessageContentResolver.getContextContent(message), message.getToolCalls(), null,
+                    message.getReasoningContent());
+            context.add(contextMessage);
+            if (runs == null) continue;
+            boolean canReplayToolResults = "assistant".equals(message.getRole())
+                    && !toolCallIds(contextMessage).isEmpty();
+            for (List<AgentToolCallLog> logs : runs) {
+                if (canReplayToolResults) addToolRun(context, logs);
+                else addHistoricalToolRun(context, logs);
             }
-            context.add(new ModelChatMessage(message.getRole(),
-                    AgentMessageContentResolver.getContextContent(message)));
         }
     }
 
@@ -492,6 +501,65 @@ public class ConversationContextService {
                     .append(" arguments=").append(truncate(StringUtils.defaultIfBlank(log.getArguments(), "{}"), 1000))
                     .append(" result=").append(truncate(content, 4000));
             context.add(new ModelChatMessage("tool", result.toString(), null, log.getToolCallId()));
+        }
+    }
+
+    /**
+     * Old runs may have tool audit records but no persisted OpenAI tool-call
+     * envelope.  Preserve them as ordinary context instead of emitting an
+     * invalid {@code role=tool} message.
+     */
+    private void addHistoricalToolRun(List<ModelChatMessage> context, List<AgentToolCallLog> logs) {
+        for (AgentToolCallLog log : logs) {
+            String outcome = Integer.valueOf(0).equals(log.getStatus())
+                    ? StringUtils.defaultIfBlank(log.getResponseBody(), "工具执行成功，但没有响应体")
+                    : "工具执行未成功，status=" + log.getStatus() + ", error=" + StringUtils.defaultString(log.getErrorMsg());
+            context.add(new ModelChatMessage("system", "【历史工具执行记录，仅作上下文参考】"
+                    + StringUtils.defaultIfBlank(log.getToolName(), "unknown_tool") + " result="
+                    + truncate(outcome, 4000)));
+        }
+    }
+
+    /**
+     * Removes orphaned tool results before an OpenAI-compatible request is
+     * dispatched.  A tool message is valid only immediately after an assistant
+     * message that declares the same tool call id.
+     */
+    public void removeOrphanedToolMessages(List<ModelChatMessage> context) {
+        if (context == null || context.isEmpty()) return;
+        List<ModelChatMessage> valid = new ArrayList<ModelChatMessage>();
+        Set<String> pendingToolCallIds = Collections.emptySet();
+        for (ModelChatMessage message : context) {
+            if ("tool".equals(message.getRole())) {
+                String toolCallId = message.getToolCallId();
+                if (StringUtils.isNotBlank(toolCallId) && pendingToolCallIds.remove(toolCallId)) {
+                    valid.add(message);
+                }
+                continue;
+            }
+            valid.add(message);
+            pendingToolCallIds = "assistant".equals(message.getRole())
+                    ? toolCallIds(message) : Collections.<String>emptySet();
+        }
+        if (valid.size() != context.size()) {
+            context.clear();
+            context.addAll(valid);
+        }
+    }
+
+    private Set<String> toolCallIds(ModelChatMessage message) {
+        if (message == null || StringUtils.isBlank(message.getToolCalls())) return Collections.emptySet();
+        try {
+            JSONArray calls = JSON.parseArray(message.getToolCalls());
+            Set<String> ids = new HashSet<String>();
+            if (calls != null) for (Object item : calls) {
+                if (!(item instanceof JSONObject)) continue;
+                String id = ((JSONObject) item).getString("id");
+                if (StringUtils.isNotBlank(id)) ids.add(id);
+            }
+            return ids;
+        } catch (Exception ignored) {
+            return Collections.emptySet();
         }
     }
 

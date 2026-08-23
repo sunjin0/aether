@@ -237,6 +237,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 }
                 iteration++;
                 toolCallAttempted = true;
+                attachCitedSources(modelResponse, sources);
+                AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
+                        conversation.getId(), modelResponse, System.currentTimeMillis() - startTime, agent, provider);
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
@@ -252,7 +255,6 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 // Persist any model text produced before it requested the tool.
                 // The non-streaming response can only return one message, so the
                 // prelude is recovered through normal conversation history.
-                saveAssistantPreludeIfPresent(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime, agent, provider);
                 AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), modelResponse, agent, userId, runId, skillContext.getTools());
                 if (approval != null) {
                     updateConversationMessageCount(conversation.getId());
@@ -430,6 +432,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 }
                 iteration++;
                 toolCallAttempted = true;
+                attachCitedSources(chatResponse, sources);
                 AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
                         conversation.getId(), chatResponse, System.currentTimeMillis() - startTime, agent, provider);
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
@@ -449,6 +452,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                         AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : questionMessage;
                         doneResponse.setContent(doneMessage.getContent());
                         doneResponse.setWaitingUser(waitingUser);
+                        doneResponse.setSources(assistantPrelude == null ? null : chatResponse.getSources());
                         if (assistantPrelude != null) {
                             callback.onDone(conversation.getId(), assistantPrelude.getId(), doneResponse);
                         }
@@ -652,6 +656,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 }
                 iteration++;
                 toolCallAttempted = true;
+                attachCitedSources(chatResponse, sources);
                 AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
                         conversation.getId(), chatResponse, System.currentTimeMillis() - startTime, agent, provider);
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
@@ -672,6 +677,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                         AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : nextQuestion;
                         doneResponse.setContent(doneMessage.getContent());
                         doneResponse.setWaitingUser(waitingUser);
+                        doneResponse.setSources(assistantPrelude == null ? null : chatResponse.getSources());
                         if (assistantPrelude != null) {
                             callback.onDone(conversation.getId(), assistantPrelude.getId(), doneResponse);
                         }
@@ -1164,7 +1170,22 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         prelude.setCompletionTokens(response.getCompletionTokens());
         prelude.setTotalTokens(response.getTotalTokens());
         prelude.setReasoningTokens(response.getReasoningTokens());
+        prelude.setSources(response.getSources());
         return saveAssistantMessage(conversationId, prelude, latencyMs, agent, provider);
+    }
+
+    /**
+     * 工具调用前输出的正文同样是用户可见的正式回答；在暂停到 ask_user 前，必须冻结
+     * 与该轮检索编号一致的引用快照，避免前端看到孤立的 【n】 标记。
+     */
+    private void attachCitedSources(ModelChatResponse response, List<Map<String, Object>> sources) {
+        if (response == null) return;
+        if (sources == null || sources.isEmpty()) {
+            response.setSources(null);
+            return;
+        }
+        List<Map<String, Object>> cited = knowledgeContextService.ensureCitations(response, sources);
+        response.setSources(cited == null || cited.isEmpty() ? null : cited);
     }
 
     /**
@@ -1810,6 +1831,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
 
     /** Dispatch a normal response while preserving the exact input assembled for this call. */
     private ModelChatResponse dispatchChat(ModelClient client, ModelChatRequest request, String runId, int attemptNo) {
+        conversationContextService.removeOrphanedToolMessages(request.getMessages());
 AgentRunContextMetric preliminary = contextMetricService == null ? null
                 : contextMetricService.recordPreliminary(runId, attemptNo, request.getMessages(),
                         request.getTools(), request.getAgent(), request.getProvider());
@@ -1821,6 +1843,7 @@ AgentRunContextMetric preliminary = contextMetricService == null ? null
     /** Dispatch a stream while persisting both its estimated and provider-reported input usage. */
     private ModelStreamResponse dispatchStream(ModelClient client, ModelChatRequest request,
                                                ModelStreamCallback callback, String runId, int attemptNo) {
+        conversationContextService.removeOrphanedToolMessages(request.getMessages());
 AgentRunContextMetric preliminary = contextMetricService == null ? null
                 : contextMetricService.recordPreliminary(runId, attemptNo, request.getMessages(),
                         request.getTools(), request.getAgent(), request.getProvider());

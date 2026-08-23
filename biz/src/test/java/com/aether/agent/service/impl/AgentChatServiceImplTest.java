@@ -39,6 +39,8 @@ import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.AdminPreferenceExtractionService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
+import com.aether.knowledge.entity.KnowledgeDocumentChunk;
+import com.aether.knowledge.model.KnowledgeRetrievalResult;
 import com.aether.sys.service.AdminPreferenceService;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.local.CurrentUser;
@@ -707,12 +709,21 @@ class AgentChatServiceImplTest {
             return true;
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
+        KnowledgeDocumentChunk chunk = new KnowledgeDocumentChunk();
+        chunk.setId("chunk-1");
+        chunk.setKnowledgeBaseId("kb-1");
+        chunk.setDocumentId("document-1");
+        chunk.setContent("部署知识库正文");
+        KnowledgeRetrievalResult retrieval = new KnowledgeRetrievalResult();
+        retrieval.setChunks(Collections.singletonList(chunk));
+        when(knowledgeRetrievalService.retrieve(anyString(), anyString(), any())).thenReturn(retrieval);
+        when(knowledgeDocumentService.listByIds(any())).thenReturn(Collections.emptyList());
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
         when(modelClient.stream(any(), any())).thenAnswer(invocation -> {
             ModelStreamCallback callback = invocation.getArgument(1);
-            callback.onMessage("我需要确认部署信息。");
+            callback.onMessage("我需要确认部署信息【1】。");
             ModelStreamResponse response = new ModelStreamResponse();
-            response.setContent("我需要确认部署信息。");
+            response.setContent("我需要确认部署信息【1】。");
             response.setModel("gpt-test");
             response.setPromptTokens(8);
             response.setCompletionTokens(4);
@@ -729,11 +740,13 @@ class AgentChatServiceImplTest {
         service.stream(dto, callback);
 
         assertEquals(1, callback.chunks.size());
-        assertEquals("conversation-1:我需要确认部署信息。", callback.chunks.get(0));
+        assertEquals("conversation-1:我需要确认部署信息【1】。", callback.chunks.get(0));
         assertEquals("message-question-1", callback.questionMessageId);
         assertEquals("message-assistant-1", callback.doneMessageId);
-        assertEquals("我需要确认部署信息。", callback.doneResponse.getContent());
+        assertEquals("我需要确认部署信息【1】。", callback.doneResponse.getContent());
         org.junit.jupiter.api.Assertions.assertTrue(callback.doneResponse.getWaitingUser());
+        assertEquals(1, callback.doneResponse.getSources().size());
+        assertEquals("chunk-1", callback.doneResponse.getSources().get(0).get("chunkId"));
         assertEquals(Arrays.asList("done", "question"), callback.events);
         assertFalse(callback.errorCalled);
 
@@ -741,7 +754,8 @@ class AgentChatServiceImplTest {
         verify(agentMessageService, org.mockito.Mockito.times(3)).save(messageCaptor.capture());
         assertEquals("user", messageCaptor.getAllValues().get(0).getRole());
         assertEquals("chat", messageCaptor.getAllValues().get(1).getMessageType());
-        assertEquals("我需要确认部署信息。", messageCaptor.getAllValues().get(1).getContent());
+        assertEquals("我需要确认部署信息【1】。", messageCaptor.getAllValues().get(1).getContent());
+        org.junit.jupiter.api.Assertions.assertTrue(messageCaptor.getAllValues().get(1).getCitations().contains("chunk-1"));
         assertEquals("interaction", messageCaptor.getAllValues().get(2).getMessageType());
         assertEquals("请选择部署环境", messageCaptor.getAllValues().get(2).getContent());
     }

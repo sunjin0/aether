@@ -244,9 +244,10 @@ class ConversationContextServiceTest {
      * 处理restoresAuditedToolCallsAs工具结果BeforeTheirAssistantAnswer。
      */
     @Test
-    void restoresAuditedToolCallsAsToolResultsBeforeTheirAssistantAnswer() {
+    void restoresAuditedToolCallsAfterTheirAssistantToolCall() {
         AgentMessage answer = message(1);
         answer.setRole("assistant");
+        answer.setToolCalls("[{\"id\":\"call-1\",\"type\":\"function\"}]");
         when(messageService.list(any())).thenReturn(Collections.singletonList(answer));
 
         AgentRun run = new AgentRun();
@@ -272,12 +273,35 @@ class ConversationContextServiceTest {
                 toolAwareService.buildFromHistory(agent, "conversation-1");
 
         assertEquals(2, context.size());
-        assertEquals("tool", context.get(0).getRole());
-        assertEquals("call-1", context.get(0).getToolCallId());
-        assertNull(context.get(0).getToolCalls());
-        assertTrue(context.get(0).getContent().contains("lookup"));
-        assertTrue(context.get(0).getContent().contains("{\"name\":\"Aether\"}"));
-        assertEquals("message-1", context.get(1).getContent());
+        assertEquals("assistant", context.get(0).getRole());
+        assertTrue(context.get(0).getToolCalls().contains("call-1"));
+        assertEquals("message-1", context.get(0).getContent());
+        assertEquals("tool", context.get(1).getRole());
+        assertEquals("call-1", context.get(1).getToolCallId());
+        assertTrue(context.get(1).getContent().contains("lookup"));
+        assertTrue(context.get(1).getContent().contains("{\"name\":\"Aether\"}"));
+    }
+
+    @Test
+    void convertsOldToolAuditWithoutToolCallsToSystemContext() {
+        AgentMessage answer = message(1);
+        answer.setRole("assistant");
+        when(messageService.list(any())).thenReturn(Collections.singletonList(answer));
+
+        AgentRun run = new AgentRun(); run.setId("run-1"); run.setMessageId(answer.getId()); run.setDeleted(false);
+        when(runService.list(any())).thenReturn(Collections.singletonList(run));
+        AgentToolCallLog log = new AgentToolCallLog();
+        log.setRunId("run-1"); log.setToolCallId("call-1"); log.setToolName("lookup");
+        log.setResponseBody("result"); log.setStatus(0); log.setDeleted(false);
+        when(toolCallLogService.list(any())).thenReturn(Collections.singletonList(log));
+
+        ConversationContextService toolAwareService = new ConversationContextService(
+                messageService, cacheService, summaryService, runService, toolCallLogService);
+        List<ModelChatMessage> context = toolAwareService.buildFromHistory(agent, "conversation-1");
+
+        assertEquals("assistant", context.get(0).getRole());
+        assertEquals("system", context.get(1).getRole());
+        assertTrue(context.stream().noneMatch(item -> "tool".equals(item.getRole())));
     }
 
     /**
