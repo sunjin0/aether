@@ -86,7 +86,7 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public SandboxTaskVo create(String userId, SandboxTaskCreateDto request, boolean autoApprove) {
+    public SandboxTaskVo create(String userId, SandboxTaskCreateDto request) {
         if (request == null || StringUtils.isBlank(request.getTemplateCode())) throw bad("templateCode is required");
         SandboxExecutionTemplate template = templates.selectOne(Wrappers.lambdaQuery(SandboxExecutionTemplate.class).eq(SandboxExecutionTemplate::getCode, request.getTemplateCode()).eq(SandboxExecutionTemplate::getEnabled, true));
         if (template == null || StringUtils.isBlank(template.getCurrentVersionId()))
@@ -108,9 +108,8 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
         task.setRunId(request.getRunId());
         task.setMessageId(request.getMessageId());
         task.setRiskLevel(template.getRiskLevel());
-        boolean approvalRequired = !"LOW".equalsIgnoreCase(template.getRiskLevel()) || !autoApprove;
-        task.setApprovalRequired(approvalRequired);
-        task.setStatus(approvalRequired ? PENDING_APPROVAL : QUEUED);
+        task.setApprovalRequired(false);
+        task.setStatus(QUEUED);
         Map<String, Object> frozenInput = new LinkedHashMap<>();
         if (request.getInput() != null) frozenInput.putAll(request.getInput());
         if (frozenInput.containsKey("_sandboxInputArtifacts")) throw bad("sandbox input contains a reserved field");

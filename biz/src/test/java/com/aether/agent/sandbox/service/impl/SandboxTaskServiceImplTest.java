@@ -90,10 +90,10 @@ class SandboxTaskServiceImplTest {
     }
 
     /**
-     * 处理lowRiskAskPolicyCreatesPendingApproval任务。
+     * 处理sandboxTaskQueuesWithoutSecondApproval任务。
      */
     @Test
-    void lowRiskAskPolicyCreatesPendingApprovalTask() {
+    void sandboxTaskQueuesWithoutSecondApproval() {
         SandboxExecutionTemplate template = new SandboxExecutionTemplate();
         template.setId("template-1");
         template.setCode("generic-document");
@@ -110,9 +110,9 @@ class SandboxTaskServiceImplTest {
         SandboxTaskCreateDto request = new SandboxTaskCreateDto();
         request.setTemplateCode("generic-document");
         request.setInput(Collections.singletonMap("format", "pdf"));
-        SandboxTaskVo created = service.create("user-1", request, false);
-        assertEquals(SandboxTaskServiceImpl.PENDING_APPROVAL, created.getStatus());
-        assertTrue(created.getApprovalRequired());
+        SandboxTaskVo created = service.create("user-1", request);
+        assertEquals(SandboxTaskServiceImpl.QUEUED, created.getStatus());
+        assertFalse(created.getApprovalRequired());
         ArgumentCaptor<SandboxExecutionTask> captured = ArgumentCaptor.forClass(SandboxExecutionTask.class);
         verify(tasks).insert(captured.capture());
         assertEquals("generic-document", captured.getValue().getTemplateCode());
@@ -372,7 +372,7 @@ class SandboxTaskServiceImplTest {
         request.setTemplateCode("generic-document");
         request.setScriptLanguage("PYTHON");
         request.setScript("print('unsafe')");
-        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request, false));
+        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request));
         verify(tasks, never()).insert(any(SandboxExecutionTask.class));
     }
 
@@ -397,7 +397,7 @@ class SandboxTaskServiceImplTest {
         SandboxTaskCreateDto request = new SandboxTaskCreateDto();
         request.setTemplateCode("generic-document");
         request.setInput(Collections.singletonMap("content", "this input is intentionally too large"));
-        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request, false));
+        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request));
         verify(tasks, never()).insert(any(SandboxExecutionTask.class));
     }
 
@@ -422,7 +422,7 @@ class SandboxTaskServiceImplTest {
         SandboxTaskCreateDto request = new SandboxTaskCreateDto();
         request.setTemplateCode("generic-document");
         request.setInput(Collections.singletonMap("apiKey", "very-secret-value"));
-        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request, false));
+        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request));
         verify(tasks, never()).insert(any(SandboxExecutionTask.class));
     }
 
@@ -447,7 +447,7 @@ class SandboxTaskServiceImplTest {
         when(tasks.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
         SandboxTaskCreateDto request = new SandboxTaskCreateDto();
         request.setTemplateCode("generic-document");
-        com.aether.exception.ServerException error = assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request, false));
+        com.aether.exception.ServerException error = assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request));
         assertTrue(error.getMessage().startsWith("429:"));
         verify(tasks, never()).insert(any(SandboxExecutionTask.class));
     }
@@ -661,7 +661,7 @@ class SandboxTaskServiceImplTest {
         SandboxTaskCreateDto request = new SandboxTaskCreateDto();
         request.setTemplateCode("local-python-analysis");
         request.setInputArtifactIds(Arrays.asList("artifact-1"));
-        service.create("user-1", request, false);
+        service.create("user-1", request);
         verify(storage).upload(eq("aether-chat"), contains("sandbox/inputs/"), eq("abc".getBytes()), eq("text/csv"));
         ArgumentCaptor<SandboxExecutionTask> captured = ArgumentCaptor.forClass(SandboxExecutionTask.class);
         verify(tasks).insert(captured.capture());
@@ -706,7 +706,7 @@ class SandboxTaskServiceImplTest {
         SandboxTaskCreateDto request = new SandboxTaskCreateDto();
         request.setTemplateCode("python-lint-test");
         request.setInputArtifactIds(Collections.singletonList("artifact-zip"));
-        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request, false));
+        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request));
         verify(tasks, never()).insert(any(SandboxExecutionTask.class));
     }
 
@@ -748,7 +748,7 @@ class SandboxTaskServiceImplTest {
         SandboxTaskCreateDto request = new SandboxTaskCreateDto();
         request.setTemplateCode("python-lint-test");
         request.setInputArtifactIds(Collections.singletonList("artifact-many"));
-        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request, false));
+        assertThrows(com.aether.exception.ServerException.class, () -> service.create("user-1", request));
         verify(tasks, never()).insert(any(SandboxExecutionTask.class));
     }
 

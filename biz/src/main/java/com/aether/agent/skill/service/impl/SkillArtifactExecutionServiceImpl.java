@@ -114,7 +114,7 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         taskRequest.setAgentDefinitionId(agentId);
         taskRequest.setRunId(runId);
         taskRequest.setInput(input);
-        String taskId = sandboxTaskService.create(userId, taskRequest, canAutoApproveGenericDocument(runId)).getId();
+        String taskId = sandboxTaskService.create(userId, taskRequest).getId();
         sandboxTaskService.linkLegacyExecution(taskId, execution.getId());
         ArtifactGenerationVo result = new ArtifactGenerationVo();
         result.setExecutionId(execution.getId());
@@ -139,20 +139,6 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         config.setMaxOutputFiles(1);
         config.setMaxOutputBytes(52_428_800L);
         return config;
-    }
-
-    /**
-     * Low-risk document generation respects the approval policy frozen on the Agent run.
-     */
-    private boolean canAutoApproveGenericDocument(String runId) {
-        AgentRun run = runService.getById(runId);
-        if (run == null || StringUtils.isBlank(run.getSkillSnapshot())) return false;
-        try {
-            String policy = JSONObject.parseObject(run.getSkillSnapshot()).getString("toolApprovalPolicy");
-            return "never".equalsIgnoreCase(policy) || "risky".equalsIgnoreCase(policy);
-        } catch (Exception ignored) {
-            return false;
-        }
     }
 
     /**
@@ -317,7 +303,7 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         AgentMessage message = messageService.getById(messageId);
         if (message == null || !"assistant".equals(message.getRole())) return;
         for (AgentArtifact artifact : artifactService.list(Wrappers.lambdaQuery(AgentArtifact.class)
-                .eq(AgentArtifact::getRunId, runId).isNull(AgentArtifact::getMessageId))) {
+                .eq(AgentArtifact::getRunId, runId))) {
             attachToMessage(message, artifact);
         }
     }
@@ -469,9 +455,9 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         AgentRun run = runService.getById(job.getRunId());
         if (run == null || StringUtils.isBlank(run.getMessageId())) return;
         AgentMessage message = messageService.getById(run.getMessageId());
-        // Before completeRun, this field points at the user's input message.  Leave
-        // the Artifact unbound and let completeRun reconcile it to the assistant reply.
-        if (message == null || !"assistant".equals(message.getRole())) return;
+        // 工具确认卡同样是 assistant 消息，但不是最终答复。此时先保持产物未绑定，
+        // 由 completeRun 绑定到最终聊天消息，避免文件只出现在已回答的确认卡中。
+        if (message == null || !"assistant".equals(message.getRole()) || !"chat".equals(message.getMessageType())) return;
         attachToMessage(message, artifact);
     }
 
@@ -479,10 +465,16 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
      * 处理attachTo消息。
      */
     private void attachToMessage(AgentMessage message, AgentArtifact artifact) {
+        if (StringUtils.isNotBlank(artifact.getMessageId()) && !message.getId().equals(artifact.getMessageId())) {
+            detachFromMessage(artifact.getMessageId(), artifact.getId());
+        }
         List<Map<String, Object>> attachments = new ArrayList<>();
         if (StringUtils.isNotBlank(message.getAttachments())) {
             List rawAttachments = JSON.parseArray(message.getAttachments(), Map.class);
             if (rawAttachments != null) attachments.addAll(rawAttachments);
+        }
+        for (Map<String, Object> attachment : attachments) {
+            if (artifact.getId().equals(String.valueOf(attachment.get("artifactId")))) return;
         }
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("fileName", artifact.getFileName());
@@ -495,6 +487,20 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
         messageService.updateById(message);
         artifact.setMessageId(message.getId());
         artifactService.updateById(artifact);
+    }
+
+    /**
+     * 移除产物在旧消息中的附件引用，随后由调用方绑定到最终助手消息。
+     */
+    private void detachFromMessage(String messageId, String artifactId) {
+        AgentMessage previous = messageService.getById(messageId);
+        if (previous == null || StringUtils.isBlank(previous.getAttachments())) return;
+        List<Map<String, Object>> attachments = (List<Map<String, Object>>) (List<?>) JSON.parseArray(previous.getAttachments(), Map.class);
+        if (attachments == null) return;
+        if (attachments.removeIf(item -> artifactId.equals(String.valueOf(item.get("artifactId"))))) {
+            previous.setAttachments(JSON.toJSONString(attachments));
+            messageService.updateById(previous);
+        }
     }
 
     /**

@@ -15,9 +15,9 @@ import java.util.List;
  */
 public interface SandboxTaskService {
     /**
-     * 创建沙箱执行任务；根据 {@code autoApprove} 决定任务是否直接进入待调度状态。
+     * 创建沙箱执行任务并直接进入待调度状态。工具调用的风险识别与用户确认由 MCP 调用链负责。
      */
-    SandboxTaskVo create(String userId, SandboxTaskCreateDto request, boolean autoApprove);
+    SandboxTaskVo create(String userId, SandboxTaskCreateDto request);
 
     /**
      * 按任务编号查询沙箱任务详情，并按用户归属或管理员权限校验访问。

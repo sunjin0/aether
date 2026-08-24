@@ -54,7 +54,7 @@ public class SandboxTaskController {
      */
     @PostMapping("/tasks")
     public WebResponse<SandboxTaskVo> create(@RequestBody SandboxTaskCreateDto request) {
-        return WebResponse.OK(tasks.create(user(), request, false));
+        return WebResponse.OK(tasks.create(user(), request));
     }
 
     /**
