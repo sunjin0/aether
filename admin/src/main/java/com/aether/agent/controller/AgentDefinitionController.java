@@ -100,7 +100,12 @@ public class AgentDefinitionController {
                         .eq(status != null, AgentDefinition::getStatus, status)
                         .eq(AgentDefinition::getDeleted, false)
                         .orderByAsc(AgentDefinition::getName))
-                .stream().map(item -> new Option(item.getName(), item.getId())).collect(Collectors.toList());
+                .stream().map(item -> {
+                    Option option = new Option(item.getName(), item.getId());
+                    // 聊天页需要据此区分标准运行与 Deep Agent 运行；不暴露任何 Agent 配置细节。
+                    option.setCode(item.getExecutionMode());
+                    return option;
+                }).collect(Collectors.toList());
         return WebResponse.OK(options);
     }
 
