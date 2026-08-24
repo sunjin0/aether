@@ -124,3 +124,4 @@ aether:
     base-url: ${AETHER_DEEP_AGENT_BASE_URL:http://localhost:8010}
     shared-secret: ${AETHER_DEEP_AGENT_SHARED_SECRET:aether-deep-agent-dev-secret-change-me}
     mcp-delegation-secret: ${AETHER_MCP_DELEGATION_SECRET:aether-mcp-delegation-dev-secret-change-me}
+    mcp-credential-secret: ${AETHER_MCP_CREDENTIAL_SECRET:aether-mcp-credential-dev-secret-change-me}

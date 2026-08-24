@@ -66,4 +66,10 @@ public class AgentChatDto {
      * 按平台自动装配的 Skill 编码分组的可选输入，客户端不能选择或跳过 Skill。
      */
     private Map<String, Map<String, Object>> skillInputs;
+
+    /**
+     * 本次 Deep 运行的临时秘密变量。仅接受邮件凭据，服务端不会持久化或回显其值。
+     * key 为 credential_ref，value 包含 sender_email 与 smtp_authorization_code。
+     */
+    private Map<String, Map<String, String>> runtimeSecrets;
 }

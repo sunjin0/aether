@@ -16,6 +16,8 @@ import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.service.ToolRouterService;
+import com.aether.sys.entity.User;
+import com.aether.sys.service.UserService;
 import com.aether.agent.tools.ToolCallParser.ToolCall;
 import com.aether.agent.tools.core.Tool;
 import com.aether.agent.tools.core.ToolRegistry;
@@ -27,11 +29,14 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -79,6 +84,9 @@ public class AgentToolWorkflow {
     private final ToolCallRiskAnalyzer riskAnalyzer = new ToolCallRiskAnalyzer();
     private final ExecutorService readOnlyToolExecutor = new ThreadPoolExecutor(2, 8, 30L, TimeUnit.SECONDS,
             new ArrayBlockingQueue<Runnable>(64), new ThreadPoolExecutor.CallerRunsPolicy());
+
+    @Autowired(required = false)
+    private UserService userService;
 
     /**
      * 创建 {@code AgentToolWorkflow} 实例。
@@ -146,7 +154,7 @@ public class AgentToolWorkflow {
             if (!tools.isEmpty() && schemaChars + size > MAX_TOOL_SCHEMA_CHARS) {
                 continue;
             }
-            tools.add(tool);
+            tools.add(toModelVisibleTool(tool));
             schemaChars += size;
         }
         tools.sort(Comparator.comparing(AgentTool::getId, Comparator.nullsLast(String::compareTo)));
@@ -245,8 +253,9 @@ public class AgentToolWorkflow {
             toolMap.put(tool.getName(), tool);
         }
 
-        for (ToolCall call : parseCalls(response)) {
-            AgentTool tool = toolMap.get(call.getName());
+        for (ToolCall parsedCall : parseCalls(response)) {
+            AgentTool tool = toolMap.get(parsedCall.getName());
+            ToolCall call = withEmailDefaults(tool, parsedCall, userId);
             if (tool == null) {
                 ToolExecutionResult failure = ToolExecutionResult.failure("工具未找到: " + call.getName(), STATUS_FAILED);
                 failure.setToolCallId(call.getId());
@@ -283,8 +292,9 @@ public class AgentToolWorkflow {
         if (canExecuteReadOnlyCallsInParallel(calls, toolMap)) {
             return executeReadOnlyCallsInParallel(calls, toolMap, agent, userId, runId);
         }
-        for (ToolCall call : calls) {
-            AgentTool tool = toolMap.get(call.getName());
+        for (ToolCall parsedCall : calls) {
+            AgentTool tool = toolMap.get(parsedCall.getName());
+            ToolCall call = withEmailDefaults(tool, parsedCall, userId);
             if (tool == null) {
                 ToolExecutionResult failure = ToolExecutionResult.failure("工具未在本次 Skill 作用域内: " + call.getName(), STATUS_SECURITY_BLOCK);
                 failure.setToolCallId(call.getId());
@@ -445,7 +455,7 @@ public class AgentToolWorkflow {
         for (ToolCall candidate : calls) {
             for (AgentTool item : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools) {
                 if (candidate.getName().equals(item.getName()) && shouldRequestApproval(runId, item, candidate, userId, agent.getId())) {
-                    call = candidate;
+                    call = withEmailDefaults(item, candidate, userId);
                     tool = item;
                     break;
                 }
@@ -500,6 +510,7 @@ public class AgentToolWorkflow {
         String toolName = config.getString("toolName");
         AgentTool tool = agentToolService.getById(config.getString("toolId"));
         Map<String, Object> arguments = getArguments(config);
+        arguments = withEmailDefaults(tool, new ToolCall(toolCallId, toolName, arguments), userId).getArguments();
 
         ToolExecutionResult result;
         if (!confirmed) {
@@ -514,7 +525,7 @@ public class AgentToolWorkflow {
             }
         }
         result.setToolCallId(toolCallId);
-        if ("allow_10m".equals(decision) && tool != null) {
+        if ("allow_10m".equals(decision) && tool != null && !isEmailTool(tool)) {
             saveGrant(userId, agent.getId(), tool.getId(), question.getConversationId());
         }
         updateApprovalAudit(config.getString("auditLogId"), result, confirmed);
@@ -710,7 +721,8 @@ public class AgentToolWorkflow {
     private boolean shouldRequestApproval(String runId, AgentTool tool, ToolCall call, String userId, String agentId) {
         String policy = APPROVAL_ASK;
         com.aether.agent.entity.AgentRun run = agentRunService.getById(runId);
-        if (hasActiveGrant(userId, agentId, tool.getId(), run == null ? null : run.getConversationId())) return false;
+        if (!isEmailTool(tool) && hasActiveGrant(userId, agentId, tool.getId(), run == null ? null : run.getConversationId())) return false;
+        if (isEmailTool(tool)) return true;
         if (run != null && StringUtils.isNotBlank(run.getSkillSnapshot())) {
             try {
                 policy = StringUtils.defaultIfBlank(JSONObject.parseObject(run.getSkillSnapshot()).getString("toolApprovalPolicy"), APPROVAL_ASK);
@@ -776,14 +788,14 @@ public class AgentToolWorkflow {
         log.setRunId(runId);
         log.setToolCallId(call.getId());
         log.setToolName(call.getName());
-        log.setArguments(truncate(JSON.toJSONString(call.getArguments()), 65536));
+        log.setArguments(redactSecrets(truncate(JSON.toJSONString(call.getArguments()), 65536)));
         log.setToolId(tool == null ? null : tool.getId());
         // agent_definition_id 为 NOT NULL；来源缺失时兜底使用运行标识，避免约束错误掩盖真实调用错误。
         log.setAgentDefinitionId(StringUtils.defaultIfBlank(agentId, StringUtils.defaultIfBlank(runId, "unknown")));
         log.setRequestUrl(truncate(result.getRequestUrl(), 2048));
         log.setRequestMethod(result.getRequestMethod());
-        log.setRequestHeaders(result.getRequestHeaders());
-        log.setRequestBody(truncate(result.getRequestBody(), 65536));
+        log.setRequestHeaders(redactSecrets(result.getRequestHeaders()));
+        log.setRequestBody(redactSecrets(truncate(result.getRequestBody(), 65536)));
         log.setResponseStatus(result.getHttpStatus());
         log.setResponseBody(truncate(result.getRawResponse(), 65536));
         log.setLatencyMs(result.getLatencyMs());
@@ -804,8 +816,8 @@ public class AgentToolWorkflow {
         update.setId(auditLogId);
         update.setRequestUrl(truncate(result.getRequestUrl(), 2048));
         update.setRequestMethod(result.getRequestMethod());
-        update.setRequestHeaders(result.getRequestHeaders());
-        update.setRequestBody(truncate(result.getRequestBody(), 65536));
+        update.setRequestHeaders(redactSecrets(result.getRequestHeaders()));
+        update.setRequestBody(redactSecrets(truncate(result.getRequestBody(), 65536)));
         update.setResponseStatus(result.getHttpStatus());
         update.setResponseBody(truncate(result.getRawResponse(), 65536));
         update.setLatencyMs(result.getLatencyMs());
@@ -820,6 +832,69 @@ public class AgentToolWorkflow {
      */
     private String truncate(String value, int maxLength) {
         return value == null || value.length() <= maxLength ? value : value.substring(0, maxLength);
+    }
+
+    private boolean isEmailTool(AgentTool tool) {
+        return tool != null && "send_email".equals(StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName()));
+    }
+
+    /**
+     * 从用户已保存的邮箱配置补齐非敏感连接参数。授权码从不放入工具参数，仍由 MCP 执行器按
+     * credential_ref 在执行期读取。
+     */
+    private ToolCall withEmailDefaults(AgentTool tool, ToolCall call, String userId) {
+        if (!isEmailTool(tool) || call == null || userService == null) return call;
+        Map<String, Object> arguments = new LinkedHashMap<>(call.getArguments() == null
+                ? java.util.Collections.<String, Object>emptyMap() : call.getArguments());
+        Object credentialRef = arguments.get("credential_ref");
+        if (credentialRef != null && StringUtils.isNotBlank(credentialRef.toString())) return call;
+        User user = userService.getById(userId);
+        if (user == null || StringUtils.isAnyBlank(user.getEmail(), user.getSmtpHost(), user.getSmtpSecurity(),
+                user.getSmtpAuthorizationCode()) || user.getSmtpPort() == null) {
+            return call;
+        }
+        arguments.put("credential_ref", "user-default");
+        arguments.put("smtp_host", user.getSmtpHost());
+        arguments.put("smtp_port", user.getSmtpPort());
+        arguments.put("security", user.getSmtpSecurity());
+        return new ToolCall(call.getId(), call.getName(), arguments);
+    }
+
+    /**
+     * 发件邮箱配置由服务端注入；模型只能看到邮件业务字段，避免要求它猜测或回显 SMTP 连接信息。
+     */
+    private AgentTool toModelVisibleTool(AgentTool tool) {
+        if (!isEmailTool(tool) || StringUtils.isBlank(tool.getMcpInputSchema())) return tool;
+        try {
+            AgentTool visible = new AgentTool();
+            BeanUtils.copyProperties(tool, visible);
+            JSONObject schema = JSONObject.parseObject(tool.getMcpInputSchema());
+            JSONObject properties = schema.getJSONObject("properties");
+            if (properties != null) {
+                properties.remove("credential_ref");
+                properties.remove("smtp_host");
+                properties.remove("smtp_port");
+                properties.remove("security");
+            }
+            JSONArray required = schema.getJSONArray("required");
+            if (required != null) {
+                required.remove("credential_ref");
+                required.remove("smtp_host");
+                required.remove("smtp_port");
+                required.remove("security");
+            }
+            visible.setMcpInputSchema(schema.toJSONString());
+            visible.setDescription(StringUtils.defaultString(tool.getDescription())
+                    + " 发件邮箱与 SMTP 连接配置由平台从当前用户已验证的邮箱配置中注入；不得索取、传入或展示授权码。");
+            return visible;
+        } catch (Exception e) {
+            log.warn("构建邮件工具的模型可见参数失败，保留原始 Schema: toolId={}", tool.getId());
+            return tool;
+        }
+    }
+
+    private String redactSecrets(String value) {
+        return value == null ? null : value.replaceAll("(?i)(smtp_authorization_code|password|passwd|credential|token|secret)\\\"?\\s*[:=]\\s*\\\"?[^,}\\s\\\"]+", "$1=***");
     }
 
     /**

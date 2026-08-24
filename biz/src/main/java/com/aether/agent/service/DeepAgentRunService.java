@@ -70,6 +70,10 @@ public class DeepAgentRunService {
     private CapabilityIndexService capabilityIndexService;
     @Autowired(required = false)
     private ContextMetricService contextMetricService;
+    @Autowired(required = false)
+    private RuntimeEmailCredentialStore runtimeEmailCredentialStore;
+    @Autowired(required = false)
+    private EmailCredentialTokenService emailCredentialTokenService;
 
     /**
      * 创建 {@code DeepAgentRunService} 实例。
@@ -151,6 +155,18 @@ public class DeepAgentRunService {
                 registerCallback, null);
     }
 
+    /** 使用调用方本次请求提供的临时邮件凭据启动运行。 */
+    public String startRun(AgentDefinition agent, String userId, String conversationId,
+                           String task, String attachmentContent, String attachments,
+                           List<Map<String, Object>> sources, SkillRuntimeContext skillContext,
+                           Consumer<String> registerCallback, Map<String, Map<String, String>> runtimeSecrets) {
+        String runId = startRunInternal(agent, userId, conversationId, task, attachmentContent, attachments, sources, skillContext,
+                registerCallback, null);
+        // startRunInternal 已完成同步派发；此重载只用于兼容入口，秘密须在真正派发前注册。
+        // 当前聊天入口通过 registerRuntimeSecretsBeforeDispatch 预注册，不使用该重载。
+        return runId;
+    }
+
     /**
      * 处理start运行。
      */
@@ -224,6 +240,7 @@ public class DeepAgentRunService {
         }
         agentRunService.save(run);
         String runId = run.getId();
+        if (runtimeEmailCredentialStore != null) runtimeEmailCredentialStore.bindPending(runId, conversationId, userId);
         boolean dispatchImmediately = taskRecord == null || agentSessionService == null || route.reuseTask
                 || agentSessionService.claimTask(sessionId, taskRecord.getId());
         if (taskRecord != null) {
@@ -260,6 +277,8 @@ public class DeepAgentRunService {
             // 不再通过委派令牌选择脚本或模板。
             String delegationToken = delegationTokenService.create(runId, userId, agent.getId(), allowedTools);
 
+            Map<String, String> emailCredentialTokens = createEmailCredentialTokens(runId, userId, allowedTools);
+
             List<Map<String, Object>> knowledgeSources = buildKnowledgeSources(sources);
 
             Map<String, Object> request = new LinkedHashMap<>();
@@ -282,6 +301,7 @@ public class DeepAgentRunService {
             request.put("allowed_tools", allowedTools);
             request.put("tool_approval_policy", readToolApprovalPolicy(run.getSkillSnapshot()));
             request.put("delegation_token", delegationToken);
+            if (!emailCredentialTokens.isEmpty()) request.put("email_credential_tokens", emailCredentialTokens);
             // 计划先行：生成初始计划后等待用户确认再执行（Codex/Claude 风格）。
             request.put("plan_approval_required", true);
             if (agent.getMaxToolRounds() != null) {
@@ -388,7 +408,18 @@ public class DeepAgentRunService {
     private String deepAgentInputSnapshot(Map<String, Object> request) {
         Map<String, Object> snapshot = new LinkedHashMap<>(request);
         snapshot.remove("delegation_token");
+        snapshot.remove("email_credential_tokens");
         return JSON.toJSONString(snapshot);
+    }
+
+    private Map<String, String> createEmailCredentialTokens(String runId, String userId, List<String> allowedTools) {
+        if (runtimeEmailCredentialStore == null || emailCredentialTokenService == null || !allowedTools.contains("send_email")) return Collections.emptyMap();
+        // 运行时凭据引用在工具参数中选择。逐一签发，使 Deep Agent 无法得到明文授权码。
+        Map<String, String> tokens = new LinkedHashMap<>();
+        for (Map.Entry<String, Map<String, String>> entry : runtimeEmailCredentialStore.all(runId, userId).entrySet()) {
+            tokens.put(entry.getKey(), emailCredentialTokenService.create(runId, userId, entry.getKey(), entry.getValue()));
+        }
+        return tokens;
     }
 
     /**

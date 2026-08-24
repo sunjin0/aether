@@ -29,6 +29,10 @@ import java.util.stream.Collectors;
 public class ToolRouterService {
     private static final Logger log = LoggerFactory.getLogger(ToolRouterService.class);
     private static final String ARTIFACT_TOOL = "generate_artifact";
+    /**
+     * 邮件发送是经审批的高风险外部操作，不能因中文/英文关键词或向量索引缺失而从模型工具集中裁掉。
+     */
+    private static final String EMAIL_TOOL = "send_email";
     private static final double MIN_VECTOR_SCORE = 0.30D;
 
     private final AgentToolRoutingIndexMapper indexMapper;
@@ -87,7 +91,7 @@ public class ToolRouterService {
         if (protectedToolIds != null && tool.getId() != null && protectedToolIds.contains(tool.getId())) {
             return true;
         }
-        return ARTIFACT_TOOL.equals(tool.getMcpToolName());
+        return ARTIFACT_TOOL.equals(tool.getMcpToolName()) || EMAIL_TOOL.equals(tool.getMcpToolName());
     }
 
     /**

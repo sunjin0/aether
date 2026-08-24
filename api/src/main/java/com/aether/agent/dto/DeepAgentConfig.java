@@ -15,6 +15,8 @@ public class DeepAgentConfig {
     private String sharedSecret;
     private String keyId = "deep-agent-v1";
     private String mcpDelegationSecret;
+    /** AES-GCM 密钥材料；必须与 MCP 的 AETHER_MCP_CREDENTIAL_SECRET 一致。 */
+    private String mcpCredentialSecret;
     private long runTimeoutSeconds = 600L;
     /**
      * MCP 委派令牌有效期(秒)。默认 30 分钟：必须大于 deep-agent 单次运行超时

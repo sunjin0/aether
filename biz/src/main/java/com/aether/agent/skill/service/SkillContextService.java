@@ -153,8 +153,9 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
             snapshotSkills.add(snapshot);
         }
         for (String code : inputs.keySet()) if (!installedCodes.contains(code)) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.not-installed"));
-        Set<String> finalToolIds = declaredToolIds;
-        List<AgentTool> tools = boundTools.stream().filter(item -> finalToolIds != null && finalToolIds.contains(item.getId()) && isLiveMcpTool(item)).collect(Collectors.toList());
+        // Agent 工具和知识库绑定定义运行期的授权边界。Skill 声明只约束 Skill 自己的
+        // 模板、资源及 required 工具，不得收窄 Agent 已绑定的工具或知识库范围。
+        List<AgentTool> tools = boundTools.stream().filter(this::isLiveMcpTool).collect(Collectors.toList());
         if (tools.stream().anyMatch(tool -> "generate_artifact".equals(tool.getMcpToolName()))) {
             prompt.append("\n\n[Artifact Generation]\nUse generate_artifact for file output. Provide title, content and format only; never select a Skill, script or template. This Skill's instructions above are the applicable document specification.");
         }
@@ -162,8 +163,11 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
         prompt.append(capabilityIndexService.buildIndex(agent.getId(), allInstallations));
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("installed", true); snapshot.put("routing", route); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
-        snapshot.put("knowledgeBaseIds", declaredKnowledgeBaseIds == null ? Collections.emptySet() : declaredKnowledgeBaseIds);
-        context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools); context.setKnowledgeBaseIds(declaredKnowledgeBaseIds == null ? Collections.<String>emptySet() : declaredKnowledgeBaseIds); context.setRequiredToolIds(requiredToolIds); context.setSnapshot(JSON.toJSONString(snapshot));
+        snapshot.put("skillKnowledgeBaseIds", declaredKnowledgeBaseIds == null ? Collections.emptySet() : declaredKnowledgeBaseIds);
+        snapshot.put("knowledgeBaseScope", "agent-bound");
+        context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools);
+        // null 表示检索服务使用全部启用的 Agent 知识库绑定；空集合才表示显式禁止检索。
+        context.setKnowledgeBaseIds(null); context.setRequiredToolIds(requiredToolIds); context.setSnapshot(JSON.toJSONString(snapshot));
         return context;
     }
 

@@ -88,6 +88,7 @@ aether:
     shared-secret: ${AETHER_DEEP_AGENT_SHARED_SECRET:}
     key-id: ${AETHER_DEEP_AGENT_KEY_ID:deep-agent-v1}
     mcp-delegation-secret: ${AETHER_MCP_DELEGATION_SECRET:}
+    mcp-credential-secret: ${AETHER_MCP_CREDENTIAL_SECRET:}
     run-timeout-seconds: ${AETHER_DEEP_AGENT_RUN_TIMEOUT_SECONDS:600}
 
 # 查询重写会额外触发一次同步模型调用；生产环境默认关闭以缩短首字响应时间。

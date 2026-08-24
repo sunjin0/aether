@@ -340,6 +340,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         User user = this.getById(currentUser.get("userId"));
         user.setPassword(null);
+        user.setSmtpAuthorizationCode(null);
         BeanUtils.copyProperties(user, userVo);
         HashMap<String, Object> map = getPermissionMapByUserId(currentUser.get("userId"), currentUser.get("token"));
         userVo.setPermissionMap(map);

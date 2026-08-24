@@ -19,6 +19,7 @@ import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.ChatAttachmentService;
 import com.aether.agent.service.DeepAgentRunService;
 import com.aether.agent.service.KnowledgeContextService;
+import com.aether.agent.service.RuntimeEmailCredentialStore;
 import com.aether.agent.skill.service.SkillContextService;
 import com.aether.agent.skill.service.SkillRuntimeContext;
 import com.aether.agent.runtime.DeepRunEventHub;
@@ -102,6 +103,8 @@ public class AgentChatController {
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
     private final DeepRunEventHub deepRunEventHub;
+    @Autowired(required = false)
+    private RuntimeEmailCredentialStore runtimeEmailCredentialStore;
     /**
      * Bounded SSE worker pool: a cached pool can otherwise exhaust native memory under slow clients.
      */
@@ -852,6 +855,9 @@ public class AgentChatController {
                             return closed.get();
                         }
                     };
+                    if (runtimeEmailCredentialStore != null && dto.getRuntimeSecrets() != null && !dto.getRuntimeSecrets().isEmpty()) {
+                        runtimeEmailCredentialStore.putPending(conversationId, userId, dto.getRuntimeSecrets());
+                    }
                     String runId = deepAgentRunService.startRun(agent, userId, conversationId, dto.getMessage(),
                             dto.getAttachmentContent(), dto.getAttachments(), sources, skillContext, registeredRunId -> {
                                 runIdRef.set(registeredRunId);

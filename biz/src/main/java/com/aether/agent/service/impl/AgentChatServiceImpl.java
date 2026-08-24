@@ -38,6 +38,7 @@ import com.aether.agent.service.CapabilityIndexService;
 import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.service.QueryRewriteService;
 import com.aether.agent.service.ChatRunService;
+import com.aether.agent.service.RuntimeEmailCredentialStore;
 import com.aether.agent.service.AdminPreferenceExtractionService;
 import com.aether.agent.service.AgentSessionMemoryExtractionService;
 import com.aether.agent.skill.service.SkillContextService;
@@ -115,6 +116,10 @@ public class AgentChatServiceImpl implements AgentChatService {
     @Autowired(required = false)
     private CapabilityIndexService capabilityIndexService;
 
+    /** 运行时邮件凭据只绑定到本次 run，绝不进入模型上下文或数据库。 */
+    @Autowired(required = false)
+    private RuntimeEmailCredentialStore runtimeEmailCredentialStore;
+
     /**
      * 默认关闭，避免每轮聊天在主模型调用前额外等待一次同步模型重写。
      */
@@ -189,6 +194,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         ModelProvider provider = getEnabledProvider(agent);
         applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
+        stageRuntimeEmailSecrets(conversation.getId(), userId, dto);
         String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent,
                 dto.getAttachmentContent(), dto.getAttachments(), agent, provider);
@@ -351,6 +357,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         applyThinkingConfig(dto, agent);
         long agentResolvedAt = System.currentTimeMillis();
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
+        stageRuntimeEmailSecrets(conversation.getId(), userId, dto);
         long conversationResolvedAt = System.currentTimeMillis();
         String rewrittenContent = rewriteUserMessage(conversation.getId(), dto.getMessage(), agent, provider);
         AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent,
@@ -1366,8 +1373,20 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
     private String saveRun(AgentDefinition agent, ModelProvider provider, String userId, String conversationId,
                            String messageId, String input, ModelChatResponse response, long latencyMs,
                            Integer status, String errorMsg, String skillSnapshot) {
-        return chatRunService.create(agent, provider, userId, conversationId, messageId, input,
+        String runId = chatRunService.create(agent, provider, userId, conversationId, messageId, input,
                 response, latencyMs, status, errorMsg, snapshotWithToolApprovalPolicy(conversationId, skillSnapshot));
+        if (runtimeEmailCredentialStore != null) {
+            runtimeEmailCredentialStore.bindPending(runId, conversationId, userId);
+        }
+        return runId;
+    }
+
+    private void stageRuntimeEmailSecrets(String conversationId, String userId, AgentChatDto dto) {
+        if (runtimeEmailCredentialStore == null || dto == null || dto.getRuntimeSecrets() == null
+                || dto.getRuntimeSecrets().isEmpty()) {
+            return;
+        }
+        runtimeEmailCredentialStore.putPending(conversationId, userId, dto.getRuntimeSecrets());
     }
 
     /**

@@ -8,6 +8,11 @@ import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.mcp.McpClient;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.DelegationTokenService;
+import com.aether.agent.service.RuntimeEmailCredentialStore;
+import com.aether.agent.service.EmailCredentialTokenService;
+import com.aether.sys.service.UserService;
+import com.aether.sys.entity.User;
+import com.aether.utils.AesUtil;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson2.JSON;
@@ -15,6 +20,7 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -31,6 +37,12 @@ public class McpToolExecutor implements ToolExecutor {
     private final McpClient mcpClient;
     private final AgentMcpServerService agentMcpServerService;
     private final DelegationTokenService delegationTokenService;
+    @Autowired(required = false)
+    private RuntimeEmailCredentialStore runtimeEmailCredentialStore;
+    @Autowired(required = false)
+    private EmailCredentialTokenService emailCredentialTokenService;
+    @Autowired(required = false)
+    private UserService userService;
 
     /**
      * 创建 {@code McpToolExecutor} 实例。
@@ -136,6 +148,25 @@ public class McpToolExecutor implements ToolExecutor {
         JSONObject headers = StringUtils.isBlank(server.getRequestHeaders())
                 ? new JSONObject() : JSON.parseObject(server.getRequestHeaders());
         headers.put("Authorization", "Bearer " + token);
+        if ("send_email".equals(toolName)) {
+            String credentialRef = context.getArguments() == null ? null : String.valueOf(context.getArguments().get("credential_ref"));
+            Map<String, String> credential = runtimeEmailCredentialStore == null ? null
+                    : runtimeEmailCredentialStore.get(context.getRunId(), context.getUserId(), credentialRef);
+            if (credential == null && "user-default".equals(credentialRef) && userService != null) {
+                User user = userService.getById(context.getUserId());
+                if (user != null && StringUtils.isNotBlank(user.getEmail()) && StringUtils.isNotBlank(user.getSmtpAuthorizationCode())) {
+                    credential = new LinkedHashMap<>();
+                    credential.put("sender_email", user.getEmail());
+                    credential.put("smtp_authorization_code", AesUtil.decrypt(user.getSmtpAuthorizationCode()));
+                }
+            }
+            if (credential == null || emailCredentialTokenService == null) {
+                throw new ServerException(422, "邮件临时凭据不存在或已过期");
+            }
+            Map<String, String> tokens = new LinkedHashMap<>();
+            tokens.put(credentialRef, emailCredentialTokenService.create(context.getRunId(), context.getUserId(), credentialRef, credential));
+            headers.put("X-Aether-Email-Credentials", JSON.toJSONString(tokens));
+        }
         if (StringUtils.isNotBlank(context.getIdempotencyKey())) {
             headers.put("X-Aether-Idempotency-Key", context.getIdempotencyKey());
         }
@@ -154,7 +185,7 @@ public class McpToolExecutor implements ToolExecutor {
         try {
             JSONObject headers = JSON.parseObject(headersJson);
             for (String key : headers.keySet()) {
-                if ("authorization".equalsIgnoreCase(key)) {
+                if ("authorization".equalsIgnoreCase(key) || "x-aether-email-credentials".equalsIgnoreCase(key)) {
                     headers.put(key, "Bearer ***");
                 }
             }

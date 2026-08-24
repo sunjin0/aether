@@ -12,6 +12,7 @@ import com.aether.sys.entity.User;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.validator.ValidEntity;
+import com.aether.utils.AesUtil;
 import com.aether.sys.vo.UserVo;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
@@ -75,6 +76,7 @@ public class UserController {
         List<UserVo> userVos = page.getRecords().stream().map(item -> {
             UserVo userVo = new UserVo();
             item.setPassword(null);
+            item.setSmtpAuthorizationCode(null);
             BeanUtils.copyProperties(item, userVo);
             userVo.setRoleIds(userService.getRoleIdsByUserId(item.getId()));
             return userVo;
@@ -108,6 +110,7 @@ public class UserController {
     public WebResponse<User> detail(@RequestParam @NotBlank String id) throws ServerException {
         User user = userService.getById(id);
         user.setPassword(null);
+        user.setSmtpAuthorizationCode(null);
         UserVo userVo = new UserVo();
         BeanUtils.copyProperties(user, userVo);
         userVo.setRoleIds(userService.getRoleIdsByUserId(user.getId()));
@@ -131,6 +134,7 @@ public class UserController {
         if (StringUtils.isNotEmpty(User.getPassword())) {
             User.setPassword(encoder.encode(User.getPassword()));
         }
+        encryptSmtpAuthorizationCode(User, null);
         if (User.getRoleIds() != null) {
             userService.bindRole(User.getId(), User.getRoleIds());
         }
@@ -155,6 +159,8 @@ public class UserController {
         if (StringUtils.isNotEmpty(User.getPassword())) {
             User.setPassword(encoder.encode(User.getPassword()));
         }
+        User existing = userService.getById(User.getId());
+        encryptSmtpAuthorizationCode(User, existing);
         if (User.getRoleIds() != null) {
             userService.bindRole(User.getId(), User.getRoleIds());
         }
@@ -176,6 +182,15 @@ public class UserController {
         boolean update = userService.remove(Wrappers.lambdaUpdate(User.class)
                 .eq(User::getId, id));
         return WebResponse.OK(update ? I18nUtils.getMessage("system.admin.delete.success") : I18nUtils.getMessage("system.admin.delete.fail"), update);
+    }
+
+    /** 加密新授权码；编辑时空值保留旧配置，所有读取接口均清空该字段。 */
+    private void encryptSmtpAuthorizationCode(User user, User existing) {
+        if (StringUtils.isNotBlank(user.getSmtpAuthorizationCode())) {
+            user.setSmtpAuthorizationCode(AesUtil.encrypt(user.getSmtpAuthorizationCode()));
+        } else if (existing != null) {
+            user.setSmtpAuthorizationCode(existing.getSmtpAuthorizationCode());
+        }
     }
 
 }

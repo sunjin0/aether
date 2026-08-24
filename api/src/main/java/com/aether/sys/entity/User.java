@@ -46,4 +46,17 @@ public class User extends BaseEntity {
     @ApiModelProperty(value = "头像")
     private String avatar;
 
+    @ApiModelProperty(value = "发信 SMTP 主机")
+    private String smtpHost;
+
+    @ApiModelProperty(value = "发信 SMTP 端口")
+    private Integer smtpPort;
+
+    @ApiModelProperty(value = "发信 SMTP 加密方式：ssl/starttls")
+    private String smtpSecurity;
+
+    /** 已 AES 加密；任何接口均不得回传明文或密文。 */
+    @ApiModelProperty(value = "SMTP 授权码（仅写入）")
+    private String smtpAuthorizationCode;
+
 }
