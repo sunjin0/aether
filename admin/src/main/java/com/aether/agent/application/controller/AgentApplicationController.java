@@ -4,6 +4,13 @@ import com.aether.agent.application.dto.AgentApplicationDto;
 import com.aether.agent.application.entity.AgentApplication;
 import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.agent.application.vo.AgentApplicationVo;
+import com.aether.agent.application.vo.AgentApplicationUsageVo;
+import com.aether.agent.entity.AgentRun;
+import com.aether.agent.service.AgentRunService;
+import com.aether.workflow.entity.AgentWorkflowInstance;
+import com.aether.workflow.entity.AgentWorkflowCallbackDelivery;
+import com.aether.workflow.service.AgentWorkflowInstanceService;
+import com.aether.workflow.service.AgentWorkflowCallbackDeliveryService;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.permission.Permission;
@@ -21,9 +28,14 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/agent/application")
 public class AgentApplicationController {
     private final AgentApplicationService applicationService;
+    private final AgentRunService agentRunService;
+    private final AgentWorkflowInstanceService workflowInstanceService;
+    private final AgentWorkflowCallbackDeliveryService callbackDeliveryService;
 
-    public AgentApplicationController(AgentApplicationService applicationService) {
+    public AgentApplicationController(AgentApplicationService applicationService, AgentRunService agentRunService,
+                                      AgentWorkflowInstanceService workflowInstanceService, AgentWorkflowCallbackDeliveryService callbackDeliveryService) {
         this.applicationService = applicationService;
+        this.agentRunService = agentRunService; this.workflowInstanceService = workflowInstanceService; this.callbackDeliveryService = callbackDeliveryService;
     }
 
     @PostMapping("/list")
@@ -62,6 +74,18 @@ public class AgentApplicationController {
         BeanUtils.copyProperties(dto, entity);
         applicationService.updateById(entity);
         return WebResponse.OK("更新成功");
+    }
+
+    @GetMapping("/{id}/usage")
+    @Permission(path = "/service-account/monitor")
+    public WebResponse<AgentApplicationUsageVo> usage(@PathVariable String id) {
+        applicationService.requireActive(id);
+        AgentApplicationUsageVo value = new AgentApplicationUsageVo(); value.setApplicationId(id);
+        java.util.List<AgentRun> runs = agentRunService.list(Wrappers.lambdaQuery(AgentRun.class).eq(AgentRun::getApplicationId, id).eq(AgentRun::getDeleted, false));
+        value.setAgentRuns((long) runs.size()); value.setTotalTokens(runs.stream().mapToLong(item -> item.getTotalTokens() == null ? 0L : item.getTotalTokens()).sum());
+        value.setWorkflowRuns(workflowInstanceService.count(Wrappers.lambdaQuery(AgentWorkflowInstance.class).eq(AgentWorkflowInstance::getApplicationId, id).eq(AgentWorkflowInstance::getDeleted, false)));
+        value.setCallbackFailed(callbackDeliveryService.count(Wrappers.lambdaQuery(AgentWorkflowCallbackDelivery.class).eq(AgentWorkflowCallbackDelivery::getApplicationId, id).eq(AgentWorkflowCallbackDelivery::getStatus, "FAILED").eq(AgentWorkflowCallbackDelivery::getDeleted, false)));
+        return WebResponse.OK(value);
     }
 
     private void validate(AgentApplicationDto dto) {
