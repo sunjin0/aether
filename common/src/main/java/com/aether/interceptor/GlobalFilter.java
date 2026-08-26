@@ -162,6 +162,6 @@ public class GlobalFilter extends OncePerRequestFilter {
      */
     private boolean isServiceAccountPathAllowed(String uri) {
         if (uri == null) return false;
-        return uri.startsWith("/api/business/") || "/api/auth/service-account/token".equals(uri);
+        return uri.startsWith("/api/business/") || uri.startsWith("/openapi/v1/") || "/api/auth/service-account/token".equals(uri);
     }
 }

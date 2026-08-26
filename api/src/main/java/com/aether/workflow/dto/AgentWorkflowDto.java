@@ -8,6 +8,7 @@ import lombok.Data;
 @Data
 public class AgentWorkflowDto {
     private String applicationId;
+    private String code;
     private String name;
     private String description;
     private String nodes;

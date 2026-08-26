@@ -21,6 +21,9 @@ public class AgentWorkflow extends BaseEntity {
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
 
+    @ApiModelProperty(value = "面向业务调用的工作流编码")
+    private String code;
+
     @ApiModelProperty(value = "关联Agent定义ID")
     private String agentDefinitionId;
 

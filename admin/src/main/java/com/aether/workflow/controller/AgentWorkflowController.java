@@ -146,6 +146,11 @@ public class AgentWorkflowController {
     @PostMapping
     public WebResponse<String> create(@RequestBody AgentWorkflowDto dto) {
         validateConcurrencyLimit(dto);
+        if (StringUtils.isBlank(dto.getCode()) || !dto.getCode().matches("[A-Za-z][A-Za-z0-9_-]{2,63}"))
+            throw new ServerException(422, "工作流编码必须为 3-64 位字母、数字、下划线或短横线");
+        if (workflowService.count(Wrappers.lambdaQuery(AgentWorkflow.class).eq(AgentWorkflow::getApplicationId,
+                StringUtils.defaultIfBlank(dto.getApplicationId(), "0")).eq(AgentWorkflow::getCode, dto.getCode())
+                .eq(AgentWorkflow::getDeleted, false)) > 0) throw new ServerException(422, "工作流编码已存在");
         AgentWorkflow entity = new AgentWorkflow();
         BeanUtils.copyProperties(dto, entity);
         entity.setApplicationId(StringUtils.defaultIfBlank(dto.getApplicationId(), "0"));
