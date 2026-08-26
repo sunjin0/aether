@@ -71,10 +71,13 @@ public class OpenApiController {
     }
 
     @PostMapping("/workflows/runs")
-    public WebResponse<OpenApiRunVo> startWorkflow(@RequestBody OpenApiWorkflowStartDto request) {
+    public WebResponse<OpenApiRunVo> startWorkflow(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyHeader,
+                                                    @RequestBody OpenApiWorkflowStartDto request) {
         String applicationId = applicationId();
-        if (request == null || StringUtils.isBlank(request.getWorkflowCode()) || StringUtils.isBlank(request.getBusinessId())
-                || StringUtils.isBlank(request.getIdempotencyKey())) throw new ServerException(422, "workflowCode、businessId 和 idempotencyKey 不能为空");
+        if (request == null || StringUtils.isBlank(request.getWorkflowCode()) || StringUtils.isBlank(request.getBusinessId()))
+            throw new ServerException(422, "workflowCode 和 businessId 不能为空");
+        request.setIdempotencyKey(StringUtils.defaultIfBlank(idempotencyHeader, request.getIdempotencyKey()));
+        if (StringUtils.isBlank(request.getIdempotencyKey())) throw new ServerException(422, "Idempotency-Key 不能为空");
         AgentWorkflow workflow = workflowService.getOne(Wrappers.lambdaQuery(AgentWorkflow.class)
                 .eq(AgentWorkflow::getApplicationId, applicationId).eq(AgentWorkflow::getCode, request.getWorkflowCode())
                 .eq(AgentWorkflow::getDeleted, false));
@@ -102,7 +105,8 @@ public class OpenApiController {
     }
 
     @PostMapping("/agents/chat")
-    public WebResponse<OpenApiAgentChatVo> chat(@RequestBody OpenApiAgentChatDto request) {
+    public WebResponse<OpenApiAgentChatVo> chat(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyHeader,
+                                                 @RequestBody OpenApiAgentChatDto request) {
         if (request == null || StringUtils.isBlank(request.getAgentCode()) || StringUtils.isBlank(request.getInput()))
             throw new ServerException(422, "agentCode 和 input 不能为空");
         AgentDefinition agent = agentService.getOne(Wrappers.lambdaQuery(AgentDefinition.class)
@@ -111,7 +115,8 @@ public class OpenApiController {
         if (agent == null) throw new ServerException(404, "未找到 Agent");
         accountService.assertAgentCallAllowed(serviceAccountId(), agent.getId());
         if ("DEEP".equalsIgnoreCase(agent.getExecutionMode())) throw new ServerException(422, "Deep Agent 请使用异步任务接口");
-        if (StringUtils.isBlank(request.getIdempotencyKey())) throw new ServerException(422, "idempotencyKey 不能为空");
+        request.setIdempotencyKey(StringUtils.defaultIfBlank(idempotencyHeader, request.getIdempotencyKey()));
+        if (StringUtils.isBlank(request.getIdempotencyKey())) throw new ServerException(422, "Idempotency-Key 不能为空");
         OpenApiAgentChatVo response = idempotencyService.execute(applicationId() + ":agent:" + agent.getId(), request.getIdempotencyKey(), OpenApiAgentChatVo.class, () -> {
             AgentChatDto dto = new AgentChatDto();
             dto.setAgentId(agent.getId()); dto.setConversationId(request.getConversationId()); dto.setMessage(request.getInput());
