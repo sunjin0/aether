@@ -13,6 +13,7 @@ import com.aether.local.CurrentUser;
 import com.aether.openapi.dto.OpenApiAgentChatDto;
 import com.aether.openapi.dto.OpenApiWorkflowStartDto;
 import com.aether.openapi.vo.OpenApiRunVo;
+import com.aether.openapi.service.OpenApiIdempotencyService;
 import com.aether.sys.service.ServiceAccountService;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
 import com.aether.workflow.entity.AgentWorkflow;
@@ -41,16 +42,18 @@ public class OpenApiController {
     private final AgentDefinitionService agentService;
     private final AgentChatService chatService;
     private final AgentProductProfileService profileService;
+    private final OpenApiIdempotencyService idempotencyService;
 
     public OpenApiController(ServiceAccountService accountService, AgentWorkflowService workflowService,
                              AgentWorkflowExecutionService executionService, AgentDefinitionService agentService,
-                             AgentChatService chatService, AgentProductProfileService profileService) {
+                             AgentChatService chatService, AgentProductProfileService profileService, OpenApiIdempotencyService idempotencyService) {
         this.accountService = accountService;
         this.workflowService = workflowService;
         this.executionService = executionService;
         this.agentService = agentService;
         this.chatService = chatService;
         this.profileService = profileService;
+        this.idempotencyService = idempotencyService;
     }
 
     @GetMapping("/capabilities")
@@ -107,10 +110,14 @@ public class OpenApiController {
         if (agent == null) throw new ServerException(404, "未找到 Agent");
         accountService.assertAgentCallAllowed(serviceAccountId(), agent.getId());
         if ("DEEP".equalsIgnoreCase(agent.getExecutionMode())) throw new ServerException(422, "Deep Agent 请使用异步任务接口");
-        AgentChatDto dto = new AgentChatDto();
-        dto.setAgentId(agent.getId()); dto.setConversationId(request.getConversationId()); dto.setMessage(request.getInput());
-        dto.setRequestId(StringUtils.defaultIfBlank(request.getIdempotencyKey(), java.util.UUID.randomUUID().toString()));
-        return WebResponse.OK(chatService.chat(dto));
+        if (StringUtils.isBlank(request.getIdempotencyKey())) throw new ServerException(422, "idempotencyKey 不能为空");
+        AgentMessageVo response = idempotencyService.execute(applicationId() + ":agent:" + agent.getId(), request.getIdempotencyKey(), AgentMessageVo.class, () -> {
+            AgentChatDto dto = new AgentChatDto();
+            dto.setAgentId(agent.getId()); dto.setConversationId(request.getConversationId()); dto.setMessage(request.getInput());
+            dto.setRequestId(request.getIdempotencyKey());
+            return chatService.chat(dto);
+        });
+        return WebResponse.OK(response);
     }
 
     private OpenApiRunVo run(String runId, String businessId, String status) {
