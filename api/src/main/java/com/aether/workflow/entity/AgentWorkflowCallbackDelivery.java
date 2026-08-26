@@ -12,6 +12,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_callback_delivery")
 public class AgentWorkflowCallbackDelivery extends BaseEntity {
+    /** 关联运行的业务应用空间，供审计和重试范围隔离。 */
+    private String applicationId;
     private String instanceId;
     /**
      * workflow.completed / workflow.failed / workflow.terminated

@@ -12,6 +12,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_instance")
 public class AgentWorkflowInstance extends BaseEntity {
+    /** 继承自工作流定义的业务应用空间。 */
+    private String applicationId;
     private String workflowId;
     private String workflowVersionId;
     private String userId;

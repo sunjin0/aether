@@ -147,6 +147,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             throw new ServerException(409, I18nUtils.getMessage("workflow.published-version.not-found"));
         WorkflowDefinitionValidator.validateStartVariables(version.getInputSchema(), variables);
         AgentWorkflowInstance instance = new AgentWorkflowInstance();
+        instance.setApplicationId(workflow.getApplicationId());
         instance.setWorkflowId(workflowId);
         instance.setWorkflowVersionId(version.getId());
         instance.setUserId(userId);

@@ -100,6 +100,7 @@ public class WorkflowCallbackService {
                 .eq(AgentWorkflowCallbackDelivery::getEventType, eventType));
         if (existing != null) return;
         AgentWorkflowCallbackDelivery delivery = new AgentWorkflowCallbackDelivery();
+        delivery.setApplicationId(instance.getApplicationId());
         delivery.setInstanceId(instance.getId());
         delivery.setEventType(eventType);
         delivery.setCallbackUrl(instance.getCallbackUrl());
