@@ -85,6 +85,17 @@ class ServiceAccountServiceImplTest {
         assertDoesNotThrow(() -> service.assertAgentCallAllowed("sa-1", "agent-1"));
     }
 
+    @Test
+    void assertAgentCallAllowedRejectsAgentFromAnotherApplication() {
+        ServiceAccount account = account("sa-1", Collections.singletonList("agent-1"), 0);
+        account.setApplicationId("application-a");
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1"); agent.setStatus(1); agent.setApplicationId("application-b");
+        when(serviceAccountMapper.selectById("sa-1")).thenReturn(account);
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        assertThrows(ServerException.class, () -> service.assertAgentCallAllowed("sa-1", "agent-1"));
+    }
+
     private ServiceAccount account(String id, java.util.List<String> allowedAgentIds, int hourlyLimit) {
         ServiceAccount account = new ServiceAccount();
         account.setId(id);
