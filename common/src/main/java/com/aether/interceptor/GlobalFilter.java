@@ -10,6 +10,7 @@ import com.aether.utils.AesUtil;
 import com.aether.utils.TokenUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.annotation.Order;
@@ -23,6 +24,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.UUID;
 
 /**
  * 全局过滤器（替代GlobalInterceptor）
@@ -59,6 +61,12 @@ public class GlobalFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         long startTime = System.currentTimeMillis();
         HashMap<String, String> payload = new HashMap<>();
+        String traceId = request.getHeader("X-Trace-Id");
+        if (traceId == null || !traceId.matches("[A-Za-z0-9_-]{8,128}")) {
+            traceId = UUID.randomUUID().toString().replace("-", "");
+        }
+        response.setHeader("X-Trace-Id", traceId);
+        MDC.put("traceId", traceId);
 
         try {
             // 认证处理
@@ -102,6 +110,7 @@ public class GlobalFilter extends OncePerRequestFilter {
 
             // 设置请求开始时间
             payload.put("startTime", String.valueOf(startTime));
+            payload.put("traceId", traceId);
             CurrentUser.set(payload);
 
             // 继续执行后续过滤器和控制器
@@ -130,6 +139,7 @@ public class GlobalFilter extends OncePerRequestFilter {
 
             // 清理ThreadLocal，防止内存泄漏
             CurrentUser.remove();
+            MDC.remove("traceId");
         }
     }
 
