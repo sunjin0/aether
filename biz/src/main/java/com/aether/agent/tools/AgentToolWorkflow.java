@@ -786,6 +786,8 @@ public class AgentToolWorkflow {
                                        String agentId, ToolExecutionResult result) {
         AgentToolCallLog log = new AgentToolCallLog();
         log.setRunId(runId);
+        com.aether.agent.entity.AgentRun run = StringUtils.isBlank(runId) ? null : agentRunService.getById(runId);
+        if (run != null) log.setApplicationId(run.getApplicationId());
         log.setToolCallId(call.getId());
         log.setToolName(call.getName());
         log.setArguments(redactSecrets(truncate(JSON.toJSONString(call.getArguments()), 65536)));

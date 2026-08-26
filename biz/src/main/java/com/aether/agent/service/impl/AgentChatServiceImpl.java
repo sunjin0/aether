@@ -963,6 +963,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
     private AgentConversation getOrCreateConversation(AgentChatDto dto, String userId, AgentDefinition agent) {
         if (StringUtils.isBlank(dto.getConversationId())) {
             AgentConversation conversation = new AgentConversation();
+            conversation.setApplicationId(agent.getApplicationId());
             conversation.setUserId(userId);
             conversation.setAgentDefinitionId(agent.getId());
             conversation.setTitle(buildConversationTitle(dto.getMessage()));
@@ -982,6 +983,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         }
         if (!agent.getId().equals(conversation.getAgentDefinitionId())) {
             throw new ServerException(422, I18nUtils.getMessage("agent.conversation.agent.mismatch"));
+        }
+        if (!StringUtils.equals(agent.getApplicationId(), conversation.getApplicationId())) {
+            throw new ServerException(403, "会话不属于当前业务应用空间");
         }
         if (!Integer.valueOf(CONVERSATION_STATUS_OPEN).equals(conversation.getStatus())) {
             throw new ServerException(422, I18nUtils.getMessage("agent.conversation.closed"));

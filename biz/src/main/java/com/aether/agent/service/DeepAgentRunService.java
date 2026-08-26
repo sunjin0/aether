@@ -227,6 +227,7 @@ public class DeepAgentRunService {
         agentMessageService.save(userMsg);
 
         AgentRun run = new AgentRun();
+        run.setApplicationId(agent.getApplicationId());
         run.setAgentDefinitionId(agent.getId());
         run.setUserId(userId);
         run.setConversationId(conversationId);

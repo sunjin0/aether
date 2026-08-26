@@ -28,6 +28,7 @@ public class ChatRunService {
                          String messageId, String input, ModelChatResponse response, long latencyMs,
                          Integer status, String errorMsg) {
         AgentRun run = new AgentRun();
+        run.setApplicationId(agent.getApplicationId());
         run.setAgentDefinitionId(agent.getId());
         run.setConversationId(conversationId);
         run.setMessageId(messageId);
