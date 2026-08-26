@@ -11,7 +11,10 @@ import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.skill.service.SkillRuntimeContext;
 import com.aether.agent.skill.service.SkillArtifactExecutionService;
 import com.aether.sys.entity.AdminPreference;
+import com.aether.sys.entity.User;
 import com.aether.sys.service.AdminPreferenceService;
+import com.aether.sys.service.UserService;
+import com.aether.utils.AesUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -74,6 +77,8 @@ public class DeepAgentRunService {
     private RuntimeEmailCredentialStore runtimeEmailCredentialStore;
     @Autowired(required = false)
     private EmailCredentialTokenService emailCredentialTokenService;
+    @Autowired(required = false)
+    private UserService userService;
 
     /**
      * 创建 {@code DeepAgentRunService} 实例。
@@ -271,13 +276,14 @@ public class DeepAgentRunService {
                     skillContext == null ? java.util.Collections.<String>emptySet() : skillContext.getRequiredToolIds(), task);
             List<String> allowedTools = routedTools.stream()
                     .filter(t -> t.getMcpToolName() != null)
+                    .filter(t -> !"send_email".equals(t.getMcpToolName()) || Boolean.TRUE.equals(agent.getSmtpEnabled()))
                     .map(AgentTool::getMcpToolName)
                     .collect(Collectors.toList());
             // 文件生成由已绑定的通用 generate_artifact 工具授权；Skill 仅影响本轮提示词规范，
             // 不再通过委派令牌选择脚本或模板。
             String delegationToken = delegationTokenService.create(runId, userId, agent.getId(), allowedTools);
 
-            Map<String, String> emailCredentialTokens = createEmailCredentialTokens(runId, userId, allowedTools);
+            Map<String, String> emailCredentialTokens = createEmailCredentialTokens(runId, userId, agent, allowedTools);
 
             List<Map<String, Object>> knowledgeSources = buildKnowledgeSources(sources);
 
@@ -412,14 +418,48 @@ public class DeepAgentRunService {
         return JSON.toJSONString(snapshot);
     }
 
-    private Map<String, String> createEmailCredentialTokens(String runId, String userId, List<String> allowedTools) {
-        if (runtimeEmailCredentialStore == null || emailCredentialTokenService == null || !allowedTools.contains("send_email")) return Collections.emptyMap();
-        // 运行时凭据引用在工具参数中选择。逐一签发，使 Deep Agent 无法得到明文授权码。
+    private Map<String, String> createEmailCredentialTokens(String runId, String userId, AgentDefinition agent, List<String> allowedTools) {
+        if (emailCredentialTokenService == null || !Boolean.TRUE.equals(agent.getSmtpEnabled()) || !allowedTools.contains("send_email")) return Collections.emptyMap();
         Map<String, String> tokens = new LinkedHashMap<>();
-        for (Map.Entry<String, Map<String, String>> entry : runtimeEmailCredentialStore.all(runId, userId).entrySet()) {
-            tokens.put(entry.getKey(), emailCredentialTokenService.create(runId, userId, entry.getKey(), entry.getValue()));
+        Map<String, String> credential = runtimeEmailCredentialStore == null ? null
+                : runtimeEmailCredentialStore.get(runId, userId, "user-default");
+        if (credential != null) {
+            credential = new LinkedHashMap<>(credential);
+        }
+        if (hasEmailConfiguration(agent)) {
+            if (credential == null) credential = new LinkedHashMap<>();
+            credential.put("sender_email", agent.getSmtpSenderEmail());
+            credential.put("smtp_authorization_code", AesUtil.decrypt(agent.getSmtpAuthorizationCode()));
+            credential.put("smtp_host", agent.getSmtpHost());
+            credential.put("smtp_port", String.valueOf(agent.getSmtpPort()));
+            credential.put("security", agent.getSmtpSecurity());
+        }
+        if (userService != null) {
+            User user = userService.getById(userId);
+            if (!hasEmailCredential(credential) && user != null && StringUtils.isNoneBlank(user.getEmail(), user.getSmtpAuthorizationCode(), user.getSmtpHost(), user.getSmtpSecurity())
+                    && user.getSmtpPort() != null) {
+                if (credential == null) credential = new LinkedHashMap<>();
+                credential.putIfAbsent("sender_email", user.getEmail());
+                credential.putIfAbsent("smtp_authorization_code", AesUtil.decrypt(user.getSmtpAuthorizationCode()));
+                credential.put("smtp_host", user.getSmtpHost());
+                credential.put("smtp_port", String.valueOf(user.getSmtpPort()));
+                credential.put("security", user.getSmtpSecurity());
+            }
+        }
+        if (credential != null) {
+            tokens.put("user-default", emailCredentialTokenService.create(runId, userId, "user-default", credential));
         }
         return tokens;
+    }
+
+    private boolean hasEmailConfiguration(AgentDefinition agent) {
+        return agent != null && StringUtils.isNoneBlank(agent.getSmtpSenderEmail(), agent.getSmtpAuthorizationCode(),
+                agent.getSmtpHost(), agent.getSmtpSecurity()) && agent.getSmtpPort() != null;
+    }
+
+    private boolean hasEmailCredential(Map<String, String> credential) {
+        return credential != null && StringUtils.isNoneBlank(credential.get("sender_email"), credential.get("smtp_authorization_code"),
+                credential.get("smtp_host"), credential.get("smtp_port"), credential.get("security"));
     }
 
     /**

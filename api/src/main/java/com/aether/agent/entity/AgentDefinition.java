@@ -75,4 +75,23 @@ public class AgentDefinition extends BaseEntity {
 
     @ApiModelProperty(value = "Execution mode: STANDARD or DEEP")
     private String executionMode;
+
+    @ApiModelProperty(value = "Agent 对外发信邮箱")
+    private String smtpSenderEmail;
+
+    @ApiModelProperty(value = "是否启用 Agent 邮件发送")
+    private Boolean smtpEnabled;
+
+    @ApiModelProperty(value = "Agent 发信 SMTP 主机")
+    private String smtpHost;
+
+    @ApiModelProperty(value = "Agent 发信 SMTP 端口")
+    private Integer smtpPort;
+
+    @ApiModelProperty(value = "Agent 发信 SMTP 加密方式：ssl/starttls")
+    private String smtpSecurity;
+
+    /** 已 AES 加密；任何接口均不得回传明文或密文。 */
+    @ApiModelProperty(value = "Agent SMTP 授权码（仅写入）")
+    private String smtpAuthorizationCode;
 }

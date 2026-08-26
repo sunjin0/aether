@@ -64,6 +64,16 @@ public class AgentDefinitionVo extends BaseEntity {
     @ApiModelProperty(value = "执行模式：STANDARD 或 DEEP")
     private String executionMode;
 
+    @ApiModelProperty(value = "Agent 对外发信邮箱")
+    private String smtpSenderEmail;
+    private Boolean smtpEnabled;
+    private String smtpHost;
+    private Integer smtpPort;
+    private String smtpSecurity;
+
+    /** 仅表示是否已保存授权码，绝不返回授权码本身。 */
+    private Boolean smtpAuthorizationCodeConfigured;
+
     @ApiModelProperty(value = "绑定的工具列表")
     private List<String> toolIds;
 

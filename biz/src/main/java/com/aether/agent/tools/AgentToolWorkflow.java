@@ -838,25 +838,15 @@ public class AgentToolWorkflow {
         return tool != null && "send_email".equals(StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName()));
     }
 
-    /**
-     * 从用户已保存的邮箱配置补齐非敏感连接参数。授权码从不放入工具参数，仍由 MCP 执行器按
-     * credential_ref 在执行期读取。
-     */
+    /** 邮件连接信息只允许由服务端注入，模型参数中即使出现也必须丢弃。 */
     private ToolCall withEmailDefaults(AgentTool tool, ToolCall call, String userId) {
-        if (!isEmailTool(tool) || call == null || userService == null) return call;
+        if (!isEmailTool(tool) || call == null) return call;
         Map<String, Object> arguments = new LinkedHashMap<>(call.getArguments() == null
                 ? java.util.Collections.<String, Object>emptyMap() : call.getArguments());
-        Object credentialRef = arguments.get("credential_ref");
-        if (credentialRef != null && StringUtils.isNotBlank(credentialRef.toString())) return call;
-        User user = userService.getById(userId);
-        if (user == null || StringUtils.isAnyBlank(user.getEmail(), user.getSmtpHost(), user.getSmtpSecurity(),
-                user.getSmtpAuthorizationCode()) || user.getSmtpPort() == null) {
-            return call;
-        }
-        arguments.put("credential_ref", "user-default");
-        arguments.put("smtp_host", user.getSmtpHost());
-        arguments.put("smtp_port", user.getSmtpPort());
-        arguments.put("security", user.getSmtpSecurity());
+        arguments.remove("credential_ref");
+        arguments.remove("smtp_host");
+        arguments.remove("smtp_port");
+        arguments.remove("security");
         return new ToolCall(call.getId(), call.getName(), arguments);
     }
 

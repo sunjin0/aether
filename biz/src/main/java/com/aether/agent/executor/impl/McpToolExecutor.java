@@ -1,12 +1,14 @@
 package com.aether.agent.executor.impl;
 
 import com.aether.agent.entity.AgentMcpServer;
+import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.executor.ToolExecutor;
 import com.aether.agent.mcp.McpClient;
 import com.aether.agent.service.AgentMcpServerService;
+import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.DelegationTokenService;
 import com.aether.agent.service.RuntimeEmailCredentialStore;
 import com.aether.agent.service.EmailCredentialTokenService;
@@ -43,6 +45,8 @@ public class McpToolExecutor implements ToolExecutor {
     private EmailCredentialTokenService emailCredentialTokenService;
     @Autowired(required = false)
     private UserService userService;
+    @Autowired(required = false)
+    private AgentDefinitionService agentDefinitionService;
 
     /**
      * 创建 {@code McpToolExecutor} 实例。
@@ -77,6 +81,7 @@ public class McpToolExecutor implements ToolExecutor {
             requestUrl = server.getBaseUrl();
             String mcpToolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
             Map<String, Object> arguments = context.getArguments() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(context.getArguments());
+            sanitizeEmailArguments(mcpToolName, arguments);
             // FastMCP runs tool workers out of the inbound ASGI context.  This
             // opaque five-minute token is injected by Java only; Admin verifies
             // it again and never accepts a caller-provided command or image.
@@ -149,15 +154,29 @@ public class McpToolExecutor implements ToolExecutor {
                 ? new JSONObject() : JSON.parseObject(server.getRequestHeaders());
         headers.put("Authorization", "Bearer " + token);
         if ("send_email".equals(toolName)) {
-            String credentialRef = context.getArguments() == null ? null : String.valueOf(context.getArguments().get("credential_ref"));
+            String credentialRef = "user-default";
             Map<String, String> credential = runtimeEmailCredentialStore == null ? null
                     : runtimeEmailCredentialStore.get(context.getRunId(), context.getUserId(), credentialRef);
-            if (credential == null && "user-default".equals(credentialRef) && userService != null) {
+            if (credential != null) {
+                credential = new LinkedHashMap<>(credential);
+            }
+            AgentDefinition agent = agentDefinitionService == null ? null : agentDefinitionService.getById(context.getAgentDefinitionId());
+            if (agent == null || !Boolean.TRUE.equals(agent.getSmtpEnabled())) {
+                throw new ServerException(422, "当前 Agent 未启用邮件发送");
+            }
+            if (hasEmailConfiguration(agent)) {
+                credential = buildAgentEmailCredential(agent, credential);
+            }
+            if (userService != null) {
                 User user = userService.getById(context.getUserId());
-                if (user != null && StringUtils.isNotBlank(user.getEmail()) && StringUtils.isNotBlank(user.getSmtpAuthorizationCode())) {
-                    credential = new LinkedHashMap<>();
-                    credential.put("sender_email", user.getEmail());
-                    credential.put("smtp_authorization_code", AesUtil.decrypt(user.getSmtpAuthorizationCode()));
+                if (!hasEmailCredential(credential) && user != null && StringUtils.isNoneBlank(user.getEmail(), user.getSmtpAuthorizationCode(), user.getSmtpHost(), user.getSmtpSecurity())
+                        && user.getSmtpPort() != null) {
+                    if (credential == null) credential = new LinkedHashMap<>();
+                    credential.putIfAbsent("sender_email", user.getEmail());
+                    credential.putIfAbsent("smtp_authorization_code", AesUtil.decrypt(user.getSmtpAuthorizationCode()));
+                    credential.put("smtp_host", user.getSmtpHost());
+                    credential.put("smtp_port", String.valueOf(user.getSmtpPort()));
+                    credential.put("security", user.getSmtpSecurity());
                 }
             }
             if (credential == null || emailCredentialTokenService == null) {
@@ -173,6 +192,37 @@ public class McpToolExecutor implements ToolExecutor {
         // 仅修改当前内存对象，绝不写回数据库或复用为长期静态令牌。
         server.setRequestHeaders(headers.toJSONString());
         return token;
+    }
+
+    /**
+     * SMTP 连接信息由服务端凭据令牌承载；兼容历史工作流时也不能将这些字段转发给 MCP。
+     */
+    private void sanitizeEmailArguments(String toolName, Map<String, Object> arguments) {
+        if (!"send_email".equals(toolName)) return;
+        arguments.remove("credential_ref");
+        arguments.remove("smtp_host");
+        arguments.remove("smtp_port");
+        arguments.remove("security");
+    }
+
+    private boolean hasEmailConfiguration(AgentDefinition agent) {
+        return agent != null && StringUtils.isNoneBlank(agent.getSmtpSenderEmail(), agent.getSmtpAuthorizationCode(),
+                agent.getSmtpHost(), agent.getSmtpSecurity()) && agent.getSmtpPort() != null;
+    }
+
+    private boolean hasEmailCredential(Map<String, String> credential) {
+        return credential != null && StringUtils.isNoneBlank(credential.get("sender_email"), credential.get("smtp_authorization_code"),
+                credential.get("smtp_host"), credential.get("smtp_port"), credential.get("security"));
+    }
+
+    private Map<String, String> buildAgentEmailCredential(AgentDefinition agent, Map<String, String> runtimeCredential) {
+        Map<String, String> credential = runtimeCredential == null ? new LinkedHashMap<>() : runtimeCredential;
+        credential.put("sender_email", agent.getSmtpSenderEmail());
+        credential.put("smtp_authorization_code", AesUtil.decrypt(agent.getSmtpAuthorizationCode()));
+        credential.put("smtp_host", agent.getSmtpHost());
+        credential.put("smtp_port", String.valueOf(agent.getSmtpPort()));
+        credential.put("security", agent.getSmtpSecurity());
+        return credential;
     }
 
     /**

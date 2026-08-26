@@ -58,6 +58,17 @@ public class AgentDefinitionDto {
     @ApiModelProperty(value = "执行模式：STANDARD 或 DEEP")
     private String executionMode;
 
+    @ApiModelProperty(value = "Agent 对外发信邮箱")
+    private String smtpSenderEmail;
+    private Boolean smtpEnabled;
+    private String smtpHost;
+    private Integer smtpPort;
+    private String smtpSecurity;
+
+    /** 仅写入；服务端加密后保存，编辑时留空表示保留已有授权码。 */
+    @ApiModelProperty(value = "Agent SMTP 授权码（仅写入）")
+    private String smtpAuthorizationCode;
+
     @ApiModelProperty(value = "绑定的工具ID列表")
     private List<String> toolIds;
 }

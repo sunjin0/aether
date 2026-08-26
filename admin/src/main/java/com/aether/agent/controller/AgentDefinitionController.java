@@ -14,6 +14,7 @@ import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.utils.AesUtil;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -83,6 +84,7 @@ public class AgentDefinitionController {
         List<AgentDefinitionVo> list = result.getRecords().stream().map(item -> {
             AgentDefinitionVo itemVo = new AgentDefinitionVo();
             BeanUtils.copyProperties(item, itemVo);
+            itemVo.setSmtpAuthorizationCodeConfigured(StringUtils.isNotBlank(item.getSmtpAuthorizationCode()));
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
@@ -131,6 +133,7 @@ public class AgentDefinitionController {
                 .stream().map(AgentToolBinding::getToolId).collect(Collectors.toList());
         vo.setToolIds(toolIds);
         BeanUtils.copyProperties(definition, vo);
+        vo.setSmtpAuthorizationCodeConfigured(StringUtils.isNotBlank(definition.getSmtpAuthorizationCode()));
         return WebResponse.OK(vo);
     }
 
@@ -148,6 +151,7 @@ public class AgentDefinitionController {
         applyModelCatalog(dto);
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
+        applyEmailConfiguration(definition, dto, null);
         boolean saved = agentDefinitionService.save(definition);
         // 绑定工具
         if (dto.getToolIds() != null && !dto.getToolIds().isEmpty()) {
@@ -174,9 +178,14 @@ public class AgentDefinitionController {
     @PutMapping("/{id}")
     public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody AgentDefinitionDto dto) {
         applyModelCatalog(dto);
+        AgentDefinition existing = agentDefinitionService.getById(id);
+        if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
+        }
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
         definition.setId(id);
+        applyEmailConfiguration(definition, dto, existing);
         boolean updated = agentDefinitionService.updateById(definition);
         // 重新绑定工具
         if (dto.getToolIds() != null) {
@@ -288,5 +297,32 @@ public class AgentDefinitionController {
         }
         com.aether.agent.entity.ModelCatalog catalog = modelCatalogService.requireAvailable(dto.getModelId(), "CHAT,MULTIMODAL");
         dto.setModel(catalog.getName());
+    }
+
+    /**
+     * 授权码只接受写入：详情接口与列表接口均不会返回密文或明文。
+     */
+    private void applyEmailConfiguration(AgentDefinition definition, AgentDefinitionDto dto, AgentDefinition existing) {
+        if (StringUtils.isNotBlank(dto.getSmtpAuthorizationCode())) {
+            definition.setSmtpAuthorizationCode(AesUtil.encrypt(dto.getSmtpAuthorizationCode()));
+        } else if (existing != null) {
+            definition.setSmtpAuthorizationCode(existing.getSmtpAuthorizationCode());
+        }
+        if (!Boolean.TRUE.equals(definition.getSmtpEnabled())) {
+            return;
+        }
+        boolean configured = StringUtils.isNotBlank(definition.getSmtpSenderEmail()) || StringUtils.isNotBlank(definition.getSmtpHost())
+                || StringUtils.isNotBlank(definition.getSmtpSecurity()) || StringUtils.isNotBlank(definition.getSmtpAuthorizationCode())
+                || definition.getSmtpPort() != null;
+        if (!configured) return;
+        if (StringUtils.isNoneBlank(definition.getSmtpSenderEmail(), definition.getSmtpHost(), definition.getSmtpSecurity(),
+                definition.getSmtpAuthorizationCode()) && definition.getSmtpPort() != null
+                && definition.getSmtpPort() >= 1 && definition.getSmtpPort() <= 65535
+                && ("ssl".equalsIgnoreCase(definition.getSmtpSecurity()) || "starttls".equalsIgnoreCase(definition.getSmtpSecurity()))
+                && definition.getSmtpSenderEmail().contains("@")) {
+            definition.setSmtpSecurity(definition.getSmtpSecurity().toLowerCase());
+            return;
+        }
+        throw new ServerException(422, "Agent 邮箱配置不完整或 SMTP 参数无效");
     }
 }
