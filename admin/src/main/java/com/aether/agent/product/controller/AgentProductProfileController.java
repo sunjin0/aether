@@ -4,11 +4,15 @@ import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.product.dto.AgentProductProfileDto;
 import com.aether.agent.product.entity.AgentProductProfile;
+import com.aether.agent.product.entity.AgentProductProfileVersion;
 import com.aether.agent.product.service.AgentProductProfileService;
+import com.aether.agent.product.service.AgentProductProfileVersionService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
+import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
@@ -24,8 +28,9 @@ public class AgentProductProfileController {
     private final AgentProductProfileService profileService;
     private final AgentDefinitionService agentService;
     private final AgentApplicationService applicationService;
-    public AgentProductProfileController(AgentProductProfileService profileService, AgentDefinitionService agentService, AgentApplicationService applicationService) {
-        this.profileService = profileService; this.agentService = agentService; this.applicationService = applicationService;
+    private final AgentProductProfileVersionService versionService;
+    public AgentProductProfileController(AgentProductProfileService profileService, AgentDefinitionService agentService, AgentApplicationService applicationService, AgentProductProfileVersionService versionService) {
+        this.profileService = profileService; this.agentService = agentService; this.applicationService = applicationService; this.versionService = versionService;
     }
     @GetMapping
     public WebResponse<List<AgentProductProfile>> list(@RequestParam(required = false) String applicationId) {
@@ -47,7 +52,21 @@ public class AgentProductProfileController {
     @PostMapping("/{id}/publish")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<AgentProductProfile> publish(@PathVariable String id) {
-        AgentProductProfile value = required(id); validate(value); value.setStatus(1); value.setVersionNo(value.getVersionNo() == null ? 1 : value.getVersionNo() + 1); value.setPublishedAt(System.currentTimeMillis()); profileService.updateById(value); return WebResponse.OK(value);
+        AgentProductProfile value = required(id); validate(value);
+        int nextVersion = value.getVersionNo() == null ? 1 : value.getVersionNo() + 1;
+        long now = System.currentTimeMillis();
+        AgentProductProfileVersion snapshot = new AgentProductProfileVersion();
+        snapshot.setProfileId(value.getId()); snapshot.setVersionNo(nextVersion); snapshot.setSnapshot(JSON.toJSONString(value));
+        snapshot.setPublishedBy(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId")); snapshot.setPublishedAt(now);
+        versionService.save(snapshot);
+        value.setStatus(1); value.setVersionNo(nextVersion); value.setPublishedAt(now); profileService.updateById(value); return WebResponse.OK(value);
+    }
+    @GetMapping("/{id}/versions")
+    public WebResponse<List<AgentProductProfileVersion>> versions(@PathVariable String id) {
+        required(id);
+        return WebResponse.OK(versionService.list(Wrappers.lambdaQuery(AgentProductProfileVersion.class)
+                .eq(AgentProductProfileVersion::getProfileId, id).eq(AgentProductProfileVersion::getDeleted, false)
+                .orderByDesc(AgentProductProfileVersion::getVersionNo)));
     }
     private AgentProductProfile required(String id) { AgentProductProfile value = profileService.getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, "Agent 产品配置不存在"); return value; }
     private void validate(AgentProductProfile value) {
