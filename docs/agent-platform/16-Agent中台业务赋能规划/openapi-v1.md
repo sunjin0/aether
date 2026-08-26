@@ -58,6 +58,8 @@
 
 `idempotencyKey` 为必填。相同“应用空间 + Agent + 幂等键”在 24 小时内返回首次安全结果；同时执行则返回 `409`，调用方应稍后重试。失败响应不会缓存。
 
+响应仅包含 `conversationId`、`answer`、`citations`、`runId`、标准交互状态和 `traceId`；不会返回推理过程、工具调用参数、内部请求头、模型原始响应或凭据。
+
 ## 回调验签与补偿
 
 工作流终态会以 `run.succeeded`、`run.failed` 或 `run.cancelled` 投递。请求头包含：

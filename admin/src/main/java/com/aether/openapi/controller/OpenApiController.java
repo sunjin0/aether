@@ -13,6 +13,7 @@ import com.aether.local.CurrentUser;
 import com.aether.openapi.dto.OpenApiAgentChatDto;
 import com.aether.openapi.dto.OpenApiWorkflowStartDto;
 import com.aether.openapi.vo.OpenApiRunVo;
+import com.aether.openapi.vo.OpenApiAgentChatVo;
 import com.aether.openapi.service.OpenApiIdempotencyService;
 import com.aether.sys.service.ServiceAccountService;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
@@ -101,7 +102,7 @@ public class OpenApiController {
     }
 
     @PostMapping("/agents/chat")
-    public WebResponse<AgentMessageVo> chat(@RequestBody OpenApiAgentChatDto request) {
+    public WebResponse<OpenApiAgentChatVo> chat(@RequestBody OpenApiAgentChatDto request) {
         if (request == null || StringUtils.isBlank(request.getAgentCode()) || StringUtils.isBlank(request.getInput()))
             throw new ServerException(422, "agentCode 和 input 不能为空");
         AgentDefinition agent = agentService.getOne(Wrappers.lambdaQuery(AgentDefinition.class)
@@ -111,17 +112,23 @@ public class OpenApiController {
         accountService.assertAgentCallAllowed(serviceAccountId(), agent.getId());
         if ("DEEP".equalsIgnoreCase(agent.getExecutionMode())) throw new ServerException(422, "Deep Agent 请使用异步任务接口");
         if (StringUtils.isBlank(request.getIdempotencyKey())) throw new ServerException(422, "idempotencyKey 不能为空");
-        AgentMessageVo response = idempotencyService.execute(applicationId() + ":agent:" + agent.getId(), request.getIdempotencyKey(), AgentMessageVo.class, () -> {
+        OpenApiAgentChatVo response = idempotencyService.execute(applicationId() + ":agent:" + agent.getId(), request.getIdempotencyKey(), OpenApiAgentChatVo.class, () -> {
             AgentChatDto dto = new AgentChatDto();
             dto.setAgentId(agent.getId()); dto.setConversationId(request.getConversationId()); dto.setMessage(request.getInput());
             dto.setRequestId(request.getIdempotencyKey());
-            return chatService.chat(dto);
+            return safeChat(chatService.chat(dto));
         });
         return WebResponse.OK(response);
     }
 
     private OpenApiRunVo run(String runId, String businessId, String status) {
         OpenApiRunVo value = new OpenApiRunVo(); value.setRunId(runId); value.setBusinessId(businessId); value.setStatus(status);
+        value.setTraceId(MDC.get("traceId")); return value;
+    }
+    private OpenApiAgentChatVo safeChat(AgentMessageVo message) {
+        OpenApiAgentChatVo value = new OpenApiAgentChatVo();
+        value.setConversationId(message.getConversationId()); value.setAnswer(message.getContent()); value.setCitations(message.getCitations());
+        value.setRunId(message.getRunId()); value.setInteractionStatus(message.getInteractionStatus()); value.setInteractionType(message.getInteractionType());
         value.setTraceId(MDC.get("traceId")); return value;
     }
     private String serviceAccountId() {
