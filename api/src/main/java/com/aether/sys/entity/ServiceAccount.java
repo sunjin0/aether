@@ -12,6 +12,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("sys_service_account")
 public class ServiceAccount extends BaseEntity {
+    /** 所属业务应用空间。 */
+    private String applicationId;
     private String name;
     private String description;
     private String clientId;

@@ -108,6 +108,7 @@ public class AgentWorkflowController {
     public WebResponse<List<AgentWorkflowVo>> list(@RequestBody AgentWorkflowVo query) {
         Page<AgentWorkflow> page = workflowService.page(new Page<AgentWorkflow>(query.getCurrent(), query.getPageSize()), Wrappers.lambdaQuery(AgentWorkflow.class)
                 .like(StringUtils.isNotBlank(query.getName()), AgentWorkflow::getName, query.getName()).eq(query.getStatus() != null, AgentWorkflow::getStatus, query.getStatus())
+                .eq(StringUtils.isNotBlank(query.getApplicationId()), AgentWorkflow::getApplicationId, query.getApplicationId())
                 .eq(AgentWorkflow::getDeleted, false).orderByDesc(AgentWorkflow::getUpdatedAt));
         return WebResponse.Page(page.getRecords().stream().map(item -> {
             AgentWorkflowVo vo = new AgentWorkflowVo();
@@ -147,6 +148,7 @@ public class AgentWorkflowController {
         validateConcurrencyLimit(dto);
         AgentWorkflow entity = new AgentWorkflow();
         BeanUtils.copyProperties(dto, entity);
+        entity.setApplicationId(StringUtils.defaultIfBlank(dto.getApplicationId(), "0"));
         entity.setStatus(0);
         // 新建草稿即具备一个合法的最小顺序流程，避免尚未编辑画布时保存或发布被空画布校验拦截。
         entity.setNodes("[{\"id\":\"start\",\"type\":\"start\",\"name\":\"开始\",\"position\":{\"x\":80,\"y\":180}},{\"id\":\"end\",\"type\":\"end\",\"name\":\"结束\",\"position\":{\"x\":420,\"y\":180}}]");

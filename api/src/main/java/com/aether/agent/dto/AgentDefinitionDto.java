@@ -12,6 +12,9 @@ import java.util.List;
 @Data
 public class AgentDefinitionDto {
 
+    @ApiModelProperty(value = "所属业务应用空间")
+    private String applicationId;
+
     @ApiModelProperty(value = "Agent名称")
     private String name;
 

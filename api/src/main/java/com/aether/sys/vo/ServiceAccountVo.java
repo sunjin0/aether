@@ -10,6 +10,7 @@ import java.util.List;
 @Data
 public class ServiceAccountVo {
     private String id;
+    private String applicationId;
     private String name;
     private String description;
     private String clientId;

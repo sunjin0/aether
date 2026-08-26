@@ -9,6 +9,7 @@ import java.util.List;
  */
 @Data
 public class ServiceAccountCreateDto {
+    private String applicationId;
     private String name;
     private String description;
     /**

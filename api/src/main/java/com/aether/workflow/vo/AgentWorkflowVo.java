@@ -12,6 +12,9 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 public class AgentWorkflowVo extends BaseEntity {
 
+    @ApiModelProperty(value = "所属业务应用空间")
+    private String applicationId;
+
     @ApiModelProperty(value = "关联Agent定义ID")
     private String agentDefinitionId;
 

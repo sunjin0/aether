@@ -18,6 +18,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "AgentToolCallLog对象", description = "工具调用日志")
 public class AgentToolCallLog extends BaseEntity {
 
+    @ApiModelProperty(value = "所属业务应用空间")
+    private String applicationId;
+
     @ApiModelProperty(value = "关联运行记录ID")
     private String runId;
 

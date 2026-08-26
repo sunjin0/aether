@@ -20,6 +20,9 @@ import java.math.BigDecimal;
 @ApiModel(value = "AgentDefinition对象", description = "Agent定义")
 public class AgentDefinition extends BaseEntity {
 
+    @ApiModelProperty(value = "所属业务应用空间")
+    private String applicationId;
+
     @ApiModelProperty(value = "Agent名称")
     private String name;
 

@@ -71,6 +71,7 @@ public class GlobalFilter extends OncePerRequestFilter {
                     String principalType = TokenUtils.getClaim(token, "principalType");
                     String principalId = TokenUtils.getClaim(token, "principalId");
                     String serviceAccountId = TokenUtils.getClaim(token, "serviceAccountId");
+                    String applicationId = TokenUtils.getClaim(token, "applicationId");
                     if (serviceAccountId != null && !serviceAccountId.isEmpty()) {
                         ServiceTokenVerifier verifier = serviceTokenVerifierProvider.getIfAvailable();
                         String tokenVersion = TokenUtils.getClaim(token, "serviceTokenVersion");
@@ -83,6 +84,7 @@ public class GlobalFilter extends OncePerRequestFilter {
                         payload.put("principalType", PRINCIPAL_TYPE_SERVICE_ACCOUNT);
                         payload.put("principalId", principalId != null && !principalId.isEmpty() ? principalId : userId);
                         payload.put("serviceAccountId", serviceAccountId);
+                        if (applicationId != null && !applicationId.isEmpty()) payload.put("applicationId", applicationId);
                     } else if (principalType != null && !principalType.isEmpty()) {
                         payload.put("principalType", principalType);
                         payload.put("principalId", principalId);

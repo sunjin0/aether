@@ -18,6 +18,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "AgentRun对象", description = "运行记录")
 public class AgentRun extends BaseEntity {
 
+    @ApiModelProperty(value = "所属业务应用空间")
+    private String applicationId;
+
     @ApiModelProperty(value = "关联Agent定义ID")
     private String agentDefinitionId;
 

@@ -15,6 +15,9 @@ import java.util.List;
 @EqualsAndHashCode(callSuper = true)
 public class AgentDefinitionVo extends BaseEntity {
 
+    @ApiModelProperty(value = "所属业务应用空间")
+    private String applicationId;
+
     @ApiModelProperty(value = "Agent名称")
     private String name;
 

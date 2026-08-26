@@ -18,6 +18,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "AgentConversation对象", description = "会话")
 public class AgentConversation extends BaseEntity {
 
+    @ApiModelProperty(value = "所属业务应用空间")
+    private String applicationId;
+
     @ApiModelProperty(value = "用户ID")
     private String userId;
 

@@ -1,6 +1,7 @@
 package com.aether.sys.service.impl;
 
 import com.aether.agent.entity.AgentDefinition;
+import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.sys.dto.ServiceAccountCreateDto;
 import com.aether.sys.dto.ServiceAccountTokenDto;
@@ -10,6 +11,8 @@ import com.aether.sys.mapper.ServiceAccountMapper;
 import com.aether.sys.service.ServiceAccountService;
 import com.aether.sys.vo.ServiceAccountSecretVo;
 import com.aether.sys.vo.ServiceAccountTokenVo;
+import com.aether.workflow.entity.AgentWorkflow;
+import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.utils.TokenUtils;
@@ -20,6 +23,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
@@ -37,6 +41,10 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     private final RedisTemplate<String, Object> redisTemplate;
     private final AgentDefinitionService agentDefinitionService;
     private final int accessTokenSeconds;
+    @Autowired(required = false)
+    private AgentApplicationService applicationService;
+    @Autowired(required = false)
+    private AgentWorkflowService workflowService;
 
     /**
      * 创建 {@code ServiceAccountServiceImpl} 实例。
@@ -67,6 +75,8 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
             throw new ServerException(409, I18nUtils.getMessage("service-account.client-id.exists"));
         String secret = "sa_" + randomToken(32);
         ServiceAccount account = new ServiceAccount();
+        String applicationId = normalizeApplicationId(dto.getApplicationId());
+        account.setApplicationId(applicationId);
         account.setName(dto.getName());
         account.setDescription(StringUtils.abbreviate(dto.getDescription(), 1024));
         account.setClientId(clientId);
@@ -76,7 +86,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         List<String> allowed = dto.getAllowedWorkflowIds() == null ? Collections.<String>emptyList() : dto.getAllowedWorkflowIds();
         account.setAllowedWorkflowIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowed))));
         List<String> allowedAgents = dto.getAllowedAgentIds() == null ? Collections.<String>emptyList() : dto.getAllowedAgentIds();
-        validateAgents(allowedAgents);
+        validateAgents(allowedAgents, applicationId);
         account.setAllowedAgentIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowedAgents))));
         int maxStarts = dto.getMaxStartsPerHour() == null ? 0 : dto.getMaxStartsPerHour();
         if (maxStarts < 0 || maxStarts > 100000)
@@ -105,7 +115,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
             throw new ServerException(422, I18nUtils.getMessage("service-account.hourly-start-limit.invalid"));
         List<String> allowed = dto.getAllowedWorkflowIds() == null ? Collections.<String>emptyList() : dto.getAllowedWorkflowIds();
         List<String> allowedAgents = dto.getAllowedAgentIds() == null ? Collections.<String>emptyList() : dto.getAllowedAgentIds();
-        validateAgents(allowedAgents);
+        String applicationId = normalizeApplicationId(StringUtils.defaultIfBlank(dto.getApplicationId(), account.getApplicationId()));
+        validateAgents(allowedAgents, applicationId);
+        account.setApplicationId(applicationId);
         int maxAgentCalls = dto.getMaxAgentCallsPerHour() == null ? 0 : dto.getMaxAgentCallsPerHour();
         validateAgentCallLimit(maxAgentCalls);
         account.setName(dto.getName());
@@ -160,6 +172,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         claims.put("principalId", principalId(account.getId()));
         claims.put("userId", principalId(account.getId()));
         claims.put("serviceAccountId", account.getId());
+        claims.put("applicationId", normalizeApplicationId(account.getApplicationId()));
         claims.put("serviceTokenVersion", String.valueOf(account.getTokenVersion()));
         String accessToken = TokenUtils.createAccessToken(claims, accessTokenSeconds);
         account.setLastUsedAt(System.currentTimeMillis());
@@ -208,6 +221,13 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
                 : JSON.parseArray(account.getAllowedWorkflowIds(), String.class);
         if (allowed != null && !allowed.isEmpty() && !allowed.contains(workflowId))
             throw new ServerException(403, I18nUtils.getMessage("service-account.workflow-start.denied"));
+        if (workflowService != null) {
+            AgentWorkflow workflow = workflowService.getById(workflowId);
+            if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted()))
+                throw new ServerException(404, "工作流不存在");
+            if (!StringUtils.equals(normalizeApplicationId(account.getApplicationId()), normalizeApplicationId(workflow.getApplicationId())))
+                throw new ServerException(403, I18nUtils.getMessage("service-account.workflow-start.denied"));
+        }
         int limit = account.getMaxStartsPerHour() == null ? 0 : account.getMaxStartsPerHour();
         if (limit <= 0) return;
         Calendar calendar = Calendar.getInstance();
@@ -236,6 +256,8 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
             throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         if (!Integer.valueOf(1).equals(agent.getStatus()))
             throw new ServerException(422, I18nUtils.getMessage("agent.definition.disabled"));
+        if (!StringUtils.equals(normalizeApplicationId(account.getApplicationId()), normalizeApplicationId(agent.getApplicationId())))
+            throw new ServerException(403, I18nUtils.getMessage("service-account.agent-call.denied"));
         int limit = account.getMaxAgentCallsPerHour() == null ? 0 : account.getMaxAgentCallsPerHour();
         if (limit <= 0) return;
         Calendar calendar = Calendar.getInstance();
@@ -269,11 +291,12 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         return result;
     }
 
-    private void validateAgents(List<String> agentIds) {
+    private void validateAgents(List<String> agentIds, String applicationId) {
         if (agentIds == null || agentIds.isEmpty()) return;
         Set<String> unique = new LinkedHashSet<String>(agentIds);
         long found = agentDefinitionService.count(Wrappers.lambdaQuery(AgentDefinition.class)
-                .in(AgentDefinition::getId, unique).eq(AgentDefinition::getDeleted, false));
+                .in(AgentDefinition::getId, unique).eq(AgentDefinition::getApplicationId, applicationId)
+                .eq(AgentDefinition::getDeleted, false));
         if (found != unique.size())
             throw new ServerException(422, I18nUtils.getMessage("service-account.agents.invalid"));
     }
@@ -281,6 +304,12 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     private void validateAgentCallLimit(int value) {
         if (value < 0 || value > 100000)
             throw new ServerException(422, I18nUtils.getMessage("service-account.hourly-agent-call-limit.invalid"));
+    }
+
+    private String normalizeApplicationId(String applicationId) {
+        String value = StringUtils.defaultIfBlank(applicationId, AgentApplicationService.PLATFORM_APPLICATION_ID);
+        if (applicationService != null) applicationService.requireActive(value);
+        return value;
     }
 
     public static String principalId(String serviceAccountId) {

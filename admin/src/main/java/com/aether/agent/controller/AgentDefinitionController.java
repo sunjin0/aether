@@ -1,6 +1,7 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentDefinitionDto;
+import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentToolBinding;
 import com.aether.agent.service.AgentDefinitionService;
@@ -48,6 +49,8 @@ public class AgentDefinitionController {
     private final AgentToolBindingService agentToolBindingService;
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
+    @Autowired(required = false)
+    private AgentApplicationService applicationService;
 
     /**
      * 创建 {@code AgentDefinitionController} 实例。
@@ -78,6 +81,7 @@ public class AgentDefinitionController {
                 .like(StringUtils.isNotBlank(vo.getCode()), AgentDefinition::getCode, vo.getCode())
                 .eq(vo.getStatus() != null, AgentDefinition::getStatus, vo.getStatus())
                 .eq(StringUtils.isNotBlank(vo.getModelId()), AgentDefinition::getModelId, vo.getModelId())
+                .eq(StringUtils.isNotBlank(vo.getApplicationId()), AgentDefinition::getApplicationId, vo.getApplicationId())
                 .eq(AgentDefinition::getDeleted, false)
                 .orderByDesc(AgentDefinition::getCreatedAt);
         Page<AgentDefinition> result = agentDefinitionService.page(page, wrapper);
@@ -151,6 +155,7 @@ public class AgentDefinitionController {
         applyModelCatalog(dto);
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
+        definition.setApplicationId(normalizeApplicationId(dto.getApplicationId()));
         applyEmailConfiguration(definition, dto, null);
         boolean saved = agentDefinitionService.save(definition);
         // 绑定工具
@@ -185,6 +190,7 @@ public class AgentDefinitionController {
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
         definition.setId(id);
+        definition.setApplicationId(normalizeApplicationId(StringUtils.defaultIfBlank(dto.getApplicationId(), existing.getApplicationId())));
         applyEmailConfiguration(definition, dto, existing);
         boolean updated = agentDefinitionService.updateById(definition);
         // 重新绑定工具
@@ -324,5 +330,11 @@ public class AgentDefinitionController {
             return;
         }
         throw new ServerException(422, "Agent 邮箱配置不完整或 SMTP 参数无效");
+    }
+
+    private String normalizeApplicationId(String applicationId) {
+        String value = StringUtils.defaultIfBlank(applicationId, AgentApplicationService.PLATFORM_APPLICATION_ID);
+        if (applicationService != null) applicationService.requireActive(value);
+        return value;
     }
 }

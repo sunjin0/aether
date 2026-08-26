@@ -9,6 +9,7 @@ import java.util.List;
  */
 @Data
 public class ServiceAccountUpdateDto {
+    private String applicationId;
     private String name;
     private String description;
     private List<String> allowedWorkflowIds;
