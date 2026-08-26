@@ -47,7 +47,9 @@ public class AgentProductProfileController {
     @PutMapping("/{id}")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentProductProfileDto dto) {
-        AgentProductProfile value = required(id); BeanUtils.copyProperties(dto, value); validate(value); profileService.updateById(value); return WebResponse.OK("更新成功");
+        AgentProductProfile value = required(id);
+        if (Integer.valueOf(1).equals(value.getStatus())) throw new ServerException(409, "已发布产品不可直接编辑，请复制后创建新草稿");
+        BeanUtils.copyProperties(dto, value); validate(value); profileService.updateById(value); return WebResponse.OK("更新成功");
     }
     @PostMapping("/{id}/publish")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
@@ -60,6 +62,14 @@ public class AgentProductProfileController {
         snapshot.setPublishedBy(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId")); snapshot.setPublishedAt(now);
         versionService.save(snapshot);
         value.setStatus(1); value.setVersionNo(nextVersion); value.setPublishedAt(now); profileService.updateById(value); return WebResponse.OK(value);
+    }
+    @PostMapping("/{id}/copy")
+    @Permission(path = "/agent/definition", type = Permission.Type.Write)
+    public WebResponse<String> copy(@PathVariable String id) {
+        AgentProductProfile source = required(id);
+        AgentProductProfile draft = new AgentProductProfile(); BeanUtils.copyProperties(source, draft);
+        draft.setId(null); draft.setName(source.getName() + "（新草稿）"); draft.setStatus(0); draft.setVersionNo(0); draft.setPublishedAt(null);
+        profileService.save(draft); return WebResponse.OK("已创建新草稿", draft.getId());
     }
     @GetMapping("/{id}/versions")
     public WebResponse<List<AgentProductProfileVersion>> versions(@PathVariable String id) {
