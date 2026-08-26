@@ -125,3 +125,7 @@
 ## 6. 后续多租户演进
 
 当平台面向外部客户时，将 `application_id` 上升为 `tenant_id + application_id`，补充租户自助注册、数据驻留、计量计费、客户级密钥托管和组织级运营控制台。
+
+## 7. 当前开放接口文档
+
+详见 [OpenAPI v1 业务接入说明](openapi-v1.md)。
