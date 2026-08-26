@@ -86,7 +86,9 @@ public class ServiceAccountController {
         long current = query == null || query.getCurrent() == null ? 1L : query.getCurrent();
         long pageSize = query == null || query.getPageSize() == null ? 20L : Math.min(query.getPageSize(), 100L);
         Page<ServiceAccount> page = serviceAccountService.page(new Page<ServiceAccount>(current, pageSize),
-                Wrappers.lambdaQuery(ServiceAccount.class).eq(ServiceAccount::getDeleted, false).orderByDesc(ServiceAccount::getCreatedAt));
+                Wrappers.lambdaQuery(ServiceAccount.class).eq(ServiceAccount::getDeleted, false)
+                        .eq(query != null && org.apache.commons.lang3.StringUtils.isNotBlank(query.getApplicationId()), ServiceAccount::getApplicationId, query == null ? null : query.getApplicationId())
+                        .orderByDesc(ServiceAccount::getCreatedAt));
         List<ServiceAccountVo> rows = page.getRecords().stream().map(this::vo).collect(Collectors.toList());
         return WebResponse.Page(rows, page.getTotal());
     }
