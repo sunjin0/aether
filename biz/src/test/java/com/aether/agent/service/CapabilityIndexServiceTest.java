@@ -50,8 +50,8 @@ class CapabilityIndexServiceTest {
         String index = service.buildIndex("a1", Collections.emptyList());
 
         assertTrue(index.startsWith("\n\n[可用能力 / Available capabilities]\n"));
-        assertTrue(index.contains("- http: HTTP 请求工具"));
-        assertTrue(index.contains("- file: 文件读写"));
+        assertTrue(index.contains("- tool http: HTTP 请求工具"));
+        assertTrue(index.contains("- tool file: 文件读写"));
         assertFalse(index.contains("skill"));
     }
 
@@ -59,16 +59,16 @@ class CapabilityIndexServiceTest {
      * 处理omitsResidentToolsFromIndex。
      */
     @Test
-    void omitsResidentToolsFromIndex() {
+    void includesAllBoundToolsInIndex() {
         when(toolCatalog.getBoundTools("a1")).thenReturn(Arrays.asList(
                 tool("t1", "http", "HTTP 请求工具"),
                 tool("ga", "generate_artifact", "文件生成")));
 
         String index = service.buildIndex("a1", Collections.emptyList());
 
-        assertTrue(index.contains("- http: HTTP 请求工具"));
-        assertFalse(index.contains("generate_artifact"));
-        assertFalse(index.contains("文件生成"));
+        assertTrue(index.contains("- tool http: HTTP 请求工具"));
+        assertTrue(index.contains("generate_artifact"));
+        assertTrue(index.contains("文件生成"));
     }
 
     /**
@@ -77,7 +77,7 @@ class CapabilityIndexServiceTest {
     @Test
     void emitsSkillLinesFromInstallations() {
         when(toolCatalog.getBoundTools("a1")).thenReturn(null);
-        when(skillService.getById("s1")).thenReturn(skill("s1", "发票处理"));
+        when(skillService.getById("s1")).thenReturn(skill("s1", "发票处理", "处理发票录入与审核"));
         when(versionService.getById("v1")).thenReturn(version("v1", "s1", "处理发票录入与审核"));
 
         String index = service.buildIndex("a1", Collections.singletonList(binding("a1", "s1", "v1")));
@@ -113,10 +113,10 @@ class CapabilityIndexServiceTest {
 
         String index = service.buildIndex("a1", Collections.emptyList());
 
-        String line = index.substring(index.indexOf("- http: "));
+        String line = index.substring(index.indexOf("- tool http: "));
         assertTrue(line.contains("…"));
         assertFalse(line.contains("\n"));
-        assertTrue(line.length() <= 110);
+        assertTrue(line.length() <= 220);
     }
 
     /**
@@ -155,9 +155,14 @@ class CapabilityIndexServiceTest {
     }
 
     private AgentSkill skill(String id, String name) {
+        return skill(id, name, null);
+    }
+
+    private AgentSkill skill(String id, String name, String description) {
         AgentSkill skill = new AgentSkill();
         skill.setId(id);
         skill.setName(name);
+        skill.setDescription(description);
         return skill;
     }
 

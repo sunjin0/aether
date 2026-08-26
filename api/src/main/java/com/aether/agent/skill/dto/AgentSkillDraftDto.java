@@ -27,4 +27,6 @@ public class AgentSkillDraftDto {
     private String changeNote;
     private List<AgentSkillToolDto> tools;
     private List<String> knowledgeBaseIds;
+    /** Applied to selected knowledge bases; defaults to RETRIEVE_ONLY for compatibility. */
+    private String knowledgeDeclarationMode;
 }

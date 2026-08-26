@@ -51,13 +51,13 @@ class ToolRouterServiceTest {
     }
 
     @Test
-    void returnsEmptyWhenEmbeddingNotConfiguredAndNoKeywordMatch() {
+    void fallsBackToFullSetWhenEmbeddingNotConfiguredAndNoKeywordMatch() {
         when(routingConfigService.embeddingModelId()).thenReturn(null);
         ToolRouterService service = new ToolRouterService(indexMapper, embeddingService, modelCatalogService, routingConfigService);
         List<AgentTool> candidates = Arrays.asList(tool("t1", "search", "search"), tool("t2", "http", "http"));
         List<AgentTool> routed = service.route(candidates, Collections.<String>emptySet(), "查找订单");
 
-        assertTrue(routed.isEmpty());
+        assertEquals(2, routed.size());
     }
 
     @Test
@@ -148,7 +148,7 @@ class ToolRouterServiceTest {
     }
 
     @Test
-    void returnsProtectedOnlyWhenNoHits() {
+    void fallsBackToFullSetWhenNoHits() {
         when(routingConfigService.embeddingModelId()).thenReturn("emb-1");
         when(modelCatalogService.resolveProvider("emb-1", "EMBEDDING")).thenReturn(new ModelProvider());
         when(embeddingService.embed(any(ModelProvider.class), any(String.class))).thenReturn(Arrays.asList(0.1, 0.2));
@@ -159,12 +159,11 @@ class ToolRouterServiceTest {
         List<AgentTool> candidates = Arrays.asList(tool("t1", "search", "search"), tool("t2", "http", "http"));
         List<AgentTool> routed = service.route(candidates, new HashSet<>(Arrays.asList("t1")), "随便说点什么");
 
-        assertEquals(1, routed.size());
-        assertEquals("t1", routed.get(0).getId());
+        assertEquals(2, routed.size());
     }
 
     @Test
-    void returnsProtectedOnlyWhenRecallFails() {
+    void fallsBackToFullSetWhenRecallFails() {
         when(routingConfigService.embeddingModelId()).thenReturn("emb-1");
         when(modelCatalogService.resolveProvider("emb-1", "EMBEDDING")).thenThrow(new RuntimeException("down"));
 
@@ -172,7 +171,6 @@ class ToolRouterServiceTest {
         List<AgentTool> candidates = Arrays.asList(tool("t1", "search", "search"), tool("t2", "http", "http"));
         List<AgentTool> routed = service.route(candidates, new HashSet<>(Arrays.asList("t2")), "查询订单");
 
-        assertEquals(1, routed.size());
-        assertEquals("t2", routed.get(0).getId());
+        assertEquals(2, routed.size());
     }
 }

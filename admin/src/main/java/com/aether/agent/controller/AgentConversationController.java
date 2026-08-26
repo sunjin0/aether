@@ -224,7 +224,7 @@ public class AgentConversationController {
         Wrapper<AgentMessage> wrapper = Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getConversationId, id)
                 .eq(AgentMessage::getDeleted, false)
-                .in(AgentMessage::getRole, "user", "assistant")
+                .in(AgentMessage::getRole, "user", "assistant", "tool")
                 .orderByAsc(AgentMessage::getCreatedAt);
         Page<AgentMessage> result = agentMessageService.page(page, wrapper);
         List<AgentMessageVo> list = result.getRecords().stream().map(item -> {

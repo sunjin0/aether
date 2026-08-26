@@ -150,6 +150,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
             AgentSkillKnowledgeBinding copy = new AgentSkillKnowledgeBinding();
             copy.setSkillVersionId(draft.getId());
             copy.setKnowledgeBaseId(sourceBinding.getKnowledgeBaseId());
+            copy.setDeclarationMode(sourceBinding.getDeclarationMode());
             knowledgeBindingService.save(copy);
         }
         for (AgentSkillResource sourceResource : resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, source.getId()))) {
@@ -622,8 +623,14 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
             AgentSkillKnowledgeBinding binding = new AgentSkillKnowledgeBinding();
             binding.setSkillVersionId(versionId);
             binding.setKnowledgeBaseId(id);
+            binding.setDeclarationMode(normalizeKnowledgeDeclarationMode(dto.getKnowledgeDeclarationMode()));
             knowledgeBindingService.save(binding);
         }
+    }
+
+    private String normalizeKnowledgeDeclarationMode(String mode) {
+        return "ALWAYS".equals(mode) || "ROUTE_MATCHED".equals(mode) || "RETRIEVE_ONLY".equals(mode)
+                ? mode : "RETRIEVE_ONLY";
     }
 
     /**

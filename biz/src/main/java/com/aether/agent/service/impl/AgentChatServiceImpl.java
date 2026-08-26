@@ -80,6 +80,8 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final String MESSAGE_TYPE_CHAT = "chat";
     private static final String MESSAGE_TYPE_INTERACTION = "interaction";
     private static final String MESSAGE_TYPE_ANSWER = "answer";
+    private static final String MESSAGE_TYPE_TOOL_CALL = "tool_call";
+    private static final String MESSAGE_TYPE_TOOL_RESULT = "tool_result";
     private static final String INTERACTION_STATUS_PENDING = "pending";
     private static final String INTERACTION_STATUS_ANSWERED = "answered";
     private static final int TOOL_CALL_STATUS_SUCCESS = 0;
@@ -271,6 +273,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                     return vo;
                 }
                 List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(modelResponse, agent, userId, runId, skillContext.getTools());
+                saveToolResultMessages(conversation.getId(), toolResults, agent, provider);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
 
                 addToolResultsToContext(context, modelResponse, toolResults);
@@ -489,6 +492,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 }
                 long toolExecutionStartedAt = System.currentTimeMillis();
                 List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId, skillContext.getTools());
+                saveToolResultMessages(conversation.getId(), toolResults, agent, provider);
                 log.info("工具执行耗时: requestId={}, runId={}, duration={}ms, calls={}", dto.getRequestId(), runId,
                         System.currentTimeMillis() - toolExecutionStartedAt, toolResults.size());
                 ChatLatencyMetrics.record("chat.tool_execution", System.currentTimeMillis() - toolExecutionStartedAt);
@@ -714,6 +718,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                     return;
                 }
                 List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId, runId, skillContext.getTools());
+                saveToolResultMessages(conversation.getId(), toolResults, agent, provider);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 addToolResultsToContext(context, chatResponse, toolResults);
                 enforceSkillBudget(context, agent, provider, skillContext);
@@ -1166,7 +1171,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
 
     private AgentMessage saveAssistantPreludeIfPresent(String conversationId, ModelChatResponse response, long latencyMs,
                                                        AgentDefinition agent, ModelProvider provider) {
-        if (response == null || StringUtils.isBlank(response.getContent())) {
+        if (response == null || (StringUtils.isBlank(response.getContent()) && StringUtils.isBlank(response.getToolCalls()))) {
             return null;
         }
         ModelChatResponse prelude = new ModelChatResponse();
@@ -1178,7 +1183,39 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         prelude.setTotalTokens(response.getTotalTokens());
         prelude.setReasoningTokens(response.getReasoningTokens());
         prelude.setSources(response.getSources());
-        return saveAssistantMessage(conversationId, prelude, latencyMs, agent, provider);
+        prelude.setToolCalls(response.getToolCalls());
+        AgentMessage message = saveAssistantMessage(conversationId, prelude, latencyMs, agent, provider);
+        message.setMessageType(MESSAGE_TYPE_TOOL_CALL);
+        agentMessageService.updateById(message);
+        return message;
+    }
+
+    /**
+     * Persists tool outputs as first-class conversation messages.  The model receives a
+     * compact copy in the current turn, while this record retains the complete execution
+     * envelope for replay and audit without mixing it into assistant prose.
+     */
+    private void saveToolResultMessages(String conversationId, List<ToolExecutionResult> results,
+                                        AgentDefinition agent, ModelProvider provider) {
+        if (results == null || results.isEmpty()) return;
+        for (ToolExecutionResult result : results) {
+            if (result == null) continue;
+            AgentMessage message = new AgentMessage();
+            message.setConversationId(conversationId);
+            message.setRole("tool");
+            message.setMessageType(MESSAGE_TYPE_TOOL_RESULT);
+            message.setToolCallId(result.getToolCallId());
+            // content is the exact tool payload used for protocol replay. toolResult retains
+            // status, latency, raw response and error metadata independently for the UI/audit.
+            message.setContent(StringUtils.defaultIfBlank(result.getContent(), result.getErrorMsg()));
+            message.setToolResult(JSON.toJSONString(result));
+            message.setLatencyMs(result.getLatencyMs());
+            message.setContextTokens(conversationContextService.estimateTokens(message.getContent(),
+                    agent == null ? null : agent.getModel()));
+            message.setContextBudgetTokens(conversationContextService.getInputTokenBudget(agent, provider));
+            agentMessageService.save(message);
+            updateContextCache(conversationId, new ModelChatMessage("tool", message.getContent(), null, result.getToolCallId()));
+        }
     }
 
     /**
@@ -1501,10 +1538,15 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
      * 用冻结后的 Skill 指令替换历史中的 Agent 系统提示词，避免同一请求出现两套策略。
      */
     private void applySkillPrompt(List<ModelChatMessage> context, SkillRuntimeContext skillContext) {
-        if (context == null || skillContext == null || StringUtils.isBlank(skillContext.getSystemPrompt())) return;
-        if (!context.isEmpty() && "system".equals(context.get(0).getRole()))
-            context.set(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
-        else context.add(0, new ModelChatMessage("system", skillContext.getSystemPrompt()));
+        if (context == null || skillContext == null) return;
+        List<String> messages = skillContext.getSystemMessages();
+        if (messages == null || messages.isEmpty()) {
+            messages = StringUtils.isBlank(skillContext.getSystemPrompt())
+                    ? java.util.Collections.<String>emptyList()
+                    : java.util.Collections.singletonList(skillContext.getSystemPrompt());
+        }
+        if (!context.isEmpty() && "system".equals(context.get(0).getRole())) context.remove(0);
+        for (int i = messages.size() - 1; i >= 0; i--) context.add(0, new ModelChatMessage("system", messages.get(i)));
     }
 
     /**
@@ -1514,7 +1556,8 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                                     ModelProvider provider, SkillRuntimeContext skillContext) {
         if (skillContext == null || !skillContext.isInstalled()) return;
         int budget = conversationContextService.getInputTokenBudget(agent, provider);
-        int promptTokens = conversationContextService.estimateTokens(skillContext.getSystemPrompt(), agent.getModel());
+        int promptTokens = conversationContextService.estimateTokens(
+                String.join("\n", skillContext.getSystemMessages()), agent.getModel());
         int contextTokens = conversationContextService.estimateContextTokens(context, agent.getModel());
         skillContext.recordBudget(budget, promptTokens, contextTokens);
         if (promptTokens > budget) {

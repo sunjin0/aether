@@ -80,6 +80,14 @@ public class ToolRouterService {
             return merge(candidates, protectedToolIds, cached.toolIds);
         }
         List<String> selected = select(query, routable, embeddingModelId);
+        // The permanent capability catalog may lead the model to an otherwise relevant
+        // tool whose name was not present in the user wording.  A no-hit route therefore
+        // falls back to the available definitions for this turn instead of making a
+        // declared capability impossible to invoke.
+        if (selected == null) {
+            log.debug("工具路由无命中，回退完整定义: candidates={}", candidates.size());
+            return candidates;
+        }
         List<String> selectedIds = selected == null ? Collections.<String>emptyList() : selected;
         evictRouteCache();
         if (!selectedIds.isEmpty()) {

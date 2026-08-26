@@ -384,7 +384,7 @@ public class ConversationContextService {
         return Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getConversationId, conversationId)
                 .eq(AgentMessage::getDeleted, false)
-                .in(AgentMessage::getRole, "user", "assistant");
+                .in(AgentMessage::getRole, "user", "assistant", "tool");
     }
 
     /**
@@ -436,9 +436,13 @@ public class ConversationContextService {
             return Collections.emptyMap();
         }
         List<String> messageIds = new ArrayList<String>();
+        Set<String> persistedToolCallIds = new HashSet<String>();
         for (AgentMessage message : messages) {
             if ("assistant".equals(message.getRole()) && StringUtils.isNotBlank(message.getId())) {
                 messageIds.add(message.getId());
+            }
+            if ("tool".equals(message.getRole()) && StringUtils.isNotBlank(message.getToolCallId())) {
+                persistedToolCallIds.add(message.getToolCallId());
             }
         }
         if (messageIds.isEmpty()) {
@@ -465,6 +469,11 @@ public class ConversationContextService {
                         .ne(AgentToolCallLog::getStatus, 4)
                         .orderByAsc(AgentToolCallLog::getCreatedAt)
                         .orderByAsc(AgentToolCallLog::getId));
+        // New conversations persist protocol-complete tool messages.  Do not append the
+        // same run again from the audit log; logs remain the fallback for legacy history.
+        if (!persistedToolCallIds.isEmpty()) {
+            logs.removeIf(log -> persistedToolCallIds.contains(log.getToolCallId()));
+        }
         Map<String, List<AgentToolCallLog>> logsByRun =
                 new LinkedHashMap<String, List<AgentToolCallLog>>();
         for (AgentToolCallLog log : logs) {

@@ -97,7 +97,9 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
         SkillRuntimeContext context = new SkillRuntimeContext();
         List<AgentDefinitionSkillBinding> allInstallations = installations;
         if (installations.isEmpty()) {
-            context.setSystemPrompt(withCapabilityIndex(agent, installations));
+            context.setSystemMessages(systemMessages(agent.getSystemPrompt(),
+                    capabilityIndexService.buildIndex(agent.getId(), installations)));
+            context.setSystemPrompt(joinSystemMessages(context.getSystemMessages()));
             List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
             context.setTools(boundTools);
             context.setKnowledgeBaseIds(null);
@@ -111,7 +113,10 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
         if (!route.isMatched()) {
             if (dto != null && dto.getSkillInputs() != null && !dto.getSkillInputs().isEmpty()) throw new ServerException(422, I18nUtils.getMessage("skill.context.no-active-skill"));
             List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
-            context.setSystemPrompt(withCapabilityIndex(agent, allInstallations)); context.setTools(boundTools); context.setKnowledgeBaseIds(null);
+            context.setSystemMessages(systemMessages(agent.getSystemPrompt(),
+                    capabilityIndexService.buildIndex(agent.getId(), allInstallations)));
+            context.setSystemPrompt(joinSystemMessages(context.getSystemMessages()));
+            context.setTools(boundTools); context.setKnowledgeBaseIds(null);
             Map<String, Object> snapshot = new LinkedHashMap<>(); snapshot.put("routing", route); snapshot.put("toolIds", boundTools.stream().map(AgentTool::getId).collect(Collectors.toList()));
             context.setSnapshot(JSON.toJSONString(snapshot)); return context;
         }
@@ -122,7 +127,8 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
         Set<String> boundToolIds = boundTools.stream().map(AgentTool::getId).collect(Collectors.toSet());
         Set<String> declaredToolIds = null, declaredKnowledgeBaseIds = null;
         Set<String> requiredToolIds = new LinkedHashSet<>();
-        StringBuilder prompt = new StringBuilder(StringUtils.defaultString(agent.getSystemPrompt()));
+        StringBuilder skillPrompt = new StringBuilder();
+        StringBuilder knowledgePrompt = new StringBuilder();
         List<Map<String, Object>> snapshotSkills = new ArrayList<>();
         Set<String> installedCodes = new LinkedHashSet<>();
 
@@ -139,36 +145,78 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
                 if (Boolean.TRUE.equals(declaration.getRequired())) requiredToolIds.add(declaration.getToolId());
             }
             declaredToolIds = merge(declaredToolIds, toolIds);
-            Set<String> knowledgeIds = knowledgeBindingService.list(Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class).eq(AgentSkillKnowledgeBinding::getSkillVersionId, version.getId()))
-                    .stream().map(AgentSkillKnowledgeBinding::getKnowledgeBaseId).collect(Collectors.toCollection(LinkedHashSet::new));
+            List<AgentSkillKnowledgeBinding> knowledgeDeclarations = knowledgeBindingService.list(
+                    Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class)
+                            .eq(AgentSkillKnowledgeBinding::getSkillVersionId, version.getId()));
+            Set<String> knowledgeIds = knowledgeDeclarations.stream().map(AgentSkillKnowledgeBinding::getKnowledgeBaseId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
             declaredKnowledgeBaseIds = merge(declaredKnowledgeBaseIds, knowledgeIds);
+            appendKnowledgeDeclarations(knowledgePrompt, knowledgeDeclarations);
 
             Map<String, Object> maskedInput = validateAndMaskInput(version.getInputSchema(), inputs.get(skill.getCode()));
             List<AgentSkillResource> resources = resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, version.getId()));
-            prompt.append(resolveStaticPrompt(skill, version, resources));
-            if (!maskedInput.isEmpty()) prompt.append("\nValidated inputs: ").append(JSON.toJSONString(maskedInput));
+            skillPrompt.append(resolveStaticPrompt(skill, version, resources));
+            if (!maskedInput.isEmpty()) skillPrompt.append("\nValidated inputs: ").append(JSON.toJSONString(maskedInput));
             Map<String, Object> snapshot = new LinkedHashMap<>();
             snapshot.put("skillId", skill.getId()); snapshot.put("code", skill.getCode()); snapshot.put("versionId", version.getId()); snapshot.put("versionNo", version.getVersionNo());
             snapshot.put("input", maskedInput); snapshot.put("resources", resources.stream().map(this::resourceSnapshot).collect(Collectors.toList()));
             snapshotSkills.add(snapshot);
         }
         for (String code : inputs.keySet()) if (!installedCodes.contains(code)) throw new ServerException(422, I18nUtils.getMessage("skill.context.input.not-installed"));
-        // Agent 工具和知识库绑定定义运行期的授权边界。Skill 声明只约束 Skill 自己的
-        // 模板、资源及 required 工具，不得收窄 Agent 已绑定的工具或知识库范围。
-        List<AgentTool> tools = boundTools.stream().filter(this::isLiveMcpTool).collect(Collectors.toList());
+        // Agent 绑定是授权上限；命中 Skill 后，Skill 的独立知识库声明进一步收窄本轮检索范围。
+        // The permanent capability catalog lists every Agent-bound tool. Once a Skill is
+        // selected, only its separately declared dependencies receive full schemas.
+        final Set<String> selectedToolIds = declaredToolIds == null
+                ? Collections.<String>emptySet() : declaredToolIds;
+        List<AgentTool> tools = boundTools.stream()
+                .filter(item -> selectedToolIds.contains(item.getId()))
+                .filter(this::isLiveMcpTool).collect(Collectors.toList());
         if (tools.stream().anyMatch(tool -> "generate_artifact".equals(tool.getMcpToolName()))) {
-            prompt.append("\n\n[Artifact Generation]\nUse generate_artifact for file output. Provide title, content and format only; never select a Skill, script or template. This Skill's instructions above are the applicable document specification.");
+            skillPrompt.append("\n\n[Artifact Generation]\nUse generate_artifact for file output. Provide title, content and format only; never select a Skill, script or template. This Skill's instructions above are the applicable document specification.");
         }
-        prompt.append("\n\n[Platform Constraints]\n工具审批、安全与审计由平台统一控制。知识库引用规则由检索上下文统一提供。");
-        prompt.append(capabilityIndexService.buildIndex(agent.getId(), allInstallations));
+        String toolPrompt = "[Tool execution constraints]\n工具审批、安全与审计由平台统一控制。仅可调用本轮提供完整定义的工具。";
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("installed", true); snapshot.put("routing", route); snapshot.put("skills", snapshotSkills); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
         snapshot.put("skillKnowledgeBaseIds", declaredKnowledgeBaseIds == null ? Collections.emptySet() : declaredKnowledgeBaseIds);
-        snapshot.put("knowledgeBaseScope", "agent-bound");
-        context.setInstalled(true); context.setSystemPrompt(prompt.toString()); context.setTools(tools);
-        // null 表示检索服务使用全部启用的 Agent 知识库绑定；空集合才表示显式禁止检索。
-        context.setKnowledgeBaseIds(null); context.setRequiredToolIds(requiredToolIds); context.setSnapshot(JSON.toJSONString(snapshot));
+        snapshot.put("knowledgeBaseScope", "skill-declared");
+        Map<String, Object> permissions = new LinkedHashMap<>();
+        permissions.put("modelVisibleToolIds", boundToolIds);
+        permissions.put("runtimeToolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
+        permissions.put("requiredToolIds", requiredToolIds);
+        permissions.put("knowledgeBaseIds", declaredKnowledgeBaseIds == null ? Collections.emptySet() : declaredKnowledgeBaseIds);
+        permissions.put("execution", "session-approval-policy");
+        snapshot.put("permissionLayers", permissions);
+        context.setSystemMessages(systemMessages(agent.getSystemPrompt(),
+                capabilityIndexService.buildIndex(agent.getId(), allInstallations), skillPrompt.toString(),
+                toolPrompt, knowledgePrompt.toString()));
+        context.setInstalled(true); context.setSystemPrompt(joinSystemMessages(context.getSystemMessages()));
+        context.setTools(tools);
+        context.setKnowledgeBaseIds(declaredKnowledgeBaseIds == null ? Collections.<String>emptySet() : declaredKnowledgeBaseIds);
+        context.setRequiredToolIds(requiredToolIds); context.setSnapshot(JSON.toJSONString(snapshot));
         return context;
+    }
+
+    /** Announces only declaration policy and IDs; document content remains retrieval-owned. */
+    private void appendKnowledgeDeclarations(StringBuilder prompt, List<AgentSkillKnowledgeBinding> declarations) {
+        if (declarations == null || declarations.isEmpty()) return;
+        for (AgentSkillKnowledgeBinding declaration : declarations) {
+            String mode = StringUtils.defaultIfBlank(declaration.getDeclarationMode(), "RETRIEVE_ONLY");
+            if ("RETRIEVE_ONLY".equals(mode)) continue;
+            prompt.append("\n[Knowledge declaration] base=").append(declaration.getKnowledgeBaseId())
+                    .append(", mode=").append(mode)
+                    .append(". Content is supplied only by the retrieval service and must be cited.");
+        }
+    }
+
+    private List<String> systemMessages(String... messages) {
+        List<String> result = new ArrayList<>();
+        for (String message : messages) if (StringUtils.isNotBlank(message)) result.add(message);
+        return result;
+    }
+
+    /** Legacy audit/export compatibility; model dispatch uses systemMessages, never this joined value. */
+    private String joinSystemMessages(List<String> messages) {
+        return messages == null ? "" : StringUtils.join(messages, "\n\n");
     }
 
     /**

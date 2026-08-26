@@ -191,7 +191,7 @@ class SkillContextServiceTest {
         assertTrue(context.getTools().stream().noneMatch(t -> "tUndeclared".equals(t.getId())));
         assertTrue(context.getKnowledgeBaseIds().contains("kb1"));
         assertTrue(context.getSystemPrompt().contains("[Installed Skill]"));
-        assertTrue(context.getSystemPrompt().contains("[Platform Constraints]"));
+        assertTrue(context.getSystemPrompt().contains("[Tool execution constraints]"));
     }
 
     /**

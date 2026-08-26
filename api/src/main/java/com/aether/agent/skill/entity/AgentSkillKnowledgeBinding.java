@@ -14,4 +14,6 @@ import lombok.EqualsAndHashCode;
 public class AgentSkillKnowledgeBinding extends BaseEntity {
     private String skillVersionId;
     private String knowledgeBaseId;
+    /** Knowledge prompt declaration: ALWAYS, ROUTE_MATCHED, RETRIEVE_ONLY. */
+    private String declarationMode;
 }

@@ -15,6 +15,8 @@ import java.util.Set;
 @Data
 public class SkillRuntimeContext {
     private String systemPrompt;
+    /** Ordered, independently auditable system messages sent to the model. */
+    private List<String> systemMessages = Collections.emptyList();
     private List<AgentTool> tools = Collections.emptyList();
     private Set<String> knowledgeBaseIds = Collections.emptySet();
     /**

@@ -7,6 +7,8 @@ import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.service.AgentSkillService;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
@@ -24,7 +26,6 @@ public class CapabilityIndexService {
     private static final int MAX_INDEX_TOKENS = 1000;
     private static final int TOKEN_ESTIMATE_DIVISOR = 4;
     private static final int MAX_LINE_CHARS = 100;
-    private static final String ARTIFACT_TOOL = "generate_artifact";
 
     private final AgentToolCatalog toolCatalog;
     private final AgentSkillService skillService;
@@ -59,11 +60,12 @@ public class CapabilityIndexService {
         if (tools == null) return;
         for (AgentTool tool : tools) {
             if (tool == null || StringUtils.isBlank(tool.getName())) continue;
-            if (ARTIFACT_TOOL.equals(tool.getMcpToolName())) continue;
             String description = oneLine(tool.getDescription());
             if (out.length() > 0) out.append('\n');
-            out.append("- ").append(tool.getName());
+            out.append("- tool ").append(tool.getName());
             if (description != null) out.append(": ").append(description);
+            out.append("；输入：").append(inputSummary(tool.getParametersSchema(), tool.getMcpInputSchema()))
+                    .append("；可用条件：当前 Agent 已绑定且 MCP 服务启用");
             if (!withinBudget(out)) return;
         }
     }
@@ -78,10 +80,12 @@ public class CapabilityIndexService {
             AgentSkill skill = skillService.getById(binding.getSkillId());
             AgentSkillVersion version = versionService.getById(binding.getSkillVersionId());
             if (skill == null || version == null) continue;
-            String summary = oneLine(version.getRoutingSummary());
+            String description = oneLine(skill.getDescription());
             if (out.length() > 0) out.append('\n');
             out.append("- skill ").append(skill.getName());
-            if (summary != null) out.append(": ").append(summary);
+            if (description != null) out.append(": ").append(description);
+            out.append("；输入：").append(inputSummary(version.getInputSchema(), null))
+                    .append("；可用条件：已安装且请求命中路由");
             if (!withinBudget(out)) return;
         }
     }
@@ -93,6 +97,29 @@ public class CapabilityIndexService {
         if (StringUtils.isBlank(value)) return null;
         String single = StringUtils.normalizeSpace(value);
         return single.length() <= MAX_LINE_CHARS ? single : single.substring(0, MAX_LINE_CHARS) + "…";
+    }
+
+    /** Only a field-name summary belongs in the permanent catalog; full schemas are runtime-loaded. */
+    private String inputSummary(String primarySchema, String fallbackSchema) {
+        String schemaText = StringUtils.defaultIfBlank(primarySchema, fallbackSchema);
+        if (StringUtils.isBlank(schemaText)) return "无参数";
+        try {
+            JSONObject schema = JSON.parseObject(schemaText);
+            JSONObject properties = schema == null ? null : schema.getJSONObject("properties");
+            if (properties == null || properties.isEmpty()) return "结构化参数";
+            StringBuilder names = new StringBuilder();
+            for (String name : properties.keySet()) {
+                if (names.length() > 0) names.append(", ");
+                names.append(name);
+                if (names.length() >= 80) {
+                    names.append("…");
+                    break;
+                }
+            }
+            return names.toString();
+        } catch (Exception ignored) {
+            return "结构化参数";
+        }
     }
 
     /**
