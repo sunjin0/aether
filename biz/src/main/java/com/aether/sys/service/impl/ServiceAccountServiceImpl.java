@@ -87,6 +87,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         account.setTokenVersion(1);
         account.setEnabled(true);
         List<String> allowed = dto.getAllowedWorkflowIds() == null ? Collections.<String>emptyList() : dto.getAllowedWorkflowIds();
+        validateWorkflows(allowed, applicationId);
         account.setAllowedWorkflowIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowed))));
         List<String> allowedAgents = dto.getAllowedAgentIds() == null ? Collections.<String>emptyList() : dto.getAllowedAgentIds();
         validateAgents(allowedAgents, applicationId);
@@ -119,6 +120,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         List<String> allowed = dto.getAllowedWorkflowIds() == null ? Collections.<String>emptyList() : dto.getAllowedWorkflowIds();
         List<String> allowedAgents = dto.getAllowedAgentIds() == null ? Collections.<String>emptyList() : dto.getAllowedAgentIds();
         String applicationId = normalizeApplicationId(StringUtils.defaultIfBlank(dto.getApplicationId(), account.getApplicationId()));
+        validateWorkflows(allowed, applicationId);
         validateAgents(allowedAgents, applicationId);
         account.setApplicationId(applicationId);
         int maxAgentCalls = dto.getMaxAgentCallsPerHour() == null ? 0 : dto.getMaxAgentCallsPerHour();
@@ -304,6 +306,14 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
                 .eq(AgentDefinition::getDeleted, false));
         if (found != unique.size())
             throw new ServerException(422, I18nUtils.getMessage("service-account.agents.invalid"));
+    }
+
+    private void validateWorkflows(List<String> workflowIds, String applicationId) {
+        if (workflowIds == null || workflowIds.isEmpty() || workflowService == null) return;
+        Set<String> unique = new LinkedHashSet<String>(workflowIds);
+        long found = workflowService.count(Wrappers.lambdaQuery(AgentWorkflow.class).in(AgentWorkflow::getId, unique)
+                .eq(AgentWorkflow::getApplicationId, applicationId).eq(AgentWorkflow::getDeleted, false));
+        if (found != unique.size()) throw new ServerException(422, "服务账号工作流不属于指定业务应用空间");
     }
 
     private void validateAgentCallLimit(int value) {
