@@ -1,19 +1,27 @@
 package com.aether.openapi.controller;
 
 import com.aether.agent.dto.AgentChatDto;
+import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.product.entity.AgentProductProfile;
 import com.aether.agent.product.service.AgentProductProfileService;
 import com.aether.agent.entity.AgentDefinition;
+import com.aether.agent.entity.AgentRun;
 import com.aether.agent.service.AgentChatService;
+import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.service.AgentRunService;
+import com.aether.agent.service.DeepAgentRunService;
 import com.aether.agent.vo.AgentMessageVo;
+import com.alibaba.fastjson2.JSON;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
 import com.aether.openapi.dto.OpenApiAgentChatDto;
+import com.aether.openapi.dto.OpenApiAgentRunStartDto;
 import com.aether.openapi.dto.OpenApiWorkflowStartDto;
 import com.aether.openapi.vo.OpenApiRunVo;
 import com.aether.openapi.vo.OpenApiAgentChatVo;
+import com.aether.openapi.vo.OpenApiAgentRunVo;
 import com.aether.openapi.service.OpenApiIdempotencyService;
 import com.aether.sys.service.ServiceAccountService;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
@@ -25,6 +33,8 @@ import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -42,17 +52,28 @@ public class OpenApiController {
     private final AgentWorkflowExecutionService executionService;
     private final AgentDefinitionService agentService;
     private final AgentChatService chatService;
+    private final AgentRunService agentRunService;
+    private final AgentConversationService conversationService;
+    private final DeepAgentRunService deepAgentRunService;
+    private final ThreadPoolTaskExecutor executor;
     private final AgentProductProfileService profileService;
     private final OpenApiIdempotencyService idempotencyService;
 
     public OpenApiController(ServiceAccountService accountService, AgentWorkflowService workflowService,
-                             AgentWorkflowExecutionService executionService, AgentDefinitionService agentService,
-                             AgentChatService chatService, AgentProductProfileService profileService, OpenApiIdempotencyService idempotencyService) {
+                              AgentWorkflowExecutionService executionService, AgentDefinitionService agentService,
+                              AgentChatService chatService, AgentRunService agentRunService,
+                              AgentConversationService conversationService, DeepAgentRunService deepAgentRunService,
+                              @Qualifier("asyncPoolTaskExecutor") ThreadPoolTaskExecutor executor,
+                              AgentProductProfileService profileService, OpenApiIdempotencyService idempotencyService) {
         this.accountService = accountService;
         this.workflowService = workflowService;
         this.executionService = executionService;
         this.agentService = agentService;
         this.chatService = chatService;
+        this.agentRunService = agentRunService;
+        this.conversationService = conversationService;
+        this.deepAgentRunService = deepAgentRunService;
+        this.executor = executor;
         this.profileService = profileService;
         this.idempotencyService = idempotencyService;
     }
@@ -124,6 +145,110 @@ public class OpenApiController {
             return safeChat(chatService.chat(dto));
         });
         return WebResponse.OK(response);
+    }
+
+    @PostMapping("/agents/runs")
+    public WebResponse<OpenApiAgentRunVo> startAgentRun(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyHeader,
+                                                         @RequestBody OpenApiAgentRunStartDto request) {
+        if (request == null || StringUtils.isBlank(request.getAgentCode()) || StringUtils.isBlank(request.getInput()))
+            throw new ServerException(422, "agentCode 和 input 不能为空");
+        request.setIdempotencyKey(StringUtils.defaultIfBlank(idempotencyHeader, request.getIdempotencyKey()));
+        if (StringUtils.isBlank(request.getIdempotencyKey())) throw new ServerException(422, "Idempotency-Key 不能为空");
+        String applicationId = applicationId();
+        AgentDefinition agent = agentService.getOne(Wrappers.lambdaQuery(AgentDefinition.class)
+                .eq(AgentDefinition::getApplicationId, applicationId).eq(AgentDefinition::getCode, request.getAgentCode())
+                .eq(AgentDefinition::getDeleted, false));
+        if (agent == null) throw new ServerException(404, "未找到 Agent");
+        accountService.assertAgentCallAllowed(serviceAccountId(), agent.getId());
+        String userId = CurrentUser.getUser().get("userId");
+        String marker = "openapi:" + request.getIdempotencyKey();
+        AgentRun existing = agentRunService.getOne(Wrappers.lambdaQuery(AgentRun.class)
+                .eq(AgentRun::getApplicationId, applicationId).eq(AgentRun::getAgentDefinitionId, agent.getId())
+                .eq(AgentRun::getExternalRunId, marker).eq(AgentRun::getDeleted, false).last("LIMIT 1"));
+        if (existing != null) return WebResponse.OK(agentRun(existing, request.getBusinessId()));
+        AgentConversation conversation = resolveConversation(agent, request.getConversationId());
+        if ("DEEP".equalsIgnoreCase(agent.getExecutionMode())) {
+            String runId = deepAgentRunService.startBusinessRun(agent, userId, conversation.getId(),
+                    request.getInput(), marker, null);
+            AgentRun run = new AgentRun(); run.setId(runId); run.setBusinessId(request.getBusinessId()); agentRunService.updateById(run);
+            return WebResponse.OK(agentRun(agentRunService.getById(runId), request.getBusinessId()));
+        }
+        AgentRun run = new AgentRun();
+        run.setApplicationId(applicationId); run.setAgentDefinitionId(agent.getId()); run.setUserId(userId);
+        run.setBusinessId(request.getBusinessId()); run.setConversationId(conversation.getId()); run.setInputContent(JSON.toJSONString(request)); run.setStatus(3);
+        run.setExecutionMode(StringUtils.defaultIfBlank(agent.getExecutionMode(), "STANDARD")); run.setModel(agent.getModel()); run.setExternalRunId(marker);
+        agentRunService.save(run);
+        executor.execute(() -> executeStandardAgentRun(run.getId(), agent.getId(), conversation.getId(), userId, request.getInput()));
+        return WebResponse.OK(agentRun(run, request.getBusinessId()));
+    }
+
+    @GetMapping("/agents/runs/{runId}")
+    public WebResponse<OpenApiAgentRunVo> agentRun(@PathVariable String runId) {
+        return WebResponse.OK(agentRun(requiredAgentRun(runId), null));
+    }
+
+    @PostMapping("/agents/runs/{runId}/cancel")
+    public WebResponse<OpenApiAgentRunVo> cancelAgentRun(@PathVariable String runId) {
+        AgentRun run = requiredAgentRun(runId);
+        if ("DEEP".equalsIgnoreCase(run.getExecutionMode())) deepAgentRunService.markCancelled(runId);
+        else agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class).set(AgentRun::getStatus, 5)
+                .eq(AgentRun::getId, runId).in(AgentRun::getStatus, 3, 4));
+        return WebResponse.OK(agentRun(requiredAgentRun(runId), null));
+    }
+
+    private void executeStandardAgentRun(String runId, String agentId, String conversationId, String userId, String input) {
+        if (!agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class).set(AgentRun::getStatus, 4)
+                .eq(AgentRun::getId, runId).eq(AgentRun::getStatus, 3))) return;
+        try {
+            AgentChatDto dto = new AgentChatDto(); dto.setAgentId(agentId); dto.setConversationId(conversationId); dto.setUserId(userId); dto.setMessage(input);
+            AgentMessageVo message = chatService.chat(dto);
+            agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class).set(AgentRun::getConversationId, message.getConversationId())
+                    .set(AgentRun::getMessageId, message.getId()).set(AgentRun::getOutputContent, message.getContent()).set(AgentRun::getStatus, 0)
+                    .eq(AgentRun::getId, runId).eq(AgentRun::getStatus, 4));
+        } catch (RuntimeException ex) {
+            agentRunService.update(null, Wrappers.lambdaUpdate(AgentRun.class).set(AgentRun::getStatus, 1)
+                    .set(AgentRun::getErrorMsg, "OpenAPI agent run failed").eq(AgentRun::getId, runId).eq(AgentRun::getStatus, 4));
+        }
+    }
+
+    private AgentConversation resolveConversation(AgentDefinition agent, String conversationId) {
+        if (StringUtils.isNotBlank(conversationId)) {
+            AgentConversation conversation = conversationService.getById(conversationId);
+            if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())
+                    || !StringUtils.equals(conversation.getApplicationId(), applicationId())
+                    || !StringUtils.equals(conversation.getAgentDefinitionId(), agent.getId())) throw new ServerException(403, "无权访问会话");
+            return conversation;
+        }
+        AgentConversation conversation = new AgentConversation();
+        conversation.setApplicationId(applicationId()); conversation.setAgentDefinitionId(agent.getId());
+        conversation.setUserId(CurrentUser.getUser().get("userId")); conversation.setTitle("开放 API 调用");
+        conversation.setMessageCount(0); conversation.setStatus(0); conversation.setToolApprovalPolicy("never");
+        conversationService.save(conversation);
+        return conversation;
+    }
+
+    private AgentRun requiredAgentRun(String runId) {
+        AgentRun run = agentRunService.getById(runId);
+        if (run == null || Boolean.TRUE.equals(run.getDeleted())) throw new ServerException(404, "未找到运行记录");
+        if (!StringUtils.equals(run.getApplicationId(), applicationId())) throw new ServerException(403, "无权访问运行记录");
+        return run;
+    }
+
+    private OpenApiAgentRunVo agentRun(AgentRun run, String businessId) {
+        OpenApiAgentRunVo value = new OpenApiAgentRunVo(); value.setRunId(run.getId()); value.setConversationId(run.getConversationId());
+        value.setBusinessId(StringUtils.defaultIfBlank(businessId, run.getBusinessId())); value.setStatus(agentRunStatus(run.getStatus())); value.setTraceId(MDC.get("traceId"));
+        if (Integer.valueOf(0).equals(run.getStatus())) value.setAnswer(run.getOutputContent());
+        if (Integer.valueOf(1).equals(run.getStatus())) value.setErrorCode("AGENT_RUN_FAILED");
+        return value;
+    }
+
+    private String agentRunStatus(Integer status) {
+        if (Integer.valueOf(0).equals(status)) return "SUCCEEDED";
+        if (Integer.valueOf(1).equals(status) || Integer.valueOf(2).equals(status)) return "FAILED";
+        if (Integer.valueOf(3).equals(status)) return "QUEUED";
+        if (Integer.valueOf(4).equals(status)) return "RUNNING";
+        if (Integer.valueOf(5).equals(status)) return "CANCELLED";
+        return "UNKNOWN";
     }
 
     private OpenApiRunVo run(String runId, String businessId, String status) {

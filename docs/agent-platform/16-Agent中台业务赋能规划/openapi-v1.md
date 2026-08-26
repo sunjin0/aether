@@ -60,6 +60,16 @@
 
 响应仅包含 `conversationId`、`answer`、`citations`、`runId`、标准交互状态和 `traceId`；不会返回推理过程、工具调用参数、内部请求头、模型原始响应或凭据。
 
+## 异步 Agent 任务
+
+- `POST /openapi/v1/agents/runs`
+- `GET /openapi/v1/agents/runs/{runId}`
+- `POST /openapi/v1/agents/runs/{runId}/cancel`
+
+提交请求与同步问答使用相同的 `agentCode`、`conversationId`、`businessId`、`input` 和可选 `context` 字段。`Idempotency-Key` 请求头必填；相同应用空间、Agent 和幂等键只会创建一个运行。接口同时支持标准 Agent 与 Deep Agent，响应返回 `runId`、`conversationId`、`businessId`、`status` 和 `traceId`。
+
+查询仅允许当前应用空间访问。终态成功时才返回安全的 `answer`，失败时仅返回稳定的 `errorCode`，不会暴露内部异常、工具参数、模型原始响应或凭据。可取消的排队或运行中任务会转换为 `CANCELLED`。
+
 ## 回调验签与补偿
 
 工作流终态会以 `run.succeeded`、`run.failed` 或 `run.cancelled` 投递。请求头包含：

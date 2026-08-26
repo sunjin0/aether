@@ -23,7 +23,7 @@ import java.util.List;
 /** 智能客服、智能问答与业务助手的可发布产品配置。 */
 @RestController
 @RequestMapping("/api/agent/product-profile")
-@Permission(path = "/agent/definition")
+@Permission(path = "/agent/product-profile")
 public class AgentProductProfileController {
     private final AgentProductProfileService profileService;
     private final AgentDefinitionService agentService;
@@ -39,20 +39,20 @@ public class AgentProductProfileController {
                 .eq(AgentProductProfile::getDeleted, false).orderByDesc(AgentProductProfile::getUpdatedAt)));
     }
     @PostMapping
-    @Permission(path = "/agent/definition", type = Permission.Type.Write)
+    @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<String> create(@RequestBody AgentProductProfileDto dto) {
         AgentProductProfile value = new AgentProductProfile(); BeanUtils.copyProperties(dto, value); validate(value);
         value.setStatus(0); value.setVersionNo(0); profileService.save(value); return WebResponse.OK("创建成功", value.getId());
     }
     @PutMapping("/{id}")
-    @Permission(path = "/agent/definition", type = Permission.Type.Write)
+    @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentProductProfileDto dto) {
         AgentProductProfile value = required(id);
         if (Integer.valueOf(1).equals(value.getStatus())) throw new ServerException(409, "已发布产品不可直接编辑，请复制后创建新草稿");
         BeanUtils.copyProperties(dto, value); validate(value); profileService.updateById(value); return WebResponse.OK("更新成功");
     }
     @PostMapping("/{id}/publish")
-    @Permission(path = "/agent/definition", type = Permission.Type.Write)
+    @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<AgentProductProfile> publish(@PathVariable String id) {
         AgentProductProfile value = required(id); validate(value);
         int nextVersion = value.getVersionNo() == null ? 1 : value.getVersionNo() + 1;
@@ -64,7 +64,7 @@ public class AgentProductProfileController {
         value.setStatus(1); value.setVersionNo(nextVersion); value.setPublishedAt(now); profileService.updateById(value); return WebResponse.OK(value);
     }
     @PostMapping("/{id}/copy")
-    @Permission(path = "/agent/definition", type = Permission.Type.Write)
+    @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<String> copy(@PathVariable String id) {
         AgentProductProfile source = required(id);
         AgentProductProfile draft = new AgentProductProfile(); BeanUtils.copyProperties(source, draft);

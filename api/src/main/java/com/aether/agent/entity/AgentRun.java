@@ -21,6 +21,9 @@ public class AgentRun extends BaseEntity {
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
 
+    @ApiModelProperty(value = "业务系统标识")
+    private String businessId;
+
     @ApiModelProperty(value = "关联Agent定义ID")
     private String agentDefinitionId;
 

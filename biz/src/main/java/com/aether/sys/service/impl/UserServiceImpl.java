@@ -355,19 +355,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     public HashMap<String, Object> getPermissionMapByUserId(String userId, String token) {
         List<ResourceVo> routers = getRoutersByUserId(userId);
         HashMap<String, Object> map = new HashMap<>();
-        if (!routers.isEmpty()) {
-            for (ResourceVo router : routers) {
-                if (router.getChildren() != null) {
-                    router.getChildren().forEach(child -> {
-                        if (child.getPath() != null) {
-                            // 路由资源本身已由角色资源关系过滤；没有读写叶子的页面默认可读，
-                            // 否则这类页面会出现在菜单中，却被前端权限守卫错误拦截。
-                            map.put(child.getPath(), child.getAccess() != null && child.getAccess().contains("Write"));
-                        }
-                    });
-                } else if (router.getAccess() != null) {
-                    map.put(router.getPath(), router.getAccess().contains("Write"));
-                }
+        Stack<ResourceVo> stack = new Stack<>();
+        stack.addAll(routers);
+        while (!stack.empty()) {
+            ResourceVo resource = stack.pop();
+            if (resource.getChildren() != null && !resource.getChildren().isEmpty()) {
+                stack.addAll(resource.getChildren());
+            }
+            if (resource.getPath() != null && Boolean.TRUE.equals(resource.getLeaf())) {
+                // Route resources are role-filtered; pages without write leaves remain readable.
+                map.put(resource.getPath(), resource.getAccess() != null && resource.getAccess().contains("Write"));
             }
         }
         try {
