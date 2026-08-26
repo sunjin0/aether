@@ -1,6 +1,8 @@
 package com.aether.openapi.controller;
 
 import com.aether.agent.dto.AgentChatDto;
+import com.aether.agent.product.entity.AgentProductProfile;
+import com.aether.agent.product.service.AgentProductProfileService;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentDefinitionService;
@@ -38,15 +40,30 @@ public class OpenApiController {
     private final AgentWorkflowExecutionService executionService;
     private final AgentDefinitionService agentService;
     private final AgentChatService chatService;
+    private final AgentProductProfileService profileService;
 
     public OpenApiController(ServiceAccountService accountService, AgentWorkflowService workflowService,
                              AgentWorkflowExecutionService executionService, AgentDefinitionService agentService,
-                             AgentChatService chatService) {
+                             AgentChatService chatService, AgentProductProfileService profileService) {
         this.accountService = accountService;
         this.workflowService = workflowService;
         this.executionService = executionService;
         this.agentService = agentService;
         this.chatService = chatService;
+        this.profileService = profileService;
+    }
+
+    @GetMapping("/capabilities")
+    public WebResponse<java.util.List<java.util.Map<String, Object>>> capabilities() {
+        java.util.List<java.util.Map<String, Object>> result = new java.util.ArrayList<java.util.Map<String, Object>>();
+        for (AgentProductProfile item : profileService.list(Wrappers.lambdaQuery(AgentProductProfile.class)
+                .eq(AgentProductProfile::getApplicationId, applicationId()).eq(AgentProductProfile::getStatus, 1)
+                .eq(AgentProductProfile::getDeleted, false))) {
+            java.util.Map<String, Object> value = new java.util.LinkedHashMap<String, Object>();
+            value.put("name", item.getName()); value.put("productType", item.getProductType()); value.put("version", item.getVersionNo());
+            value.put("inputSchema", item.getInputSchema()); value.put("outputSchema", item.getOutputSchema()); result.add(value);
+        }
+        return WebResponse.OK(result);
     }
 
     @PostMapping("/workflows/runs")
