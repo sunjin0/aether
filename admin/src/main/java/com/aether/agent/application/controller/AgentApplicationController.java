@@ -68,6 +68,9 @@ public class AgentApplicationController {
         if (dto == null || !StringUtils.hasText(dto.getCode()) || !StringUtils.hasText(dto.getName()))
             throw new ServerException(422, "应用编码和名称不能为空");
         if (!dto.getCode().matches("[A-Za-z0-9_-]{2,64}")) throw new ServerException(422, "应用编码仅支持字母、数字、下划线和短横线");
+        if ((dto.getMaxAgentCallsPerHour() != null && (dto.getMaxAgentCallsPerHour() < 0 || dto.getMaxAgentCallsPerHour() > 100000))
+                || (dto.getMaxWorkflowStartsPerHour() != null && (dto.getMaxWorkflowStartsPerHour() < 0 || dto.getMaxWorkflowStartsPerHour() > 100000)))
+            throw new ServerException(422, "应用配额必须在 0 到 100000 之间");
     }
 
     private AgentApplicationVo vo(AgentApplication source) {

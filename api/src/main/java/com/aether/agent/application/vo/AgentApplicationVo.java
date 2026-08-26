@@ -12,6 +12,8 @@ public class AgentApplicationVo extends BaseEntity {
     private String name;
     private String description;
     private Integer status;
+    private Integer maxAgentCallsPerHour;
+    private Integer maxWorkflowStartsPerHour;
     private Long current;
     private Long pageSize;
 }

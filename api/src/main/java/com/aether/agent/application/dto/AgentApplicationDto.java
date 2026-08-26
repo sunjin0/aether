@@ -9,4 +9,6 @@ public class AgentApplicationDto {
     private String name;
     private String description;
     private Integer status;
+    private Integer maxAgentCallsPerHour;
+    private Integer maxWorkflowStartsPerHour;
 }

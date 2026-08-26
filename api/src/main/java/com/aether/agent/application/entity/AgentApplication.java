@@ -18,4 +18,8 @@ public class AgentApplication extends BaseEntity {
     private String description;
     /** 0-停用，1-启用。 */
     private Integer status;
+    /** 每小时应用级 Agent 调用上限；0 表示不限制。 */
+    private Integer maxAgentCallsPerHour;
+    /** 每小时应用级工作流启动上限；0 表示不限制。 */
+    private Integer maxWorkflowStartsPerHour;
 }

@@ -2,6 +2,7 @@ package com.aether.sys.service.impl;
 
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.application.service.AgentApplicationService;
+import com.aether.agent.application.service.ApplicationQuotaService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.sys.dto.ServiceAccountCreateDto;
 import com.aether.sys.dto.ServiceAccountTokenDto;
@@ -45,6 +46,8 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     private AgentApplicationService applicationService;
     @Autowired(required = false)
     private AgentWorkflowService workflowService;
+    @Autowired(required = false)
+    private ApplicationQuotaService applicationQuotaService;
 
     /**
      * 创建 {@code ServiceAccountServiceImpl} 实例。
@@ -228,6 +231,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
             if (!StringUtils.equals(normalizeApplicationId(account.getApplicationId()), normalizeApplicationId(workflow.getApplicationId())))
                 throw new ServerException(403, I18nUtils.getMessage("service-account.workflow-start.denied"));
         }
+        if (applicationQuotaService != null) applicationQuotaService.consumeWorkflowStart(normalizeApplicationId(account.getApplicationId()));
         int limit = account.getMaxStartsPerHour() == null ? 0 : account.getMaxStartsPerHour();
         if (limit <= 0) return;
         Calendar calendar = Calendar.getInstance();
@@ -258,6 +262,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
             throw new ServerException(422, I18nUtils.getMessage("agent.definition.disabled"));
         if (!StringUtils.equals(normalizeApplicationId(account.getApplicationId()), normalizeApplicationId(agent.getApplicationId())))
             throw new ServerException(403, I18nUtils.getMessage("service-account.agent-call.denied"));
+        if (applicationQuotaService != null) applicationQuotaService.consumeAgentCall(normalizeApplicationId(account.getApplicationId()));
         int limit = account.getMaxAgentCallsPerHour() == null ? 0 : account.getMaxAgentCallsPerHour();
         if (limit <= 0) return;
         Calendar calendar = Calendar.getInstance();
