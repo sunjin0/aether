@@ -4,6 +4,8 @@ import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.agent.application.service.ApplicationQuotaService;
 import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.product.entity.AgentProductProfile;
+import com.aether.agent.product.service.AgentProductProfileService;
 import com.aether.sys.dto.ServiceAccountCreateDto;
 import com.aether.sys.dto.ServiceAccountTokenDto;
 import com.aether.sys.dto.ServiceAccountUpdateDto;
@@ -48,6 +50,8 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     private AgentWorkflowService workflowService;
     @Autowired(required = false)
     private ApplicationQuotaService applicationQuotaService;
+    @Autowired(required = false)
+    private AgentProductProfileService productProfileService;
 
     /**
      * 创建 {@code ServiceAccountServiceImpl} 实例。
@@ -86,12 +90,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         account.setSecretHash(passwordEncoder.encode(secret));
         account.setTokenVersion(1);
         account.setEnabled(true);
-        List<String> allowed = dto.getAllowedWorkflowIds() == null ? Collections.<String>emptyList() : dto.getAllowedWorkflowIds();
-        validateWorkflows(allowed, applicationId);
-        account.setAllowedWorkflowIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowed))));
-        List<String> allowedAgents = dto.getAllowedAgentIds() == null ? Collections.<String>emptyList() : dto.getAllowedAgentIds();
-        validateAgents(allowedAgents, applicationId);
-        account.setAllowedAgentIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowedAgents))));
+        List<String> allowedProducts = dto.getAllowedProductIds() == null ? Collections.<String>emptyList() : dto.getAllowedProductIds();
+        validateProducts(allowedProducts, applicationId);
+        account.setAllowedProductIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowedProducts))));
         int maxStarts = dto.getMaxStartsPerHour() == null ? 0 : dto.getMaxStartsPerHour();
         if (maxStarts < 0 || maxStarts > 100000)
             throw new ServerException(422, I18nUtils.getMessage("service-account.hourly-start-limit.invalid"));
@@ -117,18 +118,15 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         int maxStarts = dto.getMaxStartsPerHour() == null ? 0 : dto.getMaxStartsPerHour();
         if (maxStarts < 0 || maxStarts > 100000)
             throw new ServerException(422, I18nUtils.getMessage("service-account.hourly-start-limit.invalid"));
-        List<String> allowed = dto.getAllowedWorkflowIds() == null ? Collections.<String>emptyList() : dto.getAllowedWorkflowIds();
-        List<String> allowedAgents = dto.getAllowedAgentIds() == null ? Collections.<String>emptyList() : dto.getAllowedAgentIds();
+        List<String> allowedProducts = dto.getAllowedProductIds() == null ? Collections.<String>emptyList() : dto.getAllowedProductIds();
         String applicationId = normalizeApplicationId(StringUtils.defaultIfBlank(dto.getApplicationId(), account.getApplicationId()));
-        validateWorkflows(allowed, applicationId);
-        validateAgents(allowedAgents, applicationId);
+        validateProducts(allowedProducts, applicationId);
         account.setApplicationId(applicationId);
         int maxAgentCalls = dto.getMaxAgentCallsPerHour() == null ? 0 : dto.getMaxAgentCallsPerHour();
         validateAgentCallLimit(maxAgentCalls);
         account.setName(dto.getName());
         account.setDescription(StringUtils.abbreviate(dto.getDescription(), 1024));
-        account.setAllowedWorkflowIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowed))));
-        account.setAllowedAgentIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowedAgents))));
+        account.setAllowedProductIds(JSON.toJSONString(new ArrayList<String>(new LinkedHashSet<String>(allowedProducts))));
         account.setMaxStartsPerHour(maxStarts);
         account.setMaxAgentCallsPerHour(maxAgentCalls);
         boolean updated = updateById(account);
@@ -222,9 +220,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         ServiceAccount account = required(id);
         if (!Boolean.TRUE.equals(account.getEnabled()))
             throw new ServerException(403, I18nUtils.getMessage("service-account.disabled"));
-        List<String> allowed = StringUtils.isBlank(account.getAllowedWorkflowIds()) ? Collections.<String>emptyList()
-                : JSON.parseArray(account.getAllowedWorkflowIds(), String.class);
-        if (allowed != null && !allowed.isEmpty() && !allowed.contains(workflowId))
+        if (!allowsProductTarget(account, workflowId, true))
             throw new ServerException(403, I18nUtils.getMessage("service-account.workflow-start.denied"));
         if (workflowService != null) {
             AgentWorkflow workflow = workflowService.getById(workflowId);
@@ -253,9 +249,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         ServiceAccount account = required(id);
         if (!Boolean.TRUE.equals(account.getEnabled()))
             throw new ServerException(403, I18nUtils.getMessage("service-account.disabled"));
-        List<String> allowed = StringUtils.isBlank(account.getAllowedAgentIds()) ? Collections.<String>emptyList()
-                : JSON.parseArray(account.getAllowedAgentIds(), String.class);
-        if (allowed == null || allowed.isEmpty() || !allowed.contains(agentId))
+        if (!allowsProductTarget(account, agentId, false))
             throw new ServerException(403, I18nUtils.getMessage("service-account.agent-call.denied"));
         AgentDefinition agent = agentDefinitionService.getById(agentId);
         if (agent == null || Boolean.TRUE.equals(agent.getDeleted()))
@@ -276,6 +270,15 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
             throw new ServerException(429, I18nUtils.getMessage("service-account.agent-call-quota.exhausted"));
     }
 
+    @Override
+    public boolean isProductAllowed(String id, String productId) {
+        ServiceAccount account = required(id);
+        if (!Boolean.TRUE.equals(account.getEnabled())) return false;
+        List<String> allowed = StringUtils.isBlank(account.getAllowedProductIds()) ? Collections.<String>emptyList()
+                : JSON.parseArray(account.getAllowedProductIds(), String.class);
+        return allowed != null && allowed.contains(productId);
+    }
+
     /**
      * 处理required。
      */
@@ -284,6 +287,26 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         if (account == null || Boolean.TRUE.equals(account.getDeleted()))
             throw new ServerException(404, I18nUtils.getMessage("service-account.not-found"));
         return account;
+    }
+
+    private void validateProducts(List<String> productIds, String applicationId) {
+        if (productIds == null || productIds.isEmpty()) return;
+        if (productProfileService == null) throw new ServerException(422, I18nUtils.getMessage("service-account.product-service.unavailable"));
+        long count = productProfileService.count(Wrappers.lambdaQuery(AgentProductProfile.class).in(AgentProductProfile::getId, productIds)
+                .eq(AgentProductProfile::getApplicationId, applicationId).eq(AgentProductProfile::getStatus, 1)
+                .eq(AgentProductProfile::getDeleted, false));
+        if (count != new LinkedHashSet<String>(productIds).size()) throw new ServerException(422, I18nUtils.getMessage("service-account.products.invalid"));
+    }
+
+    private boolean allowsProductTarget(ServiceAccount account, String targetId, boolean workflow) {
+        if (productProfileService == null || StringUtils.isBlank(account.getAllowedProductIds())) return false;
+        List<String> productIds = JSON.parseArray(account.getAllowedProductIds(), String.class);
+        if (productIds == null || productIds.isEmpty()) return false;
+        return productProfileService.count(Wrappers.lambdaQuery(AgentProductProfile.class).in(AgentProductProfile::getId, productIds)
+                .eq(AgentProductProfile::getApplicationId, normalizeApplicationId(account.getApplicationId()))
+                .eq(workflow, AgentProductProfile::getWorkflowId, targetId)
+                .eq(!workflow, AgentProductProfile::getAgentDefinitionId, targetId)
+                .eq(AgentProductProfile::getStatus, 1).eq(AgentProductProfile::getDeleted, false)) > 0;
     }
 
     /**
@@ -296,24 +319,6 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         result.setClientId(account.getClientId());
         result.setClientSecret(secret);
         return result;
-    }
-
-    private void validateAgents(List<String> agentIds, String applicationId) {
-        if (agentIds == null || agentIds.isEmpty()) return;
-        Set<String> unique = new LinkedHashSet<String>(agentIds);
-        long found = agentDefinitionService.count(Wrappers.lambdaQuery(AgentDefinition.class)
-                .in(AgentDefinition::getId, unique).eq(AgentDefinition::getApplicationId, applicationId)
-                .eq(AgentDefinition::getDeleted, false));
-        if (found != unique.size())
-            throw new ServerException(422, I18nUtils.getMessage("service-account.agents.invalid"));
-    }
-
-    private void validateWorkflows(List<String> workflowIds, String applicationId) {
-        if (workflowIds == null || workflowIds.isEmpty() || workflowService == null) return;
-        Set<String> unique = new LinkedHashSet<String>(workflowIds);
-        long found = workflowService.count(Wrappers.lambdaQuery(AgentWorkflow.class).in(AgentWorkflow::getId, unique)
-                .eq(AgentWorkflow::getApplicationId, applicationId).eq(AgentWorkflow::getDeleted, false));
-        if (found != unique.size()) throw new ServerException(422, "服务账号工作流不属于指定业务应用空间");
     }
 
     private void validateAgentCallLimit(int value) {

@@ -5,14 +5,18 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-/** 可对外发布的 Agent 产品配置快照。 */
+/** 可对外发布的业务能力。 */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_product_profile")
 public class AgentProductProfile extends BaseEntity {
+    /** Stable logical product identifier shared by all of its versions. */
+    private String productId;
     private String applicationId;
+    private String code;
     private String agentDefinitionId;
-    /** CUSTOMER_SERVICE / KNOWLEDGE_QA / BUSINESS_ASSISTANT */
+    private String workflowId;
+    /** AGENT / WORKFLOW */
     private String productType;
     private String name;
     private String inputSchema;

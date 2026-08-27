@@ -1,6 +1,6 @@
 # Aether Agent 中台开放 API v1
 
-所有接口使用服务账号令牌：`Authorization: Bearer <accessToken>`。服务账号只能访问其所属业务应用空间，且必须已被授权对应的 Agent 或工作流。
+所有接口使用服务账号令牌：`Authorization: Bearer <accessToken>`。服务账号只能访问其所属业务应用空间；推荐将已发布产品授权给服务账号，以产品编码作为稳定的对外能力入口。旧有 Agent/工作流直接授权仍兼容。
 
 ## 获取令牌
 
@@ -16,7 +16,7 @@
 
 `GET /openapi/v1/capabilities`
 
-仅返回当前应用空间已发布的智能客服、智能问答或业务助手产品，以及冻结版本的输入/输出 Schema。业务方应按 Schema 构造请求，不能依赖自然语言中的隐式格式。
+仅返回当前服务账号已授权、且当前应用空间已发布的产品。每项包含稳定 `code`、目标类型、版本及冻结版本的输入/输出 Schema。业务方应按 Schema 构造请求，不能依赖自然语言中的隐式格式。
 
 ## 启动工作流
 
@@ -24,7 +24,7 @@
 
 ```json
 {
-  "workflowCode":"purchase_approval",
+  "productCode":"purchase_approval_product",
   "businessId":"PO-20260826-001",
   "businessType":"purchase_order",
   "idempotencyKey":"erp:PO-20260826-001:create",
@@ -33,7 +33,7 @@
 }
 ```
 
-写请求应通过 `Idempotency-Key` 请求头传递幂等键（旧版请求体 `idempotencyKey` 仍兼容，且请求头优先）。相同工作流和业务幂等键重复提交只创建一个运行。响应中的 `runId` 可用于查询与取消。
+写请求应通过 `Idempotency-Key` 请求头传递幂等键（旧版请求体 `idempotencyKey` 仍兼容，且请求头优先）。使用产品授权时传入 `productCode`；旧版 `workflowCode` 仍兼容。相同工作流和业务幂等键重复提交只创建一个运行。响应中的 `runId` 可用于查询与取消。
 
 ## 查询与取消工作流
 
@@ -48,7 +48,7 @@
 
 ```json
 {
-  "agentCode":"hr_knowledge_qa",
+  "productCode":"hr_knowledge_qa_product",
   "conversationId":"optional-existing-conversation-id",
   "businessId":"EMP-1001",
   "idempotencyKey":"portal:EMP-1001:question:42",
@@ -56,7 +56,7 @@
 }
 ```
 
-`Idempotency-Key` 请求头为必填（旧版 `idempotencyKey` 字段仍兼容）。相同“应用空间 + Agent + 幂等键”在 24 小时内返回首次安全结果；同时执行则返回 `409`，调用方应稍后重试。失败响应不会缓存。
+`Idempotency-Key` 请求头为必填（旧版 `idempotencyKey` 字段仍兼容）。使用产品授权时传入 `productCode`；旧版 `agentCode` 仍兼容。相同“应用空间 + Agent + 幂等键”在 24 小时内返回首次安全结果；同时执行则返回 `409`，调用方应稍后重试。失败响应不会缓存。
 
 响应仅包含 `conversationId`、`answer`、`citations`、`runId`、标准交互状态和 `traceId`；不会返回推理过程、工具调用参数、内部请求头、模型原始响应或凭据。
 
@@ -66,7 +66,7 @@
 - `GET /openapi/v1/agents/runs/{runId}`
 - `POST /openapi/v1/agents/runs/{runId}/cancel`
 
-提交请求与同步问答使用相同的 `agentCode`、`conversationId`、`businessId`、`input` 和可选 `context` 字段。`Idempotency-Key` 请求头必填；相同应用空间、Agent 和幂等键只会创建一个运行。接口同时支持标准 Agent 与 Deep Agent，响应返回 `runId`、`conversationId`、`businessId`、`status` 和 `traceId`。
+提交请求与同步问答使用相同的 `productCode`（或兼容的 `agentCode`）、`conversationId`、`businessId`、`input` 和可选 `context` 字段。`Idempotency-Key` 请求头必填；相同应用空间、Agent 和幂等键只会创建一个运行。接口同时支持标准 Agent 与 Deep Agent，响应返回 `runId`、`conversationId`、`businessId`、`status` 和 `traceId`。
 
 查询仅允许当前应用空间访问。终态成功时才返回安全的 `answer`，失败时仅返回稳定的 `errorCode`，不会暴露内部异常、工具参数、模型原始响应或凭据。可取消的排队或运行中任务会转换为 `CANCELLED`。
 

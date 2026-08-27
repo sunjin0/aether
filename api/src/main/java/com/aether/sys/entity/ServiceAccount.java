@@ -26,14 +26,8 @@ public class ServiceAccount extends BaseEntity {
      */
     private Integer tokenVersion;
     private Boolean enabled;
-    /**
-     * JSON 数组；为空数组表示不限制可启动的工作流。
-     */
-    private String allowedWorkflowIds;
-    /**
-     * JSON 数组；为空数组表示不允许调用任何 Agent。
-     */
-    private String allowedAgentIds;
+    /** JSON 数组；允许调用的已发布产品。 */
+    private String allowedProductIds;
     /**
      * 每小时最大业务启动次数；0 表示不限制。
      */

@@ -88,17 +88,7 @@ public class BusinessAgentController {
     @GetMapping
     public WebResponse<List<BusinessAgentOptionVo>> agents() {
         ServiceAccount account = currentAccount();
-        List<String> ids = parseIds(account.getAllowedAgentIds());
-        if (ids.isEmpty()) return WebResponse.OK(Collections.<BusinessAgentOptionVo>emptyList());
-        List<AgentDefinition> agents = ids.isEmpty() ? Collections.<AgentDefinition>emptyList()
-                : ids.stream().map(id -> {
-                    try {
-                        return agentChatService.getEnabledAgent(id);
-                    } catch (RuntimeException ignored) {
-                        return null;
-                    }
-                }).filter(item -> item != null).collect(Collectors.toList());
-        return WebResponse.OK(agents.stream().map(this::toOption).collect(Collectors.toList()));
+        return WebResponse.OK(Collections.<BusinessAgentOptionVo>emptyList());
     }
 
     /**

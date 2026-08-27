@@ -31,7 +31,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 验证服务账号独立 Agent 接入授权行为。
+ * 验证服务账号产品授权的调用行为。
  */
 @ExtendWith(MockitoExtension.class)
 class ServiceAccountServiceImplTest {
@@ -64,44 +64,20 @@ class ServiceAccountServiceImplTest {
     }
 
     @Test
-    void assertAgentCallAllowedRejectsEmptyAgentScope() {
-        ServiceAccount account = account("sa-1", Collections.<String>emptyList(), 0);
+    void assertAgentCallAllowedRejectsEmptyProductScope() {
+        ServiceAccount account = account("sa-1", 0);
         when(serviceAccountMapper.selectById("sa-1")).thenReturn(account);
 
         assertThrows(ServerException.class, () -> service.assertAgentCallAllowed("sa-1", "agent-1"));
     }
 
     @Test
-    void assertAgentCallAllowedAcceptsBoundEnabledAgentWithinQuota() {
-        ServiceAccount account = account("sa-1", Collections.singletonList("agent-1"), 10);
-        AgentDefinition agent = new AgentDefinition();
-        agent.setId("agent-1");
-        agent.setStatus(1);
-        when(serviceAccountMapper.selectById("sa-1")).thenReturn(account);
-        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.increment(anyString())).thenReturn(1L);
-
-        assertDoesNotThrow(() -> service.assertAgentCallAllowed("sa-1", "agent-1"));
-    }
-
-    @Test
-    void assertAgentCallAllowedRejectsAgentFromAnotherApplication() {
-        ServiceAccount account = account("sa-1", Collections.singletonList("agent-1"), 0);
-        account.setApplicationId("application-a");
-        AgentDefinition agent = new AgentDefinition();
-        agent.setId("agent-1"); agent.setStatus(1); agent.setApplicationId("application-b");
-        when(serviceAccountMapper.selectById("sa-1")).thenReturn(account);
-        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
-        assertThrows(ServerException.class, () -> service.assertAgentCallAllowed("sa-1", "agent-1"));
-    }
-
-    private ServiceAccount account(String id, java.util.List<String> allowedAgentIds, int hourlyLimit) {
+    private ServiceAccount account(String id, int hourlyLimit) {
         ServiceAccount account = new ServiceAccount();
         account.setId(id);
         account.setEnabled(true);
         account.setDeleted(false);
-        account.setAllowedAgentIds(JSON.toJSONString(allowedAgentIds));
+        account.setAllowedProductIds("[]");
         account.setMaxAgentCallsPerHour(hourlyLimit);
         return account;
     }

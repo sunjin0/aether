@@ -40,6 +40,7 @@
 | [模型目录与供应商管理](agent-platform/13-模型目录与供应商管理/README.md)         | 供应商连接、模型目录、能力约束、运行配置、批量导入、诊断和排障说明。        |
 | [统一会话记忆与上下文压缩](agent-platform/15-统一会话记忆与上下文压缩/README.md) | 标准与 Deep Agent 统一记忆、结构化压缩、上下文预算、容量可视化和分期实施方案。 |
 | [Agent 中台业务赋能规划](agent-platform/16-Agent中台业务赋能规划/README.md) | 面向内部业务系统的应用空间、开放 API、治理与分期建设规划。 |
+| [对话 Agent 产品化方案](agent-platform/17-对话Agent产品化方案/README.md) | 对话型 Agent 产品、统一协议、客服接入、版本冻结与可信上下文设计。 |
 
 ## 运维与版本记录
 

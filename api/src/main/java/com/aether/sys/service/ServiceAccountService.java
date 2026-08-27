@@ -44,12 +44,15 @@ public interface ServiceAccountService extends IService<ServiceAccount>, Service
     boolean setEnabled(String id, boolean enabled);
 
     /**
-     * 校验调用账号对工作流的范围和额度，并记录一次业务启动额度。
+     * 校验调用账号是否通过已授权产品访问工作流，并记录一次业务启动额度。
      */
     void assertWorkflowStartAllowed(String id, String workflowId);
 
     /**
-     * 校验调用账号对 Agent 的范围和额度，并记录一次业务调用额度。
+     * 校验调用账号是否通过已授权产品访问 Agent，并记录一次业务调用额度。
      */
     void assertAgentCallAllowed(String id, String agentId);
+
+    /** 判断服务账号是否可发现并调用指定的已发布产品。 */
+    boolean isProductAllowed(String id, String productId);
 }

@@ -12,8 +12,7 @@ public class ServiceAccountUpdateDto {
     private String applicationId;
     private String name;
     private String description;
-    private List<String> allowedWorkflowIds;
-    private List<String> allowedAgentIds;
+    private List<String> allowedProductIds;
     private Integer maxStartsPerHour;
     private Integer maxAgentCallsPerHour;
 }

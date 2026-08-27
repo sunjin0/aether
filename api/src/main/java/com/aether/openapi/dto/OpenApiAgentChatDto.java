@@ -7,6 +7,7 @@ import java.util.Map;
 @Data
 public class OpenApiAgentChatDto {
     private String agentCode;
+    private String productCode;
     private String conversationId;
     private String businessId;
     private String idempotencyKey;

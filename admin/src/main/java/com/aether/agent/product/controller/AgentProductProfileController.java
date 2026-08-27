@@ -3,63 +3,80 @@ package com.aether.agent.product.controller;
 import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.product.dto.AgentProductProfileDto;
+import com.aether.agent.product.dto.AgentProductProfileQueryDto;
 import com.aether.agent.product.entity.AgentProductProfile;
 import com.aether.agent.product.entity.AgentProductProfileVersion;
 import com.aether.agent.product.service.AgentProductProfileService;
 import com.aether.agent.product.service.AgentProductProfileVersionService;
 import com.aether.agent.service.AgentDefinitionService;
+import com.aether.sys.entity.User;
+import com.aether.sys.service.UserService;
+import com.aether.workflow.entity.AgentWorkflow;
+import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.permission.Permission;
 import com.aether.local.CurrentUser;
+import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
-import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
-/** 智能客服、智能问答与业务助手的可发布产品配置。 */
+/** 将 Agent 或工作流包装为可对外交付的产品。 */
 @RestController
 @RequestMapping("/api/agent/product-profile")
 @Permission(path = "/agent/product-profile")
 public class AgentProductProfileController {
     private final AgentProductProfileService profileService;
     private final AgentDefinitionService agentService;
+    private final AgentWorkflowService workflowService;
     private final AgentApplicationService applicationService;
     private final AgentProductProfileVersionService versionService;
-    public AgentProductProfileController(AgentProductProfileService profileService, AgentDefinitionService agentService, AgentApplicationService applicationService, AgentProductProfileVersionService versionService) {
-        this.profileService = profileService; this.agentService = agentService; this.applicationService = applicationService; this.versionService = versionService;
+    private final UserService userService;
+    public AgentProductProfileController(AgentProductProfileService profileService, AgentDefinitionService agentService, AgentWorkflowService workflowService, AgentApplicationService applicationService, AgentProductProfileVersionService versionService, UserService userService) {
+        this.profileService = profileService; this.agentService = agentService; this.workflowService = workflowService; this.applicationService = applicationService; this.versionService = versionService; this.userService = userService;
     }
-    @GetMapping
-    public WebResponse<List<AgentProductProfile>> list(@RequestParam(required = false) String applicationId) {
-        return WebResponse.OK(profileService.list(Wrappers.lambdaQuery(AgentProductProfile.class)
-                .eq(StringUtils.isNotBlank(applicationId), AgentProductProfile::getApplicationId, applicationId)
-                .eq(AgentProductProfile::getDeleted, false).orderByDesc(AgentProductProfile::getUpdatedAt)));
+    @PostMapping("/list")
+    public WebResponse<List<AgentProductProfile>> list(@RequestBody(required = false) AgentProductProfileQueryDto query) {
+        long current = query == null || query.getCurrent() == null ? 1L : query.getCurrent();
+        long pageSize = query == null || query.getPageSize() == null ? 20L : query.getPageSize();
+        Page<AgentProductProfile> page = profileService.page(new Page<AgentProductProfile>(Math.max(1L, current), Math.min(Math.max(1L, pageSize), 100L)), Wrappers.lambdaQuery(AgentProductProfile.class)
+                .eq(query != null && StringUtils.isNotBlank(query.getApplicationId()), AgentProductProfile::getApplicationId, query == null ? null : query.getApplicationId())
+                .like(query != null && StringUtils.isNotBlank(query.getName()), AgentProductProfile::getName, query == null ? null : query.getName())
+                .eq(query != null && StringUtils.isNotBlank(query.getProductType()), AgentProductProfile::getProductType, query == null ? null : query.getProductType())
+                .eq(query != null && query.getStatus() != null, AgentProductProfile::getStatus, query == null ? null : query.getStatus())
+                .eq(AgentProductProfile::getDeleted, false).orderByDesc(AgentProductProfile::getUpdatedAt));
+        return WebResponse.Page(page.getRecords(), page.getTotal());
     }
     @PostMapping
     @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<String> create(@RequestBody AgentProductProfileDto dto) {
         AgentProductProfile value = new AgentProductProfile(); BeanUtils.copyProperties(dto, value); validate(value);
-        value.setStatus(0); value.setVersionNo(0); profileService.save(value); return WebResponse.OK("创建成功", value.getId());
+        value.setProductId(UUID.randomUUID().toString().replace("-", ""));
+        value.setStatus(0); value.setVersionNo(1); profileService.save(value); return WebResponse.OK("创建成功", value.getId());
     }
     @PutMapping("/{id}")
     @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentProductProfileDto dto) {
         AgentProductProfile value = required(id);
-        if (Integer.valueOf(1).equals(value.getStatus())) throw new ServerException(409, "已发布产品不可直接编辑，请复制后创建新草稿");
+        if (Integer.valueOf(1).equals(value.getStatus()) || Integer.valueOf(2).equals(value.getStatus())) throw new ServerException(409, I18nUtils.getMessage("agent.product.published.edit.forbidden"));
         BeanUtils.copyProperties(dto, value); validate(value); profileService.updateById(value); return WebResponse.OK("更新成功");
     }
     @PostMapping("/{id}/publish")
     @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<AgentProductProfile> publish(@PathVariable String id) {
         AgentProductProfile value = required(id); validate(value);
-        int nextVersion = value.getVersionNo() == null ? 1 : value.getVersionNo() + 1;
+        if (Integer.valueOf(1).equals(value.getStatus())) throw new ServerException(409, I18nUtils.getMessage("agent.product.published.edit.forbidden"));
+        int nextVersion = nextVersion(value.getProductId());
         long now = System.currentTimeMillis();
         AgentProductProfileVersion snapshot = new AgentProductProfileVersion();
         snapshot.setProfileId(value.getId()); snapshot.setVersionNo(nextVersion); snapshot.setSnapshot(JSON.toJSONString(value));
-        snapshot.setPublishedBy(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId")); snapshot.setPublishedAt(now);
+        snapshot.setPublishedBy(publisherName()); snapshot.setPublishedAt(now);
         versionService.save(snapshot);
         value.setStatus(1); value.setVersionNo(nextVersion); value.setPublishedAt(now); profileService.updateById(value); return WebResponse.OK(value);
     }
@@ -68,24 +85,78 @@ public class AgentProductProfileController {
     public WebResponse<String> copy(@PathVariable String id) {
         AgentProductProfile source = required(id);
         AgentProductProfile draft = new AgentProductProfile(); BeanUtils.copyProperties(source, draft);
-        draft.setId(null); draft.setName(source.getName() + "（新草稿）"); draft.setStatus(0); draft.setVersionNo(0); draft.setPublishedAt(null);
+        draft.setId(null); draft.setCode(null); draft.setProductId(StringUtils.defaultIfBlank(source.getProductId(), source.getId()));
+        draft.setStatus(0); draft.setVersionNo(nextVersion(draft.getProductId())); draft.setPublishedAt(null);
+        validate(draft);
         profileService.save(draft); return WebResponse.OK("已创建新草稿", draft.getId());
+    }
+    @PostMapping("/{id}/enabled")
+    @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
+    public WebResponse<Void> setEnabled(@PathVariable String id, @RequestParam boolean enabled) {
+        AgentProductProfile value = required(id);
+        if (!Integer.valueOf(1).equals(value.getStatus()) && !Integer.valueOf(2).equals(value.getStatus()))
+            throw new ServerException(409, I18nUtils.getMessage("agent.product.lifecycle.invalid"));
+        value.setStatus(enabled ? 1 : 2);
+        profileService.updateById(value);
+        return WebResponse.OK((Void) null);
+    }
+    @DeleteMapping("/{id}")
+    @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
+    public WebResponse<Void> delete(@PathVariable String id) {
+        AgentProductProfile value = required(id);
+        if (Integer.valueOf(1).equals(value.getStatus())) throw new ServerException(409, I18nUtils.getMessage("agent.product.delete.published.forbidden"));
+        profileService.removeById(value.getId());
+        return WebResponse.OK((Void) null);
     }
     @GetMapping("/{id}/versions")
     public WebResponse<List<AgentProductProfileVersion>> versions(@PathVariable String id) {
         required(id);
-        return WebResponse.OK(versionService.list(Wrappers.lambdaQuery(AgentProductProfileVersion.class)
-                .eq(AgentProductProfileVersion::getProfileId, id).eq(AgentProductProfileVersion::getDeleted, false)
-                .orderByDesc(AgentProductProfileVersion::getVersionNo)));
+        List<String> profileIds = profileService.list(Wrappers.lambdaQuery(AgentProductProfile.class)
+                .eq(AgentProductProfile::getProductId, StringUtils.defaultIfBlank(required(id).getProductId(), id))
+                .eq(AgentProductProfile::getDeleted, false)).stream().map(AgentProductProfile::getId).collect(java.util.stream.Collectors.toList());
+        List<AgentProductProfileVersion> versions = versionService.list(Wrappers.lambdaQuery(AgentProductProfileVersion.class)
+                .in(AgentProductProfileVersion::getProfileId, profileIds).eq(AgentProductProfileVersion::getDeleted, false)
+                .orderByDesc(AgentProductProfileVersion::getVersionNo));
+        for (AgentProductProfileVersion version : versions) version.setPublishedBy(publisherName(version.getPublishedBy()));
+        return WebResponse.OK(versions);
     }
-    private AgentProductProfile required(String id) { AgentProductProfile value = profileService.getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, "Agent 产品配置不存在"); return value; }
+    private AgentProductProfile required(String id) { AgentProductProfile value = profileService.getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.product.not-found")); return value; }
+    private String publisherName() { return publisherName(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId")); }
+    private String publisherName(String userId) {
+        if (StringUtils.isBlank(userId)) return "-";
+        User user = userService.getById(userId);
+        return user == null || StringUtils.isBlank(user.getUsername()) ? userId : user.getUsername();
+    }
+    private int nextVersion(String productId) {
+        List<AgentProductProfile> versions = profileService.list(Wrappers.lambdaQuery(AgentProductProfile.class)
+                .eq(AgentProductProfile::getProductId, productId).eq(AgentProductProfile::getStatus, 1)
+                .eq(AgentProductProfile::getDeleted, false));
+        int max = 0;
+        for (AgentProductProfile version : versions) max = Math.max(max, version.getVersionNo() == null ? 0 : version.getVersionNo());
+        return max + 1;
+    }
     private void validate(AgentProductProfile value) {
         if (StringUtils.isBlank(value.getApplicationId())) value.setApplicationId(AgentApplicationService.PLATFORM_APPLICATION_ID);
         applicationService.requireActive(value.getApplicationId());
-        if (!Arrays.asList("CUSTOMER_SERVICE", "KNOWLEDGE_QA", "BUSINESS_ASSISTANT").contains(value.getProductType())) throw new ServerException(422, "不支持的 Agent 产品类型");
-        if (StringUtils.isBlank(value.getAgentDefinitionId()) || StringUtils.isBlank(value.getName())) throw new ServerException(422, "Agent 和名称不能为空");
-        AgentDefinition agent = agentService.getById(value.getAgentDefinitionId());
-        if (agent == null || Boolean.TRUE.equals(agent.getDeleted()) || !value.getApplicationId().equals(agent.getApplicationId())) throw new ServerException(422, "Agent 不属于指定业务应用空间");
-        if (StringUtils.isBlank(value.getInputSchema()) || StringUtils.isBlank(value.getOutputSchema())) throw new ServerException(422, "输入和输出 Schema 不能为空");
+        if (!"AGENT".equals(value.getProductType()) && !"WORKFLOW".equals(value.getProductType())) throw new ServerException(422, I18nUtils.getMessage("agent.product.type.unsupported"));
+        if (StringUtils.isBlank(value.getName())) throw new ServerException(422, I18nUtils.getMessage("agent.product.name.required"));
+        if (StringUtils.isBlank(value.getCode())) value.setCode("product_" + java.util.UUID.randomUUID().toString().replace("-", ""));
+        if (!value.getCode().matches("[A-Za-z][A-Za-z0-9_-]{2,63}")) throw new ServerException(422, I18nUtils.getMessage("agent.product.code.invalid"));
+        boolean agentProduct = "AGENT".equals(value.getProductType());
+        if (agentProduct && StringUtils.isBlank(value.getAgentDefinitionId()) || !agentProduct && StringUtils.isBlank(value.getWorkflowId()))
+            throw new ServerException(422, I18nUtils.getMessage("agent.product.target.required"));
+        if (agentProduct) {
+            value.setWorkflowId(null);
+            AgentDefinition agent = agentService.getById(value.getAgentDefinitionId());
+            if (agent == null || Boolean.TRUE.equals(agent.getDeleted()) || !value.getApplicationId().equals(agent.getApplicationId())) throw new ServerException(422, I18nUtils.getMessage("agent.product.agent.application.mismatch"));
+        } else {
+            value.setAgentDefinitionId(null);
+            AgentWorkflow workflow = workflowService.getById(value.getWorkflowId());
+            if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted()) || !value.getApplicationId().equals(workflow.getApplicationId())) throw new ServerException(422, I18nUtils.getMessage("agent.product.workflow.application.mismatch"));
+        }
+        if (StringUtils.isBlank(value.getInputSchema())) value.setInputSchema(agentProduct
+                ? "{\"type\":\"object\",\"required\":[\"input\"],\"properties\":{\"input\":{\"type\":\"string\"}}}"
+                : "{\"type\":\"object\",\"required\":[\"businessId\",\"input\"],\"properties\":{\"businessId\":{\"type\":\"string\"},\"businessType\":{\"type\":\"string\"},\"input\":{\"type\":\"object\"}}}");
+        if (StringUtils.isBlank(value.getOutputSchema())) value.setOutputSchema("{\"type\":\"object\"}");
     }
 }

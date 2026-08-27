@@ -7,6 +7,7 @@ import java.util.Map;
 @Data
 public class OpenApiWorkflowStartDto {
     private String workflowCode;
+    private String productCode;
     private String businessId;
     private String businessType;
     private String idempotencyKey;

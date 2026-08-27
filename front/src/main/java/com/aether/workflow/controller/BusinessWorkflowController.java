@@ -52,14 +52,7 @@ public class BusinessWorkflowController {
     @ApiOperation("查询当前服务账号可启动工作流")
     @GetMapping
     public WebResponse<List<BusinessWorkflowOptionVo>> workflows() {
-        ServiceAccount account = currentAccount();
-        List<String> allowed = parseIds(account.getAllowedWorkflowIds());
-        List<AgentWorkflow> workflows = workflowService.list(Wrappers.lambdaQuery(AgentWorkflow.class)
-                .eq(AgentWorkflow::getDeleted, false)
-                .eq(AgentWorkflow::getStatus, 1)
-                .in(!allowed.isEmpty(), AgentWorkflow::getId, allowed)
-                .orderByDesc(AgentWorkflow::getUpdatedAt));
-        return WebResponse.OK(workflows.stream().map(this::toOption).collect(Collectors.toList()));
+        return WebResponse.OK(Collections.<BusinessWorkflowOptionVo>emptyList());
     }
 
     @ApiOperation("外部系统启动工作流")

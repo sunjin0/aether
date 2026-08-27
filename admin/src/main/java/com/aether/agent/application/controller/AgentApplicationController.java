@@ -66,6 +66,9 @@ public class AgentApplicationController {
         long pageSize = query == null || query.getPageSize() == null ? 20L : Math.min(100L, query.getPageSize());
         Page<AgentApplication> page = applicationService.page(new Page<AgentApplication>(current, pageSize),
                 Wrappers.lambdaQuery(AgentApplication.class).eq(AgentApplication::getDeleted, false)
+                        .like(query != null && StringUtils.hasText(query.getName()), AgentApplication::getName, query == null ? null : query.getName())
+                        .like(query != null && StringUtils.hasText(query.getCode()), AgentApplication::getCode, query == null ? null : query.getCode())
+                        .eq(query != null && query.getStatus() != null, AgentApplication::getStatus, query == null ? null : query.getStatus())
                         .orderByDesc(AgentApplication::getCreatedAt));
         return WebResponse.Page(page.getRecords().stream().map(this::vo).collect(Collectors.toList()), page.getTotal());
     }

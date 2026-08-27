@@ -7,7 +7,6 @@ import com.aether.knowledge.service.KnowledgeReviewTaskQueryService;
 import com.aether.knowledge.vo.KnowledgeReviewTaskQueryVo;
 import com.aether.knowledge.vo.KnowledgeReviewTaskVo;
 import com.aether.local.CurrentUser;
-import com.aether.permission.Permission;
 import com.aether.workflow.entity.AgentWorkflow;
 import com.aether.workflow.entity.AgentWorkflowInstance;
 import com.aether.workflow.entity.AgentWorkflowNodeInstance;
@@ -43,7 +42,6 @@ import java.util.stream.Collectors;
 @Api(tags = "工作台 API")
 @RestController
 @RequestMapping("/api/workbench")
-@Permission(path = "/dashboard")
 public class WorkbenchController {
     private static final int ITEM_LIMIT = 5;
 

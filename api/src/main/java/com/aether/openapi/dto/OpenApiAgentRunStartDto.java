@@ -8,6 +8,7 @@ import java.util.Map;
 @Data
 public class OpenApiAgentRunStartDto {
     private String agentCode;
+    private String productCode;
     private String conversationId;
     private String businessId;
     private String idempotencyKey;

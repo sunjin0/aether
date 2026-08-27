@@ -15,8 +15,7 @@ public class ServiceAccountVo {
     private String description;
     private String clientId;
     private Boolean enabled;
-    private List<String> allowedWorkflowIds;
-    private List<String> allowedAgentIds;
+    private List<String> allowedProductIds;
     private Integer maxStartsPerHour;
     private Integer maxAgentCallsPerHour;
     private Long lastUsedAt;

@@ -232,10 +232,8 @@ public class ServiceAccountController {
     private ServiceAccountVo vo(ServiceAccount account) {
         ServiceAccountVo result = new ServiceAccountVo();
         BeanUtils.copyProperties(account, result);
-        result.setAllowedWorkflowIds(account.getAllowedWorkflowIds() == null ? java.util.Collections.<String>emptyList()
-                : JSON.parseArray(account.getAllowedWorkflowIds(), String.class));
-        result.setAllowedAgentIds(account.getAllowedAgentIds() == null ? java.util.Collections.<String>emptyList()
-                : JSON.parseArray(account.getAllowedAgentIds(), String.class));
+        result.setAllowedProductIds(account.getAllowedProductIds() == null ? java.util.Collections.<String>emptyList()
+                : JSON.parseArray(account.getAllowedProductIds(), String.class));
         return result;
     }
 

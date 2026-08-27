@@ -84,8 +84,10 @@ public class OpenApiController {
         for (AgentProductProfile item : profileService.list(Wrappers.lambdaQuery(AgentProductProfile.class)
                 .eq(AgentProductProfile::getApplicationId, applicationId()).eq(AgentProductProfile::getStatus, 1)
                 .eq(AgentProductProfile::getDeleted, false))) {
+            if (!accountService.isProductAllowed(serviceAccountId(), item.getId())) continue;
             java.util.Map<String, Object> value = new java.util.LinkedHashMap<String, Object>();
-            value.put("name", item.getName()); value.put("productType", item.getProductType()); value.put("version", item.getVersionNo());
+            value.put("code", item.getCode()); value.put("name", item.getName()); value.put("productType", item.getProductType()); value.put("version", item.getVersionNo());
+            value.put("targetType", StringUtils.isNotBlank(item.getWorkflowId()) ? "WORKFLOW" : "AGENT");
             value.put("inputSchema", item.getInputSchema()); value.put("outputSchema", item.getOutputSchema()); result.add(value);
         }
         return WebResponse.OK(result);
@@ -93,15 +95,15 @@ public class OpenApiController {
 
     @PostMapping("/workflows/runs")
     public WebResponse<OpenApiRunVo> startWorkflow(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyHeader,
-                                                    @RequestBody OpenApiWorkflowStartDto request) {
+                                                     @RequestBody OpenApiWorkflowStartDto request) {
+        if (request == null) throw new ServerException(422, "请求不能为空");
         String applicationId = applicationId();
-        if (request == null || StringUtils.isBlank(request.getWorkflowCode()) || StringUtils.isBlank(request.getBusinessId()))
-            throw new ServerException(422, "workflowCode 和 businessId 不能为空");
+        AgentProductProfile product = requiredProduct(request.getProductCode(), "WORKFLOW");
+        if (request == null || product == null || StringUtils.isBlank(request.getBusinessId()))
+            throw new ServerException(422, "productCode 和 businessId 不能为空");
         request.setIdempotencyKey(StringUtils.defaultIfBlank(idempotencyHeader, request.getIdempotencyKey()));
         if (StringUtils.isBlank(request.getIdempotencyKey())) throw new ServerException(422, "Idempotency-Key 不能为空");
-        AgentWorkflow workflow = workflowService.getOne(Wrappers.lambdaQuery(AgentWorkflow.class)
-                .eq(AgentWorkflow::getApplicationId, applicationId).eq(AgentWorkflow::getCode, request.getWorkflowCode())
-                .eq(AgentWorkflow::getDeleted, false));
+        AgentWorkflow workflow = workflowService.getById(product.getWorkflowId());
         if (workflow == null || !Integer.valueOf(1).equals(workflow.getStatus())) throw new ServerException(404, "未找到已发布工作流");
         accountService.assertWorkflowStartAllowed(serviceAccountId(), workflow.getId());
         AgentWorkflowBusinessStartDto dto = new AgentWorkflowBusinessStartDto();
@@ -128,11 +130,10 @@ public class OpenApiController {
     @PostMapping("/agents/chat")
     public WebResponse<OpenApiAgentChatVo> chat(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyHeader,
                                                  @RequestBody OpenApiAgentChatDto request) {
-        if (request == null || StringUtils.isBlank(request.getAgentCode()) || StringUtils.isBlank(request.getInput()))
-            throw new ServerException(422, "agentCode 和 input 不能为空");
-        AgentDefinition agent = agentService.getOne(Wrappers.lambdaQuery(AgentDefinition.class)
-                .eq(AgentDefinition::getApplicationId, applicationId()).eq(AgentDefinition::getCode, request.getAgentCode())
-                .eq(AgentDefinition::getDeleted, false));
+        if (request == null || StringUtils.isBlank(request.getProductCode()) || StringUtils.isBlank(request.getInput()))
+            throw new ServerException(422, "productCode 和 input 不能为空");
+        AgentProductProfile product = requiredProduct(request.getProductCode(), "AGENT");
+        AgentDefinition agent = agentService.getById(product.getAgentDefinitionId());
         if (agent == null) throw new ServerException(404, "未找到 Agent");
         accountService.assertAgentCallAllowed(serviceAccountId(), agent.getId());
         if ("DEEP".equalsIgnoreCase(agent.getExecutionMode())) throw new ServerException(422, "Deep Agent 请使用异步任务接口");
@@ -150,14 +151,13 @@ public class OpenApiController {
     @PostMapping("/agents/runs")
     public WebResponse<OpenApiAgentRunVo> startAgentRun(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyHeader,
                                                          @RequestBody OpenApiAgentRunStartDto request) {
-        if (request == null || StringUtils.isBlank(request.getAgentCode()) || StringUtils.isBlank(request.getInput()))
-            throw new ServerException(422, "agentCode 和 input 不能为空");
+        if (request == null || StringUtils.isBlank(request.getProductCode()) || StringUtils.isBlank(request.getInput()))
+            throw new ServerException(422, "productCode 和 input 不能为空");
         request.setIdempotencyKey(StringUtils.defaultIfBlank(idempotencyHeader, request.getIdempotencyKey()));
         if (StringUtils.isBlank(request.getIdempotencyKey())) throw new ServerException(422, "Idempotency-Key 不能为空");
         String applicationId = applicationId();
-        AgentDefinition agent = agentService.getOne(Wrappers.lambdaQuery(AgentDefinition.class)
-                .eq(AgentDefinition::getApplicationId, applicationId).eq(AgentDefinition::getCode, request.getAgentCode())
-                .eq(AgentDefinition::getDeleted, false));
+        AgentProductProfile product = requiredProduct(request.getProductCode(), "AGENT");
+        AgentDefinition agent = agentService.getById(product.getAgentDefinitionId());
         if (agent == null) throw new ServerException(404, "未找到 Agent");
         accountService.assertAgentCallAllowed(serviceAccountId(), agent.getId());
         String userId = CurrentUser.getUser().get("userId");
@@ -254,6 +254,19 @@ public class OpenApiController {
     private OpenApiRunVo run(String runId, String businessId, String status) {
         OpenApiRunVo value = new OpenApiRunVo(); value.setRunId(runId); value.setBusinessId(businessId); value.setStatus(status);
         value.setTraceId(MDC.get("traceId")); return value;
+    }
+
+    private AgentProductProfile requiredProduct(String productCode, String targetType) {
+        if (StringUtils.isBlank(productCode)) return null;
+        AgentProductProfile product = profileService.getOne(Wrappers.lambdaQuery(AgentProductProfile.class)
+                .eq(AgentProductProfile::getApplicationId, applicationId()).eq(AgentProductProfile::getCode, productCode)
+                .eq(AgentProductProfile::getStatus, 1).eq(AgentProductProfile::getDeleted, false));
+        if (product == null || !accountService.isProductAllowed(serviceAccountId(), product.getId()))
+            throw new ServerException(403, "无权调用产品");
+        boolean workflow = StringUtils.isNotBlank(product.getWorkflowId());
+        if (("WORKFLOW".equals(targetType) && !workflow) || ("AGENT".equals(targetType) && workflow))
+            throw new ServerException(422, "产品目标类型不匹配");
+        return product;
     }
     private OpenApiAgentChatVo safeChat(AgentMessageVo message) {
         OpenApiAgentChatVo value = new OpenApiAgentChatVo();
