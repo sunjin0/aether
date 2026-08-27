@@ -11,6 +11,7 @@ import com.aether.knowledge.vo.KnowledgeReviewTaskQueryVo;
 import com.aether.knowledge.vo.KnowledgeReviewTaskVo;
 import com.aether.knowledge.vo.KnowledgeReviewTaskDetailVo;
 import com.aether.permission.Permission;
+import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +23,7 @@ import java.util.List;
  * 提供知识库审核任务相关的 REST 接口。
  */
 @RestController
+@Api(tags = "知识库人工审核任务 API")
 @RequestMapping("/api/knowledge/review-task")
 @Permission(path = "/knowledge/document")
 public class KnowledgeReviewTaskController {
@@ -40,6 +42,7 @@ public class KnowledgeReviewTaskController {
     /**
      * 查询当前请求。
      */
+    @ApiOperation("查询审核任务列表")
     @PostMapping("/list")
     public WebResponse<List<KnowledgeReviewTaskVo>> list(@RequestBody(required = false) KnowledgeReviewTaskQueryVo query) {
         com.baomidou.mybatisplus.core.metadata.IPage<KnowledgeReviewTaskVo> page = queryService.list(query);
@@ -49,6 +52,7 @@ public class KnowledgeReviewTaskController {
     /**
      * 详情当前请求。
      */
+    @ApiOperation("查询审核任务详情")
     @GetMapping("/{id}")
     public WebResponse<KnowledgeReviewTaskDetailVo> detail(@PathVariable String id) {
         return WebResponse.OK(queryService.detail(id));
@@ -57,6 +61,7 @@ public class KnowledgeReviewTaskController {
     /**
      * 处理claim。
      */
+    @ApiOperation("认领审核任务")
     @PostMapping("/{id}/claim")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> claim(@PathVariable String id) {

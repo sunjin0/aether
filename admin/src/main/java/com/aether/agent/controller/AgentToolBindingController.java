@@ -118,6 +118,7 @@ public class AgentToolBindingController {
         return WebResponse.Page(vos, page.getTotal());
     }
 
+    @ApiOperation("查询 Agent 可绑定工具")
     @PostMapping("/{agentId}/tools/available")
     public WebResponse<List<AgentToolVo>> available(@PathVariable @NotBlank String agentId, @RequestBody AgentToolVo query) {
         long current = query.getCurrent() == null ? 1L : query.getCurrent();

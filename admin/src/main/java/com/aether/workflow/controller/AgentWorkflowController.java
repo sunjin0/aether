@@ -104,6 +104,7 @@ public class AgentWorkflowController {
      * @param query 查询参数
      * @return 工作流列表
      */
+    @ApiOperation("查询工作流列表")
     @PostMapping("/list")
     public WebResponse<List<AgentWorkflowVo>> list(@RequestBody AgentWorkflowVo query) {
         Page<AgentWorkflow> page = workflowService.page(new Page<AgentWorkflow>(query.getCurrent(), query.getPageSize()), Wrappers.lambdaQuery(AgentWorkflow.class)

@@ -5,6 +5,8 @@ import com.aether.agent.skill.service.SkillArtifactExecutionService;
 import com.aether.agent.skill.vo.ArtifactGenerationVo;
 import com.aether.agent.skill.vo.SandboxExecutionTaskVo;
 import com.aether.entity.WebResponse;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,6 +20,7 @@ import java.io.IOException;
  */
 @Validated
 @RestController
+@Api(tags = "沙箱执行内部 API")
 @RequestMapping("/api/internal/sandbox")
 public class SandboxExecutionController {
     private final SkillArtifactExecutionService executionService;
@@ -32,6 +35,7 @@ public class SandboxExecutionController {
     /**
      * 处理request。
      */
+    @ApiOperation("提交受委托的制品生成请求")
     @PostMapping("/requests")
     public WebResponse<ArtifactGenerationVo> request(@RequestHeader("X-Aether-Delegation") String token,
                                                      @RequestBody ArtifactGenerationRequestDto request) {
@@ -41,6 +45,7 @@ public class SandboxExecutionController {
     /**
      * 处理claim。
      */
+    @ApiOperation("领取待执行的沙箱任务")
     @PostMapping("/runner/claim")
     public WebResponse<SandboxExecutionTaskVo> claim(@RequestHeader("X-Aether-Runner-Token") String token) {
         return WebResponse.OK(executionService.claimNext(token));
@@ -49,6 +54,7 @@ public class SandboxExecutionController {
     /**
      * 处理complete。
      */
+    @ApiOperation("提交沙箱执行生成的制品")
     @PostMapping("/runner/executions/{executionId}/complete")
     public WebResponse<Void> complete(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId,
                                       @RequestParam("file") MultipartFile file, @RequestParam("sha256") String sha256,
@@ -61,6 +67,7 @@ public class SandboxExecutionController {
     /**
      * 处理fail。
      */
+    @ApiOperation("上报沙箱执行失败")
     @PostMapping("/runner/executions/{executionId}/fail")
     public WebResponse<Void> fail(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId,
                                   @RequestParam("reason") String reason, @RequestParam(value = "logSummary", required = false) String logSummary) {
@@ -71,6 +78,7 @@ public class SandboxExecutionController {
     /**
      * 处理heartbeat。
      */
+    @ApiOperation("上报沙箱执行心跳")
     @PostMapping("/runner/executions/{executionId}/heartbeat")
     public WebResponse<Boolean> heartbeat(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId,
                                           @RequestParam(value = "logSummary", required = false) String logSummary) {
@@ -80,6 +88,7 @@ public class SandboxExecutionController {
     /**
      * 取消Requested。
      */
+    @ApiOperation("查询沙箱执行是否被取消")
     @GetMapping("/runner/executions/{executionId}/cancel")
     public WebResponse<Boolean> cancelRequested(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Execution-Token") String executionToken, @PathVariable String executionId) {
         return WebResponse.OK(executionService.cancelRequested(token, executionToken, executionId));

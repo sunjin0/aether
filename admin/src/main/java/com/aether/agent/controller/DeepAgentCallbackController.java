@@ -16,6 +16,8 @@ import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.runtime.DeepAgentCallbackRegistry;
 import com.aether.agent.runtime.DeepRunEventHub;
 import com.aether.utils.AesUtil;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
@@ -41,6 +43,7 @@ import java.util.Map;
  * 提供Deep智能体回调相关的 REST 接口。
  */
 @RestController
+@Api(tags = "Deep Agent 内部回调 API")
 @RequestMapping("/api/agent/deep-runs")
 public class DeepAgentCallbackController {
     private static final Logger log = LoggerFactory.getLogger(DeepAgentCallbackController.class);
@@ -99,6 +102,7 @@ public class DeepAgentCallbackController {
     /**
      * 回调当前请求。
      */
+    @ApiOperation("接收 Deep Agent 运行回调")
     @PostMapping("/callback/{runId}")
     public ResponseEntity<Void> callback(@PathVariable String runId, HttpServletRequest request) {
         try {
@@ -284,6 +288,7 @@ public class DeepAgentCallbackController {
      * 供 Deep Agent 按 agentId 实时拉取模型配置（model/baseUrl/apiKey）。
      * 接口受签名保护；apiKey 由 Deep Agent 仅在内存中使用，不写入其运行快照。
      */
+    @ApiOperation("获取 Deep Agent 模型配置")
     @GetMapping("/model-config/{agentId}")
     public ResponseEntity<Map<String, Object>> modelConfig(@PathVariable String agentId, HttpServletRequest request) {
         try {

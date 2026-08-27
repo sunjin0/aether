@@ -133,6 +133,7 @@ public class ModelProviderController {
     /**
      * 处理models。
      */
+    @ApiOperation("查询模型目录")
     @GetMapping("/models")
     public WebResponse<List<ModelCatalog>> models(@RequestParam(required = false) String providerId) {
         return WebResponse.OK(modelCatalogService.list(Wrappers.lambdaQuery(ModelCatalog.class)
@@ -190,6 +191,7 @@ public class ModelProviderController {
      * 保存模型。
      */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @ApiOperation("新增模型目录项")
     @PostMapping("/models")
     public WebResponse<String> saveModel(@RequestBody ModelCatalog model) {
         if (StringUtils.isBlank(model.getProviderId()) || StringUtils.isBlank(model.getName()) || StringUtils.isBlank(model.getCapabilities()))
@@ -203,6 +205,7 @@ public class ModelProviderController {
      * 更新模型。
      */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @ApiOperation("更新模型目录项")
     @PutMapping("/models/{id}")
     public WebResponse<Void> updateModel(@PathVariable String id, @RequestBody ModelCatalog model) {
         model.setId(id);
@@ -215,6 +218,7 @@ public class ModelProviderController {
      * 保存Models。
      */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @ApiOperation("批量保存模型目录项")
     @PostMapping("/models/batch")
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<Integer> saveModels(@RequestBody List<ModelCatalog> models) {
@@ -229,6 +233,7 @@ public class ModelProviderController {
      * 删除模型。
      */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @ApiOperation("删除模型目录项")
     @DeleteMapping("/models/{id}")
     public WebResponse<Void> deleteModel(@PathVariable String id) {
         return WebResponse.OK(modelCatalogService.removeById(id) ? I18nUtils.getMessage("agent.model.catalog.delete.success") : I18nUtils.getMessage("agent.model.catalog.delete.fail"));
@@ -238,6 +243,7 @@ public class ModelProviderController {
      * 更新模型状态。
      */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
+    @ApiOperation("更新模型目录项状态")
     @PutMapping("/models/{id}/status")
     public WebResponse<Void> updateModelStatus(@PathVariable String id, @RequestBody ModelCatalog model) {
         ModelCatalog update = new ModelCatalog();

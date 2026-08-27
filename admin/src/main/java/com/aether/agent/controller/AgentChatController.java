@@ -106,11 +106,18 @@ public class AgentChatController {
     @Autowired(required = false)
     private RuntimeEmailCredentialStore runtimeEmailCredentialStore;
     /**
-     * Bounded SSE worker pool: a cached pool can otherwise exhaust native memory under slow clients.
+     * Bounded SSE worker pool. Core threads match the intended concurrent-stream capacity:
+     * {@link ThreadPoolExecutor} fills a queue before expanding beyond its core size.
      */
-    private final ThreadPoolExecutor streamExecutor = new ThreadPoolExecutor(4, 32, 60L, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<Runnable>(200), new ThreadPoolExecutor.AbortPolicy());
+    private final ThreadPoolExecutor streamExecutor = createStreamExecutor();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1);
+
+    private static ThreadPoolExecutor createStreamExecutor() {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(32, 32, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<Runnable>(200), new ThreadPoolExecutor.AbortPolicy());
+        executor.allowCoreThreadTimeOut(true);
+        return executor;
+    }
 
     /**
      * 创建 {@code AgentChatController} 实例。

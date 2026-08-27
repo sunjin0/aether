@@ -8,6 +8,7 @@ import com.aether.i18n.I18nUtils;
 import com.aether.validator.ValidEntity;
 import com.aether.sys.vo.ResourceVo;
 import com.aether.sys.vo.UserVo;
+import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
@@ -20,6 +21,7 @@ import java.util.List;
  * 提供Login相关的 REST 接口。
  */
 @RestController
+@Api(tags = "认证与会话 API")
 @Permission(path = "/sys/admin")
 @RequestMapping("/api/sys")
 public class LoginController {

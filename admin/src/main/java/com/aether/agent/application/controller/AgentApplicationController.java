@@ -22,6 +22,8 @@ import com.aether.workflow.service.AgentWorkflowInstanceService;
 import com.aether.workflow.service.AgentWorkflowCallbackDeliveryService;
 import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.entity.WebResponse;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
@@ -36,6 +38,7 @@ import java.util.stream.Collectors;
 
 /** 面向外部业务系统的 Agent 应用空间管理。 */
 @RestController
+@Api(tags = "Agent 应用管理 API")
 @RequestMapping("/api/agent/application")
 public class AgentApplicationController {
     private final AgentApplicationService applicationService;
@@ -59,6 +62,7 @@ public class AgentApplicationController {
         this.workflowService = workflowService; this.knowledgeBaseService = knowledgeBaseService; this.profileService = profileService;
     }
 
+    @ApiOperation("查询 Agent 应用列表")
     @PostMapping("/list")
     @Permission(path = "/agent/application")
     public WebResponse<List<AgentApplicationVo>> list(@RequestBody(required = false) AgentApplicationVo query) {
@@ -73,6 +77,7 @@ public class AgentApplicationController {
         return WebResponse.Page(page.getRecords().stream().map(this::vo).collect(Collectors.toList()), page.getTotal());
     }
 
+    @ApiOperation("创建 Agent 应用")
     @PostMapping
     @Permission(path = "/agent/application", type = Permission.Type.Write)
     public WebResponse<Void> create(@RequestBody AgentApplicationDto dto) {
@@ -86,6 +91,7 @@ public class AgentApplicationController {
         return WebResponse.OK(I18nUtils.getMessage("agent.application.create.success"));
     }
 
+    @ApiOperation("更新 Agent 应用")
     @PutMapping("/{id}")
     @Permission(path = "/agent/application", type = Permission.Type.Write)
     public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentApplicationDto dto) {
@@ -100,6 +106,7 @@ public class AgentApplicationController {
         return WebResponse.OK(I18nUtils.getMessage("agent.application.update.success"));
     }
 
+    @ApiOperation("删除 Agent 应用")
     @DeleteMapping("/{id}")
     @Permission(path = "/agent/application", type = Permission.Type.Write)
     public WebResponse<Void> delete(@PathVariable String id) {
@@ -111,6 +118,7 @@ public class AgentApplicationController {
         return WebResponse.OK(I18nUtils.getMessage("agent.application.delete.success"));
     }
 
+    @ApiOperation("查询 Agent 应用使用情况")
     @GetMapping("/{id}/usage")
     @Permission(path = "/agent/application")
     public WebResponse<AgentApplicationUsageVo> usage(@PathVariable String id) {

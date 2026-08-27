@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 /**
  * 提供智能体知识库BaseBinding相关的 REST 接口。
  */
-@Api(tags = "Agent Knowledge Base Binding API")
+@Api(tags = "Agent 知识库绑定 API")
 @Validated
 @RestController
 @Permission(path = "/agent/definition")
@@ -49,7 +49,7 @@ public class AgentKnowledgeBaseBindingController {
     /**
      * Agent knowledge base binding list。
      */
-    @ApiOperation("Agent knowledge base binding list")
+    @ApiOperation("查询 Agent 知识库绑定列表")
     @PostMapping("/list")
     public WebResponse<List<AgentKnowledgeBaseBindingVo>> list(@RequestBody AgentKnowledgeBaseBindingVo vo) {
         Long current = vo.getCurrent();
@@ -91,7 +91,7 @@ public class AgentKnowledgeBaseBindingController {
     /**
      * 保存当前请求。
      */
-    @ApiOperation("Create Agent knowledge base binding")
+    @ApiOperation("创建 Agent 知识库绑定")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @PostMapping
     public WebResponse<String> save(@RequestBody AgentKnowledgeBaseBindingVo vo) {
@@ -118,7 +118,7 @@ public class AgentKnowledgeBaseBindingController {
     /**
      * 更新状态。
      */
-    @ApiOperation("Update Agent knowledge base binding status")
+    @ApiOperation("更新 Agent 知识库绑定状态")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
     public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody AgentKnowledgeBaseBindingVo vo) {
@@ -132,7 +132,7 @@ public class AgentKnowledgeBaseBindingController {
     /**
      * 删除当前请求。
      */
-    @ApiOperation("Delete Agent knowledge base binding")
+    @ApiOperation("删除 Agent 知识库绑定")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {

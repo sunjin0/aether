@@ -11,6 +11,8 @@ import com.aether.agent.skill.vo.AgentSkillVo;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.beans.BeanUtils;
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
  * Agent 已安装 Skill 的独立管理接口，避免与 Agent 基础配置混用。
  */
 @RestController
+@Api(tags = "Agent Skill 绑定 API")
 @Permission(path = "/agent/definition")
 @RequestMapping("/api/agent/definition")
 public class AgentDefinitionSkillBindingController {
@@ -41,11 +44,13 @@ public class AgentDefinitionSkillBindingController {
     /**
      * 查询当前请求。
      */
+    @ApiOperation("查询 Agent 已安装 Skill")
     @GetMapping("/{agentId}/skills")
     public WebResponse<List<AgentDefinitionSkillBinding>> list(@PathVariable @NotBlank String agentId) {
         return WebResponse.OK(skillService.listBindings(agentId));
     }
 
+    @ApiOperation("分页查询 Agent 已安装 Skill")
     @PostMapping("/{agentId}/skills/list")
     public WebResponse<List<AgentDefinitionSkillBindingVo>> listPage(@PathVariable @NotBlank String agentId,
                                                                        @RequestBody(required = false) AgentDefinitionSkillBindingVo query) {
@@ -83,6 +88,7 @@ public class AgentDefinitionSkillBindingController {
         return WebResponse.Page(records, total);
     }
 
+    @ApiOperation("查询 Agent 可安装 Skill")
     @PostMapping("/{agentId}/skills/available")
     public WebResponse<List<AgentSkillVo>> available(@PathVariable @NotBlank String agentId, @RequestBody AgentSkillVo query) {
         List<String> installedIds = skillService.listBindings(agentId).stream().map(AgentDefinitionSkillBinding::getSkillId).collect(Collectors.toList());
@@ -99,6 +105,7 @@ public class AgentDefinitionSkillBindingController {
     /**
      * 处理install。
      */
+    @ApiOperation("为 Agent 安装 Skill")
     @PostMapping("/{agentId}/skills")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<String> install(@PathVariable @NotBlank String agentId, @RequestBody AgentSkillInstallDto dto) {
@@ -108,6 +115,7 @@ public class AgentDefinitionSkillBindingController {
     /**
      * 更新当前请求。
      */
+    @ApiOperation("更新 Agent Skill 绑定")
     @PutMapping("/{agentId}/skills/{bindingId}")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<Void> update(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String bindingId, @RequestBody AgentSkillBindingUpdateDto dto) {
@@ -118,6 +126,7 @@ public class AgentDefinitionSkillBindingController {
     /**
      * 删除当前请求。
      */
+    @ApiOperation("移除 Agent Skill 绑定")
     @DeleteMapping("/{agentId}/skills/{bindingId}")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<Void> delete(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String bindingId) {

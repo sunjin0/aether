@@ -287,7 +287,7 @@ public class AgentToolController {
     /**
      * Tool statistics。
      */
-    @ApiOperation("Tool statistics")
+    @ApiOperation("查询工具统计信息")
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "璁块棶浠ょ墝", required = true, dataType = "string", paramType = "header")
     })
@@ -583,6 +583,7 @@ public class AgentToolController {
     /**
      * 处理routing配置。
      */
+    @ApiOperation("查询工具路由配置")
     @GetMapping("/routing-config")
     public WebResponse<java.util.Map<String, Object>> routingConfig() {
         return WebResponse.OK(routingConfigService.get());
@@ -591,6 +592,7 @@ public class AgentToolController {
     /**
      * 更新Routing配置。
      */
+    @ApiOperation("更新工具路由配置")
     @PutMapping("/routing-config")
     public WebResponse<Void> updateRoutingConfig(@RequestBody java.util.Map<String, Object> dto) {
         String modelId = dto == null ? null : (String) dto.get("embeddingModelId");

@@ -31,6 +31,8 @@ import com.aether.workflow.service.AgentWorkflowExecutionService;
 import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -45,6 +47,7 @@ import java.util.Map;
  * 输入和输出刻意采用小型安全契约，后台管理能力不得从此入口暴露。
  */
 @RestController
+@Api(tags = "开放业务接入 API")
 @RequestMapping("/openapi/v1")
 public class OpenApiController {
     private final ServiceAccountService accountService;
@@ -78,6 +81,7 @@ public class OpenApiController {
         this.idempotencyService = idempotencyService;
     }
 
+    @ApiOperation("查询当前服务账号可用能力")
     @GetMapping("/capabilities")
     public WebResponse<java.util.List<java.util.Map<String, Object>>> capabilities() {
         java.util.List<java.util.Map<String, Object>> result = new java.util.ArrayList<java.util.Map<String, Object>>();
@@ -93,6 +97,7 @@ public class OpenApiController {
         return WebResponse.OK(result);
     }
 
+    @ApiOperation("启动业务工作流")
     @PostMapping("/workflows/runs")
     public WebResponse<OpenApiRunVo> startWorkflow(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyHeader,
                                                      @RequestBody OpenApiWorkflowStartDto request) {
@@ -114,12 +119,14 @@ public class OpenApiController {
         return WebResponse.OK(run(instance.getId(), instance.getBusinessId(), instance.getStatus()));
     }
 
+    @ApiOperation("查询业务工作流运行状态")
     @GetMapping("/workflows/runs/{runId}")
     public WebResponse<OpenApiRunVo> workflowRun(@PathVariable String runId) {
         AgentWorkflowInstanceVo instance = executionService.detail(runId, CurrentUser.getUser().get("userId"));
         return WebResponse.OK(run(instance.getId(), instance.getBusinessId(), instance.getStatus()));
     }
 
+    @ApiOperation("取消业务工作流运行")
     @PostMapping("/workflows/runs/{runId}/cancel")
     public WebResponse<OpenApiRunVo> cancelWorkflow(@PathVariable String runId) {
         executionService.terminate(runId, CurrentUser.getUser().get("userId"));
@@ -127,6 +134,7 @@ public class OpenApiController {
         return WebResponse.OK(run(instance.getId(), instance.getBusinessId(), instance.getStatus()));
     }
 
+    @ApiOperation("调用标准 Agent 对话")
     @PostMapping("/agents/chat")
     public WebResponse<OpenApiAgentChatVo> chat(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyHeader,
                                                  @RequestBody OpenApiAgentChatDto request) {
@@ -148,6 +156,7 @@ public class OpenApiController {
         return WebResponse.OK(response);
     }
 
+    @ApiOperation("启动异步 Agent 运行")
     @PostMapping("/agents/runs")
     public WebResponse<OpenApiAgentRunVo> startAgentRun(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyHeader,
                                                          @RequestBody OpenApiAgentRunStartDto request) {
@@ -182,11 +191,13 @@ public class OpenApiController {
         return WebResponse.OK(agentRun(run, request.getBusinessId()));
     }
 
+    @ApiOperation("查询 Agent 运行状态")
     @GetMapping("/agents/runs/{runId}")
     public WebResponse<OpenApiAgentRunVo> agentRun(@PathVariable String runId) {
         return WebResponse.OK(agentRun(requiredAgentRun(runId), null));
     }
 
+    @ApiOperation("取消 Agent 运行")
     @PostMapping("/agents/runs/{runId}/cancel")
     public WebResponse<OpenApiAgentRunVo> cancelAgentRun(@PathVariable String runId) {
         AgentRun run = requiredAgentRun(runId);

@@ -13,6 +13,8 @@ import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
@@ -33,6 +35,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
  * User and administrator control-plane API. Runner endpoints remain internal.
  */
 @RestController
+@Api(tags = "沙箱任务 API")
 @RequestMapping("/api/agent/sandbox")
 @Permission(path = "/agent/artifact", required = false)
 public class SandboxTaskController {
@@ -52,6 +55,7 @@ public class SandboxTaskController {
     /**
      * 创建当前请求。
      */
+    @ApiOperation("创建沙箱任务")
     @PostMapping("/tasks")
     public WebResponse<SandboxTaskVo> create(@RequestBody SandboxTaskCreateDto request) {
         return WebResponse.OK(tasks.create(user(), request));
@@ -60,6 +64,7 @@ public class SandboxTaskController {
     /**
      * 详情当前请求。
      */
+    @ApiOperation("查询沙箱任务详情")
     @GetMapping("/tasks/{id}")
     public WebResponse<SandboxTaskVo> detail(@PathVariable @NotBlank String id) {
         return WebResponse.OK(tasks.detail(id, user(), false));
@@ -68,6 +73,7 @@ public class SandboxTaskController {
     /**
      * 按运行。
      */
+    @ApiOperation("按 Agent 运行查询沙箱任务")
     @GetMapping("/tasks/run/{runId}")
     public WebResponse<SandboxTaskVo> byRun(@PathVariable @NotBlank String runId) {
         return WebResponse.OK(tasks.byRun(runId, user(), false));
@@ -76,6 +82,7 @@ public class SandboxTaskController {
     /**
      * 处理events。
      */
+    @ApiOperation("查询沙箱任务事件")
     @GetMapping("/tasks/{id}/events")
     public WebResponse<List<SandboxTaskVo.SandboxEventVo>> events(@PathVariable @NotBlank String id) {
         return WebResponse.OK(tasks.events(id, user(), false));
@@ -84,6 +91,7 @@ public class SandboxTaskController {
     /**
      * 处理artifacts。
      */
+    @ApiOperation("查询沙箱任务生成的制品")
     @GetMapping("/tasks/{id}/artifacts")
     public WebResponse<List<AgentArtifact>> artifacts(@PathVariable @NotBlank String id) {
         SandboxTaskVo task = tasks.detail(id, user(), false);
@@ -94,6 +102,7 @@ public class SandboxTaskController {
     /**
      * 审批通过当前请求。
      */
+    @ApiOperation("批准沙箱任务")
     @PostMapping("/tasks/{id}/approve")
     public WebResponse<Void> approve(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) {
         tasks.approve(id, user(), body == null ? null : body.getReason());
@@ -103,6 +112,7 @@ public class SandboxTaskController {
     /**
      * 拒绝当前请求。
      */
+    @ApiOperation("拒绝沙箱任务")
     @PostMapping("/tasks/{id}/reject")
     public WebResponse<Void> reject(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) {
         tasks.reject(id, user(), body == null ? null : body.getReason());
@@ -112,6 +122,7 @@ public class SandboxTaskController {
     /**
      * 处理decision。
      */
+    @ApiOperation("提交沙箱任务审批决定")
     @PostMapping("/tasks/{id}/decision")
     public WebResponse<Void> decision(@PathVariable @NotBlank String id, @RequestBody SandboxDecisionDto body) {
         if (body == null || !StringUtils.equalsAnyIgnoreCase(body.getDecision(), "APPROVE", "REJECT"))
@@ -124,6 +135,7 @@ public class SandboxTaskController {
     /**
      * 取消当前请求。
      */
+    @ApiOperation("取消沙箱任务")
     @PostMapping("/tasks/{id}/cancel")
     public WebResponse<Void> cancel(@PathVariable @NotBlank String id, @RequestBody(required = false) SandboxDecisionDto body) {
         tasks.cancel(id, user(), body == null ? null : body.getReason());
@@ -133,6 +145,7 @@ public class SandboxTaskController {
     /**
      * 重试当前请求。
      */
+    @ApiOperation("重试沙箱任务")
     @PostMapping("/tasks/{id}/retry")
     public WebResponse<SandboxTaskVo> retry(@PathVariable @NotBlank String id) {
         return WebResponse.OK(tasks.retry(id, user()));
@@ -141,6 +154,7 @@ public class SandboxTaskController {
     /**
      * 处理templates。
      */
+    @ApiOperation("查询可用沙箱模板")
     @GetMapping("/templates")
     public WebResponse<List<SandboxExecutionTemplate>> templates() {
         return WebResponse.OK(tasks.templates());
@@ -149,6 +163,7 @@ public class SandboxTaskController {
     /**
      * 处理versions。
      */
+    @ApiOperation("查询沙箱模板版本")
     @GetMapping("/templates/{id}/versions")
     public WebResponse<List<SandboxExecutionTemplateVersion>> versions(@PathVariable @NotBlank String id) {
         return WebResponse.OK(tasks.versions(id));
@@ -157,6 +172,7 @@ public class SandboxTaskController {
     /**
      * 处理setTemplateEnabled。
      */
+    @ApiOperation("设置沙箱模板启用状态")
     @PostMapping("/admin/templates/{id}/enabled")
     @Permission(path = "/agent/sandbox")
     public WebResponse<Void> setTemplateEnabled(@PathVariable @NotBlank String id, @RequestParam boolean enabled) {
@@ -167,6 +183,7 @@ public class SandboxTaskController {
     /**
      * 发布TemplateVersion。
      */
+    @ApiOperation("发布沙箱模板版本")
     @PostMapping("/admin/templates/{id}/versions")
     @Permission(path = "/agent/sandbox")
     public WebResponse<SandboxExecutionTemplateVersion> publishTemplateVersion(@PathVariable @NotBlank String id, @RequestBody SandboxTemplateVersionPublishDto request) {
@@ -176,6 +193,7 @@ public class SandboxTaskController {
     /**
      * 处理audit。
      */
+    @ApiOperation("分页查询沙箱任务审计记录")
     @PostMapping("/admin/audit")
     @Permission(path = "/agent/sandbox")
     public WebResponse<List<SandboxTaskVo>> audit(@RequestBody(required = false) SandboxAuditQueryDto query) {
@@ -186,6 +204,7 @@ public class SandboxTaskController {
     /**
      * 管理员详情。
      */
+    @ApiOperation("查询沙箱任务管理详情")
     @GetMapping("/admin/tasks/{id}")
     @Permission(path = "/agent/sandbox")
     public WebResponse<SandboxTaskVo> adminDetail(@PathVariable @NotBlank String id) {
@@ -195,6 +214,7 @@ public class SandboxTaskController {
     /**
      * 处理metrics。
      */
+    @ApiOperation("查询沙箱任务运行指标")
     @GetMapping("/admin/metrics")
     @Permission(path = "/agent/sandbox")
     public WebResponse<com.aether.agent.sandbox.vo.SandboxMetricsVo> metrics() {
@@ -204,6 +224,7 @@ public class SandboxTaskController {
     /**
      * 处理claim。
      */
+    @ApiOperation("Runner 领取沙箱任务")
     @PostMapping("/runner/claim")
     public WebResponse<SandboxRunnerTaskVo> claim(@RequestHeader("X-Aether-Runner-Token") String token, @RequestHeader("X-Aether-Runner-Id") String runnerId) {
         return WebResponse.OK(tasks.claim(runner(token, runnerId)));
@@ -212,6 +233,7 @@ public class SandboxTaskController {
     /**
      * 处理heartbeat。
      */
+    @ApiOperation("Runner 上报沙箱任务心跳")
     @PostMapping("/runner/tasks/{id}/heartbeat")
     public WebResponse<Boolean> heartbeat(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody(required = false) SandboxRunnerEventDto body) {
         SandboxRunnerEventDto data = body == null ? new SandboxRunnerEventDto() : body;
@@ -221,6 +243,7 @@ public class SandboxTaskController {
     /**
      * 取消Requested。
      */
+    @ApiOperation("Runner 查询沙箱任务取消状态")
     @GetMapping("/runner/tasks/{id}/cancel")
     public WebResponse<Boolean> cancelRequested(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id) {
         return WebResponse.OK(tasks.cancelRequested(id, execution, runner(runner, runnerId)));
@@ -229,6 +252,7 @@ public class SandboxTaskController {
     /**
      * 下载Input。
      */
+    @ApiOperation("Runner 下载沙箱任务输入文件")
     @GetMapping("/runner/tasks/{id}/inputs/{inputId}")
     public ResponseEntity<byte[]> downloadInput(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @PathVariable String inputId) {
         SandboxTaskService.RunnerInputArtifact input = tasks.downloadInput(id, inputId, execution, runner(runner, runnerId));
@@ -244,6 +268,7 @@ public class SandboxTaskController {
     /**
      * 处理runner事件。
      */
+    @ApiOperation("Runner 上报沙箱任务事件")
     @PostMapping("/runner/tasks/{id}/events")
     public WebResponse<Void> runnerEvent(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody SandboxRunnerEventDto event) {
         tasks.runnerEvent(id, execution, runner(runner, runnerId), event);
@@ -253,6 +278,7 @@ public class SandboxTaskController {
     /**
      * 处理usage。
      */
+    @ApiOperation("Runner 上报沙箱任务资源用量")
     @PostMapping("/runner/tasks/{id}/usage")
     public WebResponse<Void> usage(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody SandboxRunnerUsageDto usage) {
         tasks.reportUsage(id, execution, runner(runner, runnerId), usage);
@@ -262,6 +288,7 @@ public class SandboxTaskController {
     /**
      * 处理succeed。
      */
+    @ApiOperation("Runner 上报沙箱任务成功")
     @PostMapping("/runner/tasks/{id}/succeed")
     public WebResponse<Void> succeed(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestBody(required = false) SandboxDecisionDto body) {
         tasks.succeed(id, execution, runner(runner, runnerId), body == null ? null : body.getReason());
@@ -271,6 +298,7 @@ public class SandboxTaskController {
     /**
      * 处理completeArtifact。
      */
+    @ApiOperation("Runner 上传沙箱任务制品")
     @PostMapping("/runner/tasks/{id}/artifacts")
     public WebResponse<Void> completeArtifact(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestParam("file") MultipartFile file, @RequestParam("sha256") String sha256, @RequestParam(value = "summary", required = false) String summary, @RequestParam(value = "finalArtifact", defaultValue = "true") boolean finalArtifact) throws IOException {
         tasks.completeArtifact(id, execution, runner(runner, runnerId), file.getOriginalFilename(), file.getContentType(), file.getBytes(), sha256, summary, finalArtifact);
@@ -280,6 +308,7 @@ public class SandboxTaskController {
     /**
      * 处理fail。
      */
+    @ApiOperation("Runner 上报沙箱任务失败")
     @PostMapping("/runner/tasks/{id}/fail")
     public WebResponse<Void> fail(@RequestHeader("X-Aether-Runner-Token") String runner, @RequestHeader("X-Aether-Runner-Id") String runnerId, @RequestHeader("X-Aether-Execution-Token") String execution, @PathVariable String id, @RequestParam("code") String code, @RequestParam("reason") String reason, @RequestParam(value = "summary", required = false) String summary) {
         tasks.fail(id, execution, runner(runner, runnerId), code, reason, summary);

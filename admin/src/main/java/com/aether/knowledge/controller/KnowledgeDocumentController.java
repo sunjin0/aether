@@ -166,7 +166,7 @@ public class KnowledgeDocumentController {
      * 上传单个知识文档。原文件持久化成功后，后台使用 AnyDoc 转换为
      * Markdown；AnyDoc 不可用或不支持时由本地解析器处理已支持的格式。
      */
-    @ApiOperation("Upload knowledge document")
+    @ApiOperation("上传知识库文档")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/upload")
     @Transactional(rollbackFor = Exception.class)
@@ -223,7 +223,7 @@ public class KnowledgeDocumentController {
     /**
      * 批量上传文档；单个文件失败不会影响其它文件继续处理。
      */
-    @ApiOperation("Batch upload knowledge documents")
+    @ApiOperation("批量上传知识库文档")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping("/upload/batch")
     public WebResponse<List<UploadResult>> uploadBatch(@RequestParam("knowledgeBaseId") String knowledgeBaseId,
@@ -327,7 +327,7 @@ public class KnowledgeDocumentController {
     /**
      * 预览Url。
      */
-    @ApiOperation("Preview knowledge document")
+    @ApiOperation("预览知识库文档")
     @GetMapping("/{id}/preview-url")
     public WebResponse<String> previewUrl(@PathVariable @NotBlank String id) {
         KnowledgeDocument document = getExisting(id);
@@ -354,6 +354,7 @@ public class KnowledgeDocumentController {
     /**
      * 处理version详情。
      */
+    @ApiOperation("查询文档版本详情")
     @GetMapping("/version/{versionId}")
     public WebResponse<KnowledgeDocumentVersion> versionDetail(@PathVariable @NotBlank String versionId) {
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
@@ -368,7 +369,7 @@ public class KnowledgeDocumentController {
     /**
      * Preview original document version file。
      */
-    @ApiOperation("Preview original document version file")
+    @ApiOperation("预览文档版本原始文件")
     @GetMapping("/version/{versionId}/preview-url")
     public WebResponse<String> versionPreviewUrl(@PathVariable @NotBlank String versionId) {
         KnowledgeDocumentVersion version = knowledgeDocumentVersionService.getById(versionId);
@@ -442,7 +443,7 @@ public class KnowledgeDocumentController {
     /**
      * 更新当前请求。
      */
-    @ApiOperation("Update knowledge document")
+    @ApiOperation("更新知识库文档")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PutMapping("/{id}")
     @Transactional(rollbackFor = Exception.class)
@@ -527,6 +528,7 @@ public class KnowledgeDocumentController {
      * 更新Draft。
      */
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
+    @ApiOperation("保存文档草稿内容")
     @PutMapping("/version/{versionId}/draft")
     public WebResponse<KnowledgeDocumentVersion> updateDraft(@PathVariable @NotBlank String versionId,
                                                              @RequestBody com.aether.knowledge.vo.KnowledgeDraftUpdateVo vo) {
@@ -538,6 +540,7 @@ public class KnowledgeDocumentController {
      * 处理startAi审核。
      */
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
+    @ApiOperation("发起文档 AI 审核")
     @PostMapping("/version/{versionId}/ai-review")
     public WebResponse<String> startAiReview(@PathVariable @NotBlank String versionId) {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.ai-review.start.success"), workflowService.startAiReview(versionId));
@@ -547,6 +550,7 @@ public class KnowledgeDocumentController {
      * 提交当前请求。
      */
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
+    @ApiOperation("提交文档版本进入人工审核")
     @PostMapping("/version/{versionId}/submit")
     public WebResponse<String> submit(@PathVariable @NotBlank String versionId,
                                       @RequestBody(required = false) com.aether.knowledge.vo.KnowledgeReviewDecisionVo vo) {

@@ -186,6 +186,7 @@ public class AgentRunController {
     /**
      * 处理plan。
      */
+    @ApiOperation("查询 Agent 运行计划")
     @GetMapping("/{id}/plan")
     public WebResponse<AgentRunPlanVo> plan(@PathVariable @NotBlank String id) {
         AgentRun run = agentRunService.getById(id);
@@ -209,6 +210,7 @@ public class AgentRunController {
     /**
      * 处理pause。
      */
+    @ApiOperation("暂停 Agent 运行")
     @PostMapping("/{id}/pause")
     public WebResponse<Void> pause(@PathVariable @NotBlank String id) {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
@@ -221,6 +223,7 @@ public class AgentRunController {
     /**
      * 处理resume。
      */
+    @ApiOperation("恢复 Agent 运行")
     @PostMapping("/{id}/resume")
     public WebResponse<Void> resume(@PathVariable @NotBlank String id) {
         String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");

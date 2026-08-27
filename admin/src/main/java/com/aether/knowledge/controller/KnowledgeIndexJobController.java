@@ -14,6 +14,8 @@ import com.aether.knowledge.service.KnowledgeIndexJobService;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.vo.KnowledgeIndexJobQueryVo;
 import com.aether.permission.Permission;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +27,7 @@ import java.util.List;
  * 提供知识库索引Job相关的 REST 接口。
  */
 @RestController
+@Api(tags = "知识库索引任务 API")
 @RequestMapping("/api/knowledge/index-job")
 @Permission(path = "/knowledge/document")
 public class KnowledgeIndexJobController {
@@ -50,6 +53,7 @@ public class KnowledgeIndexJobController {
     /**
      * 查询当前请求。
      */
+    @ApiOperation("查询知识库索引任务列表")
     @PostMapping("/list")
     public WebResponse<List<KnowledgeIndexJob>> list(@RequestBody(required = false) KnowledgeIndexJobQueryVo query) {
         if (query == null) query = new KnowledgeIndexJobQueryVo();
@@ -71,6 +75,7 @@ public class KnowledgeIndexJobController {
     /**
      * 详情当前请求。
      */
+    @ApiOperation("查询知识库索引任务详情")
     @GetMapping("/{id}")
     public WebResponse<KnowledgeIndexJob> detail(@PathVariable String id) {
         KnowledgeIndexJob job = jobService.getById(id);
@@ -83,6 +88,7 @@ public class KnowledgeIndexJobController {
     /**
      * 重试当前请求。
      */
+    @ApiOperation("重试知识库索引任务")
     @PostMapping("/{id}/retry")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<String> retry(@PathVariable String id) {

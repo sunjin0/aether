@@ -282,6 +282,7 @@ public class AgentDefinitionController {
      *
      * @return 模型供应商列表
      */
+    @ApiOperation("查询可用模型供应商")
     @GetMapping("/model/providers")
     public WebResponse<List<Option>> getModelProviders() {
         return WebResponse.OK(modelCatalogService.getOptions("CHAT,MULTIMODAL"));

@@ -14,6 +14,8 @@ import com.aether.sys.service.UserService;
 import com.aether.workflow.entity.AgentWorkflow;
 import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.entity.WebResponse;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import com.aether.exception.ServerException;
 import com.aether.permission.Permission;
 import com.aether.local.CurrentUser;
@@ -29,6 +31,7 @@ import java.util.UUID;
 
 /** 将 Agent 或工作流包装为可对外交付的产品。 */
 @RestController
+@Api(tags = "Agent 产品配置 API")
 @RequestMapping("/api/agent/product-profile")
 @Permission(path = "/agent/product-profile")
 public class AgentProductProfileController {
@@ -41,6 +44,7 @@ public class AgentProductProfileController {
     public AgentProductProfileController(AgentProductProfileService profileService, AgentDefinitionService agentService, AgentWorkflowService workflowService, AgentApplicationService applicationService, AgentProductProfileVersionService versionService, UserService userService) {
         this.profileService = profileService; this.agentService = agentService; this.workflowService = workflowService; this.applicationService = applicationService; this.versionService = versionService; this.userService = userService;
     }
+    @ApiOperation("查询 Agent 产品配置列表")
     @PostMapping("/list")
     public WebResponse<List<AgentProductProfile>> list(@RequestBody(required = false) AgentProductProfileQueryDto query) {
         long current = query == null || query.getCurrent() == null ? 1L : query.getCurrent();
@@ -53,6 +57,7 @@ public class AgentProductProfileController {
                 .eq(AgentProductProfile::getDeleted, false).orderByDesc(AgentProductProfile::getUpdatedAt));
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
+    @ApiOperation("创建 Agent 产品配置")
     @PostMapping
     @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<String> create(@RequestBody AgentProductProfileDto dto) {
@@ -60,6 +65,7 @@ public class AgentProductProfileController {
         value.setProductId(UUID.randomUUID().toString().replace("-", ""));
         value.setStatus(0); value.setVersionNo(1); profileService.save(value); return WebResponse.OK("创建成功", value.getId());
     }
+    @ApiOperation("更新 Agent 产品配置")
     @PutMapping("/{id}")
     @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentProductProfileDto dto) {
@@ -67,6 +73,7 @@ public class AgentProductProfileController {
         if (Integer.valueOf(1).equals(value.getStatus()) || Integer.valueOf(2).equals(value.getStatus())) throw new ServerException(409, I18nUtils.getMessage("agent.product.published.edit.forbidden"));
         BeanUtils.copyProperties(dto, value); validate(value); profileService.updateById(value); return WebResponse.OK("更新成功");
     }
+    @ApiOperation("发布 Agent 产品配置")
     @PostMapping("/{id}/publish")
     @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<AgentProductProfile> publish(@PathVariable String id) {
@@ -80,6 +87,7 @@ public class AgentProductProfileController {
         versionService.save(snapshot);
         value.setStatus(1); value.setVersionNo(nextVersion); value.setPublishedAt(now); profileService.updateById(value); return WebResponse.OK(value);
     }
+    @ApiOperation("复制 Agent 产品配置")
     @PostMapping("/{id}/copy")
     @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<String> copy(@PathVariable String id) {
@@ -90,6 +98,7 @@ public class AgentProductProfileController {
         validate(draft);
         profileService.save(draft); return WebResponse.OK("已创建新草稿", draft.getId());
     }
+    @ApiOperation("设置 Agent 产品配置启用状态")
     @PostMapping("/{id}/enabled")
     @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<Void> setEnabled(@PathVariable String id, @RequestParam boolean enabled) {
@@ -100,6 +109,7 @@ public class AgentProductProfileController {
         profileService.updateById(value);
         return WebResponse.OK((Void) null);
     }
+    @ApiOperation("删除 Agent 产品配置")
     @DeleteMapping("/{id}")
     @Permission(path = "/agent/product-profile", type = Permission.Type.Write)
     public WebResponse<Void> delete(@PathVariable String id) {
@@ -108,6 +118,7 @@ public class AgentProductProfileController {
         profileService.removeById(value.getId());
         return WebResponse.OK((Void) null);
     }
+    @ApiOperation("查询 Agent 产品配置版本")
     @GetMapping("/{id}/versions")
     public WebResponse<List<AgentProductProfileVersion>> versions(@PathVariable String id) {
         required(id);

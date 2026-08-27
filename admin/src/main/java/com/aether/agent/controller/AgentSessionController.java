@@ -25,6 +25,8 @@ import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.local.CurrentUser;
 import com.aether.permission.Permission;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,6 +55,7 @@ import java.util.function.Supplier;
  * 持续 Deep Agent Session 与 Task 查询接口。
  */
 @RestController
+@Api(tags = "持续 Agent 会话 API")
 @Permission(path = "/agent/chat")
 @RequestMapping("/api/agent/session")
 public class AgentSessionController {
@@ -98,6 +101,7 @@ public class AgentSessionController {
     /**
      * 详情当前请求。
      */
+    @ApiOperation("查询持续 Agent 会话详情")
     @GetMapping("/conversation/{conversationId}")
     public WebResponse<Map<String, Object>> detail(@PathVariable String conversationId) {
         String userId = currentUserId();
@@ -118,6 +122,7 @@ public class AgentSessionController {
     /**
      * 当前用户范围的持续 Agent 运营概览，不返回其他用户或原始推理数据。
      */
+    @ApiOperation("查询当前用户持续 Agent 概览")
     @GetMapping("/overview")
     public WebResponse<Map<String, Object>> overview() {
         String userId = currentUserId();
@@ -162,6 +167,7 @@ public class AgentSessionController {
      * 在现有持续 Session 中投递一个新的 Deep 任务。Skill、检索和运行快照均由服务端装配，
      * 客户端不能扩大工具范围或伪造用户身份。
      */
+    @ApiOperation("向持续 Agent 会话提交任务")
     @PostMapping("/conversation/{conversationId}/messages")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Map<String, String>> submitMessage(@PathVariable String conversationId,
@@ -206,6 +212,7 @@ public class AgentSessionController {
     /**
      * Session 范围的可审计时间线。仅返回任务、计划/状态和交互摘要，绝不返回原始推理链。
      */
+    @ApiOperation("查询持续 Agent 会话时间线")
     @GetMapping("/conversation/{conversationId}/timeline")
     public WebResponse<Map<String, Object>> timeline(@PathVariable String conversationId) {
         String userId = currentUserId();
@@ -233,6 +240,7 @@ public class AgentSessionController {
     /**
      * 任务当前请求。
      */
+    @ApiOperation("查询持续 Agent 任务详情和计划")
     @GetMapping("/task/{taskId}")
     public WebResponse<Map<String, Object>> task(@PathVariable String taskId) {
         AgentTask task = requireOwnedTask(taskId);
@@ -245,6 +253,7 @@ public class AgentSessionController {
     /**
      * 处理feedback。
      */
+    @ApiOperation("提交持续 Agent 任务反馈")
     @PostMapping("/task/{taskId}/feedback")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Void> feedback(@PathVariable String taskId, @RequestBody Map<String, Object> payload) {
@@ -267,6 +276,7 @@ public class AgentSessionController {
     /**
      * 处理events。
      */
+    @ApiOperation("查询持续 Agent 任务事件")
     @GetMapping("/task/{taskId}/events")
     public WebResponse<List<AgentTaskEvent>> events(@PathVariable String taskId) {
         AgentTask task = requireOwnedTask(taskId);
@@ -276,6 +286,7 @@ public class AgentSessionController {
     /**
      * 以 Task 为入口暂停，Run 接口仍保留作兼容层。
      */
+    @ApiOperation("暂停持续 Agent 任务")
     @PostMapping("/task/{taskId}/pause")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Void> pauseTask(@PathVariable String taskId) {
@@ -289,6 +300,7 @@ public class AgentSessionController {
     /**
      * 从当前 Task 的最新安全检查点继续执行。
      */
+    @ApiOperation("恢复持续 Agent 任务")
     @PostMapping("/task/{taskId}/resume")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Void> resumeTask(@PathVariable String taskId) {
@@ -303,6 +315,7 @@ public class AgentSessionController {
      * 将 ask_user 的真实选择或自定义输入恢复到当前 Task。
      * 审批与问答沿用既有消息协议，但入口和权限均以 Task 为准。
      */
+    @ApiOperation("提交持续 Agent 任务交互输入")
     @PostMapping("/task/{taskId}/input")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Map<String, String>> inputTask(@PathVariable String taskId,
@@ -326,6 +339,7 @@ public class AgentSessionController {
     /**
      * 处理memories。
      */
+    @ApiOperation("查询会话记忆")
     @GetMapping("/{sessionId}/memory")
     public WebResponse<List<AgentSessionMemory>> memories(@PathVariable String sessionId) {
         requireOwnedSession(sessionId);
@@ -335,6 +349,7 @@ public class AgentSessionController {
     /**
      * Session 级运行概览，供聊天页和后续运营面板对账。
      */
+    @ApiOperation("查询会话运行指标")
     @GetMapping("/{sessionId}/metrics")
     public WebResponse<Map<String, Object>> metrics(@PathVariable String sessionId) {
         AgentSession session = requireOwnedSession(sessionId);
@@ -359,6 +374,7 @@ public class AgentSessionController {
     /**
      * 删除Memory。
      */
+    @ApiOperation("删除会话记忆")
     @DeleteMapping("/{sessionId}/memory/{memoryId}")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Void> deleteMemory(@PathVariable String sessionId,
@@ -375,6 +391,7 @@ public class AgentSessionController {
     /**
      * 用户确认、修正或删除跨任务可用的稳定偏好。
      */
+    @ApiOperation("确认或修正会话记忆偏好")
     @PostMapping("/{sessionId}/memory/feedback")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<AdminPreference> memoryFeedback(@PathVariable String sessionId,

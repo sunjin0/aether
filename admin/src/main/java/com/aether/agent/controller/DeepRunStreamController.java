@@ -9,6 +9,8 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
 import com.alibaba.fastjson2.JSONObject;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +23,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * Authenticated Deep Run stream: persisted history first, followed by live callback events.
  */
 @RestController
+@Api(tags = "Deep Agent 运行事件 API")
 @RequestMapping("/api/agent/deep-runs")
 public class DeepRunStreamController {
     private static final long TIMEOUT_MS = 15 * 60 * 1000L;
@@ -41,6 +44,7 @@ public class DeepRunStreamController {
     /**
      * 处理stream。
      */
+    @ApiOperation("订阅 Deep Agent 运行实时事件")
     @GetMapping(value = "/{runId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@PathVariable String runId) throws Exception {
         AgentRun run = deepAgentRunService.getDeepRunForReconciliation(runId);

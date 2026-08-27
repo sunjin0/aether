@@ -23,6 +23,8 @@ import com.aether.knowledge.model.KnowledgeAiReviewStatus;
 import com.aether.knowledge.model.KnowledgeAiReviewIssueStatus;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.permission.Permission;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +39,7 @@ import java.util.Set;
  * 提供知识库Ai审核相关的 REST 接口。
  */
 @RestController
+@Api(tags = "知识库 AI 审核 API")
 @RequestMapping("/api/knowledge/ai-review")
 @Permission(path = "/knowledge/document")
 public class KnowledgeAiReviewController {
@@ -67,6 +70,7 @@ public class KnowledgeAiReviewController {
     /**
      * 详情当前请求。
      */
+    @ApiOperation("查询 AI 审核详情")
     @GetMapping("/{id}")
     public WebResponse<KnowledgeAiReview> detail(@PathVariable String id) {
         KnowledgeAiReview review = requireReview(id);
@@ -76,6 +80,7 @@ public class KnowledgeAiReviewController {
     /**
      * 处理latest按Version。
      */
+    @ApiOperation("查询文档版本最新 AI 审核")
     @GetMapping("/version/{versionId}/latest")
     public WebResponse<KnowledgeAiReview> latestByVersion(@PathVariable String versionId) {
         com.aether.knowledge.entity.KnowledgeDocumentVersion version = versionService.getById(versionId);
@@ -99,6 +104,7 @@ public class KnowledgeAiReviewController {
     /**
      * 处理issues。
      */
+    @ApiOperation("查询 AI 审核问题列表")
     @GetMapping("/{id}/issues")
     public WebResponse<List<KnowledgeAiReviewIssue>> issues(@PathVariable String id) {
         requireReview(id);
@@ -111,6 +117,7 @@ public class KnowledgeAiReviewController {
     /**
      * 处理diff。
      */
+    @ApiOperation("查询 AI 审核建议差异")
     @GetMapping("/{id}/diff")
     public WebResponse<KnowledgeAiReviewDiffVo> diff(@PathVariable String id) {
         KnowledgeAiReview review = requireReview(id);
@@ -176,6 +183,7 @@ public class KnowledgeAiReviewController {
     /**
      * 处理acceptIssue。
      */
+    @ApiOperation("接受单个 AI 审核建议")
     @PostMapping("/{reviewId}/issues/{issueId}/accept")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
@@ -232,6 +240,7 @@ public class KnowledgeAiReviewController {
     /**
      * 处理unacceptIssue。
      */
+    @ApiOperation("撤销已接受的 AI 审核建议")
     @PostMapping("/{reviewId}/issues/{issueId}/unaccept")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> unacceptIssue(@PathVariable String reviewId,
@@ -266,6 +275,7 @@ public class KnowledgeAiReviewController {
     /**
      * 拒绝Issue。
      */
+    @ApiOperation("拒绝 AI 审核建议")
     @PostMapping("/{reviewId}/issues/{issueId}/reject")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> rejectIssue(@PathVariable String reviewId,
@@ -292,6 +302,7 @@ public class KnowledgeAiReviewController {
     /**
      * 处理acceptIssues。
      */
+    @ApiOperation("批量接受 AI 审核建议")
     @PostMapping("/{reviewId}/issues/accept-batch")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
@@ -363,6 +374,7 @@ public class KnowledgeAiReviewController {
     /**
      * 处理applyAcceptedIssues。
      */
+    @ApiOperation("将已接受的 AI 审核建议应用到草稿")
     @PostMapping("/{reviewId}/issues/apply")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
@@ -418,6 +430,7 @@ public class KnowledgeAiReviewController {
     /**
      * 处理Issue。
      */
+    @ApiOperation("人工处理 AI 审核问题")
     @PutMapping("/issue/{issueId}/handle")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> handleIssue(@PathVariable String issueId,

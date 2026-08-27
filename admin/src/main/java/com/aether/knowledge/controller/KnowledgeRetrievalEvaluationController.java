@@ -119,6 +119,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * Creates a durable background run and returns immediately with its identifier.
      */
+    @ApiOperation("异步启动检索评测")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/runs")
     public WebResponse<String> createRun(@PathVariable String id, @RequestParam(value = "evaluationSetVersionId", required = false) String evaluationSetVersionId) {
@@ -222,6 +223,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * Returns counters suitable for short-interval polling while a run is active.
      */
+    @ApiOperation("查询检索评测运行进度")
     @GetMapping("/sets/{setId}/runs/{runId}/progress")
     public WebResponse<Map<String, Object>> progress(@PathVariable String setId, @PathVariable String runId) {
         KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
@@ -253,6 +255,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * Stops unclaimed tasks. A running retrieval may finish, but no further tasks will be dispatched.
      */
+    @ApiOperation("取消检索评测运行")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/runs/{runId}/cancel")
     public WebResponse<Void> cancelRun(@PathVariable String setId, @PathVariable String runId) {
@@ -271,6 +274,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * Requeues terminal retrieval failures without rerunning successful or invalid cases.
      */
+    @ApiOperation("重试检索评测失败项")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/runs/{runId}/retry-failed")
     public WebResponse<Void> retryFailed(@PathVariable String setId, @PathVariable String runId) {
@@ -292,6 +296,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 处理labels。
      */
+    @ApiOperation("查询评测用例标注")
     @GetMapping("/sets/{setId}/cases/{caseId}/labels")
     public WebResponse<List<KnowledgeRetrievalEvaluationLabel>> labels(@PathVariable String setId, @PathVariable String caseId) {
         requireCase(setId, caseId);
@@ -301,6 +306,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 保存Label。
      */
+    @ApiOperation("新增评测用例标注")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/cases/{caseId}/labels")
     public WebResponse<String> saveLabel(@PathVariable String setId, @PathVariable String caseId, @RequestBody KnowledgeRetrievalEvaluationLabel label) {
@@ -327,6 +333,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 删除Label。
      */
+    @ApiOperation("删除评测用例标注")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @DeleteMapping("/sets/{setId}/cases/{caseId}/labels/{labelId}")
     public WebResponse<Void> deleteLabel(@PathVariable String setId, @PathVariable String caseId, @PathVariable String labelId) {
@@ -343,6 +350,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 处理batch删除Labels。
      */
+    @ApiOperation("批量删除评测用例标注")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/cases/{caseId}/labels/batch-delete")
     @Transactional(rollbackFor = Exception.class)
@@ -379,6 +387,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 发布Version。
      */
+    @ApiOperation("发布评测集版本")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/versions")
     public WebResponse<String> publishVersion(@PathVariable String id) {
@@ -406,6 +415,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 处理versions。
      */
+    @ApiOperation("查询评测集版本列表")
     @GetMapping("/sets/{id}/versions")
     public WebResponse<List<KnowledgeRetrievalEvaluationSetVersion>> versions(@PathVariable String id) {
         return WebResponse.OK(setVersionMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSetVersion.class).eq(KnowledgeRetrievalEvaluationSetVersion::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationSetVersion::getDeleted, false).orderByDesc(KnowledgeRetrievalEvaluationSetVersion::getVersionNo)));
@@ -414,6 +424,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 处理health。
      */
+    @ApiOperation("检查评测集数据健康度")
     @GetMapping("/sets/{id}/health")
     public WebResponse<KnowledgeRetrievalEvaluationHealthVo> health(@PathVariable String id) {
         return WebResponse.OK(evaluationSetHealth(id));
@@ -422,6 +433,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * Returns all state needed to decide the next evaluation-management action from one snapshot.
      */
+    @ApiOperation("查询评测集工作台聚合数据")
     @GetMapping("/sets/{id}/workbench")
     public WebResponse<KnowledgeRetrievalEvaluationWorkbenchVo> workbench(@PathVariable String id) {
         KnowledgeRetrievalEvaluationWorkbenchVo response = new KnowledgeRetrievalEvaluationWorkbenchVo();
@@ -446,6 +458,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 查询未删除的评测集，并按创建时间倒序返回。
      */
+    @ApiOperation("查询评测集列表")
     @GetMapping("/sets")
     public WebResponse<List<KnowledgeRetrievalEvaluationSet>> sets(@RequestParam(defaultValue = "1") Long current, @RequestParam(defaultValue = "10") Long pageSize, @RequestParam(required = false) String name, @RequestParam(required = false) String agentDefinitionId) {
         Page<KnowledgeRetrievalEvaluationSet> page = setMapper.selectPage(new Page<>(Math.max(current, 1), Math.min(Math.max(pageSize, 1), 100)), Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSet.class)
@@ -459,6 +472,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 处理set。
      */
+    @ApiOperation("查询评测集详情")
     @GetMapping("/sets/{id}")
     public WebResponse<KnowledgeRetrievalEvaluationSet> set(@PathVariable String id) {
         KnowledgeRetrievalEvaluationSet item = setMapper.selectById(id);
@@ -470,6 +484,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 保存Set。
      */
+    @ApiOperation("新建评测集")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets")
     public WebResponse<String> saveSet(@RequestBody KnowledgeRetrievalEvaluationSet set) {
@@ -483,6 +498,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 更新Set。
      */
+    @ApiOperation("更新评测集")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PutMapping("/sets/{id}")
     public WebResponse<Void> updateSet(@PathVariable String id, @RequestBody KnowledgeRetrievalEvaluationSet set) {
@@ -498,6 +514,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 删除Set。
      */
+    @ApiOperation("删除评测集")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @DeleteMapping("/sets/{id}")
     public WebResponse<Void> deleteSet(@PathVariable String id) {
@@ -512,6 +529,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 查询指定评测集下未删除的评测问题。
      */
+    @ApiOperation("查询评测用例列表")
     @GetMapping("/sets/{id}/cases")
     public WebResponse<List<KnowledgeRetrievalEvaluationCaseEntity>> cases(@PathVariable String id) {
         return WebResponse.OK(caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false)));
@@ -520,6 +538,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 保存Case。
      */
+    @ApiOperation("新增评测用例")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases")
     public WebResponse<String> saveCase(@PathVariable String id, @RequestBody KnowledgeRetrievalEvaluationCaseEntity item) {
@@ -534,6 +553,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 更新Case。
      */
+    @ApiOperation("更新评测用例")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PutMapping("/sets/{setId}/cases/{caseId}")
     public WebResponse<Void> updateCase(@PathVariable String setId, @PathVariable String caseId, @RequestBody KnowledgeRetrievalEvaluationCaseEntity item) {
@@ -550,6 +570,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 删除Case。
      */
+    @ApiOperation("删除评测用例")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @DeleteMapping("/sets/{setId}/cases/{caseId}")
     @Transactional(rollbackFor = Exception.class)
@@ -565,6 +586,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 处理batch删除Cases。
      */
+    @ApiOperation("批量删除评测用例")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/batch-delete")
     @Transactional(rollbackFor = Exception.class)
@@ -589,6 +611,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 处理batchCase状态。
      */
+    @ApiOperation("批量更新评测用例状态")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/batch-status")
     public WebResponse<Void> batchCaseStatus(@PathVariable String id, @RequestBody CaseStatusRequest request) {
@@ -601,6 +624,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 处理exportCases。
      */
+    @ApiOperation("导出评测用例和标注")
     @GetMapping("/sets/{id}/cases/export")
     public WebResponse<List<KnowledgeRetrievalEvaluationCaseTransferVo>> exportCases(@PathVariable String id) {
         List<KnowledgeRetrievalEvaluationCaseEntity> cases = caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false));
@@ -617,6 +641,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 预览Import。
      */
+    @ApiOperation("预览评测用例导入结果")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/import/preview")
     public WebResponse<KnowledgeRetrievalEvaluationImportPreviewVo> previewImport(@PathVariable String id, @RequestBody List<KnowledgeRetrievalEvaluationCaseTransferVo> items) {
@@ -626,6 +651,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 处理importCases。
      */
+    @ApiOperation("导入评测用例和标注")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/import")
     public WebResponse<Integer> importCases(@PathVariable String id, @RequestBody List<KnowledgeRetrievalEvaluationCaseTransferVo> items) {
@@ -653,6 +679,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 执行评测集：冻结标注和结果，区分无效标注与检索异常。
      */
+    @ApiOperation("同步执行检索评测")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/run")
     public WebResponse<KnowledgeRetrievalEvaluationReport> runSet(@PathVariable String id) {
@@ -747,6 +774,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * 查询评测集历史运行记录，用于趋势图和运行对比。
      */
+    @ApiOperation("查询评测运行记录")
     @GetMapping("/sets/{id}/runs")
     public WebResponse<List<KnowledgeRetrievalEvaluationRun>> runs(@PathVariable String id) {
         return WebResponse.OK(runMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationRun.class).eq(KnowledgeRetrievalEvaluationRun::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationRun::getDeleted, false).orderByDesc(KnowledgeRetrievalEvaluationRun::getStartedAt)));
@@ -755,6 +783,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * Marks a completed run as the one baseline for this evaluation set.
      */
+    @ApiOperation("设置评测运行基线")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/runs/{runId}/baseline")
     public WebResponse<Void> setBaseline(@PathVariable String setId, @PathVariable String runId) {
@@ -770,6 +799,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * Returns the run history for trend charts without recomputing persisted metrics.
      */
+    @ApiOperation("查询评测指标趋势")
     @GetMapping("/sets/{setId}/trend")
     public WebResponse<List<KnowledgeRetrievalEvaluationRun>> trend(@PathVariable String setId) {
         return WebResponse.OK(runMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationRun.class).eq(KnowledgeRetrievalEvaluationRun::getEvaluationSetId, setId).eq(KnowledgeRetrievalEvaluationRun::getDeleted, false).in(KnowledgeRetrievalEvaluationRun::getStatus, "SUCCEEDED", "PARTIAL_FAILED", "FAILED", "CANCELLED").orderByAsc(KnowledgeRetrievalEvaluationRun::getStartedAt)));
@@ -778,6 +808,7 @@ public class KnowledgeRetrievalEvaluationController {
     /**
      * Compares aggregate metrics and every common evaluation case from two completed runs.
      */
+    @ApiOperation("对比两次评测运行")
     @GetMapping("/sets/{setId}/runs/compare")
     public WebResponse<KnowledgeRetrievalEvaluationComparisonVo> compareRuns(@PathVariable String setId, @RequestParam String baselineRunId, @RequestParam String candidateRunId) {
         KnowledgeRetrievalEvaluationRun baseline = requireRun(setId, baselineRunId), candidate = requireRun(setId, candidateRunId);
