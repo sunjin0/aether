@@ -136,7 +136,7 @@
 | 方法     | 路径                                      | 权限    | 说明       |
 |--------|-----------------------------------------|-------|----------|
 | POST   | `/api/agent/definition/list`            | 类     | Agent 列表 |
-| GET    | `/api/agent/definition/options`         | 免     | 下拉选项     |
+| GET    | `/api/agent/definition/options?applicationId={applicationId}` | 免 | 指定业务空间的 Agent 下拉选项 |
 | GET    | `/api/agent/definition/{id}`            | 类     | 详情       |
 | POST   | `/api/agent/definition`                 | Write | 新增       |
 | PUT    | `/api/agent/definition/{id}`            | Write | 编辑       |

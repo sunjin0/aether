@@ -95,14 +95,18 @@ public class AgentDefinitionController {
     }
 
     /**
-     * 查询启用的 Agent 下拉选项。
+     * 查询指定业务空间内启用的 Agent 下拉选项。
      * 该接口仅返回名称和 ID，供其它业务页面选择 Agent 使用。
      */
-    @ApiOperation("Agent下拉选项")
+    @ApiOperation("查询业务空间内启用的 Agent 下拉选项")
+    @ApiImplicitParam(name = "applicationId", value = "业务应用空间 ID；为空时查询平台默认空间")
     @Permission(required = false)
     @GetMapping("/options")
-    public WebResponse<List<Option>> options(@RequestParam(value = "status", required = false, defaultValue = "1") Integer status) {
+    public WebResponse<List<Option>> options(@RequestParam(required = false) String applicationId,
+                                             @RequestParam(value = "status", required = false, defaultValue = "1") Integer status) {
+        String scopedApplicationId = normalizeApplicationId(applicationId);
         List<Option> options = agentDefinitionService.list(Wrappers.lambdaQuery(AgentDefinition.class)
+                        .eq(AgentDefinition::getApplicationId, scopedApplicationId)
                         .eq(status != null, AgentDefinition::getStatus, status)
                         .eq(AgentDefinition::getDeleted, false)
                         .orderByAsc(AgentDefinition::getName))

@@ -69,7 +69,7 @@ V45 起，供应商页面同时管理模型目录。供应商只保存连接信�
 | 功能    | 方法     | 路径                                  |
 |-------|--------|-------------------------------------|
 | 列表查询  | POST   | `/api/agent/definition/list`        |
-| 下拉选项  | GET    | `/api/agent/definition/options`     |
+| 下拉选项  | GET    | `/api/agent/definition/options?applicationId={applicationId}`     |
 | 详情    | GET    | `/api/agent/definition/{id}`        |
 | 新增    | POST   | `/api/agent/definition`             |
 | 编辑    | PUT    | `/api/agent/definition/{id}`        |
