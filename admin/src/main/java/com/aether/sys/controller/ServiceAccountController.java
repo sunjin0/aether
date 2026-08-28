@@ -8,12 +8,10 @@ import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
 import com.aether.sys.dto.ServiceAccountCreateDto;
-import com.aether.sys.dto.ServiceAccountTokenDto;
 import com.aether.sys.dto.ServiceAccountUpdateDto;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
 import com.aether.sys.vo.ServiceAccountSecretVo;
-import com.aether.sys.vo.ServiceAccountTokenVo;
 import com.aether.sys.vo.ServiceAccountUsageItemVo;
 import com.aether.sys.vo.ServiceAccountUsageVo;
 import com.aether.sys.vo.ServiceAccountVo;
@@ -64,16 +62,6 @@ public class ServiceAccountController {
         this.agentDefinitionService = agentDefinitionService;
         this.workflowInstanceService = workflowInstanceService;
         this.workflowService = workflowService;
-    }
-
-    /**
-     * 令牌当前请求。
-     */
-    @ApiOperation("签发服务账号访问令牌")
-    @PostMapping("/api/auth/service-account/token")
-    public WebResponse<ServiceAccountTokenVo> token(@RequestBody ServiceAccountTokenDto dto, HttpServletResponse response) {
-        noStore(response);
-        return WebResponse.OK(I18nUtils.getMessage("service-account.token.issue.success"), serviceAccountService.issueToken(dto));
     }
 
     /**

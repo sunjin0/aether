@@ -27,19 +27,36 @@ FRONT_PORT=18082 docker compose up -d front
 
 ## 鉴权
 
-外部系统先通过服务账号的 `clientId/clientSecret` 换取访问令牌：
+该接口由 **Front 服务**提供，不经过 Admin 后台。外部系统通过服务账号的 `clientId/clientSecret` 换取访问令牌：
 
 ```http
 POST /api/auth/service-account/token
 Content-Type: application/json
 
 {
-  "clientId": "your-client-id",
-  "clientSecret": "your-client-secret"
+  "clientId": "sa_order_service",
+  "clientSecret": "创建或轮换时获取的明文密钥"
 }
 ```
 
-后续调用 `front` 接口时携带：
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `clientId` | 是 | 后台创建服务账号时生成或指定的客户端 ID。 |
+| `clientSecret` | 是 | 创建或轮换密钥时仅展示一次的明文密钥；不能放入 URL、浏览器或日志。 |
+
+成功响应的 `data`：
+
+```json
+{
+  "accessToken": "<encrypted-access-token>",
+  "tokenType": "Bearer",
+  "expiresIn": 900
+}
+```
+
+`expiresIn` 单位为秒。认证失败、账号被禁用或密钥已轮换时请求失败，不能重试旧令牌。
+
+后续调用 Front 业务接口时携带：
 
 ```http
 Authorization: Bearer <accessToken>
@@ -70,21 +87,7 @@ GET /api/business/agents
 Authorization: Bearer <accessToken>
 ```
 
-返回 `data`：
-
-```json
-[
-  {
-    "id": "agent-id",
-    "name": "合同审核 Agent",
-    "code": "contract-review",
-    "description": "审核合同风险点",
-    "executionMode": "DEEP"
-  }
-]
-```
-
-只返回当前服务账号已绑定且启用的 Agent。
+只返回当前服务账号被显式授权的已发布产品所关联、且仍启用的 Agent。
 
 ### 异步执行 Agent
 
@@ -220,20 +223,7 @@ GET /api/business/workflows
 Authorization: Bearer <accessToken>
 ```
 
-返回 `data`：
-
-```json
-[
-  {
-    "id": "workflow-id",
-    "name": "合同审批流程",
-    "description": "外部合同审批接入流程",
-    "publishedVersion": 3
-  }
-]
-```
-
-只返回当前服务账号已绑定且已发布启用的工作流。
+只返回当前服务账号被显式授权的已发布产品所关联、且仍处于已发布状态的工作流。
 
 ### 启动工作流
 
@@ -323,9 +313,6 @@ data: {"id":"workflow-instance-id","workflowName":"合同审批流程","status":
 TOKEN="your-access-token"
 FRONT_BASE_URL="http://localhost:18082"
 
-curl -H "Authorization: Bearer ${TOKEN}" \
-  "${FRONT_BASE_URL}/api/business/agents"
-
 curl -N \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
@@ -333,6 +320,4 @@ curl -N \
   -d '{"message":"请总结这条业务记录","idempotencyKey":"demo-001"}' \
   "${FRONT_BASE_URL}/api/business/agents/agent-id/stream"
 
-curl -H "Authorization: Bearer ${TOKEN}" \
-  "${FRONT_BASE_URL}/api/business/workflows"
 ```

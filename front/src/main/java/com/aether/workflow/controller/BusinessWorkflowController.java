@@ -4,27 +4,28 @@ import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
-import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
+import com.aether.sys.entity.ServiceAccount;
+import com.aether.agent.product.entity.AgentProductProfile;
+import com.aether.agent.product.service.AgentProductProfileService;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
-import com.aether.workflow.entity.AgentWorkflow;
 import com.aether.workflow.entity.AgentWorkflowInstance;
+import com.aether.workflow.entity.AgentWorkflow;
 import com.aether.workflow.runtime.WorkflowSseHub;
 import com.aether.workflow.service.AgentWorkflowExecutionService;
 import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.aether.workflow.vo.BusinessWorkflowOptionVo;
-import com.alibaba.fastjson2.JSON;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
+import java.util.List;
+import java.util.Collections;
 import java.util.stream.Collectors;
 
 /**
@@ -35,15 +36,18 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/business/workflows")
 public class BusinessWorkflowController {
     private final ServiceAccountService serviceAccountService;
+    private final AgentProductProfileService productProfileService;
     private final AgentWorkflowService workflowService;
     private final AgentWorkflowExecutionService executionService;
     private final WorkflowSseHub sseHub;
 
     public BusinessWorkflowController(ServiceAccountService serviceAccountService,
+                                      AgentProductProfileService productProfileService,
                                       AgentWorkflowService workflowService,
                                       AgentWorkflowExecutionService executionService,
                                       WorkflowSseHub sseHub) {
         this.serviceAccountService = serviceAccountService;
+        this.productProfileService = productProfileService;
         this.workflowService = workflowService;
         this.executionService = executionService;
         this.sseHub = sseHub;
@@ -52,7 +56,16 @@ public class BusinessWorkflowController {
     @ApiOperation("查询当前服务账号可启动工作流")
     @GetMapping
     public WebResponse<List<BusinessWorkflowOptionVo>> workflows() {
-        return WebResponse.OK(Collections.<BusinessWorkflowOptionVo>emptyList());
+        ServiceAccount account = currentAccount();
+        List<AgentProductProfile> products = allowedProducts(account);
+        if (products.isEmpty()) return WebResponse.OK(Collections.<BusinessWorkflowOptionVo>emptyList());
+        List<String> workflowIds = products.stream().map(AgentProductProfile::getWorkflowId)
+                .filter(StringUtils::isNotBlank).distinct().collect(Collectors.toList());
+        if (workflowIds.isEmpty()) return WebResponse.OK(Collections.<BusinessWorkflowOptionVo>emptyList());
+        List<AgentWorkflow> workflows = workflowService.list(Wrappers.lambdaQuery(AgentWorkflow.class)
+                .in(AgentWorkflow::getId, workflowIds).eq(AgentWorkflow::getApplicationId, account.getApplicationId())
+                .eq(AgentWorkflow::getStatus, 1).eq(AgentWorkflow::getDeleted, false).orderByAsc(AgentWorkflow::getName));
+        return WebResponse.OK(workflows.stream().map(this::toOption).collect(Collectors.toList()));
     }
 
     @ApiOperation("外部系统启动工作流")
@@ -79,33 +92,37 @@ public class BusinessWorkflowController {
         return emitter;
     }
 
-    private BusinessWorkflowOptionVo toOption(AgentWorkflow workflow) {
-        BusinessWorkflowOptionVo vo = new BusinessWorkflowOptionVo();
-        vo.setId(workflow.getId());
-        vo.setName(workflow.getName());
-        vo.setDescription(workflow.getDescription());
-        vo.setPublishedVersion(workflow.getPublishedVersion());
-        return vo;
-    }
-
-    private ServiceAccount currentAccount() {
-        ServiceAccount account = serviceAccountService.getById(currentServiceAccountId());
-        if (account == null || Boolean.TRUE.equals(account.getDeleted()))
-            throw new ServerException(404, I18nUtils.getMessage("service-account.not-found"));
-        return account;
-    }
-
-    private List<String> parseIds(String json) {
-        if (StringUtils.isBlank(json)) return Collections.emptyList();
-        return JSON.parseArray(json, String.class);
-    }
-
     private String currentServiceAccountId() {
         Map<String, String> user = CurrentUser.getUser();
         String serviceAccountId = user == null ? null : user.get("serviceAccountId");
         if (StringUtils.isBlank(serviceAccountId))
             throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
         return serviceAccountId;
+    }
+
+    private BusinessWorkflowOptionVo toOption(AgentWorkflow workflow) {
+        BusinessWorkflowOptionVo value = new BusinessWorkflowOptionVo();
+        value.setId(workflow.getId()); value.setName(workflow.getName()); value.setDescription(workflow.getDescription());
+        value.setPublishedVersion(workflow.getPublishedVersion()); return value;
+    }
+
+    private ServiceAccount currentAccount() {
+        ServiceAccount account = serviceAccountService.getById(currentServiceAccountId());
+        if (account == null || Boolean.TRUE.equals(account.getDeleted()))
+            throw new ServerException(404, I18nUtils.getMessage("service-account.not-found"));
+        if (!Boolean.TRUE.equals(account.getEnabled()))
+            throw new ServerException(403, I18nUtils.getMessage("service-account.disabled"));
+        return account;
+    }
+
+    private List<AgentProductProfile> allowedProducts(ServiceAccount account) {
+        if (StringUtils.isBlank(account.getAllowedProductIds())) return Collections.emptyList();
+        List<String> ids;
+        try { ids = com.alibaba.fastjson2.JSON.parseArray(account.getAllowedProductIds(), String.class); } catch (RuntimeException ex) { return Collections.emptyList(); }
+        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+        return productProfileService.list(Wrappers.lambdaQuery(AgentProductProfile.class).in(AgentProductProfile::getId, ids)
+                .eq(AgentProductProfile::getApplicationId, account.getApplicationId()).eq(AgentProductProfile::getProductType, "WORKFLOW")
+                .eq(AgentProductProfile::getStatus, 1).eq(AgentProductProfile::getDeleted, false));
     }
 
     private String currentPrincipalId() {

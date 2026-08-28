@@ -6,9 +6,12 @@ import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.AgentRunStep;
+import com.aether.agent.product.entity.AgentProductProfile;
+import com.aether.agent.product.service.AgentProductProfileService;
 import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.AgentConversationService;
+import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentRunService;
 import com.aether.agent.service.AgentRunStepService;
 import com.aether.agent.service.DeepAgentRunService;
@@ -36,7 +39,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -58,6 +60,8 @@ public class BusinessAgentController {
     private static final int RUN_STATUS_RUNNING = 4;
 
     private final ServiceAccountService serviceAccountService;
+    private final AgentProductProfileService productProfileService;
+    private final AgentDefinitionService agentDefinitionService;
     private final AgentChatService agentChatService;
     private final AgentRunService agentRunService;
     private final AgentRunStepService agentRunStepService;
@@ -66,6 +70,8 @@ public class BusinessAgentController {
     private final ThreadPoolTaskExecutor executor;
 
     public BusinessAgentController(ServiceAccountService serviceAccountService,
+                                   AgentProductProfileService productProfileService,
+                                   AgentDefinitionService agentDefinitionService,
                                    AgentChatService agentChatService,
                                    AgentRunService agentRunService,
                                    AgentRunStepService agentRunStepService,
@@ -73,6 +79,8 @@ public class BusinessAgentController {
                                    DeepAgentRunService deepAgentRunService,
                                    @Qualifier("asyncPoolTaskExecutor") ThreadPoolTaskExecutor executor) {
         this.serviceAccountService = serviceAccountService;
+        this.productProfileService = productProfileService;
+        this.agentDefinitionService = agentDefinitionService;
         this.agentChatService = agentChatService;
         this.agentRunService = agentRunService;
         this.agentRunStepService = agentRunStepService;
@@ -82,13 +90,22 @@ public class BusinessAgentController {
     }
 
     /**
-     * 查询当前服务账号可调用 Agent。
+     * 查询当前服务账号通过已发布产品获授权的 Agent。
      */
     @ApiOperation("查询当前服务账号可调用 Agent")
     @GetMapping
     public WebResponse<List<BusinessAgentOptionVo>> agents() {
         ServiceAccount account = currentAccount();
-        return WebResponse.OK(Collections.<BusinessAgentOptionVo>emptyList());
+        List<AgentProductProfile> products = allowedProducts(account, "AGENT");
+        if (products.isEmpty()) return WebResponse.OK(Collections.<BusinessAgentOptionVo>emptyList());
+        List<String> agentIds = products.stream().map(AgentProductProfile::getAgentDefinitionId)
+                .filter(StringUtils::isNotBlank).distinct().collect(Collectors.toList());
+        if (agentIds.isEmpty()) return WebResponse.OK(Collections.<BusinessAgentOptionVo>emptyList());
+        List<AgentDefinition> agents = agentDefinitionService.list(Wrappers.lambdaQuery(AgentDefinition.class)
+                .in(AgentDefinition::getId, agentIds).eq(AgentDefinition::getApplicationId, account.getApplicationId())
+                .eq(AgentDefinition::getStatus, 1).eq(AgentDefinition::getDeleted, false)
+                .orderByAsc(AgentDefinition::getName));
+        return WebResponse.OK(agents.stream().map(this::toOption).collect(Collectors.toList()));
     }
 
     /**
@@ -294,13 +311,10 @@ public class BusinessAgentController {
     }
 
     private BusinessAgentOptionVo toOption(AgentDefinition agent) {
-        BusinessAgentOptionVo vo = new BusinessAgentOptionVo();
-        vo.setId(agent.getId());
-        vo.setName(agent.getName());
-        vo.setCode(agent.getCode());
-        vo.setDescription(agent.getDescription());
-        vo.setExecutionMode(agent.getExecutionMode());
-        return vo;
+        BusinessAgentOptionVo value = new BusinessAgentOptionVo();
+        value.setId(agent.getId()); value.setName(agent.getName()); value.setCode(agent.getCode());
+        value.setDescription(agent.getDescription()); value.setExecutionMode(agent.getExecutionMode());
+        return value;
     }
 
     private int resolveStatus(AgentMessageVo message) {
@@ -333,16 +347,19 @@ public class BusinessAgentController {
         ServiceAccount account = serviceAccountService.getById(currentServiceAccountId());
         if (account == null || Boolean.TRUE.equals(account.getDeleted()))
             throw new ServerException(404, I18nUtils.getMessage("service-account.not-found"));
+        if (!Boolean.TRUE.equals(account.getEnabled()))
+            throw new ServerException(403, I18nUtils.getMessage("service-account.disabled"));
         return account;
     }
 
-    private List<String> parseIds(String json) {
-        if (StringUtils.isBlank(json)) return Collections.emptyList();
-        try {
-            return JSON.parseArray(json, String.class);
-        } catch (Exception ex) {
-            return new ArrayList<String>();
-        }
+    private List<AgentProductProfile> allowedProducts(ServiceAccount account, String type) {
+        if (StringUtils.isBlank(account.getAllowedProductIds())) return Collections.emptyList();
+        List<String> ids;
+        try { ids = JSON.parseArray(account.getAllowedProductIds(), String.class); } catch (RuntimeException ex) { return Collections.emptyList(); }
+        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+        return productProfileService.list(Wrappers.lambdaQuery(AgentProductProfile.class).in(AgentProductProfile::getId, ids)
+                .eq(AgentProductProfile::getApplicationId, account.getApplicationId()).eq(AgentProductProfile::getProductType, type)
+                .eq(AgentProductProfile::getStatus, 1).eq(AgentProductProfile::getDeleted, false));
     }
 
     private String currentPrincipalId() {
