@@ -59,6 +59,7 @@ import java.util.function.Supplier;
 @Permission(path = "/agent/chat")
 @RequestMapping("/api/agent/session")
 public class AgentSessionController {
+    private static final String SERVICE_ACCOUNT_PRINCIPAL_PREFIX = "sa:";
     private static final int IDEMPOTENCY_KEY_MAX_LENGTH = 128;
     private static final String IDEMPOTENCY_PROCESSING = "__PROCESSING__";
 
@@ -104,12 +105,7 @@ public class AgentSessionController {
     @ApiOperation("查询持续 Agent 会话详情")
     @GetMapping("/conversation/{conversationId}")
     public WebResponse<Map<String, Object>> detail(@PathVariable String conversationId) {
-        String userId = currentUserId();
-        AgentSession session = sessions.getOne(Wrappers.lambdaQuery(AgentSession.class)
-                .eq(AgentSession::getConversationId, conversationId)
-                .eq(AgentSession::getUserId, userId)
-                .eq(AgentSession::getDeleted, false));
-        if (session == null) throw new ServerException(404, "Agent Session 不存在");
+        AgentSession session = getReadableSessionByConversation(conversationId);
         List<AgentTask> sessionTasks = tasks.list(Wrappers.lambdaQuery(AgentTask.class)
                 .eq(AgentTask::getSessionId, session.getId()).eq(AgentTask::getDeleted, false)
                 .orderByDesc(AgentTask::getCreatedAt));
@@ -215,12 +211,7 @@ public class AgentSessionController {
     @ApiOperation("查询持续 Agent 会话时间线")
     @GetMapping("/conversation/{conversationId}/timeline")
     public WebResponse<Map<String, Object>> timeline(@PathVariable String conversationId) {
-        String userId = currentUserId();
-        AgentSession session = sessions.getOne(Wrappers.lambdaQuery(AgentSession.class)
-                .eq(AgentSession::getConversationId, conversationId)
-                .eq(AgentSession::getUserId, userId)
-                .eq(AgentSession::getDeleted, false));
-        if (session == null) throw new ServerException(404, "Agent Session 不存在");
+        AgentSession session = getReadableSessionByConversation(conversationId);
         List<AgentTask> sessionTasks = tasks.list(Wrappers.lambdaQuery(AgentTask.class)
                 .eq(AgentTask::getSessionId, session.getId()).eq(AgentTask::getDeleted, false)
                 .orderByAsc(AgentTask::getCreatedAt));
@@ -342,7 +333,7 @@ public class AgentSessionController {
     @ApiOperation("查询会话记忆")
     @GetMapping("/{sessionId}/memory")
     public WebResponse<List<AgentSessionMemory>> memories(@PathVariable String sessionId) {
-        requireOwnedSession(sessionId);
+        requireReadableSession(sessionId);
         return WebResponse.OK(sessionMemories.listInjectable(sessionId, 100));
     }
 
@@ -352,7 +343,7 @@ public class AgentSessionController {
     @ApiOperation("查询会话运行指标")
     @GetMapping("/{sessionId}/metrics")
     public WebResponse<Map<String, Object>> metrics(@PathVariable String sessionId) {
-        AgentSession session = requireOwnedSession(sessionId);
+        AgentSession session = requireReadableSession(sessionId);
         List<AgentTask> sessionTasks = tasks.list(Wrappers.lambdaQuery(AgentTask.class)
                 .eq(AgentTask::getSessionId, sessionId).eq(AgentTask::getDeleted, false));
         Map<String, Integer> byStatus = new LinkedHashMap<String, Integer>();
@@ -472,6 +463,43 @@ public class AgentSessionController {
             throw new ServerException(404, "Agent Session 不存在");
         }
         return session;
+    }
+
+    /**
+     * 后台可以审计服务账号发起的外部会话，但不能借此控制任务或修改记忆。
+     */
+    private AgentSession requireReadableSession(String sessionId) {
+        AgentSession session = sessions.getById(sessionId);
+        if (session == null || Boolean.TRUE.equals(session.getDeleted())
+                || (!currentUserId().equals(session.getUserId()) && !isExternalPrincipal(session.getUserId()))) {
+            throw new ServerException(404, "Agent Session 不存在");
+        }
+        return session;
+    }
+
+    /**
+     * 兼容在 Session 功能启用前已创建的外部会话：首次只读查看时补建空 Session。
+     */
+    private AgentSession getReadableSessionByConversation(String conversationId) {
+        AgentConversation conversation = conversations.getById(conversationId);
+        if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())
+                || (!currentUserId().equals(conversation.getUserId()) && !isExternalPrincipal(conversation.getUserId()))) {
+            throw new ServerException(404, "Agent Session 不存在");
+        }
+        AgentSession session = sessions.getOne(Wrappers.lambdaQuery(AgentSession.class)
+                .eq(AgentSession::getConversationId, conversationId)
+                .eq(AgentSession::getDeleted, false));
+        if (session == null && isExternalPrincipal(conversation.getUserId())) {
+            session = sessions.getOrCreate(conversation.getId(), conversation.getUserId(), conversation.getAgentDefinitionId());
+        }
+        if (session == null || (!currentUserId().equals(session.getUserId()) && !isExternalPrincipal(session.getUserId()))) {
+            throw new ServerException(404, "Agent Session 不存在");
+        }
+        return session;
+    }
+
+    private boolean isExternalPrincipal(String userId) {
+        return StringUtils.startsWith(userId, SERVICE_ACCOUNT_PRINCIPAL_PREFIX);
     }
 
     /**

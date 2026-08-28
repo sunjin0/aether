@@ -124,7 +124,7 @@ public class BusinessAgentController {
         serviceAccountService.assertAgentCallAllowed(serviceAccountId, agentId);
         AgentDefinition agent = agentChatService.getEnabledAgent(agentId);
         if ("DEEP".equals(agent.getExecutionMode())) {
-            AgentConversation conversation = resolveConversation(agent, principalId, dto.getConversationId());
+            AgentConversation conversation = resolveConversation(agent, principalId, serviceAccountId, dto.getConversationId());
             try {
                 String runId = deepAgentRunService.startBusinessRun(agent, principalId, conversation.getId(), dto.getMessage(),
                         StringUtils.isBlank(dto.getIdempotencyKey()) ? null : idempotencyMarker(dto.getIdempotencyKey()), null);
@@ -197,7 +197,7 @@ public class BusinessAgentController {
             emitter.onError(error -> callback.close());
             executor.execute(() -> {
                 try {
-                    AgentConversation conversation = resolveConversation(agent, principalId, dto.getConversationId());
+                    AgentConversation conversation = resolveConversation(agent, principalId, serviceAccountId, dto.getConversationId());
                     String runId = deepAgentRunService.startBusinessRun(agent, principalId, conversation.getId(), dto.getMessage(),
                             null, null);
                     JSONObject accepted = new JSONObject();
@@ -286,7 +286,8 @@ public class BusinessAgentController {
         return run;
     }
 
-    private AgentConversation resolveConversation(AgentDefinition agent, String principalId, String conversationId) {
+    private AgentConversation resolveConversation(AgentDefinition agent, String principalId, String serviceAccountId,
+                                                  String conversationId) {
         if (StringUtils.isNotBlank(conversationId)) {
             AgentConversation conversation = conversationService.getById(conversationId);
             if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())
@@ -296,8 +297,10 @@ public class BusinessAgentController {
             return conversation;
         }
         AgentConversation conversation = new AgentConversation();
+        conversation.setApplicationId(agent.getApplicationId());
         conversation.setUserId(principalId);
         conversation.setAgentDefinitionId(agent.getId());
+        conversation.setServiceAccountId(serviceAccountId);
         conversation.setTitle("外部业务调用");
         conversation.setMessageCount(0);
         conversation.setStatus(0);
