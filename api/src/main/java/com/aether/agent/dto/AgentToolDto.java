@@ -1,5 +1,6 @@
 package com.aether.agent.dto;
 
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 
@@ -7,6 +8,7 @@ import lombok.Data;
  * 工具 DTO
  */
 @Data
+@ApiModel("智能体工具创建或更新请求")
 public class AgentToolDto {
 
     @ApiModelProperty(value = "工具名称")
@@ -21,16 +23,16 @@ public class AgentToolDto {
     @ApiModelProperty(value = "系统图标库名称")
     private String icon;
 
-    @ApiModelProperty(value = "Tool business type, such as knowledge, ops, dev")
+    @ApiModelProperty(value = "工具业务类型，例如 knowledge、ops、dev")
     private String toolType;
 
     @ApiModelProperty(value = "MCP服务ID")
     private String mcpServerId;
 
-    @ApiModelProperty(value = "MCP tool name")
+    @ApiModelProperty(value = "MCP 工具名称")
     private String mcpToolName;
 
-    @ApiModelProperty(value = "MCP input schema JSON")
+    @ApiModelProperty(value = "MCP 输入架构 JSON")
     private String mcpInputSchema;
 
     @ApiModelProperty(value = "超时时间（毫秒）")

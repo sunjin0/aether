@@ -15,7 +15,10 @@ import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.vo.KnowledgeIndexJobQueryVo;
 import com.aether.permission.Permission;
 import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
 import io.swagger.annotations.ApiOperation;
+import lombok.Data;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.*;
@@ -55,7 +58,8 @@ public class KnowledgeIndexJobController {
      */
     @ApiOperation("查询知识库索引任务列表")
     @PostMapping("/list")
-    public WebResponse<List<KnowledgeIndexJob>> list(@RequestBody(required = false) KnowledgeIndexJobQueryVo query) {
+    public WebResponse<List<KnowledgeIndexJob>> list(@RequestBody(required = false) ListRequest request) {
+        KnowledgeIndexJobQueryVo query = request == null ? null : request.toQuery();
         if (query == null) query = new KnowledgeIndexJobQueryVo();
         List<String> readableIds = accessService.readableKnowledgeBaseIds();
         long current = query.getCurrent() == null || query.getCurrent() < 1 ? 1 : query.getCurrent();
@@ -101,5 +105,20 @@ public class KnowledgeIndexJobController {
             throw new ServerException(404, I18nUtils.getMessage("knowledge.document.version.not-found"));
         String retryJobId = indexService.queueReindex(document, version, KnowledgeJobType.RETRY);
         return WebResponse.OK(I18nUtils.getMessage("knowledge.index-job.retry.queued"), retryJobId);
+    }
+
+    @Data @ApiModel("索引任务列表请求")
+    public static class ListRequest {
+        @ApiModelProperty(value = "页码", example = "1") private Long current;
+        @ApiModelProperty(value = "每页数量", example = "20") private Long pageSize;
+        @ApiModelProperty(value = "任务类型", example = "REINDEX") private String jobType;
+        @ApiModelProperty(value = "知识库 ID", example = "kb-001") private String knowledgeBaseId;
+        @ApiModelProperty(value = "文档 ID", example = "doc-001") private String documentId;
+        @ApiModelProperty(value = "任务状态", example = "SUCCEEDED") private String status;
+        public KnowledgeIndexJobQueryVo toQuery() {
+            KnowledgeIndexJobQueryVo query = new KnowledgeIndexJobQueryVo();
+            query.setCurrent(current); query.setPageSize(pageSize); query.setJobType(jobType); query.setKnowledgeBaseId(knowledgeBaseId);
+            query.setDocumentId(documentId); query.setStatus(status); return query;
+        }
     }
 }

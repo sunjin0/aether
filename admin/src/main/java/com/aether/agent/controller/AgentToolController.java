@@ -1,6 +1,10 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentToolDto;
+import com.aether.agent.dto.AgentControllerRequests.ToolDefinitionRefresh;
+import com.aether.agent.dto.AgentControllerRequests.ToolList;
+import com.aether.agent.dto.AgentControllerRequests.ToolRoutingConfig;
+import com.aether.agent.dto.AgentControllerRequests.ToolTest;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
@@ -97,7 +101,7 @@ public class AgentToolController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<AgentToolVo>> list(@RequestBody AgentToolVo vo) {
+    public WebResponse<List<AgentToolVo>> list(@RequestBody ToolList vo) {
         Page<AgentTool> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<AgentTool> wrapper = Wrappers.lambdaQuery(AgentTool.class)
                 .like(StringUtils.isNotBlank(vo.getName()), AgentTool::getName, vo.getName())
@@ -176,8 +180,8 @@ public class AgentToolController {
     @ApiOperation("批量更新MCP工具定义")
     @Permission(path = "/agent/tool", type = Permission.Type.Write)
     @PostMapping("/batch-refresh-definition")
-    public WebResponse<Map<String, Integer>> batchRefreshDefinition(@RequestBody Map<String, List<String>> body) {
-        List<String> ids = body == null ? Collections.emptyList() : body.get("toolIds");
+    public WebResponse<Map<String, Integer>> batchRefreshDefinition(@RequestBody ToolDefinitionRefresh body) {
+        List<String> ids = body == null ? Collections.emptyList() : body.getToolIds();
         if (ids == null || ids.isEmpty()) {
             throw new ServerException(400, I18nUtils.getMessage("agent.tool.refresh-definition.unsupported"));
         }
@@ -403,7 +407,7 @@ public class AgentToolController {
     @Permission(path = "/agent/tool", type = Permission.Type.Write)
     @PostMapping("/{id}/test")
     public WebResponse<ToolExecutionResult> testTool(@PathVariable @NotBlank String id,
-                                                     @RequestBody Map<String, Object> params) {
+                                                      @RequestBody ToolTest params) {
         // 1. 获取工具配置
         AgentTool tool = agentToolService.getById(id);
         if (tool == null || Boolean.TRUE.equals(tool.getDeleted())) {
@@ -417,7 +421,7 @@ public class AgentToolController {
         // 2. 构建执行上下文
         ToolExecutionContext context = new ToolExecutionContext();
         context.setTool(tool);
-        context.setArguments(params);
+        context.setArguments(params == null ? Collections.emptyMap() : params.getParameters());
         context.setUserId("test");
         context.setRunId(null);
 
@@ -553,6 +557,12 @@ public class AgentToolController {
     /**
      * 构建ToolCallLog查询。
      */
+    private AgentToolCallLogVo buildToolCallLogQuery(ToolList vo) {
+        AgentToolCallLogVo query = new AgentToolCallLogVo();
+        query.setToolType(vo.getToolType());
+        return query;
+    }
+
     private AgentToolCallLogVo buildToolCallLogQuery(AgentToolVo vo) {
         AgentToolCallLogVo query = new AgentToolCallLogVo();
         query.setToolType(vo.getToolType());
@@ -594,9 +604,9 @@ public class AgentToolController {
      */
     @ApiOperation("更新工具路由配置")
     @PutMapping("/routing-config")
-    public WebResponse<Void> updateRoutingConfig(@RequestBody java.util.Map<String, Object> dto) {
-        String modelId = dto == null ? null : (String) dto.get("embeddingModelId");
-        Integer topK = dto == null ? null : (Integer) dto.get("topK");
+    public WebResponse<Void> updateRoutingConfig(@RequestBody ToolRoutingConfig dto) {
+        String modelId = dto == null ? null : dto.getEmbeddingModelId();
+        Integer topK = dto == null ? null : dto.getTopK();
         routingConfigService.update(modelId, topK);
         routingIndexService.reindexAllTools();
         return WebResponse.OK(I18nUtils.getMessage("agent.tool.routing.config.update.success"));

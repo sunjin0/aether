@@ -4,6 +4,7 @@ import com.aether.permission.Permission;
 import com.aether.entity.WebResponse;
 import com.aether.msg.entity.Email;
 import com.aether.msg.vo.EmailVo;
+import com.aether.msg.dto.EmailRequests;
 import com.aether.i18n.I18nUtils;
 import com.aether.msg.service.EmailMessageService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -15,6 +16,7 @@ import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.BeanUtils;
 
 import java.util.List;
 
@@ -45,7 +47,9 @@ public class EmailController {
             }
     )
     @PostMapping("/list")
-    public WebResponse<List<Email>> list(@RequestBody EmailVo email) throws ServiceException {
+    public WebResponse<List<Email>> list(@RequestBody EmailRequests.ListRequest request) throws ServiceException {
+        EmailVo email = new EmailVo();
+        BeanUtils.copyProperties(request, email);
         Page<Email> list = emailService.list(email);
         return WebResponse.Page(list.getRecords(), list.getTotal());
     }
@@ -77,7 +81,9 @@ public class EmailController {
             }
     )
     @PostMapping("/save")
-    public WebResponse<Boolean> save(@RequestBody Email message) throws ServiceException {
+    public WebResponse<Boolean> save(@RequestBody EmailRequests.SaveRequest request) throws ServiceException {
+        Email message = new Email();
+        BeanUtils.copyProperties(request, message);
         String id = message.getId();
         boolean save;
         if (StringUtils.isNotBlank(id)) {

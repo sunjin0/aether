@@ -10,12 +10,14 @@ import com.aether.sys.entity.Config;
 import com.aether.i18n.I18nUtils;
 import com.aether.validator.ValidEntity;
 import com.aether.sys.vo.ConfigVo;
+import com.aether.sys.dto.ConfigRequests;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.BeanUtils;
 
 import javax.validation.constraints.NotNull;
 
@@ -45,7 +47,9 @@ public class ConfigController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<ConfigVo>> list(@RequestBody ConfigVo config) {
+    public WebResponse<List<ConfigVo>> list(@RequestBody ConfigRequests.ListRequest request) {
+        ConfigVo config = new ConfigVo();
+        BeanUtils.copyProperties(request, config);
         Page<ConfigVo> list = configService.list(config);
         return WebResponse.Page(list.getRecords(), list.getTotal());
     }
@@ -98,7 +102,9 @@ public class ConfigController {
     @PostMapping("/add")
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"code", "name"})
-                                     Config config) {
+                                      ConfigRequests.SaveRequest request) {
+        Config config = new Config();
+        BeanUtils.copyProperties(request, config);
         boolean save = configService.create(config);
         return WebResponse.OK(I18nUtils.getMessage(save ? "system.config.create.success" : "system.config.create.fail"), save);
     }
@@ -114,7 +120,9 @@ public class ConfigController {
     @PostMapping("/update")
     public WebResponse<Boolean> update(@RequestBody
                                        @ValidEntity(fieldNames = {"code", "name"})
-                                       Config config) {
+                                        ConfigRequests.UpdateRequest request) {
+        Config config = new Config();
+        BeanUtils.copyProperties(request, config);
         boolean update = configService.update(config);
         return WebResponse.OK(I18nUtils.getMessage(update ? "system.config.update.success" : "system.config.update.fail"), update);
     }

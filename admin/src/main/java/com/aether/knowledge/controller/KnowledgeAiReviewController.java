@@ -24,7 +24,10 @@ import com.aether.knowledge.model.KnowledgeAiReviewIssueStatus;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.permission.Permission;
 import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
 import io.swagger.annotations.ApiOperation;
+import lombok.Data;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
@@ -189,7 +192,8 @@ public class KnowledgeAiReviewController {
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<KnowledgeAiReviewIssueAcceptResultVo> acceptIssue(@PathVariable String reviewId,
                                                                          @PathVariable String issueId,
-                                                                         @RequestBody KnowledgeAiReviewIssueAcceptVo vo) {
+                                                                          @RequestBody AcceptIssueRequest request) {
+        KnowledgeAiReviewIssueAcceptVo vo = request.toVo();
         KnowledgeAiReview review = requireReview(reviewId);
         if (!KnowledgeAiReviewStatus.SUCCESS.equals(review.getStatus())) {
             throw new ServerException(409, I18nUtils.getMessage("knowledge.ai-review.suggestions.not-ready"));
@@ -245,7 +249,8 @@ public class KnowledgeAiReviewController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> unacceptIssue(@PathVariable String reviewId,
                                            @PathVariable String issueId,
-                                           @RequestBody(required = false) KnowledgeAiReviewIssueHandleVo vo) {
+                                            @RequestBody(required = false) UnacceptIssueRequest request) {
+        KnowledgeAiReviewIssueHandleVo vo = request == null ? null : request.toVo();
         KnowledgeAiReview review = requireReview(reviewId);
         KnowledgeAiReviewIssue issue = requireIssue(issueId, reviewId);
         accessService.requireWritable(review.getKnowledgeBaseId());
@@ -280,7 +285,8 @@ public class KnowledgeAiReviewController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> rejectIssue(@PathVariable String reviewId,
                                          @PathVariable String issueId,
-                                         @RequestBody(required = false) KnowledgeAiReviewIssueHandleVo vo) {
+                                          @RequestBody(required = false) RejectIssueRequest request) {
+        KnowledgeAiReviewIssueHandleVo vo = request == null ? null : request.toVo();
         KnowledgeAiReview review = requireReview(reviewId);
         KnowledgeAiReviewIssue issue = requireIssue(issueId, reviewId);
         accessService.requireWritable(review.getKnowledgeBaseId());
@@ -307,7 +313,8 @@ public class KnowledgeAiReviewController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<KnowledgeAiReviewIssueAcceptResultVo> acceptIssues(@PathVariable String reviewId,
-                                                                          @RequestBody KnowledgeAiReviewIssueBatchAcceptVo vo) {
+                                                                           @RequestBody BatchAcceptIssuesRequest request) {
+        KnowledgeAiReviewIssueBatchAcceptVo vo = request.toVo();
         if (vo.getIssueIds() == null || vo.getIssueIds().isEmpty()) {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.issue.required"));
         }
@@ -379,7 +386,8 @@ public class KnowledgeAiReviewController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<KnowledgeAiReviewIssueAcceptResultVo> applyAcceptedIssues(@PathVariable String reviewId,
-                                                                                 @RequestBody KnowledgeAiReviewIssueAcceptVo vo) {
+                                                                                  @RequestBody ApplyAcceptedIssuesRequest request) {
+        KnowledgeAiReviewIssueAcceptVo vo = request.toVo();
         if (StringUtils.isBlank(vo.getExpectedChecksum())) {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.ai-review.draft-checksum.required"));
         }
@@ -434,7 +442,8 @@ public class KnowledgeAiReviewController {
     @PutMapping("/issue/{issueId}/handle")
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     public WebResponse<Void> handleIssue(@PathVariable String issueId,
-                                         @RequestBody KnowledgeAiReviewIssueHandleVo vo) {
+                                          @RequestBody HandleIssueRequest request) {
+        KnowledgeAiReviewIssueHandleVo vo = request.toVo();
         KnowledgeAiReviewIssue issue = issueService.getById(issueId);
         if (issue == null || Boolean.TRUE.equals(issue.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("knowledge.ai-review.issue.not-found"));
@@ -474,6 +483,40 @@ public class KnowledgeAiReviewController {
             throw new ServerException(404, I18nUtils.getMessage("knowledge.ai-review.issue.not-found"));
         }
         return issue;
+    }
+
+    @Data public static class AcceptRequest {
+        @ApiModelProperty(value = "草稿内容校验和", required = true, example = "a1b2c3d4") private String expectedChecksum;
+        @ApiModelProperty(value = "人工替换内容", example = "修订后的段落") private String replacement;
+        @ApiModelProperty(value = "处理备注", example = "采用并调整措辞") private String comment;
+        KnowledgeAiReviewIssueAcceptVo toVo() {
+            KnowledgeAiReviewIssueAcceptVo vo = new KnowledgeAiReviewIssueAcceptVo();
+            vo.setExpectedChecksum(expectedChecksum); vo.setReplacement(replacement); vo.setComment(comment); return vo;
+        }
+    }
+    @Data @ApiModel("接受 AI 审核建议请求") public static class AcceptIssueRequest extends AcceptRequest { }
+    @Data @ApiModel("应用已接受 AI 审核建议请求") public static class ApplyAcceptedIssuesRequest extends AcceptRequest { }
+    @Data @ApiModel("撤销接受 AI 审核建议请求") public static class UnacceptIssueRequest {
+        @ApiModelProperty(value = "处理备注", example = "撤销此前的采用决定") private String comment;
+        KnowledgeAiReviewIssueHandleVo toVo() { KnowledgeAiReviewIssueHandleVo vo = new KnowledgeAiReviewIssueHandleVo(); vo.setComment(comment); return vo; }
+    }
+    @Data @ApiModel("拒绝 AI 审核建议请求") public static class RejectIssueRequest {
+        @ApiModelProperty(value = "处理备注", example = "该建议不适用") private String comment;
+        KnowledgeAiReviewIssueHandleVo toVo() { KnowledgeAiReviewIssueHandleVo vo = new KnowledgeAiReviewIssueHandleVo(); vo.setComment(comment); return vo; }
+    }
+    @Data @ApiModel("人工处理 AI 审核问题请求") public static class HandleIssueRequest {
+        @ApiModelProperty(value = "处理状态", required = true, example = "rejected") private String status;
+        @ApiModelProperty(value = "处理备注", example = "该建议不适用") private String comment;
+        KnowledgeAiReviewIssueHandleVo toVo() { KnowledgeAiReviewIssueHandleVo vo = new KnowledgeAiReviewIssueHandleVo(); vo.setStatus(status); vo.setComment(comment); return vo; }
+    }
+    @Data @ApiModel("批量接受 AI 审核建议请求") public static class BatchAcceptIssuesRequest {
+        @ApiModelProperty(value = "问题 ID 列表", required = true, example = "[\"issue-001\",\"issue-002\"]") private List<String> issueIds;
+        @ApiModelProperty(value = "草稿内容校验和", required = true, example = "a1b2c3d4") private String expectedChecksum;
+        @ApiModelProperty(value = "处理备注", example = "批量采用非关键建议") private String comment;
+        KnowledgeAiReviewIssueBatchAcceptVo toVo() {
+            KnowledgeAiReviewIssueBatchAcceptVo vo = new KnowledgeAiReviewIssueBatchAcceptVo();
+            vo.setIssueIds(issueIds); vo.setExpectedChecksum(expectedChecksum); vo.setComment(comment); return vo;
+        }
     }
 
     /**

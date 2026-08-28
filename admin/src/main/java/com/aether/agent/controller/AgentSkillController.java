@@ -4,6 +4,8 @@ import com.aether.agent.skill.dto.AgentSkillDraftDto;
 import com.aether.agent.skill.dto.SkillRoutingConfigDto;
 import com.aether.agent.skill.dto.AgentSkillPreviewDto;
 import com.aether.agent.skill.dto.AgentSkillResourceGenerateDto;
+import com.aether.agent.dto.AgentControllerRequests.SkillList;
+import com.aether.agent.dto.AgentControllerRequests.Status;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillResource;
 import com.aether.agent.skill.entity.AgentSkillVersion;
@@ -89,7 +91,7 @@ public class AgentSkillController {
      */
     @ApiOperation("分页查询 Skill")
     @PostMapping("/list")
-    public WebResponse<List<AgentSkillVo>> list(@RequestBody AgentSkillVo query) {
+    public WebResponse<List<AgentSkillVo>> list(@RequestBody SkillList query) {
         Page<AgentSkill> page = skillService.page(new Page<>(query.getCurrent(), query.getPageSize()), Wrappers.lambdaQuery(AgentSkill.class)
                 .like(StringUtils.isNotBlank(query.getName()), AgentSkill::getName, query.getName())
                 .like(StringUtils.isNotBlank(query.getCode()), AgentSkill::getCode, query.getCode())
@@ -213,7 +215,7 @@ public class AgentSkillController {
     @ApiOperation("更新 Skill 启用状态")
     @PutMapping("/{id}/status")
     @Permission(path = "/agent/skill", type = Permission.Type.Write)
-    public WebResponse<Void> status(@PathVariable @NotBlank String id, @RequestBody AgentSkillVo dto) {
+    public WebResponse<Void> status(@PathVariable @NotBlank String id, @RequestBody Status dto) {
         AgentSkill skill = skillService.getById(id);
         if (skill == null) throw new IllegalArgumentException(I18nUtils.getMessage("skill.not-found"));
         skill.setStatus(dto.getStatus());

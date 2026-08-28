@@ -9,6 +9,7 @@ import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
 import com.aether.sys.dto.ServiceAccountCreateDto;
 import com.aether.sys.dto.ServiceAccountUpdateDto;
+import com.aether.sys.dto.ServiceAccountListRequest;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
 import com.aether.sys.vo.ServiceAccountSecretVo;
@@ -70,7 +71,7 @@ public class ServiceAccountController {
     @ApiOperation("服务账号列表")
     @Permission(path = "/service-account/manage")
     @PostMapping("/api/sys/service-account/list")
-    public WebResponse<List<ServiceAccountVo>> list(@RequestBody(required = false) ServiceAccountVo query) {
+    public WebResponse<List<ServiceAccountVo>> list(@RequestBody(required = false) ServiceAccountListRequest query) {
         long current = query == null || query.getCurrent() == null ? 1L : query.getCurrent();
         long pageSize = query == null || query.getPageSize() == null ? 20L : Math.min(query.getPageSize(), 100L);
         Page<ServiceAccount> page = serviceAccountService.page(new Page<ServiceAccount>(current, pageSize),

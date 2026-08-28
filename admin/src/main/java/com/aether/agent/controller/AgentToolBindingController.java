@@ -1,6 +1,8 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentToolBindingDto;
+import com.aether.agent.dto.AgentControllerRequests.AvailableToolList;
+import com.aether.agent.dto.AgentControllerRequests.ToolBindingList;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.AgentToolBinding;
 import com.aether.agent.entity.AgentMcpServer;
@@ -71,8 +73,8 @@ public class AgentToolBindingController {
     @ApiOperation("分页查询Agent工具绑定")
     @PostMapping("/{agentId}/tools/list")
     public WebResponse<List<AgentToolBindingVo>> list(@PathVariable @NotBlank String agentId,
-                                                       @RequestBody(required = false) AgentToolBindingVo query) {
-        AgentToolBindingVo request = query == null ? new AgentToolBindingVo() : query;
+                                                        @RequestBody(required = false) ToolBindingList query) {
+        ToolBindingList request = query == null ? new ToolBindingList() : query;
         long current = request.getCurrent() == null ? 1L : request.getCurrent();
         long pageSize = request.getPageSize() == null ? 12L : request.getPageSize();
         List<String> matchingToolIds = new ArrayList<>();
@@ -120,7 +122,7 @@ public class AgentToolBindingController {
 
     @ApiOperation("查询 Agent 可绑定工具")
     @PostMapping("/{agentId}/tools/available")
-    public WebResponse<List<AgentToolVo>> available(@PathVariable @NotBlank String agentId, @RequestBody AgentToolVo query) {
+    public WebResponse<List<AgentToolVo>> available(@PathVariable @NotBlank String agentId, @RequestBody AvailableToolList query) {
         long current = query.getCurrent() == null ? 1L : query.getCurrent();
         long pageSize = query.getPageSize() == null ? 12L : query.getPageSize();
         List<String> boundIds = agentToolBindingService.list(Wrappers.lambdaQuery(AgentToolBinding.class)

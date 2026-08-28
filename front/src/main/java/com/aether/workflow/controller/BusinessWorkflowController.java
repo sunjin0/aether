@@ -9,6 +9,7 @@ import com.aether.sys.entity.ServiceAccount;
 import com.aether.agent.product.entity.AgentProductProfile;
 import com.aether.agent.product.service.AgentProductProfileService;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
+import com.aether.workflow.dto.BusinessWorkflowStartInstanceRequest;
 import com.aether.workflow.entity.AgentWorkflowInstance;
 import com.aether.workflow.entity.AgentWorkflow;
 import com.aether.workflow.runtime.WorkflowSseHub;
@@ -27,6 +28,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.Collections;
 import java.util.stream.Collectors;
+import org.springframework.beans.BeanUtils;
 
 /**
  * 外部系统通过服务账号启动和查看工作流。
@@ -70,10 +72,10 @@ public class BusinessWorkflowController {
 
     @ApiOperation("外部系统启动工作流")
     @PostMapping("/{workflowId}/instances")
-    public WebResponse<String> start(@PathVariable String workflowId, @RequestBody AgentWorkflowBusinessStartDto dto) {
+    public WebResponse<String> start(@PathVariable String workflowId, @RequestBody BusinessWorkflowStartInstanceRequest request) {
         String serviceAccountId = currentServiceAccountId();
         serviceAccountService.assertWorkflowStartAllowed(serviceAccountId, workflowId);
-        AgentWorkflowInstance instance = executionService.startBusiness(workflowId, dto, currentPrincipalId());
+        AgentWorkflowInstance instance = executionService.startBusiness(workflowId, toBusinessStartDto(request), currentPrincipalId());
         return WebResponse.OK(instance.getId());
     }
 
@@ -98,6 +100,13 @@ public class BusinessWorkflowController {
         if (StringUtils.isBlank(serviceAccountId))
             throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
         return serviceAccountId;
+    }
+
+    private AgentWorkflowBusinessStartDto toBusinessStartDto(BusinessWorkflowStartInstanceRequest request) {
+        if (request == null) return null;
+        AgentWorkflowBusinessStartDto dto = new AgentWorkflowBusinessStartDto();
+        BeanUtils.copyProperties(request, dto);
+        return dto;
     }
 
     private BusinessWorkflowOptionVo toOption(AgentWorkflow workflow) {

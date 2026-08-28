@@ -5,6 +5,9 @@ import com.aether.agent.entity.AgentKnowledgeBaseBinding;
 import com.aether.agent.service.AgentKnowledgeBaseBindingService;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.agent.vo.AgentKnowledgeBaseBindingVo;
+import com.aether.agent.dto.AgentControllerRequests.KnowledgeBindingCreate;
+import com.aether.agent.dto.AgentControllerRequests.KnowledgeBindingList;
+import com.aether.agent.dto.AgentControllerRequests.Status;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -51,7 +54,7 @@ public class AgentKnowledgeBaseBindingController {
      */
     @ApiOperation("查询 Agent 知识库绑定列表")
     @PostMapping("/list")
-    public WebResponse<List<AgentKnowledgeBaseBindingVo>> list(@RequestBody AgentKnowledgeBaseBindingVo vo) {
+    public WebResponse<List<AgentKnowledgeBaseBindingVo>> list(@RequestBody KnowledgeBindingList vo) {
         Long current = vo.getCurrent();
         Long pageSize = vo.getPageSize();
         if (current == null || pageSize == null) {
@@ -94,7 +97,7 @@ public class AgentKnowledgeBaseBindingController {
     @ApiOperation("创建 Agent 知识库绑定")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @PostMapping
-    public WebResponse<String> save(@RequestBody AgentKnowledgeBaseBindingVo vo) {
+    public WebResponse<String> save(@RequestBody KnowledgeBindingCreate vo) {
         if (StringUtils.isBlank(vo.getAgentDefinitionId()) || StringUtils.isBlank(vo.getKnowledgeBaseId())) {
             throw new ServerException(400, I18nUtils.getMessage("agent.knowledge.binding.required"));
         }
@@ -121,7 +124,7 @@ public class AgentKnowledgeBaseBindingController {
     @ApiOperation("更新 Agent 知识库绑定状态")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
-    public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody AgentKnowledgeBaseBindingVo vo) {
+    public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody Status vo) {
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setId(id);
         binding.setStatus(vo.getStatus());

@@ -13,6 +13,7 @@ import com.aether.sys.entity.RoleResource;
 import com.aether.i18n.I18nUtils;
 import com.aether.validator.ValidEntity;
 import com.aether.sys.vo.RoleResourceVo;
+import com.aether.sys.dto.RoleResourceSaveRequest;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
@@ -71,7 +72,10 @@ public class RoleResourceController {
     @PostMapping("/save")
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"resourceIds", "roleId"})
-                                     RoleResourceVo roleResourceVo) {
+                                      RoleResourceSaveRequest request) {
+        RoleResourceVo roleResourceVo = new RoleResourceVo();
+        roleResourceVo.setRoleId(request.getRoleId());
+        roleResourceVo.setResourceIds(request.getResourceIds());
         List<RoleResource> roleResourceList = roleResourceVo.getResourceIds().stream().map(resourceId -> {
             // 删除角色资源
             if (roleResourceVo.getRoleId() != null) {

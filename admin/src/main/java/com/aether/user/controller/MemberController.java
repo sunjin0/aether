@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aether.user.vo.MemberVo;
+import com.aether.user.dto.MemberRequests;
 import com.aether.user.entity.Member;
 import com.aether.entity.WebResponse;
 import com.aether.user.service.MemberService;
@@ -11,6 +12,7 @@ import com.aether.permission.Permission;
 import com.aether.i18n.I18nUtils;
 import org.springframework.web.bind.annotation.*;
 import io.swagger.annotations.*;
+import org.springframework.beans.BeanUtils;
 
 import java.util.List;
 
@@ -38,7 +40,9 @@ public class MemberController {
     @ApiOperation("查询所有")
     @Permission(path = "/user/member")
     @PostMapping("/list")
-    public WebResponse<List<Member>> list(@RequestBody MemberVo entity) {
+    public WebResponse<List<Member>> list(@RequestBody MemberRequests.ListRequest request) {
+        MemberVo entity = new MemberVo();
+        BeanUtils.copyProperties(request, entity);
         Page<Member> page = new Page<>(entity.getCurrent(), entity.getPageSize());
         LambdaQueryWrapper<Member> wrapper = Wrappers.lambdaQuery(Member.class);
         Page<Member> MemberPage = memberService.page(page, wrapper);
@@ -51,7 +55,9 @@ public class MemberController {
     @ApiOperation("新增")
     @Permission(path = "/user/member", type = Permission.Type.Write)
     @PostMapping("/add")
-    public WebResponse<Boolean> add(@RequestBody Member entity) {
+    public WebResponse<Boolean> add(@RequestBody MemberRequests.SaveRequest request) {
+        Member entity = new Member();
+        BeanUtils.copyProperties(request, entity);
         Boolean save = memberService.save(entity);
         return WebResponse.OK(I18nUtils.getMessage(save ? "member.create.success" : "member.create.fail"), save);
     }
@@ -62,7 +68,9 @@ public class MemberController {
     @ApiOperation("修改")
     @Permission(path = "/user/member", type = Permission.Type.Write)
     @PostMapping("/update")
-    public WebResponse<Boolean> update(@RequestBody Member entity) {
+    public WebResponse<Boolean> update(@RequestBody MemberRequests.SaveRequest request) {
+        Member entity = new Member();
+        BeanUtils.copyProperties(request, entity);
         Boolean update = memberService.updateById(entity);
         return WebResponse.OK(I18nUtils.getMessage(update ? "member.update.success" : "member.update.fail"), update);
     }

@@ -3,6 +3,7 @@ package com.aether.agent.controller;
 import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.vo.AgentToolCallLogVo;
+import com.aether.agent.dto.AgentControllerRequests.ToolCallLogList;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -52,7 +53,7 @@ public class AgentToolCallLogController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<AgentToolCallLogVo>> list(@RequestBody AgentToolCallLogVo vo) {
+    public WebResponse<List<AgentToolCallLogVo>> list(@RequestBody ToolCallLogList vo) {
         Page<AgentToolCallLog> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<AgentToolCallLog> wrapper = Wrappers.lambdaQuery(AgentToolCallLog.class)
                 .eq(StringUtils.isNotBlank(vo.getRunId()), AgentToolCallLog::getRunId, vo.getRunId())

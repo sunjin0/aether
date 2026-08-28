@@ -2,6 +2,9 @@ package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentChatDto;
 import com.aether.agent.dto.BusinessAgentRunCreateDto;
+import com.aether.agent.dto.AgentControllerRequests.BusinessChat;
+import com.aether.agent.dto.AgentControllerRequests.BusinessRun;
+import com.aether.agent.dto.AgentControllerRequests.BusinessStream;
 import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentRun;
@@ -114,7 +117,8 @@ public class BusinessAgentController {
     @ApiOperation("外部系统异步提交 Agent 运行")
     @PostMapping("/{agentId}/runs")
     public WebResponse<BusinessAgentRunVo> run(@PathVariable String agentId,
-                                               @RequestBody BusinessAgentRunCreateDto dto) {
+                                                  @RequestBody BusinessRun request) {
+        BusinessAgentRunCreateDto dto = request(request);
         String serviceAccountId = currentServiceAccountId();
         String principalId = currentPrincipalId();
         if (dto == null || StringUtils.isBlank(dto.getMessage()))
@@ -153,7 +157,8 @@ public class BusinessAgentController {
     @ApiOperation(value = "同步调用标准 Agent", notes = "仅支持 STANDARD Agent。Deep Agent 请调用 /{agentId}/runs 异步接口；重复使用同一 idempotencyKey 会返回已有运行结果。")
     @PostMapping("/{agentId}/chat")
     public WebResponse<BusinessAgentRunVo> chat(@PathVariable String agentId,
-                                                @RequestBody BusinessAgentRunCreateDto dto) {
+                                                 @RequestBody BusinessChat request) {
+        BusinessAgentRunCreateDto dto = request(request);
         String serviceAccountId = currentServiceAccountId();
         String principalId = currentPrincipalId();
         if (dto == null || StringUtils.isBlank(dto.getMessage()))
@@ -182,7 +187,8 @@ public class BusinessAgentController {
     @ApiOperation("外部系统流式调用 Agent")
     @PostMapping(value = "/{agentId}/stream", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(@PathVariable String agentId, @RequestBody BusinessAgentRunCreateDto dto) {
+    public SseEmitter stream(@PathVariable String agentId, @RequestBody BusinessStream request) {
+        BusinessAgentRunCreateDto dto = request(request);
         String serviceAccountId = currentServiceAccountId();
         String principalId = currentPrincipalId();
         if (dto == null || StringUtils.isBlank(dto.getMessage()))
@@ -239,6 +245,24 @@ public class BusinessAgentController {
         if (!StringUtils.equals(run.getUserId(), currentPrincipalId()))
             throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
         return WebResponse.OK(toVo(run));
+    }
+
+    private BusinessAgentRunCreateDto request(BusinessRun request) {
+        return copyRequest(request);
+    }
+
+    private BusinessAgentRunCreateDto request(BusinessChat request) {
+        return copyRequest(request);
+    }
+
+    private BusinessAgentRunCreateDto request(BusinessStream request) {
+        return copyRequest(request);
+    }
+
+    private BusinessAgentRunCreateDto copyRequest(Object request) {
+        BusinessAgentRunCreateDto dto = new BusinessAgentRunCreateDto();
+        if (request != null) org.springframework.beans.BeanUtils.copyProperties(request, dto);
+        return dto;
     }
 
     private void executeStandardRun(String businessRunId, String agentId, String principalId,

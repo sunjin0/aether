@@ -10,6 +10,7 @@ import com.aether.sys.entity.AdminPreferenceEvent;
 import com.aether.sys.service.AdminPreferenceEventService;
 import com.aether.sys.service.AdminPreferenceService;
 import com.aether.sys.vo.AdminPreferenceVo;
+import com.aether.sys.dto.AdminPreferenceRequests;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -55,7 +56,7 @@ public class AdminPreferenceController {
      */
     @ApiOperation("用户偏好列表")
     @PostMapping("/list")
-    public WebResponse<List<AdminPreferenceVo>> list(@RequestBody AdminPreferenceVo vo) {
+    public WebResponse<List<AdminPreferenceVo>> list(@RequestBody AdminPreferenceRequests.ListRequest vo) {
         Page<AdminPreference> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<AdminPreference> wrapper = Wrappers.lambdaQuery(AdminPreference.class)
                 .eq(AdminPreference::getAdminId, currentAdminId())
@@ -92,7 +93,7 @@ public class AdminPreferenceController {
     @ApiOperation("新增用户偏好")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PostMapping
-    public WebResponse<String> save(@RequestBody AdminPreferenceVo vo) {
+    public WebResponse<String> save(@RequestBody AdminPreferenceRequests.SaveRequest vo) {
         AdminPreference preference = new AdminPreference();
         BeanUtils.copyProperties(vo, preference);
         preference.setAdminId(currentAdminId());
@@ -124,7 +125,7 @@ public class AdminPreferenceController {
     @ApiOperation("编辑用户偏好")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PutMapping("/{id}")
-    public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody AdminPreferenceVo vo) {
+    public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody AdminPreferenceRequests.SaveRequest vo) {
         getExisting(id);
         AdminPreference preference = new AdminPreference();
         BeanUtils.copyProperties(vo, preference);
@@ -152,7 +153,7 @@ public class AdminPreferenceController {
     @ApiOperation("启用/禁用用户偏好")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
-    public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody AdminPreferenceVo vo) {
+    public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody AdminPreferenceRequests.StatusRequest vo) {
         getExisting(id);
         AdminPreference preference = new AdminPreference();
         preference.setId(id);
@@ -200,7 +201,7 @@ public class AdminPreferenceController {
     @ApiOperation("覆盖偏好值")
     @Permission(path = "/sys/preference", type = Permission.Type.Write)
     @PutMapping("/{id}/override")
-    public WebResponse<Void> override(@PathVariable @NotBlank String id, @RequestBody AdminPreferenceVo vo) {
+    public WebResponse<Void> override(@PathVariable @NotBlank String id, @RequestBody AdminPreferenceRequests.OverrideRequest vo) {
         AdminPreference preference = getExisting(id);
         String oldValue = preference.getValue();
         preference.setValue(vo.getValue());

@@ -10,6 +10,8 @@ import com.aether.agent.entity.AgentSessionMemory;
 import com.aether.agent.entity.AgentToolCallLog;
 import com.aether.agent.dto.SessionMemoryCorrectionDto;
 import com.aether.agent.dto.SessionMemoryFeedbackDto;
+import com.aether.agent.dto.AgentControllerRequests.ConversationList;
+import com.aether.agent.dto.AgentControllerRequests.ToolApprovalPolicy;
 import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
@@ -153,7 +155,7 @@ public class AgentConversationController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<AgentConversationVo>> list(@RequestBody AgentConversationVo vo) {
+    public WebResponse<List<AgentConversationVo>> list(@RequestBody ConversationList vo) {
         Page<AgentConversation> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<AgentConversation> wrapper = Wrappers.lambdaQuery(AgentConversation.class)
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentConversation::getAgentDefinitionId, vo.getAgentDefinitionId())
@@ -465,9 +467,9 @@ public class AgentConversationController {
     @Permission(path = "/agent/conversation", type = Permission.Type.Write)
     @PutMapping("/{id}/tool-approval-policy")
     public WebResponse<Void> updateToolApprovalPolicy(@PathVariable @NotBlank String id,
-                                                      @RequestBody Map<String, String> body) {
+                                                       @RequestBody ToolApprovalPolicy body) {
         AgentConversation conversation = getOwnedConversation(id);
-        String policy = body == null ? null : body.get("toolApprovalPolicy");
+        String policy = body == null ? null : body.getToolApprovalPolicy();
         if (!"ask".equals(policy) && !"risky".equals(policy) && !"never".equals(policy)) {
             throw new ServerException(422, "不支持的工具确认策略");
         }

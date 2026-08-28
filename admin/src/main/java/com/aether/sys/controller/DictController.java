@@ -11,12 +11,14 @@ import com.aether.sys.entity.Dict;
 import com.aether.i18n.I18nUtils;
 import com.aether.validator.ValidEntity;
 import com.aether.sys.vo.DictVo;
+import com.aether.sys.dto.DictRequests;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.BeanUtils;
 
 import javax.annotation.Nullable;
 import javax.validation.constraints.NotNull;
@@ -48,7 +50,9 @@ public class DictController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<DictVo>> list(@RequestBody DictVo dict) {
+    public WebResponse<List<DictVo>> list(@RequestBody DictRequests.ListRequest request) {
+        DictVo dict = new DictVo();
+        BeanUtils.copyProperties(request, dict);
         Page<DictVo> list = dictService.list(dict);
         return WebResponse.Page(list.getRecords(), list.getTotal());
     }
@@ -92,7 +96,9 @@ public class DictController {
     @PostMapping("/add")
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"code", "name", "nameCn"})
-                                     Dict dict) {
+                                      DictRequests.SaveRequest request) {
+        Dict dict = new Dict();
+        BeanUtils.copyProperties(request, dict);
         boolean save = dictService.save(dict);
         return WebResponse.OK(I18nUtils.getMessage(save ? "system.dict.create.success" : "system.dict.create.fail"), save);
     }
@@ -108,7 +114,9 @@ public class DictController {
     @PostMapping("/update")
     public WebResponse<Boolean> update(@RequestBody
                                        @ValidEntity(fieldNames = {"code", "name", "nameCn"})
-                                       Dict dict) {
+                                        DictRequests.UpdateRequest request) {
+        Dict dict = new Dict();
+        BeanUtils.copyProperties(request, dict);
         boolean update = dictService.updateById(dict);
         return WebResponse.OK(I18nUtils.getMessage(update ? "system.dict.update.success" : "system.dict.update.fail"), update);
     }

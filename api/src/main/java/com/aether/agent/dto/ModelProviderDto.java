@@ -1,5 +1,6 @@
 package com.aether.agent.dto;
 
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 
@@ -10,6 +11,7 @@ import javax.validation.constraints.Min;
  * 模型供应商 DTO
  */
 @Data
+@ApiModel("模型供应商创建或更新请求")
 public class ModelProviderDto {
 
     @ApiModelProperty(value = "供应商名称")

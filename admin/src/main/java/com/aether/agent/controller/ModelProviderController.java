@@ -1,6 +1,10 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.ModelProviderDto;
+import com.aether.agent.dto.AgentControllerRequests.ModelCatalogBatch;
+import com.aether.agent.dto.AgentControllerRequests.ModelCatalogRequest;
+import com.aether.agent.dto.AgentControllerRequests.ModelProviderList;
+import com.aether.agent.dto.AgentControllerRequests.Status;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.service.ModelCatalogService;
@@ -73,7 +77,7 @@ public class ModelProviderController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<ModelProviderVo>> list(@RequestBody ModelProviderVo vo) {
+    public WebResponse<List<ModelProviderVo>> list(@RequestBody ModelProviderList vo) {
         Page<ModelProvider> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<ModelProvider> wrapper = Wrappers.lambdaQuery(ModelProvider.class)
                 .like(StringUtils.isNotBlank(vo.getName()), ModelProvider::getName, vo.getName())
@@ -187,13 +191,22 @@ public class ModelProviderController {
         return result;
     }
 
+    private ModelCatalog model(ModelCatalogRequest request) {
+        ModelCatalog model = new ModelCatalog();
+        if (request != null) {
+            BeanUtils.copyProperties(request, model);
+        }
+        return model;
+    }
+
     /**
      * 保存模型。
      */
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @ApiOperation("新增模型目录项")
     @PostMapping("/models")
-    public WebResponse<String> saveModel(@RequestBody ModelCatalog model) {
+    public WebResponse<String> saveModel(@RequestBody ModelCatalogRequest request) {
+        ModelCatalog model = model(request);
         if (StringUtils.isBlank(model.getProviderId()) || StringUtils.isBlank(model.getName()) || StringUtils.isBlank(model.getCapabilities()))
             throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
         modelCatalogService.validateForSave(model);
@@ -207,7 +220,8 @@ public class ModelProviderController {
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @ApiOperation("更新模型目录项")
     @PutMapping("/models/{id}")
-    public WebResponse<Void> updateModel(@PathVariable String id, @RequestBody ModelCatalog model) {
+    public WebResponse<Void> updateModel(@PathVariable String id, @RequestBody ModelCatalogRequest request) {
+        ModelCatalog model = model(request);
         model.setId(id);
         modelCatalogService.validateForSave(model);
         modelCatalogService.updateById(model);
@@ -221,7 +235,8 @@ public class ModelProviderController {
     @ApiOperation("批量保存模型目录项")
     @PostMapping("/models/batch")
     @Transactional(rollbackFor = Exception.class)
-    public WebResponse<Integer> saveModels(@RequestBody List<ModelCatalog> models) {
+    public WebResponse<Integer> saveModels(@RequestBody ModelCatalogBatch request) {
+        List<ModelCatalog> models = request == null || request.getModels() == null ? null : request.getModels().stream().map(this::model).collect(Collectors.toList());
         if (models == null || models.isEmpty())
             throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
         models.forEach(modelCatalogService::validateForSave);
@@ -245,7 +260,7 @@ public class ModelProviderController {
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @ApiOperation("更新模型目录项状态")
     @PutMapping("/models/{id}/status")
-    public WebResponse<Void> updateModelStatus(@PathVariable String id, @RequestBody ModelCatalog model) {
+    public WebResponse<Void> updateModelStatus(@PathVariable String id, @RequestBody Status model) {
         ModelCatalog update = new ModelCatalog();
         update.setId(id);
         update.setStatus(model.getStatus());
@@ -349,7 +364,7 @@ public class ModelProviderController {
     })
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
-    public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody ModelProviderVo vo) {
+    public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody Status vo) {
         ModelProvider provider = new ModelProvider();
         provider.setId(id);
         provider.setStatus(vo.getStatus());

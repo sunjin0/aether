@@ -3,7 +3,10 @@ package com.aether.workflow.controller;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.workflow.dto.AgentWorkflowCreateScheduleRequest;
+import com.aether.workflow.dto.AgentWorkflowListSchedulesRequest;
 import com.aether.workflow.dto.AgentWorkflowScheduleTriggerDto;
+import com.aether.workflow.dto.AgentWorkflowUpdateScheduleRequest;
 import com.aether.workflow.entity.AgentWorkflowScheduleTrigger;
 import com.aether.workflow.service.AgentWorkflowScheduleTriggerService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -19,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.BeanUtils;
 
 import java.util.List;
 
@@ -45,7 +49,8 @@ public class AgentWorkflowScheduleController {
     @ApiOperation("创建工作流定时任务")
     @Permission(path = "/workflow/schedule", type = Permission.Type.Write)
     @PostMapping
-    public WebResponse<AgentWorkflowScheduleTrigger> create(@RequestBody AgentWorkflowScheduleTriggerDto dto) {
+    public WebResponse<AgentWorkflowScheduleTrigger> create(@RequestBody AgentWorkflowCreateScheduleRequest request) {
+        AgentWorkflowScheduleTriggerDto dto = toScheduleDto(request);
         return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.create.success"), scheduleTriggerService.create(dto));
     }
 
@@ -56,8 +61,8 @@ public class AgentWorkflowScheduleController {
 
     @Permission(path = "/workflow/schedule")
     @PostMapping("/list")
-    public WebResponse<List<AgentWorkflowScheduleTrigger>> list(@RequestBody(required = false) AgentWorkflowScheduleTrigger query) {
-        AgentWorkflowScheduleTrigger condition = query == null ? new AgentWorkflowScheduleTrigger() : query;
+    public WebResponse<List<AgentWorkflowScheduleTrigger>> list(@RequestBody(required = false) AgentWorkflowListSchedulesRequest query) {
+        AgentWorkflowListSchedulesRequest condition = query == null ? new AgentWorkflowListSchedulesRequest() : query;
         long current = condition.getCurrent() == null ? 1L : condition.getCurrent();
         long pageSize = condition.getPageSize() == null ? 10L : condition.getPageSize();
         Page<AgentWorkflowScheduleTrigger> page = scheduleTriggerService.page(new Page<AgentWorkflowScheduleTrigger>(current, pageSize), Wrappers.lambdaQuery(AgentWorkflowScheduleTrigger.class)
@@ -75,7 +80,8 @@ public class AgentWorkflowScheduleController {
     @ApiOperation("编辑工作流定时任务")
     @Permission(path = "/workflow/schedule", type = Permission.Type.Write)
     @PutMapping("/{id}")
-    public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentWorkflowScheduleTriggerDto dto) {
+    public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentWorkflowUpdateScheduleRequest request) {
+        AgentWorkflowScheduleTriggerDto dto = toScheduleDto(request);
         scheduleTriggerService.update(id, dto);
         return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.status.update.success"));
     }
@@ -100,5 +106,12 @@ public class AgentWorkflowScheduleController {
     public WebResponse<Void> delete(@PathVariable String id) {
         scheduleTriggerService.delete(id);
         return WebResponse.OK(I18nUtils.getMessage("workflow.schedule.status.update.success"));
+    }
+
+    private AgentWorkflowScheduleTriggerDto toScheduleDto(Object request) {
+        if (request == null) return null;
+        AgentWorkflowScheduleTriggerDto dto = new AgentWorkflowScheduleTriggerDto();
+        BeanUtils.copyProperties(request, dto);
+        return dto;
     }
 }

@@ -1,11 +1,6 @@
 package com.aether.workflow.controller;
 
-import com.aether.workflow.dto.AgentWorkflowDto;
-import com.aether.workflow.dto.AgentWorkflowInteractionDto;
-import com.aether.workflow.dto.AgentWorkflowStartDto;
-import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
-import com.aether.workflow.dto.AgentWorkflowWebhookTriggerDto;
-import com.aether.workflow.dto.AgentWorkflowTemplateDto;
+import com.aether.workflow.dto.*;
 import com.aether.workflow.entity.AgentWorkflow;
 import com.aether.workflow.entity.AgentWorkflowInstance;
 import com.aether.workflow.entity.AgentWorkflowVersion;
@@ -106,7 +101,7 @@ public class AgentWorkflowController {
      */
     @ApiOperation("查询工作流列表")
     @PostMapping("/list")
-    public WebResponse<List<AgentWorkflowVo>> list(@RequestBody AgentWorkflowVo query) {
+    public WebResponse<List<AgentWorkflowVo>> list(@RequestBody AgentWorkflowListRequest query) {
         Page<AgentWorkflow> page = workflowService.page(new Page<AgentWorkflow>(query.getCurrent(), query.getPageSize()), Wrappers.lambdaQuery(AgentWorkflow.class)
                 .like(StringUtils.isNotBlank(query.getName()), AgentWorkflow::getName, query.getName()).eq(query.getStatus() != null, AgentWorkflow::getStatus, query.getStatus())
                 .eq(StringUtils.isNotBlank(query.getApplicationId()), AgentWorkflow::getApplicationId, query.getApplicationId())
@@ -145,7 +140,8 @@ public class AgentWorkflowController {
     @ApiOperation("创建工作流草稿")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping
-    public WebResponse<String> create(@RequestBody AgentWorkflowDto dto) {
+    public WebResponse<String> create(@RequestBody AgentWorkflowCreateRequest request) {
+        AgentWorkflowDto dto = toWorkflowDto(request);
         validateConcurrencyLimit(dto);
         if (StringUtils.isBlank(dto.getCode()) || !dto.getCode().matches("[A-Za-z][A-Za-z0-9_-]{2,63}"))
             throw new ServerException(422, "工作流编码必须为 3-64 位字母、数字、下划线或短横线");
@@ -171,7 +167,8 @@ public class AgentWorkflowController {
     @ApiOperation("保存工作流画布草稿")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PutMapping("/{id}")
-    public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentWorkflowDto dto) {
+    public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentWorkflowUpdateRequest request) {
+        AgentWorkflowDto dto = toWorkflowDto(request);
         validateConcurrencyLimit(dto);
         AgentWorkflow entity = required(id);
         BeanUtils.copyProperties(dto, entity, "status", "publishedVersion", "agentDefinitionId");
@@ -286,7 +283,8 @@ public class AgentWorkflowController {
 
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/import")
-    public WebResponse<String> importWorkflow(@RequestBody AgentWorkflowDto dto) {
+    public WebResponse<String> importWorkflow(@RequestBody AgentWorkflowImportRequest request) {
+        AgentWorkflowDto dto = toWorkflowDto(request);
         if (dto == null || StringUtils.isBlank(dto.getName()) || StringUtils.isBlank(dto.getNodes()) || StringUtils.isBlank(dto.getEdges()))
             throw new ServerException(422, I18nUtils.getMessage("workflow.import.name-nodes-edges.required"));
         WorkflowDefinitionValidator.validate(dto.getNodes(), dto.getEdges());
@@ -307,9 +305,9 @@ public class AgentWorkflowController {
     @ApiOperation("从工作流创建模板")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/{id}/templates")
-    public WebResponse<com.aether.workflow.entity.AgentWorkflowTemplate> createTemplate(@PathVariable String id, @RequestBody AgentWorkflowTemplateDto dto) {
+    public WebResponse<com.aether.workflow.entity.AgentWorkflowTemplate> createTemplate(@PathVariable String id, @RequestBody AgentWorkflowCreateTemplateRequest request) {
         AgentWorkflow workflow = required(id);
-        return WebResponse.OK(templateService.createFromWorkflow(workflow, dto == null ? null : dto.getName(), dto == null ? null : dto.getDescription()));
+        return WebResponse.OK(templateService.createFromWorkflow(workflow, request == null ? null : request.getName(), request == null ? null : request.getDescription()));
     }
 
     /**
@@ -319,7 +317,7 @@ public class AgentWorkflowController {
 
     @Permission(path = "/workflow/workflow")
     @PostMapping("/templates/list")
-    public WebResponse<List<com.aether.workflow.entity.AgentWorkflowTemplate>> templates(@RequestBody(required = false) AgentWorkflowTemplateDto query) {
+    public WebResponse<List<com.aether.workflow.entity.AgentWorkflowTemplate>> templates(@RequestBody(required = false) AgentWorkflowListTemplatesRequest query) {
         return WebResponse.OK(templateService.list(Wrappers.lambdaQuery(com.aether.workflow.entity.AgentWorkflowTemplate.class)
                 .like(query != null && StringUtils.isNotBlank(query.getName()), com.aether.workflow.entity.AgentWorkflowTemplate::getName, query == null ? null : query.getName())
                 .eq(com.aether.workflow.entity.AgentWorkflowTemplate::getDeleted, false).orderByDesc(com.aether.workflow.entity.AgentWorkflowTemplate::getCreatedAt)));
@@ -332,8 +330,8 @@ public class AgentWorkflowController {
 
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/templates/{id}/instantiate")
-    public WebResponse<String> instantiateTemplate(@PathVariable String id, @RequestBody AgentWorkflowTemplateDto dto) {
-        AgentWorkflow workflow = templateService.instantiate(id, dto == null ? null : dto.getName(), dto == null ? null : dto.getDescription());
+    public WebResponse<String> instantiateTemplate(@PathVariable String id, @RequestBody AgentWorkflowInstantiateTemplateRequest request) {
+        AgentWorkflow workflow = templateService.instantiate(id, request == null ? null : request.getName(), request == null ? null : request.getDescription());
         return WebResponse.OK(I18nUtils.getMessage("workflow.template.instantiate.success"), workflow.getId());
     }
 
@@ -370,8 +368,8 @@ public class AgentWorkflowController {
     @ApiOperation("启动已发布工作流")
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/{id}/instances")
-    public WebResponse<String> start(@PathVariable String id, @RequestBody(required = false) AgentWorkflowStartDto dto) {
-        AgentWorkflowInstance instance = executionService.start(id, dto == null ? null : dto.getVariables(), userId());
+    public WebResponse<String> start(@PathVariable String id, @RequestBody(required = false) AgentWorkflowStartInstanceRequest request) {
+        AgentWorkflowInstance instance = executionService.start(id, request == null ? null : request.getVariables(), userId());
         return WebResponse.OK(I18nUtils.getMessage("workflow.instance.start.success"), instance.getId());
     }
 
@@ -382,12 +380,12 @@ public class AgentWorkflowController {
 
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/{id}/business-instances")
-    public WebResponse<String> startBusiness(@PathVariable String id, @RequestBody AgentWorkflowBusinessStartDto dto) {
+    public WebResponse<String> startBusiness(@PathVariable String id, @RequestBody AgentWorkflowStartBusinessInstanceRequest request) {
         Map<String, String> current = CurrentUser.getUser();
         if (current == null || StringUtils.isBlank(current.get("serviceAccountId")))
             throw new ServerException(403, I18nUtils.getMessage("workflow.business-start.service-account.required"));
         serviceAccountService.assertWorkflowStartAllowed(current.get("serviceAccountId"), id);
-        AgentWorkflowInstance instance = executionService.startBusiness(id, dto, userId());
+        AgentWorkflowInstance instance = executionService.startBusiness(id, toBusinessStartDto(request), userId());
         return WebResponse.OK(I18nUtils.getMessage("workflow.business-instance.start.success"), instance.getId());
     }
 
@@ -397,10 +395,10 @@ public class AgentWorkflowController {
     @ApiOperation("创建工作流 Webhook；签名密钥仅本次返回")
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/webhooks")
-    public WebResponse<AgentWorkflowWebhookTriggerSecretVo> createWebhook(@RequestBody AgentWorkflowWebhookTriggerDto dto,
-                                                                          HttpServletResponse response) {
+    public WebResponse<AgentWorkflowWebhookTriggerSecretVo> createWebhook(@RequestBody AgentWorkflowCreateWebhookRequest request,
+                                                                           HttpServletResponse response) {
         noStore(response);
-        return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.create.success"), webhookTriggerService.create(dto));
+        return WebResponse.OK(I18nUtils.getMessage("workflow.webhook.create.success"), webhookTriggerService.create(toWebhookTriggerDto(request)));
     }
 
     /**
@@ -410,7 +408,7 @@ public class AgentWorkflowController {
 
     @Permission(path = "/workflow/workflow")
     @PostMapping("/webhooks/list")
-    public WebResponse<List<AgentWorkflowWebhookTriggerVo>> webhooks(@RequestBody AgentWorkflowWebhookTriggerVo query) {
+    public WebResponse<List<AgentWorkflowWebhookTriggerVo>> webhooks(@RequestBody AgentWorkflowListWebhooksRequest query) {
         Page<com.aether.workflow.entity.AgentWorkflowWebhookTrigger> page = webhookTriggerService.page(
                 new Page<com.aether.workflow.entity.AgentWorkflowWebhookTrigger>(query.getCurrent(), query.getPageSize()),
                 Wrappers.lambdaQuery(com.aether.workflow.entity.AgentWorkflowWebhookTrigger.class)
@@ -498,7 +496,7 @@ public class AgentWorkflowController {
 
     @Permission(path = "/workflow/run")
     @PostMapping("/instances/list")
-    public WebResponse<List<AgentWorkflowInstanceVo>> instances(@RequestBody AgentWorkflowInstanceVo query) {
+    public WebResponse<List<AgentWorkflowInstanceVo>> instances(@RequestBody AgentWorkflowListInstancesRequest query) {
         boolean administrator = executionService.isAdministrator(userId());
         Page<AgentWorkflowInstance> page = instanceService.page(new Page<AgentWorkflowInstance>(query.getCurrent(), query.getPageSize()), Wrappers.lambdaQuery(AgentWorkflowInstance.class)
                 .eq(!administrator, AgentWorkflowInstance::getUserId, userId()).eq(StringUtils.isNotBlank(query.getWorkflowId()), AgentWorkflowInstance::getWorkflowId, query.getWorkflowId())
@@ -570,7 +568,9 @@ public class AgentWorkflowController {
 
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PostMapping("/instances/{id}/answer")
-    public WebResponse<Void> answer(@PathVariable String id, @RequestBody AgentWorkflowInteractionDto dto) {
+    public WebResponse<Void> answer(@PathVariable String id, @RequestBody AgentWorkflowAnswerInstanceRequest request) {
+        AgentWorkflowInteractionDto dto = new AgentWorkflowInteractionDto();
+        dto.setAnswer(request.getAnswer());
         executionService.answer(id, dto, userId());
         return WebResponse.OK(I18nUtils.getMessage("workflow.instance.answer.success"));
     }
@@ -616,8 +616,8 @@ public class AgentWorkflowController {
     @ApiOperation("运行中修改开始变量")
     @Permission(path = "/workflow/run", type = Permission.Type.Write)
     @PutMapping("/instances/{id}/variables")
-    public WebResponse<Void> updateVariables(@PathVariable String id, @RequestBody(required = false) AgentWorkflowStartDto dto) {
-        executionService.updateVariables(id, dto == null ? null : dto.getVariables(), userId());
+    public WebResponse<Void> updateVariables(@PathVariable String id, @RequestBody(required = false) AgentWorkflowUpdateInstanceVariablesRequest request) {
+        executionService.updateVariables(id, request == null ? null : request.getVariables(), userId());
         return WebResponse.OK(I18nUtils.getMessage("workflow.instance.variables.update.success"));
     }
 
@@ -630,6 +630,27 @@ public class AgentWorkflowController {
                 .eq(AgentWorkflowVersion::getDeleted, false));
         if (version == null) throw new ServerException(404, I18nUtils.getMessage("workflow.version.not-found"));
         return version;
+    }
+
+    private AgentWorkflowDto toWorkflowDto(Object request) {
+        if (request == null) return null;
+        AgentWorkflowDto dto = new AgentWorkflowDto();
+        BeanUtils.copyProperties(request, dto);
+        return dto;
+    }
+
+    private AgentWorkflowBusinessStartDto toBusinessStartDto(AgentWorkflowStartBusinessInstanceRequest request) {
+        if (request == null) return null;
+        AgentWorkflowBusinessStartDto dto = new AgentWorkflowBusinessStartDto();
+        BeanUtils.copyProperties(request, dto);
+        return dto;
+    }
+
+    private AgentWorkflowWebhookTriggerDto toWebhookTriggerDto(AgentWorkflowCreateWebhookRequest request) {
+        if (request == null) return null;
+        AgentWorkflowWebhookTriggerDto dto = new AgentWorkflowWebhookTriggerDto();
+        BeanUtils.copyProperties(request, dto);
+        return dto;
     }
 
     /**

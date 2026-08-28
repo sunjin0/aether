@@ -2,6 +2,8 @@ package com.aether.agent.controller;
 
 import com.aether.agent.skill.dto.AgentSkillBindingUpdateDto;
 import com.aether.agent.skill.dto.AgentSkillInstallDto;
+import com.aether.agent.dto.AgentControllerRequests.AvailableSkillList;
+import com.aether.agent.dto.AgentControllerRequests.InstalledSkillList;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillVersion;
@@ -53,8 +55,8 @@ public class AgentDefinitionSkillBindingController {
     @ApiOperation("分页查询 Agent 已安装 Skill")
     @PostMapping("/{agentId}/skills/list")
     public WebResponse<List<AgentDefinitionSkillBindingVo>> listPage(@PathVariable @NotBlank String agentId,
-                                                                       @RequestBody(required = false) AgentDefinitionSkillBindingVo query) {
-        AgentDefinitionSkillBindingVo request = query == null ? new AgentDefinitionSkillBindingVo() : query;
+                                                                        @RequestBody(required = false) InstalledSkillList query) {
+        InstalledSkillList request = query == null ? new InstalledSkillList() : query;
         List<AgentDefinitionSkillBinding> bindings = skillService.listBindings(agentId);
         List<String> skillIds = bindings.stream().map(AgentDefinitionSkillBinding::getSkillId).distinct().collect(Collectors.toList());
         Map<String, AgentSkill> skills = skillIds.isEmpty() ? Collections.emptyMap() : skillService.listByIds(skillIds).stream()
@@ -90,7 +92,7 @@ public class AgentDefinitionSkillBindingController {
 
     @ApiOperation("查询 Agent 可安装 Skill")
     @PostMapping("/{agentId}/skills/available")
-    public WebResponse<List<AgentSkillVo>> available(@PathVariable @NotBlank String agentId, @RequestBody AgentSkillVo query) {
+    public WebResponse<List<AgentSkillVo>> available(@PathVariable @NotBlank String agentId, @RequestBody AvailableSkillList query) {
         List<String> installedIds = skillService.listBindings(agentId).stream().map(AgentDefinitionSkillBinding::getSkillId).collect(Collectors.toList());
         Page<AgentSkill> page = skillService.page(new Page<>(query.getCurrent() == null ? 1 : query.getCurrent(), query.getPageSize() == null ? 12 : query.getPageSize()),
                 Wrappers.lambdaQuery(AgentSkill.class).notIn(!installedIds.isEmpty(), AgentSkill::getId, installedIds)

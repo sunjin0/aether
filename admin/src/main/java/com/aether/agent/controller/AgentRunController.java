@@ -8,6 +8,7 @@ import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.vo.AgentRunStatisticsVo;
 import com.aether.agent.vo.AgentRunStepVo;
 import com.aether.agent.vo.AgentRunVo;
+import com.aether.agent.dto.AgentControllerRequests.RunList;
 import com.aether.agent.vo.AgentRunPlanVo;
 import com.aether.agent.service.AgentRunPlanService;
 import com.aether.agent.service.DeepAgentRunService;
@@ -80,7 +81,7 @@ public class AgentRunController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<AgentRunVo>> list(@RequestBody AgentRunVo vo) {
+    public WebResponse<List<AgentRunVo>> list(@RequestBody RunList vo) {
         Page<AgentRun> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<AgentRun> wrapper = Wrappers.lambdaQuery(AgentRun.class)
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentRun::getAgentDefinitionId, vo.getAgentDefinitionId())

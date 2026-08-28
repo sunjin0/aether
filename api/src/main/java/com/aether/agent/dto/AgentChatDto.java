@@ -1,5 +1,6 @@
 package com.aether.agent.dto;
 
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 import com.aether.agent.entity.AgentDefinition;
@@ -10,42 +11,43 @@ import java.util.Map;
  * Chat request DTO.
  */
 @Data
+@ApiModel("智能体聊天请求")
 public class AgentChatDto {
 
-    @ApiModelProperty(value = "Agent definition ID")
+    @ApiModelProperty(value = "智能体定义 ID", required = true, example = "agent-123")
     private String agentId;
 
-    @ApiModelProperty(value = "Conversation ID")
+    @ApiModelProperty(value = "会话 ID；省略时创建新会话", example = "conversation-123")
     private String conversationId;
 
-    @ApiModelProperty(value = "Tool approval policy for a newly created conversation: ask, risky, never")
+    @ApiModelProperty(value = "新建会话的工具审批策略：ask、risky、never", example = "risky")
     private String toolApprovalPolicy;
 
-    @ApiModelProperty(value = "User message")
+    @ApiModelProperty(value = "用户消息", required = true, example = "Summarize the latest ticket activity.")
     private String message;
 
-    @ApiModelProperty(value = "Parent interaction message ID")
+    @ApiModelProperty(value = "父交互消息 ID", example = "message-123")
     private String parentMessageId;
 
-    @ApiModelProperty(value = "Structured interaction answer")
+    @ApiModelProperty(value = "结构化交互回答", example = "{\"approved\":true}")
     private Map<String, Object> answer;
 
-    @ApiModelProperty(value = "Enable interactive question mode")
+    @ApiModelProperty(value = "启用交互式提问模式", example = "true")
     private Boolean interactive;
 
-    @ApiModelProperty(value = "Enable thinking")
+    @ApiModelProperty(value = "启用思考", example = "true")
     private Boolean thinking;
 
-    @ApiModelProperty(value = "Reasoning effort: low/medium/high")
+    @ApiModelProperty(value = "推理强度：low/medium/high", example = "medium")
     private String reasoningEffort;
 
-    @ApiModelProperty(value = "Knowledge retrieval mode for this turn: AUTO, ENABLED, DISABLED")
+    @ApiModelProperty(value = "本轮知识检索模式：AUTO、ENABLED、DISABLED", example = "AUTO")
     private String retrievalMode;
 
-    @ApiModelProperty(value = "Temporary conversation")
+    @ApiModelProperty(value = "临时会话", example = "false")
     private Boolean temporary;
 
-    @ApiModelProperty(value = "Internal user ID")
+    @ApiModelProperty(value = "内部用户 ID；已认证的管理调用可选", example = "user-123")
     private String userId;
 
     /**

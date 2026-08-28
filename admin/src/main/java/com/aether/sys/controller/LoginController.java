@@ -8,6 +8,7 @@ import com.aether.i18n.I18nUtils;
 import com.aether.validator.ValidEntity;
 import com.aether.sys.vo.ResourceVo;
 import com.aether.sys.vo.UserVo;
+import com.aether.sys.dto.LoginRequests;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
@@ -40,7 +41,10 @@ public class LoginController {
     @PostMapping("/verify")
     public WebResponse<Boolean> verify(@RequestBody
                                        @ValidEntity(fieldNames = {"account", "password"})
-                                       UserVo user) throws ServerException {
+                                        LoginRequests.VerifyRequest request) throws ServerException {
+        UserVo user = new UserVo();
+        user.setAccount(request.getAccount());
+        user.setPassword(request.getPassword());
         return WebResponse.OK(userService.verify(user));
     }
 
@@ -56,7 +60,10 @@ public class LoginController {
     })
     public WebResponse<UserVo> login(@RequestBody
                                      @ValidEntity(fieldNames = {"email", "verificationCode"})
-                                     UserVo user) throws ServerException {
+                                      LoginRequests.LoginRequest request) throws ServerException {
+        UserVo user = new UserVo();
+        user.setEmail(request.getEmail());
+        user.setVerificationCode(request.getVerificationCode());
         return WebResponse.OK(userService.login(user));
     }
 
@@ -71,7 +78,10 @@ public class LoginController {
     @ApiImplicitParam(name = "Authorization", value = "token", required = true, paramType = "header")
     public WebResponse<Boolean> resetPassword(@RequestBody
                                               @ValidEntity(fieldNames = {"oldPassword", "password"})
-                                              UserVo user) throws ServerException {
+                                               LoginRequests.ResetPasswordRequest request) throws ServerException {
+        UserVo user = new UserVo();
+        user.setOldPassword(request.getOldPassword());
+        user.setPassword(request.getPassword());
         return WebResponse.OK(userService.resetPassword(user));
     }
 
@@ -112,8 +122,8 @@ public class LoginController {
     @PostMapping("/send")
     public WebResponse<Boolean> sendVerificationCode(@RequestBody
                                                      @ValidEntity(fieldNames = {"email"})
-                                                     UserVo user) throws ServerException {
-        userService.sendVerificationCode(user.getEmail());
+                                                      LoginRequests.SendVerificationCodeRequest request) throws ServerException {
+        userService.sendVerificationCode(request.getEmail());
         return WebResponse.OK(I18nUtils.getMessage("send.success"));
     }
 

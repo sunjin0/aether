@@ -1,5 +1,6 @@
 package com.aether.agent.dto;
 
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 
@@ -7,6 +8,7 @@ import lombok.Data;
  * 会话记忆修正请求。
  */
 @Data
+@ApiModel("会话记忆修正请求")
 public class SessionMemoryCorrectionDto {
     @ApiModelProperty(value = "替换后的记忆内容")
     private String content;
@@ -17,4 +19,3 @@ public class SessionMemoryCorrectionDto {
     @ApiModelProperty(value = "客户端看到的记忆版本")
     private Integer memoryVersion;
 }
-

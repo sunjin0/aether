@@ -1,6 +1,7 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentChatDto;
+import com.aether.agent.dto.AgentControllerRequests.ConversationList;
 import com.aether.agent.observability.ChatLatencyMetrics;
 import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.entity.AgentConversation;
@@ -366,7 +367,7 @@ public class AgentChatController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/conversation/list")
-    public WebResponse<List<AgentConversationVo>> list(@RequestBody AgentConversationVo vo) {
+    public WebResponse<List<AgentConversationVo>> list(@RequestBody ConversationList vo) {
         Page<AgentConversation> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         // 默认只显示开放会话（status=0），除非前端明确指定status参数
         Integer status = vo.getStatus() != null ? vo.getStatus() : 0;

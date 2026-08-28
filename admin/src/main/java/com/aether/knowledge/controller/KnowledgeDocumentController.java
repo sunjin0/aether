@@ -26,7 +26,10 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
 import io.swagger.annotations.ApiOperation;
+import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.transaction.annotation.Transactional;
@@ -98,7 +101,10 @@ public class KnowledgeDocumentController {
      */
     @ApiOperation("文档列表")
     @PostMapping("/list")
-    public WebResponse<List<KnowledgeDocumentVo>> list(@RequestBody KnowledgeDocumentVo vo) {
+    public WebResponse<List<KnowledgeDocumentVo>> list(@RequestBody ListRequest request) {
+        KnowledgeDocumentVo vo = new KnowledgeDocumentVo();
+        vo.setCurrent(request.getCurrent()); vo.setPageSize(request.getPageSize()); vo.setKnowledgeBaseId(request.getKnowledgeBaseId());
+        vo.setTitle(request.getTitle()); vo.setStatus(request.getStatus()); vo.setReviewStatus(request.getReviewStatus());
         List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
         Page<KnowledgeDocument> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         if (readableIds.isEmpty()) {
@@ -140,7 +146,8 @@ public class KnowledgeDocumentController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PostMapping
     @Transactional(rollbackFor = Exception.class)
-    public WebResponse<String> save(@RequestBody KnowledgeDocumentVo vo) {
+    public WebResponse<String> save(@RequestBody CreateRequest request) {
+        KnowledgeDocumentVo vo = createVo(request);
         KnowledgeBase base = knowledgeAccessService.requireWritable(vo.getKnowledgeBaseId());
         KnowledgeDocument document = new KnowledgeDocument();
         document.setKnowledgeBaseId(vo.getKnowledgeBaseId());
@@ -447,7 +454,8 @@ public class KnowledgeDocumentController {
     @Permission(path = "/knowledge/document", type = Permission.Type.Write)
     @PutMapping("/{id}")
     @Transactional(rollbackFor = Exception.class)
-    public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody KnowledgeDocumentVo vo) {
+    public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody UpdateRequest request) {
+        KnowledgeDocumentVo vo = updateVo(request);
         KnowledgeDocument existing = getExisting(id);
         knowledgeAccessService.requireWritable(existing.getKnowledgeBaseId());
         KnowledgeDocument document = new KnowledgeDocument();
@@ -531,9 +539,9 @@ public class KnowledgeDocumentController {
     @ApiOperation("保存文档草稿内容")
     @PutMapping("/version/{versionId}/draft")
     public WebResponse<KnowledgeDocumentVersion> updateDraft(@PathVariable @NotBlank String versionId,
-                                                             @RequestBody com.aether.knowledge.vo.KnowledgeDraftUpdateVo vo) {
+                                                              @RequestBody DraftUpdateRequest request) {
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.draft.save.success"),
-                workflowService.updateDraft(versionId, vo.getContent(), vo.getExpectedChecksum()));
+                workflowService.updateDraft(versionId, request.getContent(), request.getExpectedChecksum()));
     }
 
     /**
@@ -553,8 +561,8 @@ public class KnowledgeDocumentController {
     @ApiOperation("提交文档版本进入人工审核")
     @PostMapping("/version/{versionId}/submit")
     public WebResponse<String> submit(@PathVariable @NotBlank String versionId,
-                                      @RequestBody(required = false) com.aether.knowledge.vo.KnowledgeReviewDecisionVo vo) {
-        KnowledgeReviewTask task = workflowService.submit(versionId, vo == null ? null : vo.getComment());
+                                       @RequestBody(required = false) SubmitRequest request) {
+        KnowledgeReviewTask task = workflowService.submit(versionId, request == null ? null : request.getComment());
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.submit.success"), task.getId());
     }
 
@@ -568,6 +576,53 @@ public class KnowledgeDocumentController {
         }
         knowledgeAccessService.requireReadable(document.getKnowledgeBaseId());
         return document;
+    }
+
+    private KnowledgeDocumentVo createVo(CreateRequest request) {
+        KnowledgeDocumentVo vo = new KnowledgeDocumentVo();
+        vo.setKnowledgeBaseId(request.getKnowledgeBaseId()); vo.setTitle(request.getTitle()); vo.setContent(request.getContent());
+        vo.setSourceUrl(request.getSourceUrl()); vo.setSourceType(request.getSourceType()); vo.setParserType(request.getParserType());
+        return vo;
+    }
+
+    private KnowledgeDocumentVo updateVo(UpdateRequest request) {
+        KnowledgeDocumentVo vo = new KnowledgeDocumentVo();
+        vo.setTitle(request.getTitle()); vo.setContent(request.getContent()); vo.setSourceUrl(request.getSourceUrl());
+        vo.setParserType(request.getParserType()); vo.setExpectedChecksum(request.getExpectedChecksum());
+        return vo;
+    }
+
+    @Data @ApiModel("知识库文档列表请求")
+    public static class ListRequest {
+        @ApiModelProperty(value = "页码", example = "1") private Long current;
+        @ApiModelProperty(value = "每页数量", example = "20") private Long pageSize;
+        @ApiModelProperty(value = "知识库 ID", example = "kb-001") private String knowledgeBaseId;
+        @ApiModelProperty(value = "标题关键词", example = "安装") private String title;
+        @ApiModelProperty(value = "处理状态", example = "2") private Integer status;
+        @ApiModelProperty(value = "审核状态", example = "APPROVED") private String reviewStatus;
+    }
+
+    @Data @ApiModel("新建知识库文档请求") public static class CreateRequest {
+        @ApiModelProperty(value = "知识库 ID", required = true, example = "kb-001") private String knowledgeBaseId;
+        @ApiModelProperty(value = "文档标题", required = true, example = "安装说明") private String title;
+        @ApiModelProperty(value = "Markdown 文档内容", example = "# 安装\n\n执行安装命令。") private String content;
+        @ApiModelProperty(value = "来源 URL", example = "https://example.com/install") private String sourceUrl;
+        @ApiModelProperty(value = "来源类型", example = "text") private String sourceType;
+        @ApiModelProperty(value = "解析器类型", example = "markdown") private String parserType;
+    }
+    @Data @ApiModel("更新知识库文档请求") public static class UpdateRequest {
+        @ApiModelProperty(value = "文档标题", required = true, example = "安装说明") private String title;
+        @ApiModelProperty(value = "Markdown 文档内容", example = "# 安装\n\n执行安装命令。") private String content;
+        @ApiModelProperty(value = "来源 URL", example = "https://example.com/install") private String sourceUrl;
+        @ApiModelProperty(value = "解析器类型", example = "markdown") private String parserType;
+        @ApiModelProperty(value = "草稿校验和", example = "a1b2c3d4") private String expectedChecksum;
+    }
+    @Data @ApiModel("保存文档草稿请求") public static class DraftUpdateRequest {
+        @ApiModelProperty(value = "Markdown 文档内容", required = true, example = "# 更新后的安装说明") private String content;
+        @ApiModelProperty(value = "草稿校验和", required = true, example = "a1b2c3d4") private String expectedChecksum;
+    }
+    @Data @ApiModel("提交人工审核请求") public static class SubmitRequest {
+        @ApiModelProperty(value = "提交备注", example = "请审核本次更新") private String comment;
     }
 
     /**

@@ -43,7 +43,10 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aether.permission.Permission;
 import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
 import io.swagger.annotations.ApiOperation;
+import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -309,7 +312,8 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("新增评测用例标注")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/cases/{caseId}/labels")
-    public WebResponse<String> saveLabel(@PathVariable String setId, @PathVariable String caseId, @RequestBody KnowledgeRetrievalEvaluationLabel label) {
+    public WebResponse<String> saveLabel(@PathVariable String setId, @PathVariable String caseId, @RequestBody SaveLabelRequest request) {
+        KnowledgeRetrievalEvaluationLabel label = request.toEntity();
         requireCase(setId, caseId);
         String targetType = StringUtils.upperCase(label.getTargetType());
         if (!"DOCUMENT".equals(targetType) && !"SECTION".equals(targetType) && !"CHUNK".equals(targetType))
@@ -487,7 +491,8 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("新建评测集")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets")
-    public WebResponse<String> saveSet(@RequestBody KnowledgeRetrievalEvaluationSet set) {
+    public WebResponse<String> saveSet(@RequestBody SaveSetRequest request) {
+        KnowledgeRetrievalEvaluationSet set = request.toEntity();
         if (StringUtils.isBlank(set.getAgentDefinitionId()) || StringUtils.isBlank(set.getName()))
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.set.agent-definition-and-name.required"));
         if (set.getStatus() == null) set.setStatus(1);
@@ -501,7 +506,8 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("更新评测集")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PutMapping("/sets/{id}")
-    public WebResponse<Void> updateSet(@PathVariable String id, @RequestBody KnowledgeRetrievalEvaluationSet set) {
+    public WebResponse<Void> updateSet(@PathVariable String id, @RequestBody UpdateSetRequest request) {
+        KnowledgeRetrievalEvaluationSet set = request.toEntity();
         KnowledgeRetrievalEvaluationSet existing = requireSet(id);
         if (StringUtils.isBlank(set.getAgentDefinitionId()) || StringUtils.isBlank(set.getName()))
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.set.agent-definition-and-name.required"));
@@ -541,7 +547,8 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("新增评测用例")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases")
-    public WebResponse<String> saveCase(@PathVariable String id, @RequestBody KnowledgeRetrievalEvaluationCaseEntity item) {
+    public WebResponse<String> saveCase(@PathVariable String id, @RequestBody SaveCaseRequest request) {
+        KnowledgeRetrievalEvaluationCaseEntity item = request.toEntity();
         if (StringUtils.isBlank(item.getQuestion()))
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.case.question.required"));
         item.setEvaluationSetId(id);
@@ -556,7 +563,8 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("更新评测用例")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PutMapping("/sets/{setId}/cases/{caseId}")
-    public WebResponse<Void> updateCase(@PathVariable String setId, @PathVariable String caseId, @RequestBody KnowledgeRetrievalEvaluationCaseEntity item) {
+    public WebResponse<Void> updateCase(@PathVariable String setId, @PathVariable String caseId, @RequestBody UpdateCaseRequest request) {
+        KnowledgeRetrievalEvaluationCaseEntity item = request.toEntity();
         KnowledgeRetrievalEvaluationCaseEntity existing = requireCase(setId, caseId);
         if (StringUtils.isBlank(item.getQuestion()))
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.case.question.required"));
@@ -644,7 +652,8 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("预览评测用例导入结果")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/import/preview")
-    public WebResponse<KnowledgeRetrievalEvaluationImportPreviewVo> previewImport(@PathVariable String id, @RequestBody List<KnowledgeRetrievalEvaluationCaseTransferVo> items) {
+    public WebResponse<KnowledgeRetrievalEvaluationImportPreviewVo> previewImport(@PathVariable String id, @RequestBody PreviewImportRequest request) {
+        List<KnowledgeRetrievalEvaluationCaseTransferVo> items = transferItems(request.getItems());
         return WebResponse.OK(validateImport(requireSet(id), items));
     }
 
@@ -654,7 +663,8 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("导入评测用例和标注")
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/import")
-    public WebResponse<Integer> importCases(@PathVariable String id, @RequestBody List<KnowledgeRetrievalEvaluationCaseTransferVo> items) {
+    public WebResponse<Integer> importCases(@PathVariable String id, @RequestBody ImportCasesRequest request) {
+        List<KnowledgeRetrievalEvaluationCaseTransferVo> items = transferItems(request.getItems());
         KnowledgeRetrievalEvaluationImportPreviewVo preview = validateImport(requireSet(id), items);
         if (!preview.isValid())
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.case.import.invalid"));
@@ -1023,104 +1033,99 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("批量评测知识库检索命中率")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PostMapping("/run")
-    public WebResponse<KnowledgeRetrievalEvaluationReport> run(@RequestBody Request request) {
+    public WebResponse<KnowledgeRetrievalEvaluationReport> run(@RequestBody RunRequest request) {
         if (request == null || StringUtils.isBlank(request.getAgentDefinitionId())) {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.agent-definition.required"));
         }
-        return WebResponse.OK(evaluationService.evaluate(request.getAgentDefinitionId(), request.getCases()));
+        return WebResponse.OK(evaluationService.evaluate(request.getAgentDefinitionId(), request.toCases()));
     }
 
     /**
      * 表示Request。
      */
-    public static class Request {
+    @Data
+    @ApiModel("检索评测请求")
+    public static class RunRequest {
+        @ApiModelProperty(value = "智能体定义 ID", required = true, example = "agent-001")
         private String agentDefinitionId;
-        private List<KnowledgeRetrievalEvaluationCase> cases;
-
-        /**
-         * 获取智能体DefinitionId。
-         */
-        public String getAgentDefinitionId() {
-            return agentDefinitionId;
-        }
-
-        /**
-         * 处理set智能体DefinitionId。
-         */
-        public void setAgentDefinitionId(String agentDefinitionId) {
-            this.agentDefinitionId = agentDefinitionId;
-        }
-
-        /**
-         * 获取Cases。
-         */
-        public List<KnowledgeRetrievalEvaluationCase> getCases() {
-            return cases;
-        }
-
-        /**
-         * 处理setCases。
-         */
-        public void setCases(List<KnowledgeRetrievalEvaluationCase> cases) {
-            this.cases = cases;
-        }
+        @ApiModelProperty(value = "评测用例") private List<RunCaseRequest> cases;
+        List<KnowledgeRetrievalEvaluationCase> toCases() { return cases == null ? null : cases.stream().map(RunCaseRequest::toModel).collect(Collectors.toList()); }
     }
 
     /**
      * 表示Case状态Request。
      */
+    @Data
+    @ApiModel("批量更新评测用例状态请求")
     public static class CaseStatusRequest {
+        @ApiModelProperty(value = "评测用例 ID 列表", required = true, example = "[\"case-001\",\"case-002\"]")
         private List<String> caseIds;
+        @ApiModelProperty(value = "状态：0-停用，1-启用", required = true, example = "1")
         private Integer status;
-
-        /**
-         * 获取CaseIds。
-         */
-        public List<String> getCaseIds() {
-            return caseIds;
-        }
-
-        /**
-         * 处理setCaseIds。
-         */
-        public void setCaseIds(List<String> caseIds) {
-            this.caseIds = caseIds;
-        }
-
-        /**
-         * 获取状态。
-         */
-        public Integer getStatus() {
-            return status;
-        }
-
-        /**
-         * 处理set状态。
-         */
-        public void setStatus(Integer status) {
-            this.status = status;
-        }
     }
 
     /**
      * 表示IdsRequest。
      */
+    @Data
+    @ApiModel("批量删除请求")
     public static class IdsRequest {
+        @ApiModelProperty(value = "待删除 ID 列表", required = true, example = "[\"id-001\",\"id-002\"]")
         private List<String> ids;
+    }
 
-        /**
-         * 获取Ids。
-         */
-        public List<String> getIds() {
-            return ids;
-        }
+    @Data public static class SetRequest {
+        @ApiModelProperty(value = "智能体定义 ID", required = true, example = "agent-001") private String agentDefinitionId;
+        @ApiModelProperty(value = "评测集名称", required = true, example = "客服检索回归集") private String name;
+        @ApiModelProperty(value = "评测集说明", example = "常见客服问题") private String description;
+        @ApiModelProperty(value = "状态：0-停用，1-启用", example = "1") private Integer status;
+        KnowledgeRetrievalEvaluationSet toEntity() { KnowledgeRetrievalEvaluationSet set = new KnowledgeRetrievalEvaluationSet(); set.setAgentDefinitionId(agentDefinitionId); set.setName(name); set.setDescription(description); set.setStatus(status); return set; }
+    }
+    @Data @ApiModel("新建评测集请求") public static class SaveSetRequest extends SetRequest { }
+    @Data @ApiModel("更新评测集请求") public static class UpdateSetRequest extends SetRequest { }
+    @Data public static class CaseRequest {
+        @ApiModelProperty(value = "真实用户问题", required = true, example = "如何安装产品？") private String question;
+        @ApiModelProperty(value = "期望命中文档 ID", example = "doc-001") private String documentId;
+        @ApiModelProperty(value = "期望命中章节路径", example = "安装/前置条件") private String sectionPath;
+        @ApiModelProperty(value = "标注粒度", example = "SECTION") private String targetType;
+        @ApiModelProperty(value = "目标分块 ID", example = "chunk-001") private String chunkId;
+        @ApiModelProperty(value = "备注", example = "核心安装指引") private String remark;
+        @ApiModelProperty(value = "状态：0-停用，1-启用", example = "1") private Integer status;
+        KnowledgeRetrievalEvaluationCaseEntity toEntity() { KnowledgeRetrievalEvaluationCaseEntity item = new KnowledgeRetrievalEvaluationCaseEntity(); item.setQuestion(question); item.setDocumentId(documentId); item.setSectionPath(sectionPath); item.setTargetType(targetType); item.setChunkId(chunkId); item.setRemark(remark); item.setStatus(status); return item; }
+    }
+    @Data @ApiModel("新建评测用例请求") public static class SaveCaseRequest extends CaseRequest { }
+    @Data @ApiModel("更新评测用例请求") public static class UpdateCaseRequest extends CaseRequest { }
+    @Data @ApiModel("新增评测用例标注请求") public static class SaveLabelRequest {
+        @ApiModelProperty(value = "目标类型", required = true, example = "SECTION") private String targetType;
+        @ApiModelProperty(value = "文档 ID", required = true, example = "doc-001") private String documentId;
+        @ApiModelProperty(value = "章节路径", example = "安装/前置条件") private String sectionPath;
+        @ApiModelProperty(value = "分块 ID", example = "chunk-001") private String chunkId;
+        @ApiModelProperty(value = "相关性等级：1-3", example = "3") private Integer relevanceGrade;
+        @ApiModelProperty(value = "是否必须命中", example = "true") private Boolean isRequired;
+        @ApiModelProperty(value = "备注", example = "标准答案") private String remark;
+        @ApiModelProperty(value = "状态：0-停用，1-启用", example = "1") private Integer status;
+        KnowledgeRetrievalEvaluationLabel toEntity() { KnowledgeRetrievalEvaluationLabel label = new KnowledgeRetrievalEvaluationLabel(); label.setTargetType(targetType); label.setDocumentId(documentId); label.setSectionPath(sectionPath); label.setChunkId(chunkId); label.setRelevanceGrade(relevanceGrade); label.setIsRequired(isRequired); label.setRemark(remark); label.setStatus(status); return label; }
+    }
+    @Data @ApiModel("导入评测用例请求") public static class ImportCaseRequest {
+        @ApiModelProperty(value = "评测用例", required = true) private CaseRequest item;
+        @ApiModelProperty(value = "正向标注列表") private List<SaveLabelRequest> labels;
+        KnowledgeRetrievalEvaluationCaseTransferVo toTransfer() { KnowledgeRetrievalEvaluationCaseTransferVo transfer = new KnowledgeRetrievalEvaluationCaseTransferVo(); transfer.setItem(item == null ? null : item.toEntity()); transfer.setLabels(labels == null ? null : labels.stream().map(SaveLabelRequest::toEntity).collect(Collectors.toList())); return transfer; }
+    }
+    @Data @ApiModel("预览评测用例导入请求") public static class PreviewImportRequest {
+        @ApiModelProperty(value = "待导入评测用例", required = true) private List<ImportCaseRequest> items;
+    }
+    @Data @ApiModel("导入评测用例和标注请求") public static class ImportCasesRequest {
+        @ApiModelProperty(value = "待导入评测用例", required = true) private List<ImportCaseRequest> items;
+    }
+    @Data @ApiModel("运行检索评测用例") public static class RunCaseRequest {
+        @ApiModelProperty(value = "用户问题", required = true, example = "如何安装产品？") private String question;
+        @ApiModelProperty(value = "预期命中的分块 ID", required = true, example = "[\"chunk-001\"]") private List<String> expectedChunkIds;
+        @ApiModelProperty(value = "目标类型", example = "CHUNK") private String targetType;
+        KnowledgeRetrievalEvaluationCase toModel() { KnowledgeRetrievalEvaluationCase item = new KnowledgeRetrievalEvaluationCase(); item.setQuestion(question); item.setExpectedChunkIds(expectedChunkIds); item.setTargetType(targetType); return item; }
+    }
 
-        /**
-         * 处理setIds。
-         */
-        public void setIds(List<String> ids) {
-            this.ids = ids;
-        }
+    private List<KnowledgeRetrievalEvaluationCaseTransferVo> transferItems(List<ImportCaseRequest> requests) {
+        return requests == null ? null : requests.stream().map(request -> request == null ? null : request.toTransfer()).collect(Collectors.toList());
     }
 
     /**

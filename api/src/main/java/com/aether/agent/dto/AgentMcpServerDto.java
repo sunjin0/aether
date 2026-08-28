@@ -1,5 +1,6 @@
 package com.aether.agent.dto;
 
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 
@@ -7,6 +8,7 @@ import lombok.Data;
  * MCP服务 DTO
  */
 @Data
+@ApiModel("MCP 服务器创建或更新请求")
 public class AgentMcpServerDto {
 
     @ApiModelProperty(value = "MCP服务名称")
@@ -18,7 +20,7 @@ public class AgentMcpServerDto {
     @ApiModelProperty(value = "传输类型：http/streamable_http")
     private String transport;
 
-    @ApiModelProperty(value = "MCP endpoint")
+    @ApiModelProperty(value = "MCP 端点")
     private String baseUrl;
 
     @ApiModelProperty(value = "请求头JSON")

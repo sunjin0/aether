@@ -21,7 +21,10 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
 import io.swagger.annotations.ApiOperation;
+import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
@@ -68,7 +71,11 @@ public class KnowledgeBaseController {
      */
     @ApiOperation("知识库列表")
     @PostMapping("/list")
-    public WebResponse<List<KnowledgeBaseVo>> list(@RequestBody KnowledgeBaseVo vo) {
+    public WebResponse<List<KnowledgeBaseVo>> list(@RequestBody ListRequest request) {
+        KnowledgeBaseVo vo = new KnowledgeBaseVo();
+        vo.setCurrent(request.getCurrent()); vo.setPageSize(request.getPageSize()); vo.setScope(request.getScope());
+        vo.setEmbeddingProviderId(request.getEmbeddingProviderId()); vo.setName(request.getName());
+        vo.setStatus(request.getStatus()); vo.setIndexStatus(request.getIndexStatus());
         Page<KnowledgeBase> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
         if (readableIds.isEmpty()) {
@@ -131,7 +138,8 @@ public class KnowledgeBaseController {
     @ApiOperation("新增知识库")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PostMapping
-    public WebResponse<String> save(@RequestBody KnowledgeBaseVo vo) {
+    public WebResponse<String> save(@RequestBody CreateRequest request) {
+        KnowledgeBaseVo vo = writableVo(request);
         KnowledgeBase kb = mutableFields(vo);
         kb.setReviewConfig(validateReviewConfig(vo.getReviewConfig()));
         kb.setOwnerAdminId(knowledgeAccessService.currentAdminId());
@@ -157,7 +165,8 @@ public class KnowledgeBaseController {
     @ApiOperation("编辑知识库")
     @Permission(path = "/knowledge/base", type = Permission.Type.Write)
     @PutMapping("/{id}")
-    public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody KnowledgeBaseVo vo) {
+    public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody UpdateRequest request) {
+        KnowledgeBaseVo vo = writableVo(request);
         KnowledgeBase existing = knowledgeAccessService.requireWritable(id);
         KnowledgeBase kb = mutableFields(vo);
         if (vo.getReviewConfig() != null) {
@@ -202,6 +211,47 @@ public class KnowledgeBaseController {
         kb.setStatus(vo.getStatus());
         return kb;
     }
+
+    private KnowledgeBaseVo writableVo(BaseRequest request) {
+        KnowledgeBaseVo vo = new KnowledgeBaseVo();
+        vo.setScope(request.getScope()); vo.setEmbeddingModelId(request.getEmbeddingModelId());
+        vo.setVisibility(request.getVisibility()); vo.setRetrievalConfig(request.getRetrievalConfig());
+        vo.setReviewConfig(request.getReviewConfig()); vo.setName(request.getName());
+        vo.setDescription(request.getDescription()); vo.setStatus(request.getStatus());
+        return vo;
+    }
+
+    @Data
+    @ApiModel("知识库列表请求")
+    public static class ListRequest {
+        @ApiModelProperty(value = "页码", example = "1") private Long current;
+        @ApiModelProperty(value = "每页数量", example = "20") private Long pageSize;
+        @ApiModelProperty(value = "范围", example = "platform") private String scope;
+        @ApiModelProperty(value = "嵌入供应商 ID", example = "provider-001") private String embeddingProviderId;
+        @ApiModelProperty(value = "知识库名称关键词", example = "产品文档") private String name;
+        @ApiModelProperty(value = "状态：0-禁用，1-启用", example = "1") private Integer status;
+        @ApiModelProperty(value = "索引状态", example = "2") private Integer indexStatus;
+    }
+
+    @Data
+    public static class BaseRequest {
+        @ApiModelProperty(value = "范围", required = true, example = "platform") private String scope;
+        @ApiModelProperty(value = "嵌入模型 ID", required = true, example = "model-embedding-001") private String embeddingModelId;
+        @ApiModelProperty(value = "可见性", example = "platform") private String visibility;
+        @ApiModelProperty(value = "检索配置 JSON", example = "{\"topK\":5}") private String retrievalConfig;
+        @ApiModelProperty(value = "审核配置 JSON", required = true, example = "{\"reviewModelId\":\"model-chat-001\"}") private String reviewConfig;
+        @ApiModelProperty(value = "知识库名称", required = true, example = "产品文档") private String name;
+        @ApiModelProperty(value = "描述", example = "产品帮助中心文档") private String description;
+        @ApiModelProperty(value = "状态：0-禁用，1-启用", example = "1") private Integer status;
+    }
+
+    @Data
+    @ApiModel("新建知识库请求")
+    public static class CreateRequest extends BaseRequest { }
+
+    @Data
+    @ApiModel("更新知识库请求")
+    public static class UpdateRequest extends BaseRequest { }
 
     /**
      * 校验审核配置。

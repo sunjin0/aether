@@ -1,5 +1,6 @@
 package com.aether.agent.dto;
 
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 
@@ -10,15 +11,16 @@ import java.util.List;
  * Agent定义 DTO
  */
 @Data
+@ApiModel("智能体定义创建或更新请求")
 public class AgentDefinitionDto {
 
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
 
-    @ApiModelProperty(value = "Agent名称")
+    @ApiModelProperty(value = "智能体名称")
     private String name;
 
-    @ApiModelProperty(value = "Agent编码")
+    @ApiModelProperty(value = "智能体编码")
     private String code;
 
     @ApiModelProperty(value = "描述")
@@ -61,7 +63,7 @@ public class AgentDefinitionDto {
     @ApiModelProperty(value = "执行模式：STANDARD 或 DEEP")
     private String executionMode;
 
-    @ApiModelProperty(value = "Agent 对外发信邮箱")
+    @ApiModelProperty(value = "智能体对外发信邮箱")
     private String smtpSenderEmail;
     private Boolean smtpEnabled;
     private String smtpHost;
@@ -69,7 +71,7 @@ public class AgentDefinitionDto {
     private String smtpSecurity;
 
     /** 仅写入；服务端加密后保存，编辑时留空表示保留已有授权码。 */
-    @ApiModelProperty(value = "Agent SMTP 授权码（仅写入）")
+    @ApiModelProperty(value = "智能体 SMTP 授权码（仅写入）")
     private String smtpAuthorizationCode;
 
     @ApiModelProperty(value = "绑定的工具ID列表")

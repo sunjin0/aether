@@ -1,6 +1,8 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentMcpServerDto;
+import com.aether.agent.dto.AgentControllerRequests.McpServerList;
+import com.aether.agent.dto.AgentControllerRequests.McpToolImport;
 import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.mcp.McpClient;
@@ -74,7 +76,7 @@ public class AgentMcpServerController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<AgentMcpServerVo>> list(@RequestBody AgentMcpServerVo vo) {
+    public WebResponse<List<AgentMcpServerVo>> list(@RequestBody McpServerList vo) {
         Page<AgentMcpServer> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<AgentMcpServer> wrapper = Wrappers.lambdaQuery(AgentMcpServer.class)
                 .like(StringUtils.isNotBlank(vo.getName()), AgentMcpServer::getName, vo.getName())
@@ -195,11 +197,11 @@ public class AgentMcpServerController {
     @Transactional(rollbackFor = Exception.class)
     @PostMapping("/{id}/import-tools")
     public WebResponse<List<AgentTool>> importTools(@PathVariable @NotBlank String id,
-                                                    @RequestBody(required = false) Map<String, List<String>> body) {
+                                                     @RequestBody(required = false) McpToolImport body) {
         AgentMcpServer server = getEnabledServer(id);
         validateTransport(server);
         mcpClient.ping(server);
-        List<String> selectedNames = body == null ? null : body.get("toolNames");
+        List<String> selectedNames = body == null ? null : body.getToolNames();
         List<McpToolDefinition> definitions = mcpClient.listTools(server);
         List<AgentTool> imported = new ArrayList<>();
         for (McpToolDefinition definition : definitions) {

@@ -1,5 +1,6 @@
 package com.aether.agent.dto;
 
+import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 
@@ -7,6 +8,7 @@ import lombok.Data;
  * 工具绑定 DTO
  */
 @Data
+@ApiModel("智能体工具绑定创建或更新请求")
 public class AgentToolBindingDto {
 
     @ApiModelProperty(value = "关联工具ID")

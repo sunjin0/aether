@@ -14,6 +14,7 @@ import com.aether.i18n.I18nUtils;
 import com.aether.validator.ValidEntity;
 import com.aether.utils.AesUtil;
 import com.aether.sys.vo.UserVo;
+import com.aether.sys.dto.UserRequests;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
@@ -63,7 +64,7 @@ public class UserController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<UserVo>> list(@RequestBody UserVo user) throws ServerException {
+    public WebResponse<List<UserVo>> list(@RequestBody UserRequests.ListRequest user) throws ServerException {
         Page<User> userPage = new Page<>(user.getCurrent(), user.getPageSize());
         Wrapper<User> queryWrapper = Wrappers.lambdaQuery(User.class)
                 .like(StringUtils.isNotBlank(user.getSex()), User::getSex, user.getSex())
@@ -129,7 +130,9 @@ public class UserController {
     @PostMapping("/add")
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"username", "phone", "email", "avatar"})
-                                     UserVo User) throws ServerException {
+                                      UserRequests.SaveRequest request) throws ServerException {
+        UserVo User = new UserVo();
+        BeanUtils.copyProperties(request, User);
         // 密码加密
         if (StringUtils.isNotEmpty(User.getPassword())) {
             User.setPassword(encoder.encode(User.getPassword()));
@@ -154,7 +157,9 @@ public class UserController {
     @PostMapping("/update")
     public WebResponse<Boolean> update(@RequestBody
                                        @ValidEntity(fieldNames = {"username", "phone", "email", "avatar"})
-                                       UserVo User) throws ServerException {
+                                        UserRequests.SaveRequest request) throws ServerException {
+        UserVo User = new UserVo();
+        BeanUtils.copyProperties(request, User);
         // 密码加密
         if (StringUtils.isNotEmpty(User.getPassword())) {
             User.setPassword(encoder.encode(User.getPassword()));

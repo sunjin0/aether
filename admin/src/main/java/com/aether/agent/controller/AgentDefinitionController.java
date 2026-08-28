@@ -1,6 +1,8 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.AgentDefinitionDto;
+import com.aether.agent.dto.AgentControllerRequests.DefinitionList;
+import com.aether.agent.dto.AgentControllerRequests.Status;
 import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentToolBinding;
@@ -74,7 +76,7 @@ public class AgentDefinitionController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<AgentDefinitionVo>> list(@RequestBody AgentDefinitionVo vo) {
+    public WebResponse<List<AgentDefinitionVo>> list(@RequestBody DefinitionList vo) {
         Page<AgentDefinition> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<AgentDefinition> wrapper = Wrappers.lambdaQuery(AgentDefinition.class)
                 .like(StringUtils.isNotBlank(vo.getName()), AgentDefinition::getName, vo.getName())
@@ -236,7 +238,7 @@ public class AgentDefinitionController {
     })
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
-    public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody AgentDefinitionVo vo) {
+    public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody Status vo) {
         AgentDefinition definition = new AgentDefinition();
         definition.setId(id);
         definition.setStatus(vo.getStatus());

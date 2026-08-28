@@ -15,12 +15,14 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.validator.ValidEntity;
 import com.aether.sys.vo.*;
+import com.aether.sys.dto.RoleRequests;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -57,7 +59,9 @@ public class RoleController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<Role>> list(@RequestBody RoleVo role) throws ServerException {
+    public WebResponse<List<Role>> list(@RequestBody RoleRequests.ListRequest request) throws ServerException {
+        RoleVo role = new RoleVo();
+        BeanUtils.copyProperties(request, role);
         Page<Role> dictPage = new Page<>(role.getCurrent(), role.getPageSize());
         Wrapper<Role> queryWrapper = Wrappers.lambdaQuery(Role.class)
                 .like(StringUtils.isNotBlank(role.getName()), Role::getName, role.getName())
@@ -96,7 +100,9 @@ public class RoleController {
     @PostMapping("/add")
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"name"})
-                                     Role role) throws ServerException {
+                                      RoleRequests.SaveRequest request) throws ServerException {
+        Role role = new Role();
+        BeanUtils.copyProperties(request, role);
         boolean save = roleService.save(role);
         return WebResponse.OK(save ? I18nUtils.getMessage("system.role.create.success") : I18nUtils.getMessage("system.role.create.fail"), save);
     }
@@ -112,7 +118,9 @@ public class RoleController {
     @PostMapping("/update")
     public WebResponse<Boolean> update(@RequestBody
                                        @ValidEntity(fieldNames = {"name"})
-                                       Role role) throws ServerException {
+                                        RoleRequests.UpdateRequest request) throws ServerException {
+        Role role = new Role();
+        BeanUtils.copyProperties(request, role);
         boolean update = roleService.updateById(role);
         return WebResponse.OK(update ? I18nUtils.getMessage("system.role.update.success") : I18nUtils.getMessage("system.role.update.fail"), update);
     }

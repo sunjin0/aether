@@ -14,11 +14,13 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.validator.ValidEntity;
 import com.aether.sys.vo.ResourceVo;
+import com.aether.sys.dto.ResourceRequests;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.constraints.NotBlank;
@@ -70,8 +72,10 @@ public ResourceController(ResourceService resourceService) {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @PostMapping("/list")
-    public WebResponse<List<ResourceVo>> list(@RequestBody ResourceVo Resource) throws ServerException {
-        Page<ResourceVo> list = resourceService.list(Resource);
+    public WebResponse<List<ResourceVo>> list(@RequestBody ResourceRequests.ListRequest request) throws ServerException {
+        ResourceVo resource = new ResourceVo();
+        BeanUtils.copyProperties(request, resource);
+        Page<ResourceVo> list = resourceService.list(resource);
         return WebResponse.Page(list.getRecords(), list.getTotal());
     }
 
@@ -86,7 +90,9 @@ public ResourceController(ResourceService resourceService) {
     @PostMapping("/add")
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"name", "nameCn", "type"})
-                                     Resource resource) throws ServerException {
+                                      ResourceRequests.SaveRequest request) throws ServerException {
+        Resource resource = new Resource();
+        BeanUtils.copyProperties(request, resource);
         boolean save = resourceService.save(resource,resource.getLeaf());
         return WebResponse.OK(I18nUtils.getMessage(save ? "system.resource.create.success" : "system.resource.create.fail"), save);
     }
@@ -101,7 +107,9 @@ public ResourceController(ResourceService resourceService) {
     @PostMapping("/update")
     public WebResponse<Boolean> update(@RequestBody
                                       @ValidEntity(fieldNames = {"name", "nameCn", "type"})
-                                           Resource resource){
+                                            ResourceRequests.UpdateRequest request){
+        Resource resource = new Resource();
+        BeanUtils.copyProperties(request, resource);
         boolean update = resourceService.updateById(resource);
         return WebResponse.OK(I18nUtils.getMessage(update ? "system.resource.update.success" : "system.resource.update.fail"), update);
     }

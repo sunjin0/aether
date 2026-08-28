@@ -6,6 +6,7 @@ import com.aether.permission.Permission;
 import com.aether.entity.WebResponse;
 import com.aether.msg.entity.Sms;
 import com.aether.msg.vo.SmsVo;
+import com.aether.msg.dto.SmsRequests;
 import com.aether.i18n.I18nUtils;
 import com.aether.msg.service.SmsMessageService;
 import io.swagger.annotations.Api;
@@ -14,6 +15,7 @@ import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.BeanUtils;
 
 import java.util.List;
 
@@ -44,7 +46,9 @@ public class SmsController {
             }
     )
     @PostMapping("/list")
-    public WebResponse<List<Sms>> list(@RequestBody SmsVo sms) {
+    public WebResponse<List<Sms>> list(@RequestBody SmsRequests.ListRequest request) {
+        SmsVo sms = new SmsVo();
+        BeanUtils.copyProperties(request, sms);
         Page<Sms> list = smsService.list(sms);
         return WebResponse.Page(list.getRecords(), list.getTotal());
     }
@@ -75,7 +79,9 @@ public class SmsController {
             }
     )
     @PostMapping("/save")
-    public WebResponse<Boolean> save(@RequestBody Sms message) throws ServiceException {
+    public WebResponse<Boolean> save(@RequestBody SmsRequests.SaveRequest request) throws ServiceException {
+        Sms message = new Sms();
+        BeanUtils.copyProperties(request, message);
         String id = message.getId();
         boolean save = smsService.save(message);
         if (StringUtils.isNotEmpty(id)) {

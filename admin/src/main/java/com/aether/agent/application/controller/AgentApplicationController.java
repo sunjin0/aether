@@ -1,6 +1,7 @@
 package com.aether.agent.application.controller;
 
 import com.aether.agent.application.dto.AgentApplicationDto;
+import com.aether.agent.dto.AgentControllerRequests.ApplicationList;
 import com.aether.agent.application.entity.AgentApplication;
 import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.agent.application.vo.AgentApplicationVo;
@@ -65,7 +66,7 @@ public class AgentApplicationController {
     @ApiOperation("查询 Agent 应用列表")
     @PostMapping("/list")
     @Permission(path = "/agent/application")
-    public WebResponse<List<AgentApplicationVo>> list(@RequestBody(required = false) AgentApplicationVo query) {
+    public WebResponse<List<AgentApplicationVo>> list(@RequestBody(required = false) ApplicationList query) {
         long current = query == null || query.getCurrent() == null ? 1L : query.getCurrent();
         long pageSize = query == null || query.getPageSize() == null ? 20L : Math.min(100L, query.getPageSize());
         Page<AgentApplication> page = applicationService.page(new Page<AgentApplication>(current, pageSize),

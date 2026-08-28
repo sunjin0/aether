@@ -7,6 +7,9 @@ import com.aether.agent.entity.AgentTaskEvent;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.dto.AgentChatDto;
+import com.aether.agent.dto.AgentControllerRequests.TaskFeedback;
+import com.aether.agent.dto.AgentControllerRequests.TaskInput;
+import com.aether.agent.dto.AgentControllerRequests.SessionPreferenceFeedback;
 import com.aether.agent.service.AgentRunPlanService;
 import com.aether.agent.service.AgentSessionService;
 import com.aether.agent.service.AgentSessionMemoryService;
@@ -247,9 +250,9 @@ public class AgentSessionController {
     @ApiOperation("提交持续 Agent 任务反馈")
     @PostMapping("/task/{taskId}/feedback")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
-    public WebResponse<Void> feedback(@PathVariable String taskId, @RequestBody Map<String, Object> payload) {
+    public WebResponse<Void> feedback(@PathVariable String taskId, @RequestBody TaskFeedback payload) {
         AgentTask task = requireOwnedTask(taskId);
-        Object rawRating = payload.get("rating");
+        Object rawRating = payload.getRating();
         int rating;
         try {
             rating = Integer.parseInt(String.valueOf(rawRating));
@@ -257,7 +260,7 @@ public class AgentSessionController {
             throw new ServerException(400, "评分必须为 1 到 5");
         }
         if (rating < 1 || rating > 5) throw new ServerException(400, "评分必须为 1 到 5");
-        Object rawNote = payload.get("note");
+        Object rawNote = payload.getNote();
         String note = StringUtils.abbreviate(rawNote == null ? "" : String.valueOf(rawNote), 500);
         taskEvents.record(taskId, task.getCurrentRunId(), "task.feedback",
                 "rating=" + rating + (StringUtils.isBlank(note) ? "" : "；" + note));
@@ -310,16 +313,16 @@ public class AgentSessionController {
     @PostMapping("/task/{taskId}/input")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<Map<String, String>> inputTask(@PathVariable String taskId,
-                                                      @RequestBody Map<String, Object> payload) {
+                                                         @RequestBody TaskInput payload) {
         AgentTask task = requireOwnedTask(taskId);
         if (!"WAITING_USER".equals(task.getStatus()) && !"WAITING_APPROVAL".equals(task.getStatus())) {
             throw new ServerException(409, "当前任务不等待用户输入或审批");
         }
-        Object rawMessageId = payload.get("messageId");
+        Object rawMessageId = payload.getMessageId();
         String messageId = rawMessageId == null ? "" : StringUtils.trimToEmpty(String.valueOf(rawMessageId));
         if (StringUtils.isBlank(messageId)) throw new ServerException(400, "缺少待恢复的交互消息 ID");
         AgentSession session = requireOwnedSession(task.getSessionId());
-        String runId = deepAgentRuns.resumeToolApproval(session.getConversationId(), messageId, currentUserId(), payload);
+        String runId = deepAgentRuns.resumeToolApproval(session.getConversationId(), messageId, currentUserId(), payload.getValues());
         plans.markRunning(runId);
         taskEvents.record(taskId, runId, "task.input_received", "已接收用户输入并恢复任务");
         Map<String, String> result = new LinkedHashMap<String, String>();
@@ -386,16 +389,16 @@ public class AgentSessionController {
     @PostMapping("/{sessionId}/memory/feedback")
     @Permission(path = "/agent/chat", type = Permission.Type.Write)
     public WebResponse<AdminPreference> memoryFeedback(@PathVariable String sessionId,
-                                                       @RequestBody Map<String, Object> payload) {
+                                                        @RequestBody SessionPreferenceFeedback payload) {
         String userId = currentUserId();
         AgentSession session = sessions.getById(sessionId);
         if (session == null || Boolean.TRUE.equals(session.getDeleted()) || !userId.equals(session.getUserId())) {
             throw new ServerException(404, "Agent Session 不存在");
         }
-        String category = StringUtils.trimToEmpty(String.valueOf(payload.get("category"))).toLowerCase();
-        String keyName = StringUtils.trimToEmpty(String.valueOf(payload.get("keyName"))).toLowerCase();
-        String value = StringUtils.trimToEmpty(String.valueOf(payload.get("value")));
-        boolean confirmed = !Boolean.FALSE.equals(payload.get("confirmed"));
+        String category = StringUtils.trimToEmpty(String.valueOf(payload.getCategory())).toLowerCase();
+        String keyName = StringUtils.trimToEmpty(String.valueOf(payload.getKeyName())).toLowerCase();
+        String value = StringUtils.trimToEmpty(String.valueOf(payload.getValue()));
+        boolean confirmed = !Boolean.FALSE.equals(payload.getConfirmed());
         if (!isPreferenceCategory(category) || StringUtils.isBlank(keyName)) {
             throw new ServerException(400, "偏好类别或键无效");
         }
