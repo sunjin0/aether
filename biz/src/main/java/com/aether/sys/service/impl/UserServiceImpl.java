@@ -218,6 +218,46 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     /**
+     * 使用当前会话的 refresh token 轮换令牌。条件更新确保同一个 refresh token 只能成功使用一次。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public UserVo refreshToken(String refreshToken) throws ServerException {
+        final String decodedRefreshToken;
+        try {
+            decodedRefreshToken = AesUtil.decrypt(refreshToken);
+            if (!TokenUtils.hasTokenType(decodedRefreshToken, TokenUtils.REFRESH_TOKEN_TYPE)) {
+                throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
+            }
+        } catch (ServerException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
+        }
+
+        String userId = TokenUtils.getUserId(decodedRefreshToken);
+        User user = getById(userId);
+        if (user == null || !Integer.valueOf(1).equals(user.getState())) {
+            throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
+        }
+        HashMap<String, String> payload = new HashMap<>();
+        payload.put("userId", userId);
+        payload.put("role", user.getType());
+        Token nextToken = TokenUtils.createToken(payload);
+        boolean rotated = tokenService.update(nextToken, Wrappers.<Token>lambdaUpdate()
+                .eq(Token::getUserId, userId)
+                .eq(Token::getRefreshToken, refreshToken)
+                .eq(Token::getState, 1));
+        if (!rotated) {
+            throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
+        }
+        UserVo result = new UserVo();
+        result.setToken(nextToken.getToken());
+        result.setRefreshToken(nextToken.getRefreshToken());
+        return result;
+    }
+
+    /**
      * 获取角色Ids按用户Id。
      */
     @Override

@@ -3,6 +3,7 @@ package com.aether.interceptor;
 import com.alibaba.fastjson2.JSON;
 import com.aether.entity.WebResponse;
 import com.aether.auth.ServiceTokenVerifier;
+import com.aether.auth.UserTokenVerifier;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
@@ -45,12 +46,15 @@ public class GlobalFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(GlobalFilter.class);
     private static final String PRINCIPAL_TYPE_SERVICE_ACCOUNT = "SERVICE_ACCOUNT";
     private final ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider;
+    private final ObjectProvider<UserTokenVerifier> userTokenVerifierProvider;
 
     /**
      * 创建 {@code GlobalFilter} 实例。
      */
-    public GlobalFilter(ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider) {
+    public GlobalFilter(ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider,
+                        ObjectProvider<UserTokenVerifier> userTokenVerifierProvider) {
         this.serviceTokenVerifierProvider = serviceTokenVerifierProvider;
+        this.userTokenVerifierProvider = userTokenVerifierProvider;
     }
 
     /**
@@ -73,7 +77,8 @@ public class GlobalFilter extends OncePerRequestFilter {
             String authorization = request.getHeader("Authorization");
             if (authorization != null && authorization.startsWith("Bearer ")) {
                 try {
-                    String token = AesUtil.decrypt(authorization.replace("Bearer ", ""));
+                    String encryptedToken = authorization.substring("Bearer ".length());
+                    String token = AesUtil.decrypt(encryptedToken);
                     // 校验token（签名+过期时间）
                     String userId = TokenUtils.getUserId(token);
                     String principalType = TokenUtils.getClaim(token, "principalType");
@@ -93,7 +98,16 @@ public class GlobalFilter extends OncePerRequestFilter {
                         payload.put("principalId", principalId != null && !principalId.isEmpty() ? principalId : userId);
                         payload.put("serviceAccountId", serviceAccountId);
                         if (applicationId != null && !applicationId.isEmpty()) payload.put("applicationId", applicationId);
-                    } else if (principalType != null && !principalType.isEmpty()) {
+                    } else {
+                        if (!TokenUtils.hasTokenType(token, TokenUtils.ACCESS_TOKEN_TYPE)) {
+                            throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
+                        }
+                        UserTokenVerifier verifier = userTokenVerifierProvider.getIfAvailable();
+                        if (verifier == null || !verifier.isActive(userId, encryptedToken)) {
+                            throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
+                        }
+                    }
+                    if (principalType != null && !principalType.isEmpty()) {
                         payload.put("principalType", principalType);
                         payload.put("principalId", principalId);
                     }

@@ -93,6 +93,11 @@ public interface UserService extends IService<User> {
     UserVo login(UserVo user) throws ServerException;
 
     /**
+     * 用有效 refresh token 轮换并获取新的登录令牌对。
+     */
+    UserVo refreshToken(String refreshToken) throws ServerException;
+
+    /**
      * 按用户 ID 获取角色 ID
      *
      * @param userId 用户 ID

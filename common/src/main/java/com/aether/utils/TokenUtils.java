@@ -23,6 +23,9 @@ public class TokenUtils {
     // 签名密钥
     private static final String SECRET_KEY = "1sa(s}>s.@jj,asj.!hg5454";
     public static final String TOKEN_KEY = "TokenList";
+    public static final String TOKEN_TYPE_CLAIM = "tokenType";
+    public static final String ACCESS_TOKEN_TYPE = "access";
+    public static final String REFRESH_TOKEN_TYPE = "refresh";
 
     /**
      * 创建令牌
@@ -40,6 +43,7 @@ public class TokenUtils {
         JWTCreator.Builder builder = JWT.create();
         // 构建payload
         payload.forEach(builder::withClaim);
+        builder.withClaim(TOKEN_TYPE_CLAIM, ACCESS_TOKEN_TYPE);
         // 指定过期时间和签名算法
         String token = builder.withExpiresAt(calendar.getTime()).sign(Algorithm.HMAC256(SECRET_KEY));
 
@@ -62,6 +66,7 @@ public class TokenUtils {
         calendar.add(Calendar.DATE, 7);
         // 构建payload
         payload.forEach(builder::withClaim);
+        builder.withClaim(TOKEN_TYPE_CLAIM, REFRESH_TOKEN_TYPE);
         // 构建刷新token
         return builder.withExpiresAt(calendar.getTime()).sign(Algorithm.HMAC256(SECRET_KEY));
     }
@@ -96,6 +101,13 @@ public class TokenUtils {
     }
 
     /**
+     * 校验令牌类型。类型声明用于防止 refresh token 被当作访问令牌使用。
+     */
+    public static boolean hasTokenType(String token, String expectedType) {
+        return expectedType.equals(getClaim(token, TOKEN_TYPE_CLAIM));
+    }
+
+    /**
      * 创建不含刷新令牌的短期访问令牌，供服务账号 client credentials 使用。
      */
     public static String createAccessToken(Map<String, String> payload, int expiresInSeconds) {
@@ -106,6 +118,7 @@ public class TokenUtils {
         calendar.add(Calendar.SECOND, Math.max(60, expiresInSeconds));
         JWTCreator.Builder builder = JWT.create();
         payload.forEach(builder::withClaim);
+        builder.withClaim(TOKEN_TYPE_CLAIM, ACCESS_TOKEN_TYPE);
         return AesUtil.encrypt(builder.withExpiresAt(calendar.getTime()).sign(Algorithm.HMAC256(SECRET_KEY)));
     }
 

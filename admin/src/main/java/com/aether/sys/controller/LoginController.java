@@ -68,6 +68,18 @@ public class LoginController {
     }
 
     /**
+     * 使用刷新令牌轮换登录令牌。
+     */
+    @ApiOperation("刷新登录令牌")
+    @Permission(required = false)
+    @PostMapping("/refresh")
+    public WebResponse<UserVo> refresh(@RequestBody
+                                        @ValidEntity(fieldNames = {"refreshToken"})
+                                        LoginRequests.RefreshTokenRequest request) throws ServerException {
+        return WebResponse.OK(userService.refreshToken(request.getRefreshToken()));
+    }
+
+    /**
      * 重置密码。
      */
     @ApiOperation("重置密码")

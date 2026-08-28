@@ -15,6 +15,9 @@ public final class LoginRequests {
         @ApiModelProperty(value = "邮箱", required = true, example = "admin@example.com") private String email;
         @ApiModelProperty(value = "验证码", required = true, example = "123456") private Integer verificationCode;
     }
+    @Data @ApiModel("刷新令牌请求") public static class RefreshTokenRequest {
+        @ApiModelProperty(value = "登录时获得的刷新令牌", required = true) private String refreshToken;
+    }
     @Data @ApiModel("密码重置请求") public static class ResetPasswordRequest {
         @ApiModelProperty(value = "当前密码", required = true, example = "OldPassword123!") private String oldPassword;
         @ApiModelProperty(value = "新密码", required = true, example = "NewPassword123!") private String password;

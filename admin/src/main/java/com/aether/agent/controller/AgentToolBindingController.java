@@ -67,7 +67,7 @@ public class AgentToolBindingController {
     })
     @GetMapping("/{agentId}/tools")
     public WebResponse<List<AgentToolBindingVo>> listByAgent(@PathVariable @NotBlank String agentId) {
-        return list(agentId, new AgentToolBindingVo());
+        return list(agentId, new ToolBindingList());
     }
 
     @ApiOperation("分页查询Agent工具绑定")
