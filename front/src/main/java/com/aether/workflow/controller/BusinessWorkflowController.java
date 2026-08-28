@@ -8,7 +8,9 @@ import com.aether.sys.service.ServiceAccountService;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.agent.product.entity.AgentProductProfile;
 import com.aether.agent.product.service.AgentProductProfileService;
+import com.aether.workflow.dto.AgentWorkflowAnswerInstanceRequest;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
+import com.aether.workflow.dto.AgentWorkflowInteractionDto;
 import com.aether.workflow.dto.BusinessWorkflowStartInstanceRequest;
 import com.aether.workflow.entity.AgentWorkflowInstance;
 import com.aether.workflow.entity.AgentWorkflow;
@@ -76,7 +78,7 @@ public class BusinessWorkflowController {
         String serviceAccountId = currentServiceAccountId();
         serviceAccountService.assertWorkflowStartAllowed(serviceAccountId, workflowId);
         AgentWorkflowInstance instance = executionService.startBusiness(workflowId, toBusinessStartDto(request), currentPrincipalId());
-        return WebResponse.OK(instance.getId());
+        return WebResponse.OK(null, instance.getId());
     }
 
     @ApiOperation("外部系统查看工作流实例")
@@ -92,6 +94,25 @@ public class BusinessWorkflowController {
         SseEmitter emitter = sseHub.subscribe(instanceId);
         sseHub.publish(instanceId, "instance.status", snapshot);
         return emitter;
+    }
+
+    @ApiOperation("提交人工节点回答或 MCP 确认")
+    @PostMapping("/instances/{instanceId}/answer")
+    public WebResponse<Void> answer(@PathVariable String instanceId,
+                                    @RequestBody AgentWorkflowAnswerInstanceRequest request) {
+        AgentWorkflowInteractionDto dto = new AgentWorkflowInteractionDto();
+        dto.setAnswer(request == null ? null : request.getAnswer());
+        executionService.answer(instanceId, dto, currentPrincipalId());
+        return WebResponse.OK((Void) null);
+    }
+
+    @ApiOperation("获取工作流实例当前返回值")
+    @GetMapping("/instances/{instanceId}/result")
+    public WebResponse<Map<String, Object>> result(@PathVariable String instanceId) {
+        AgentWorkflowInstanceVo instance = executionService.detail(instanceId, currentPrincipalId());
+        Map<String, Object> variables = StringUtils.isBlank(instance.getVariables())
+                ? Collections.<String, Object>emptyMap() : com.alibaba.fastjson2.JSON.parseObject(instance.getVariables(), Map.class);
+        return WebResponse.OK(variables);
     }
 
     private String currentServiceAccountId() {
