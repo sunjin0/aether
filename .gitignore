@@ -5,4 +5,5 @@
 /common/target/
 /front/target/
 /storage/target/
+.idea/
 .env.sandbox-pilot
