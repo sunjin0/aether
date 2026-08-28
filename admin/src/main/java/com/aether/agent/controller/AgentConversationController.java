@@ -76,6 +76,7 @@ import java.util.stream.Collectors;
 public class AgentConversationController {
     private static final int IDEMPOTENCY_KEY_MAX_LENGTH = 128;
     private static final String IDEMPOTENCY_PROCESSING = "__PROCESSING__";
+    private static final String SERVICE_ACCOUNT_PRINCIPAL_PREFIX = "sa:";
 
     private final AgentConversationService agentConversationService;
     private final AgentDefinitionService agentDefinitionService;
@@ -158,7 +159,8 @@ public class AgentConversationController {
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentConversation::getAgentDefinitionId, vo.getAgentDefinitionId())
                 .eq(vo.getStatus() != null, AgentConversation::getStatus, vo.getStatus())
                 .eq(AgentConversation::getDeleted, false)
-                .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId"))
+                .and(query -> query.eq(AgentConversation::getUserId, currentUserId())
+                        .or().likeRight(AgentConversation::getUserId, SERVICE_ACCOUNT_PRINCIPAL_PREFIX))
                 .orderByDesc(AgentConversation::getCreatedAt);
         Page<AgentConversation> result = agentConversationService.page(page, wrapper);
         Set<String> agentIds = result.getRecords().stream().map(AgentConversation::getAgentDefinitionId)
@@ -169,6 +171,7 @@ public class AgentConversationController {
         List<AgentConversationVo> list = result.getRecords().stream().map(item -> {
             AgentConversationVo itemVo = new AgentConversationVo();
             BeanUtils.copyProperties(item, itemVo);
+            itemVo.setExternal(isExternalConversation(item));
             AgentDefinition agent = agentsById.get(item.getAgentDefinitionId());
             if (agent != null) {
                 itemVo.setAgentDefinitionName(agent.getName());
@@ -189,7 +192,7 @@ public class AgentConversationController {
     })
     @GetMapping("/{id}")
     public WebResponse<AgentConversationVo> detail(@PathVariable @NotBlank String id) {
-        AgentConversation conversation = getOwnedConversation(id);
+        AgentConversation conversation = getReadableConversation(id);
         AgentConversationVo vo = new AgentConversationVo();
         BeanUtils.copyProperties(conversation, vo);
         return WebResponse.OK(vo);
@@ -219,7 +222,7 @@ public class AgentConversationController {
     public WebResponse<List<AgentMessageVo>> messages(@PathVariable @NotBlank String id,
                                                       @RequestParam(defaultValue = "1") Long current,
                                                       @RequestParam(defaultValue = "20") Long pageSize) {
-        getOwnedConversation(id);
+        getReadableConversation(id);
         Page<AgentMessage> page = new Page<>(current, pageSize);
         Wrapper<AgentMessage> wrapper = Wrappers.lambdaQuery(AgentMessage.class)
                 .eq(AgentMessage::getConversationId, id)
@@ -245,7 +248,7 @@ public class AgentConversationController {
     @ApiOperation("查询会话上下文容量")
     @GetMapping("/{id}/context")
     public WebResponse<AgentConversationContextVo> context(@PathVariable @NotBlank String id) {
-        getOwnedConversation(id);
+        getReadableConversation(id);
         if (agentRunContextMetricService == null) {
             return WebResponse.OK(null);
         }
@@ -308,7 +311,7 @@ public class AgentConversationController {
     @ApiOperation("查询会话记忆")
     @GetMapping("/{id}/memory")
     public WebResponse<List<AgentSessionMemory>> memory(@PathVariable @NotBlank String id) {
-        AgentConversation conversation = getOwnedConversation(id);
+        AgentConversation conversation = getReadableConversation(id);
         AgentSession session = requireSession(conversation);
         return WebResponse.OK(agentSessionMemoryService.listInjectable(session.getId(), 100));
     }
@@ -551,7 +554,7 @@ public class AgentConversationController {
     })
     @GetMapping("/{id}/lifecycle")
     public WebResponse<AgentConversationLifecycleVo> lifecycle(@PathVariable @NotBlank String id) {
-        getOwnedConversation(id);
+        getReadableConversation(id);
         AgentConversationLifecycleVo lifecycle = agentConversationService.getLifecycle(id);
         if (lifecycle == null) {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.lifecycle.not-found"));
@@ -569,7 +572,7 @@ public class AgentConversationController {
     })
     @GetMapping("/{id}/statistics")
     public WebResponse<AgentMessageStatisticsVo> statistics(@PathVariable @NotBlank String id) {
-        getOwnedConversation(id);
+        getReadableConversation(id);
         AgentMessageStatisticsVo statistics = agentConversationService.getStatistics(id);
         if (statistics == null) {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.statistics.not-found"));
@@ -584,11 +587,31 @@ public class AgentConversationController {
         AgentConversation conversation = agentConversationService.getOne(Wrappers.lambdaQuery(AgentConversation.class)
                 .eq(AgentConversation::getId, id)
                 .eq(AgentConversation::getDeleted, false)
-                .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId")));
+                .eq(AgentConversation::getUserId, currentUserId()));
         if (conversation == null) {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
         return conversation;
+    }
+
+    /** 后台管理员可只读查看服务账号创建的外部调用会话。 */
+    private AgentConversation getReadableConversation(String id) {
+        AgentConversation conversation = agentConversationService.getOne(Wrappers.lambdaQuery(AgentConversation.class)
+                .eq(AgentConversation::getId, id)
+                .eq(AgentConversation::getDeleted, false));
+        if (conversation == null || (!StringUtils.equals(conversation.getUserId(), currentUserId())
+                && !isExternalConversation(conversation))) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
+        }
+        return conversation;
+    }
+
+    private String currentUserId() {
+        return CurrentUser.getUser().get("userId");
+    }
+
+    private boolean isExternalConversation(AgentConversation conversation) {
+        return conversation != null && StringUtils.startsWith(conversation.getUserId(), SERVICE_ACCOUNT_PRINCIPAL_PREFIX);
     }
 
     /**

@@ -148,6 +148,35 @@ public class BusinessAgentController {
     }
 
     /**
+     * 同步执行标准 Agent，并在本次 HTTP 响应中返回最终回复。
+     */
+    @ApiOperation(value = "同步调用标准 Agent", notes = "仅支持 STANDARD Agent。Deep Agent 请调用 /{agentId}/runs 异步接口；重复使用同一 idempotencyKey 会返回已有运行结果。")
+    @PostMapping("/{agentId}/chat")
+    public WebResponse<BusinessAgentRunVo> chat(@PathVariable String agentId,
+                                                @RequestBody BusinessAgentRunCreateDto dto) {
+        String serviceAccountId = currentServiceAccountId();
+        String principalId = currentPrincipalId();
+        if (dto == null || StringUtils.isBlank(dto.getMessage()))
+            throw new ServerException(422, "message is required");
+        AgentRun existing = existingIdempotentRun(agentId, principalId, dto.getIdempotencyKey());
+        if (existing != null) return WebResponse.OK(toVo(existing));
+        serviceAccountService.assertAgentCallAllowed(serviceAccountId, agentId);
+        AgentDefinition agent = agentChatService.getEnabledAgent(agentId);
+        if ("DEEP".equalsIgnoreCase(agent.getExecutionMode()))
+            throw new ServerException(422, "Deep Agent 请使用异步运行接口 /api/business/agents/{agentId}/runs");
+        AgentRun run;
+        try {
+            run = createQueuedRun(agent, principalId, dto);
+        } catch (DuplicateKeyException ex) {
+            AgentRun duplicate = existingIdempotentRun(agentId, principalId, dto.getIdempotencyKey());
+            if (duplicate != null) return WebResponse.OK(toVo(duplicate));
+            throw ex;
+        }
+        executeStandardRun(run.getId(), agentId, principalId, dto);
+        return WebResponse.OK(toVo(agentRunService.getById(run.getId())));
+    }
+
+    /**
      * 流式调用 Agent。
      */
     @ApiOperation("外部系统流式调用 Agent")

@@ -143,6 +143,48 @@ Content-Type: application/json
 | `SUCCEEDED` | 执行成功 |
 | `FAILED` | 执行失败 |
 
+### 同步执行标准 Agent
+
+```http
+POST /api/business/agents/{agentId}/chat
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+此接口仅用于 `STANDARD` Agent，并在当前 HTTP 响应的 `data.output` 中返回回答。`DEEP` Agent 必须使用异步运行接口，避免长任务占用请求连接。
+
+请求体与异步接口一致：
+
+```json
+{
+  "message": "请概括订单的发货状态",
+  "conversationId": "optional-conversation-id",
+  "idempotencyKey": "channel-message-001"
+}
+```
+
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `agentId` | 是 | 从“查询可调用 Agent”接口获取的 Agent ID。 |
+| `message` | 是 | 本轮客户消息，不能为空。 |
+| `conversationId` | 否 | 传入后继续该服务账号主体下、同一 Agent 的既有会话。 |
+| `idempotencyKey` | 建议 | 外部消息的稳定唯一键；相同账号、Agent 和键会返回同一个运行结果，避免重复模型/工具调用。 |
+
+成功时返回 `data`：
+
+```json
+{
+  "runId": "run-id",
+  "agentId": "agent-id",
+  "conversationId": "conversation-id",
+  "status": "SUCCEEDED",
+  "output": "订单已发货，预计明天送达。",
+  "errorMessage": null
+}
+```
+
+若 Agent 请求人工交互，响应状态为 `QUEUED`；调用方应改用流式或异步接口处理后续交互。
+
 ### 流式执行 Agent
 
 ```http

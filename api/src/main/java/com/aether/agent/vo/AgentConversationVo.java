@@ -15,6 +15,9 @@ public class AgentConversationVo extends BaseEntity {
     @ApiModelProperty(value = "用户ID")
     private String userId;
 
+    @ApiModelProperty(value = "是否由外部服务账号发起")
+    private Boolean external;
+
     @ApiModelProperty(value = "关联Agent定义ID")
     private String agentDefinitionId;
 
