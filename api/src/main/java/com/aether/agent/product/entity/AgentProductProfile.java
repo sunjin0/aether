@@ -27,4 +27,9 @@ public class AgentProductProfile extends BaseEntity {
     private Integer status;
     private Integer versionNo;
     private Long publishedAt;
+    private String apiProtocolVersion;
+    /** JSON declaration of externally accepted trusted-context keys. */
+    private String allowedContextKeys;
+    /** Immutable profile-version snapshot selected at publish time. */
+    private String publishedSnapshotId;
 }

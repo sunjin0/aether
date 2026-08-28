@@ -40,4 +40,11 @@ public class ToolExecutionContext {
      * 工作流写操作的稳定幂等键，会以 X-Aether-Idempotency-Key 透传到 MCP 服务。
      */
     private String idempotencyKey;
+
+    /** OpenAPI product/application boundary resolved from the durable run, not model arguments. */
+    private String applicationId;
+    private String productProfileId;
+    private String serviceAccountId;
+    /** Encrypted trusted context; executors must not merge it into model-provided arguments. */
+    private String trustedContext;
 }

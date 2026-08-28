@@ -14,4 +14,5 @@ public class OpenApiAgentRunStartDto {
     private String idempotencyKey;
     private String input;
     private Map<String, Object> context;
+    private Long expectedLastSequence;
 }

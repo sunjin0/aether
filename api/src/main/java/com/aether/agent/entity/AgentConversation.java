@@ -50,4 +50,17 @@ public class AgentConversation extends BaseEntity {
 
     @ApiModelProperty(value = "摘要更新时间")
     private Long summaryUpdatedAt;
+
+    /** OpenAPI product version pinned when this conversation was created. */
+    private String productProfileId;
+    private Integer productVersionNo;
+    private String productSnapshotId;
+    private String serviceAccountId;
+    /** Encrypted or redacted JSON; never appended directly to a model prompt. */
+    private String trustedContext;
+    private Integer contextVersion;
+    private Long messageSequence;
+    private Integer runtimeVersion;
+    /** null/AI_HANDLING/HUMAN_HANDLING; external callers may not send messages while human handling is active. */
+    private String handoffStatus;
 }

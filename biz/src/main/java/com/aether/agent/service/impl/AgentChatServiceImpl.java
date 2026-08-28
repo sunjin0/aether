@@ -192,7 +192,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         String userId = getCurrentUserId(dto);
         long startTime = System.currentTimeMillis();
 
-        AgentDefinition agent = getEnabledAgent(dto.getAgentId());
+        AgentDefinition enabledAgent = getEnabledAgent(dto.getAgentId());
+        AgentDefinition agent = resolveRuntimeAgent(dto, enabledAgent);
         ModelProvider provider = getEnabledProvider(agent);
         applyThinkingConfig(dto, agent);
         AgentConversation conversation = getOrCreateConversation(dto, userId, agent);
@@ -948,6 +949,21 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
     }
 
     /**
+     * Product OpenAPI calls validate that the underlying Agent is still
+     * enabled, then run the frozen configuration recorded at publish time.
+     * Browser/admin calls intentionally continue to use the live definition.
+     */
+    private AgentDefinition resolveRuntimeAgent(AgentChatDto dto, AgentDefinition enabledAgent) {
+        AgentDefinition snapshot = dto.getAgentSnapshot();
+        if (snapshot == null) return enabledAgent;
+        if (!Boolean.TRUE.equals(dto.getOpenApi()) || !StringUtils.equals(enabledAgent.getId(), snapshot.getId())
+                || !StringUtils.equals(enabledAgent.getApplicationId(), snapshot.getApplicationId())) {
+            throw new ServerException(422, "非法 Agent 快照");
+        }
+        return snapshot;
+    }
+
+    /**
      * 获取EnabledProvider。
      */
     private ModelProvider getEnabledProvider(AgentDefinition agent) {
@@ -978,7 +994,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
-        if (!userId.equals(conversation.getUserId())) {
+        if (!userId.equals(conversation.getUserId()) && !Boolean.TRUE.equals(dto.getOpenApi())) {
             throw new ServerException(403, I18nUtils.getMessage("agent.conversation.access.denied"));
         }
         if (!agent.getId().equals(conversation.getAgentDefinitionId())) {

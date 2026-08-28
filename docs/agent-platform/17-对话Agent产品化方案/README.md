@@ -1,6 +1,6 @@
 # 对话 Agent 产品化方案
 
-> 状态：待实施设计
+> 状态：已实施的产品化基线（本文同时作为后续兼容演进约束）
 >
 > 目标：将已配置的 Agent 以稳定、可授权、可版本化的对话产品形式提供给内部业务系统；典型场景包括智能客服、知识问答和坐席辅助。
 
@@ -100,6 +100,8 @@ Content-Type: application/json
 | `input` | 是 | 客户的自然语言消息。 |
 | `context` | 否 | 受控业务元数据，不是 Prompt 内容。 |
 
+`productCode` 必须唯一定位一个可调用的产品版本。能力发现接口同时返回 `productId`、`productProfileId`、`versionNo`、`code` 和弃用时间，接入方不得根据名称推断版本。若后续采用稳定编码，必须显式增加 `version` 字段；不得同时把同一个 `code` 解释为逻辑产品和具体版本。
+
 成功响应：
 
 ```json
@@ -124,6 +126,8 @@ Content-Type: application/json
 - `interactionStatus` 和 `interactionType` 是机器可读的标准交互信号；业务系统不得通过解析 `answer` 猜测状态。
 - `traceId` 用于业务系统和平台联合排障。
 
+成功响应和错误响应均须在 `conversation-api-v1` 中发布 JSON Schema。`citations` 固定为数组（每项至少含 `sourceId`、`title`、`uri` 和可选 `snippet`）；`interactionData` 为对象，且按 `interactionType` 校验，不能以字符串 JSON 或未定义字段替代。
+
 ### 3.2 异步运行
 
 接口：
@@ -134,12 +138,27 @@ Content-Type: application/json
 
 异步接口使用与同步问答相同的请求字段和回答语义。用于 Deep Agent、耗时检索或不适合阻塞业务请求的场景。终态成功时返回 `answer`；失败时返回稳定错误码，不能泄露模型原始响应或内部异常。
 
-### 3.3 幂等性
+运行创建时必须记录 `productProfileId`、产品快照 ID 和 `serviceAccountId`。查询和取消仅允许创建该运行的服务账号，或被显式授予该具体产品版本的服务账号访问；仅按 `applicationId` 校验不足以隔离运行数据。
+
+### 3.3 交互恢复
+
+对需要业务系统继续处理的交互，提供以下固定端点：
+
+- `POST /openapi/v1/agents/runs/{runId}/interactions/{interactionId}/submit`：提交 `USER_INPUT_REQUIRED` 的补充输入。
+- `POST /openapi/v1/agents/runs/{runId}/interactions/{interactionId}/confirm`：提交 `USER_CONFIRMATION_REQUIRED` 的确认或拒绝。
+- `POST /openapi/v1/agents/conversations/{conversationId}/handoff/release`：人工结束后显式恢复 AI；不得通过再次发送普通消息隐式恢复。
+
+每个端点均验证产品版本、服务账号、交互状态、过期时间与交互数据 Schema，并要求独立幂等键。交互状态机固定为 `PENDING -> ANSWERED | CANCELLED | EXPIRED`，终态不得逆转；`HUMAN_HANDOFF` 只允许由业务系统显式释放或关闭会话。
+
+### 3.4 幂等性
 
 - 每条外部客户消息生成唯一 `Idempotency-Key`。
 - 重放相同请求只返回首次安全结果，不重复写入会话或重复调用工具。
 - 网络超时后，业务系统必须用原幂等键重试，不能生成新键。
 - 多渠道接入时，幂等键建议包含渠道、外部消息 ID 和消息方向。
+- 幂等作用域固定为 `serviceAccountId + productProfileId + operation + Idempotency-Key`，不得只按应用空间或 Agent ID 去重。
+- 平台保存规范化请求的 SHA-256 指纹（至少覆盖产品版本、会话、输入、业务 ID、上下文版本和操作）。同一作用域内键相同但指纹不同，返回 `IDEMPOTENCY_KEY_REUSED`，不返回第一次的结果。
+- 文档须定义键的字符集、最大长度、缓存保留期和运行中锁租约；锁过期不能导致同一消息并发执行两次。
 
 ## 4. 客服系统接入设计
 
@@ -168,6 +187,10 @@ Content-Type: application/json
 5. 会话处于 `HUMAN_HANDLING` 时停止向 Agent 投递消息。
 6. 会话关闭或超时后按业务规则清理映射；新会话重新创建平台会话。
 
+会话归属模型固定为“业务应用空间内、产品版本绑定的业务会话”，而不是服务账号私有会话。平台会话须保存创建服务账号，并允许同应用空间内已获该产品版本授权的服务账号续接；否则须拒绝。所有同步、标准异步和 Deep Agent 链路使用同一规则，不能一条按服务账号用户 ID 校验、另一条只按应用空间校验。
+
+同一会话的客户消息必须按序执行。请求携带单调递增的 `messageSequence` 或 `expectedLastSequence`；平台以会话行锁/乐观锁保证一次只执行一轮，并在顺序冲突时返回可重试的 `CONVERSATION_SEQUENCE_CONFLICT`。幂等重放返回原结果而不占用新序号。
+
 ### 4.2 受控客户上下文
 
 客服 Agent 常需查询订单、物流或售后，但不能将客户的完整资料拼入自然语言 `input`。
@@ -180,6 +203,8 @@ Content-Type: application/json
 - 工具执行时从受控上下文读取客户身份，并验证资源归属。
 - 模型和工具结果只能获得完成任务所需的最小数据。
 - 日志、审计、回调和诊断输出必须按敏感数据策略脱敏。
+
+身份类键（例如 `customerId`、`accountId`）在会话创建后默认不可变。变更必须关闭并新建会话，或通过审计化迁移接口创建新的受控上下文版本；普通消息请求不得覆盖。每个键的声明还应包含来源、可见对象、保存期限、加密要求和是否可传给工具；白名单只限制键名，不等同于授权。
 
 例如，订单工具接到模型提出的订单查询请求后，必须将请求限制为：
 
@@ -222,12 +247,12 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 1. 从服务账号令牌解析 `serviceAccountId` 和 `applicationId`。
 2. 以 `applicationId + productCode` 查找状态为已发布/启动的产品版本。
 3. 校验服务账号已授权该具体产品版本。
-4. 校验产品类型为 `AGENT`，加载其绑定的 Agent 定义及发布快照。
-5. 校验或创建平台会话，确保会话属于同一应用空间和 Agent。
-6. 校验并保存允许的 `context` 为受控元数据。
+4. 校验产品类型为 `AGENT`，解析其不可变的完整可执行快照。
+5. 校验或创建平台会话，确保其属于同一应用空间、绑定该产品版本并满足会话序号。
+6. 校验、版本化保存允许的 `context`；身份类上下文不得被普通消息覆盖。
 7. 将 `input` 写入本轮用户消息；加载会话历史、Agent Prompt、Skill、知识与工具上下文。
 8. 执行 Agent；工具以受控上下文进行资源归属和权限校验。
-9. 保存回答、引用、交互状态、运行记录和审计数据。
+9. 保存回答、结构化引用、交互状态/数据、运行记录、产品快照 ID、服务账号和审计数据。
 10. 返回统一对话响应，剔除推理过程、工具参数、凭据和未脱敏敏感数据。
 
 ### 5.2 当前实现与目标差异
@@ -236,6 +261,8 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 
 当前请求 DTO 已预留 `context`，但同步问答调用链未将其保存为受控上下文，也未向工具提供可信客户身份。因此，在实现本方案前，业务系统不得将 `context` 视作已生效的订单或客户数据授权机制。
 
+当前实现还只按应用空间校验异步运行的查询/取消权限，幂等键按应用空间与 Agent 作用域缓存，且同步/异步会话的调用者校验不一致。这些均不符合本文的目标契约，必须与产品版本绑定、服务账号归属和请求指纹一并修复后才能开放生产接入。
+
 需要补齐：
 
 - `context` 白名单及类型校验。
@@ -243,6 +270,8 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 - 工具执行上下文注入及业务资源归属校验接口。
 - `HUMAN_HANDOFF` 及其 `interactionData` 的稳定响应契约。
 - 对话产品快照中 Agent 发布版本或完整可执行快照的解析。
+- 交互提交/确认/释放端点及其状态机。
+- 会话顺序控制、幂等请求指纹和产品版本级运行访问校验。
 
 ## 6. 版本与生命周期
 
@@ -266,6 +295,8 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 
 运行记录必须保存实际使用的产品版本快照标识。这样 Agent 定义之后被修改时，历史运行和进行中的会话仍可追溯其实际规则。
 
+完整可执行快照至少包括：Agent 的模型与供应商版本、系统提示词、执行模式、工具/Skill 绑定及版本、知识库与检索策略版本、安全及交互策略、允许的上下文声明和协议版本。对外部引用保存不可变版本或内容哈希；被引用资源停用、删除或密钥轮换时，必须定义已运行会话继续、失败或迁移的策略与审计记录。
+
 ### 6.3 会话与版本一致性
 
 新会话使用服务账号授权且已启用的产品版本。会话首次创建后，建议持久化 `productProfileId` 和产品版本号，后续消息继续使用这个版本。
@@ -283,10 +314,12 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 | 产品版本 | `apiProtocolVersion` | 例如 `conversation-api-v1` 或 `workflow-api-v1`。 |
 | 产品发布快照 | `agentDefinitionVersionId` 或 `agentSnapshot` | 固定发布时可执行的 Agent 配置。 |
 | 会话 | `productProfileId`、`productVersionNo` | 固定会话使用的产品版本。 |
-| 运行 | `productProfileId`、`productVersionId` | 支持审计和问题追溯。 |
-| 会话/运行上下文 | 加密或脱敏的 `trustedContext` | 保存允许的受控业务元数据。 |
+| 会话 | `serviceAccountId`、`messageSequence`、乐观锁版本 | 统一会话归属并保证消息有序。 |
+| 运行 | `productProfileId`、`productVersionId`、`serviceAccountId`、`requestFingerprint` | 支持审计、访问校验和幂等冲突判断。 |
+| 会话/运行上下文 | 加密或脱敏的 `trustedContext`、`contextVersion`、来源与密钥版本 | 保存允许的受控业务元数据。 |
 | 产品或 Agent 接入策略 | `allowedContextKeys` | 声明可接收的上下文键、类型和敏感级别。 |
-| 交互结果 | `interactionData` | 承载转人工、确认和补充信息所需的机器可读数据。 |
+| 交互结果 | `interactionId`、`interactionData`、状态、过期时间、Schema 版本 | 承载并校验转人工、确认和补充信息。 |
+| 幂等记录 | 作用域、键、请求指纹、状态、响应摘要、过期时间 | 使重放安全且可诊断。 |
 
 不应新增产品级模型、Prompt、知识库、工具、Skill 的重复字段。
 
@@ -322,9 +355,12 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 | 403 | `PRODUCT_NOT_ALLOWED` | 服务账号未授权产品或跨应用空间访问。 |
 | 404 | `PRODUCT_NOT_FOUND` | 产品编码不存在或不可见。 |
 | 409 | `IDEMPOTENCY_IN_PROGRESS` | 相同幂等键请求仍在处理中。 |
+| 409 | `IDEMPOTENCY_KEY_REUSED` | 同一作用域的幂等键对应不同请求指纹。 |
+| 409 | `CONVERSATION_SEQUENCE_CONFLICT` | 会话消息顺序冲突，调用方需读取最新序号后重试。 |
 | 422 | `PRODUCT_TYPE_MISMATCH` | 将工作流产品调用到 Agent 接口，或反之。 |
 | 422 | `CONVERSATION_NOT_ACCESSIBLE` | 会话不属于当前应用空间或绑定 Agent。 |
 | 422 | `TRUSTED_CONTEXT_INVALID` | 传入了未允许或类型不正确的受控上下文字段。 |
+| 422 | `INTERACTION_NOT_ACTIONABLE` | 交互不存在、非待处理、过期或动作与交互类型不匹配。 |
 | 429 | `RATE_LIMITED` | 业务应用空间或服务账号超出额度。 |
 | 500/503 | `AGENT_RUN_FAILED` | 安全包装后的运行失败，不返回内部异常。 |
 
@@ -344,6 +380,7 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 2. Agent 产品页面隐藏或只读展示 `inputSchema`、`outputSchema`，不作为 Agent 配置项。
 3. 能力发现接口按产品类型返回对应协议说明；Agent 返回 `conversation-api-v1`，工作流返回冻结 Schema。
 4. 移除 OpenAPI 文档中 Agent 必须具备独立输入输出 Schema 的表述。
+5. 发布 `conversation-api-v1` 的请求、成功响应、错误响应、引用和交互 JSON Schema，并定义产品编码/版本选择规则。
 
 ### 阶段 2：版本冻结与会话绑定
 
@@ -351,6 +388,7 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 2. 在 Agent 会话、Agent 运行上记录产品版本标识。
 3. 后续消息强制沿用会话创建时的产品版本。
 4. 增加新建会话、旧会话关闭和显式迁移的版本策略。
+5. 将产品版本、快照 ID、创建服务账号和会话序号写入会话/运行；查询、取消和续接按该边界鉴权。
 
 ### 阶段 3：可信上下文与业务工具
 
@@ -358,12 +396,14 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 2. 校验、加密/脱敏并持久化 `trustedContext`。
 3. 在工具执行上下文中注入可信 `applicationId` 和客户身份。
 4. 为订单、工单、退款等工具增加资源归属校验和最小数据返回规则。
+5. 固定身份类上下文不可变规则、上下文版本迁移流程、数据保留和密钥轮换策略。
 
 ### 阶段 4：客服交互事件
 
 1. 统一 `HUMAN_HANDOFF`、`USER_INPUT_REQUIRED`、`USER_CONFIRMATION_REQUIRED` 等交互类型。
 2. 新增经校验的 `interactionData`，不依赖解析回答文本。
 3. 提供客服业务系统的会话映射、转人工和恢复 AI 处理接入示例。
+4. 实现交互提交、确认和人工释放端点，并覆盖重复提交、过期、取消与越权测试。
 
 ### 阶段 5：验收
 
@@ -374,6 +414,9 @@ Agent 通过已配置的 Prompt、Skill 或工单工具触发转人工；产品�
 5. 订单工具不能因模型伪造客户 ID 查询其他客户数据。
 6. 转人工仅依赖标准交互事件触发，业务系统不解析自然语言。
 7. 产品停止后拒绝新会话；历史运行、授权和审计仍可查询。
+8. 不同产品版本、服务账号或请求正文复用相同幂等键时，不会相互返回错误结果；同一请求重放不重复执行工具。
+9. 同一会话的乱序并发消息被拒绝或串行化，且跨服务账号的续接严格符合已定义的会话归属规则。
+10. 运行查询、取消和交互恢复不能越过具体产品版本授权。
 
 ## 11. 与现有文档的关系
 

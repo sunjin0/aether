@@ -579,6 +579,15 @@ public class AgentToolWorkflow {
         context.setUserId(userId);
         context.setAgentDefinitionId(agentDefinitionId);
         context.setIdempotencyKey(idempotencyKey);
+        if (StringUtils.isNotBlank(runId)) {
+            com.aether.agent.entity.AgentRun run = agentRunService.getById(runId);
+            if (run != null) {
+                context.setApplicationId(run.getApplicationId());
+                context.setProductProfileId(run.getProductProfileId());
+                context.setServiceAccountId(run.getServiceAccountId());
+                context.setTrustedContext(run.getTrustedContext());
+            }
+        }
         return executorFactory.getExecutor("mcp").execute(context);
     }
 

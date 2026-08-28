@@ -34,6 +34,16 @@ public class WebResponse<T> implements Serializable {
 
     private Long total;
 
+    /** Stable API error category. Null for ordinary admin/UI responses. */
+    private String errorCode;
+
+    public WebResponse(Integer code, String message, T data, Long total) {
+        this.code = code;
+        this.message = message;
+        this.data = data;
+        this.total = total;
+    }
+
     /**
      * 分页数据
      *
@@ -134,5 +144,11 @@ public class WebResponse<T> implements Serializable {
      */
     public static WebResponse<String> Error(int code, String message) {
         return new WebResponse<>(code, message, null, 0L);
+    }
+
+    public static <T> WebResponse<T> OpenApiError(int status, String errorCode) {
+        WebResponse<T> value = new WebResponse<>(status, errorCode, null, 0L);
+        value.setErrorCode(errorCode);
+        return value;
     }
 }

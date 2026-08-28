@@ -13,4 +13,6 @@ public class OpenApiAgentChatDto {
     private String idempotencyKey;
     private String input;
     private Map<String, Object> context;
+    /** Last sequence observed by the caller; required for concurrent channels. */
+    private Long expectedLastSequence;
 }

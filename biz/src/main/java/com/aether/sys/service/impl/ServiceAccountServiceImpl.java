@@ -271,6 +271,21 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     }
 
     @Override
+    public void assertAgentProductCallAllowed(String id, String productProfileId) {
+        ServiceAccount account = required(id);
+        if (!Boolean.TRUE.equals(account.getEnabled()) || !isProductAllowed(id, productProfileId))
+            throw new ServerException(403, I18nUtils.getMessage("service-account.agent-call.denied"));
+        if (productProfileService == null)
+            throw new ServerException(422, I18nUtils.getMessage("service-account.product-service.unavailable"));
+        AgentProductProfile product = productProfileService.getById(productProfileId);
+        if (product == null || Boolean.TRUE.equals(product.getDeleted()) || !Integer.valueOf(1).equals(product.getStatus())
+                || StringUtils.isBlank(product.getAgentDefinitionId())
+                || !StringUtils.equals(normalizeApplicationId(account.getApplicationId()), product.getApplicationId()))
+            throw new ServerException(403, I18nUtils.getMessage("service-account.agent-call.denied"));
+        assertAgentCallAllowed(id, product.getAgentDefinitionId());
+    }
+
+    @Override
     public boolean isProductAllowed(String id, String productId) {
         ServiceAccount account = required(id);
         if (!Boolean.TRUE.equals(account.getEnabled())) return false;

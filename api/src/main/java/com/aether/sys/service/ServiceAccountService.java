@@ -53,6 +53,11 @@ public interface ServiceAccountService extends IService<ServiceAccount>, Service
      */
     void assertAgentCallAllowed(String id, String agentId);
 
+    /**
+     * 校验服务账号对某一已发布 Agent 产品版本的调用权限并消耗额度。
+     */
+    void assertAgentProductCallAllowed(String id, String productProfileId);
+
     /** 判断服务账号是否可发现并调用指定的已发布产品。 */
     boolean isProductAllowed(String id, String productId);
 }

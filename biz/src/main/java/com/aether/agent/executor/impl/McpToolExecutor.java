@@ -81,12 +81,14 @@ public class McpToolExecutor implements ToolExecutor {
             requestUrl = server.getBaseUrl();
             String mcpToolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
             Map<String, Object> arguments = context.getArguments() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(context.getArguments());
+            Map<String, Object> trustedContext = applyTrustedContext(context, arguments);
             sanitizeEmailArguments(mcpToolName, arguments);
             // FastMCP runs tool workers out of the inbound ASGI context.  This
             // opaque five-minute token is injected by Java only; Admin verifies
             // it again and never accepts a caller-provided command or image.
             if ("generate_artifact".equals(mcpToolName)) arguments.put("aether_delegation", delegationToken);
             Map<String, Object> auditArguments = new LinkedHashMap<>(arguments);
+            for (String key : trustedContext.keySet()) if (auditArguments.containsKey(key)) auditArguments.put(key, "***");
             if (auditArguments.containsKey("aether_delegation")) auditArguments.put("aether_delegation", "***");
             requestBody = JSON.toJSONString(auditArguments);
             mcpClient.ping(server);
@@ -149,10 +151,13 @@ public class McpToolExecutor implements ToolExecutor {
         }
         String toolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
         String token = delegationTokenService.create(context.getRunId(), context.getUserId(),
-                context.getAgentDefinitionId(), Collections.singletonList(toolName));
+                context.getAgentDefinitionId(), Collections.singletonList(toolName), context.getApplicationId(),
+                context.getProductProfileId(), context.getServiceAccountId());
         JSONObject headers = StringUtils.isBlank(server.getRequestHeaders())
                 ? new JSONObject() : JSON.parseObject(server.getRequestHeaders());
         headers.put("Authorization", "Bearer " + token);
+        if (StringUtils.isNotBlank(context.getApplicationId())) headers.put("X-Aether-Application-Id", context.getApplicationId());
+        if (StringUtils.isNotBlank(context.getProductProfileId())) headers.put("X-Aether-Product-Profile-Id", context.getProductProfileId());
         if ("send_email".equals(toolName)) {
             String credentialRef = "user-default";
             Map<String, String> credential = runtimeEmailCredentialStore == null ? null
@@ -203,6 +208,30 @@ public class McpToolExecutor implements ToolExecutor {
         arguments.remove("smtp_host");
         arguments.remove("smtp_port");
         arguments.remove("security");
+    }
+
+    /**
+     * Model-generated identity arguments never authorize a tool call. For a
+     * declared trusted-context key, the server value replaces the model value;
+     * keys not requested by a tool are intentionally not appended so schemas
+     * remain stable for unrelated tools.
+     */
+    private Map<String, Object> applyTrustedContext(ToolExecutionContext context, Map<String, Object> arguments) {
+        if (StringUtils.isBlank(context.getTrustedContext())) return Collections.emptyMap();
+        try {
+            String stored = context.getTrustedContext();
+            String json = stored.startsWith("v1:") ? AesUtil.decrypt(stored.substring(3)) : stored;
+            JSONObject trusted = JSON.parseObject(json);
+            Map<String, Object> result = new LinkedHashMap<>();
+            for (String key : trusted.keySet()) {
+                Object value = trusted.get(key);
+                result.put(key, value);
+                if (arguments.containsKey(key)) arguments.put(key, value);
+            }
+            return result;
+        } catch (RuntimeException ex) {
+            throw new ServerException(422, "TRUSTED_CONTEXT_INVALID");
+        }
     }
 
     private boolean hasEmailConfiguration(AgentDefinition agent) {

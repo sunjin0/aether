@@ -46,4 +46,18 @@ class DelegationTokenServiceTest {
         long ttlSeconds = (JWT.decode(token).getExpiresAt().getTime() - JWT.decode(token).getIssuedAt().getTime()) / 1000;
         assertEquals(60L, ttlSeconds);
     }
+
+    @Test
+    void productBoundaryIsSignedIntoDelegationToken() {
+        DeepAgentConfig config = new DeepAgentConfig();
+        config.setMcpDelegationSecret(SECRET);
+        DelegationTokenService service = new DelegationTokenService(config);
+
+        String token = service.create("run-1", "user-1", "agent-1", Collections.singletonList("order_lookup"),
+                "app-1", "product-v2", "sa-1");
+
+        assertEquals("app-1", JWT.decode(token).getClaim("applicationId").asString());
+        assertEquals("product-v2", JWT.decode(token).getClaim("productProfileId").asString());
+        assertEquals("sa-1", JWT.decode(token).getClaim("serviceAccountId").asString());
+    }
 }

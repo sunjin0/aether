@@ -9,6 +9,10 @@ import com.aether.agent.product.entity.AgentProductProfileVersion;
 import com.aether.agent.product.service.AgentProductProfileService;
 import com.aether.agent.product.service.AgentProductProfileVersionService;
 import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.service.AgentToolBindingService;
+import com.aether.agent.service.AgentKnowledgeBaseBindingService;
+import com.aether.agent.entity.AgentToolBinding;
+import com.aether.agent.entity.AgentKnowledgeBaseBinding;
 import com.aether.sys.entity.User;
 import com.aether.sys.service.UserService;
 import com.aether.workflow.entity.AgentWorkflow;
@@ -41,8 +45,12 @@ public class AgentProductProfileController {
     private final AgentApplicationService applicationService;
     private final AgentProductProfileVersionService versionService;
     private final UserService userService;
-    public AgentProductProfileController(AgentProductProfileService profileService, AgentDefinitionService agentService, AgentWorkflowService workflowService, AgentApplicationService applicationService, AgentProductProfileVersionService versionService, UserService userService) {
+    private final AgentToolBindingService toolBindingService;
+    private final AgentKnowledgeBaseBindingService knowledgeBindingService;
+    public AgentProductProfileController(AgentProductProfileService profileService, AgentDefinitionService agentService, AgentWorkflowService workflowService, AgentApplicationService applicationService, AgentProductProfileVersionService versionService, UserService userService,
+                                         AgentToolBindingService toolBindingService, AgentKnowledgeBaseBindingService knowledgeBindingService) {
         this.profileService = profileService; this.agentService = agentService; this.workflowService = workflowService; this.applicationService = applicationService; this.versionService = versionService; this.userService = userService;
+        this.toolBindingService = toolBindingService; this.knowledgeBindingService = knowledgeBindingService;
     }
     @ApiOperation("查询 Agent 产品配置列表")
     @PostMapping("/list")
@@ -82,10 +90,11 @@ public class AgentProductProfileController {
         int nextVersion = nextVersion(value.getProductId());
         long now = System.currentTimeMillis();
         AgentProductProfileVersion snapshot = new AgentProductProfileVersion();
-        snapshot.setProfileId(value.getId()); snapshot.setVersionNo(nextVersion); snapshot.setSnapshot(JSON.toJSONString(value));
+        snapshot.setProfileId(value.getId()); snapshot.setVersionNo(nextVersion); snapshot.setSnapshot(executableSnapshot(value));
         snapshot.setPublishedBy(publisherName()); snapshot.setPublishedAt(now);
         versionService.save(snapshot);
-        value.setStatus(1); value.setVersionNo(nextVersion); value.setPublishedAt(now); profileService.updateById(value); return WebResponse.OK(value);
+        value.setStatus(1); value.setVersionNo(nextVersion); value.setPublishedAt(now); value.setPublishedSnapshotId(snapshot.getId());
+        profileService.updateById(value); return WebResponse.OK(value);
     }
     @ApiOperation("复制 Agent 产品配置")
     @PostMapping("/{id}/copy")
@@ -94,7 +103,7 @@ public class AgentProductProfileController {
         AgentProductProfile source = required(id);
         AgentProductProfile draft = new AgentProductProfile(); BeanUtils.copyProperties(source, draft);
         draft.setId(null); draft.setCode(null); draft.setProductId(StringUtils.defaultIfBlank(source.getProductId(), source.getId()));
-        draft.setStatus(0); draft.setVersionNo(nextVersion(draft.getProductId())); draft.setPublishedAt(null);
+        draft.setStatus(0); draft.setVersionNo(nextVersion(draft.getProductId())); draft.setPublishedAt(null); draft.setPublishedSnapshotId(null);
         validate(draft);
         profileService.save(draft); return WebResponse.OK("已创建新草稿", draft.getId());
     }
@@ -169,5 +178,32 @@ public class AgentProductProfileController {
                 ? "{\"type\":\"object\",\"required\":[\"input\"],\"properties\":{\"input\":{\"type\":\"string\"}}}"
                 : "{\"type\":\"object\",\"required\":[\"businessId\",\"input\"],\"properties\":{\"businessId\":{\"type\":\"string\"},\"businessType\":{\"type\":\"string\"},\"input\":{\"type\":\"object\"}}}");
         if (StringUtils.isBlank(value.getOutputSchema())) value.setOutputSchema("{\"type\":\"object\"}");
+        if (StringUtils.isBlank(value.getApiProtocolVersion())) value.setApiProtocolVersion(agentProduct ? "conversation-api-v1" : "workflow-api-v1");
+        if (agentProduct && !"conversation-api-v1".equals(value.getApiProtocolVersion()))
+            throw new ServerException(422, "Agent 产品仅支持 conversation-api-v1");
+        if (StringUtils.isNotBlank(value.getAllowedContextKeys())) {
+            try {
+                Object declaration = JSON.parse(value.getAllowedContextKeys());
+                if (!(declaration instanceof com.alibaba.fastjson2.JSONObject) && !(declaration instanceof com.alibaba.fastjson2.JSONArray))
+                    throw new IllegalArgumentException("context 声明必须为对象或数组");
+            } catch (RuntimeException ex) {
+                throw new ServerException(422, "allowedContextKeys 必须是 JSON 对象或数组");
+            }
+        }
+    }
+
+    private String executableSnapshot(AgentProductProfile product) {
+        java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<String, Object>();
+        snapshot.put("product", product);
+        snapshot.put("protocolVersion", product.getApiProtocolVersion());
+        if ("AGENT".equals(product.getProductType())) {
+            snapshot.put("agent", agentService.getById(product.getAgentDefinitionId()));
+            snapshot.put("toolBindings", toolBindingService.list(Wrappers.lambdaQuery(AgentToolBinding.class)
+                    .eq(AgentToolBinding::getAgentDefinitionId, product.getAgentDefinitionId()).eq(AgentToolBinding::getDeleted, false)));
+            snapshot.put("knowledgeBindings", knowledgeBindingService.list(Wrappers.lambdaQuery(AgentKnowledgeBaseBinding.class)
+                    .eq(AgentKnowledgeBaseBinding::getAgentDefinitionId, product.getAgentDefinitionId()).eq(AgentKnowledgeBaseBinding::getDeleted, false)));
+        } else snapshot.put("agent", null);
+        snapshot.put("workflow", "WORKFLOW".equals(product.getProductType()) ? workflowService.getById(product.getWorkflowId()) : null);
+        return JSON.toJSONString(snapshot);
     }
 }

@@ -31,19 +31,28 @@ public class DelegationTokenService {
      * 创建当前请求。
      */
     public String create(String runId, String userId, String agentId, List<String> allowedTools) {
+        return create(runId, userId, agentId, allowedTools, null, null, null);
+    }
+
+    /** Adds server-resolved product scope to the short-lived delegation token. */
+    public String create(String runId, String userId, String agentId, List<String> allowedTools,
+                         String applicationId, String productProfileId, String serviceAccountId) {
         if (StringUtils.isBlank(config.getMcpDelegationSecret())) {
             throw new ServerException(500, I18nUtils.getMessage("agent.mcp.delegation-secret.missing"));
         }
         long now = System.currentTimeMillis();
         long ttlMillis = Math.max(config.getDelegationTokenTtlSeconds(), 60L) * 1000;
-        return JWT.create()
+        com.auth0.jwt.JWTCreator.Builder builder = JWT.create()
                 .withClaim("runId", runId)
                 .withClaim("userId", userId)
                 .withClaim("agentId", agentId)
                 .withClaim("allowedTools", allowedTools)
                 .withIssuedAt(new Date(now))
-                .withExpiresAt(new Date(now + ttlMillis))
-                .sign(Algorithm.HMAC256(config.getMcpDelegationSecret()));
+                .withExpiresAt(new Date(now + ttlMillis));
+        if (StringUtils.isNotBlank(applicationId)) builder.withClaim("applicationId", applicationId);
+        if (StringUtils.isNotBlank(productProfileId)) builder.withClaim("productProfileId", productProfileId);
+        if (StringUtils.isNotBlank(serviceAccountId)) builder.withClaim("serviceAccountId", serviceAccountId);
+        return builder.sign(Algorithm.HMAC256(config.getMcpDelegationSecret()));
     }
 
     /**

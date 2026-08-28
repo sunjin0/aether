@@ -29,6 +29,11 @@ public class GlobalException {
      */
     @ExceptionHandler(value = ServerException.class)
     public ResponseEntity<WebResponse<String>> handleServerException(ServerException e) {
+        if (e instanceof OpenApiException) {
+            OpenApiException openApi = (OpenApiException) e;
+            int status = Integer.parseInt(e.getMessage().split(":", 2)[0]);
+            return ResponseEntity.status(HttpStatus.valueOf(status)).body(WebResponse.OpenApiError(status, openApi.getErrorCode()));
+        }
         String message = e.getMessage();
         log.error("服务器异常：", e);
         // 处理自定义异常

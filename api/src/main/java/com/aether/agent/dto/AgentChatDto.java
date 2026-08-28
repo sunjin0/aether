@@ -2,6 +2,7 @@ package com.aether.agent.dto;
 
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
+import com.aether.agent.entity.AgentDefinition;
 
 import java.util.Map;
 
@@ -51,6 +52,16 @@ public class AgentChatDto {
      * Server-generated request correlation ID for chat latency diagnostics.
      */
     private String requestId;
+
+    /** True only for the OpenAPI gateway after product-version authorization. */
+    private Boolean openApi;
+
+    /**
+     * Server-resolved published product snapshot.  It is never populated from
+     * an HTTP request and lets the OpenAPI gateway keep a published Agent
+     * configuration stable while the draft Agent is edited later.
+     */
+    private AgentDefinition agentSnapshot;
 
     /**
      * Text recognized during the attachment-upload operation.

@@ -98,4 +98,12 @@ public class AgentRun extends BaseEntity {
      */
     @ApiModelProperty(value = "Resolved Skill context snapshot JSON")
     private String skillSnapshot;
+
+    private String productProfileId;
+    private String productSnapshotId;
+    private String serviceAccountId;
+    private String trustedContext;
+    private Integer contextVersion;
+    /** SHA-256 of the canonical OpenAPI request. */
+    private String requestFingerprint;
 }
