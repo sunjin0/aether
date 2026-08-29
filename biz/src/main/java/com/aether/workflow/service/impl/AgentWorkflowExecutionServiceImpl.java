@@ -8,12 +8,15 @@ import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
 import com.aether.workflow.dto.AgentWorkflowInteractionDto;
+import com.aether.workflow.dto.AgentWorkflowEventDto;
 import com.aether.workflow.entity.*;
 import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.workflow.service.*;
 import com.aether.agent.tools.AgentToolWorkflow;
 import com.aether.agent.vo.AgentMessageVo;
+import com.aether.msg.entity.Email;
+import com.aether.msg.service.EmailMessageService;
 import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.aether.workflow.runtime.WorkflowConditionEvaluator;
 import com.aether.workflow.runtime.WorkflowDefinitionValidator;
@@ -22,6 +25,8 @@ import com.aether.workflow.runtime.WorkflowSseHub;
 import com.aether.workflow.runtime.WorkflowCallbackService;
 import com.aether.workflow.runtime.WorkflowExecutionJobDispatcher;
 import com.aether.workflow.runtime.WorkflowSensitiveDataSanitizer;
+import com.aether.workflow.runtime.WorkflowHttpNodeExecutor;
+import com.aether.workflow.runtime.WorkflowOutputResolver;
 import com.aether.sys.entity.Role;
 import com.aether.sys.entity.UserRole;
 import com.aether.sys.service.RoleService;
@@ -32,6 +37,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpHeaders;
 
 import java.util.*;
 
@@ -44,6 +50,7 @@ import java.util.*;
 public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecutionService {
     private static final int DEFAULT_MAX_ITERATIONS = 10;
     private static final int MAX_ITERATIONS_CAP = 100;
+    private final ThreadLocal<Boolean> partialParallelBranch = new ThreadLocal<Boolean>();
 
     private final AgentWorkflowService workflowService;
     private final AgentWorkflowVersionService versionService;
@@ -55,6 +62,16 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     private final WorkflowCallbackService callbackService;
     private final WorkflowExecutionJobDispatcher executionJobDispatcher;
     private final WorkflowSensitiveDataSanitizer sensitiveDataSanitizer;
+    private final AgentWorkflowAuditEventService auditEventService;
+    private final AgentWorkflowExternalInvocationService externalInvocationService;
+    private final WorkflowHttpNodeExecutor httpNodeExecutor;
+    private final EmailMessageService emailMessageService;
+    private final AgentWorkflowSubflowLinkService subflowLinkService;
+    private final WorkflowOutputResolver outputResolver;
+    private final AgentWorkflowNodeTokenService nodeTokenService;
+    private final AgentWorkflowJoinStateService joinStateService;
+    private final AgentWorkflowVariableSnapshotService variableSnapshotService;
+    private final AgentWorkflowEventReceiptService eventReceiptService;
     private final UserRoleService userRoleService;
     private final RoleService roleService;
 
@@ -65,7 +82,12 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                                              AgentWorkflowInstanceService instanceService, AgentWorkflowNodeInstanceService nodeService,
                                              AgentChatService chatService, AgentToolWorkflow toolWorkflow, WorkflowSseHub sseHub,
                                              WorkflowCallbackService callbackService, WorkflowExecutionJobDispatcher executionJobDispatcher,
-                                             WorkflowSensitiveDataSanitizer sensitiveDataSanitizer, UserRoleService userRoleService, RoleService roleService) {
+                                             WorkflowSensitiveDataSanitizer sensitiveDataSanitizer, AgentWorkflowAuditEventService auditEventService,
+                                             AgentWorkflowExternalInvocationService externalInvocationService, WorkflowHttpNodeExecutor httpNodeExecutor,
+                                             EmailMessageService emailMessageService, AgentWorkflowSubflowLinkService subflowLinkService,
+                                             WorkflowOutputResolver outputResolver, AgentWorkflowNodeTokenService nodeTokenService,
+                                             AgentWorkflowJoinStateService joinStateService, AgentWorkflowVariableSnapshotService variableSnapshotService,
+                                             AgentWorkflowEventReceiptService eventReceiptService, UserRoleService userRoleService, RoleService roleService) {
         this.workflowService = workflowService;
         this.versionService = versionService;
         this.instanceService = instanceService;
@@ -76,6 +98,16 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         this.callbackService = callbackService;
         this.executionJobDispatcher = executionJobDispatcher;
         this.sensitiveDataSanitizer = sensitiveDataSanitizer;
+        this.auditEventService = auditEventService;
+        this.externalInvocationService = externalInvocationService;
+        this.httpNodeExecutor = httpNodeExecutor;
+        this.emailMessageService = emailMessageService;
+        this.subflowLinkService = subflowLinkService;
+        this.outputResolver = outputResolver;
+        this.nodeTokenService = nodeTokenService;
+        this.joinStateService = joinStateService;
+        this.variableSnapshotService = variableSnapshotService;
+        this.eventReceiptService = eventReceiptService;
         this.userRoleService = userRoleService;
         this.roleService = roleService;
     }
@@ -88,7 +120,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AgentWorkflowInstance start(String workflowId, Map<String, Object> variables, String userId) {
-        return startInternal(workflowId, variables, userId, null);
+        return startInternal(workflowId, variables, userId, null, null);
     }
 
     /**
@@ -118,14 +150,20 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 .eq(AgentWorkflowInstance::getIdempotencyKey, dto.getIdempotencyKey())
                 .eq(AgentWorkflowInstance::getDeleted, false));
         if (existing != null) return existing;
-        return startInternal(workflowId, dto.getVariables(), userId, dto);
+        return startInternal(workflowId, dto.getVariables(), userId, dto, null);
     }
 
     /**
      * 处理startInternal。
      */
     private AgentWorkflowInstance startInternal(String workflowId, Map<String, Object> variables, String userId,
-                                                AgentWorkflowBusinessStartDto business) {
+                                                AgentWorkflowBusinessStartDto business, Integer fixedVersionNo) {
+        return startInternal(workflowId, variables, userId, business, fixedVersionNo, null);
+    }
+
+    private AgentWorkflowInstance startInternal(String workflowId, Map<String, Object> variables, String userId,
+                                                AgentWorkflowBusinessStartDto business, Integer fixedVersionNo,
+                                                Long inheritedDeadlineAt) {
         // 以定义行锁串行化容量检查与实例插入；不同应用实例不能同时越过并发上限。
         AgentWorkflow workflow = workflowService.getOne(Wrappers.lambdaQuery(AgentWorkflow.class)
                 .eq(AgentWorkflow::getId, workflowId).eq(AgentWorkflow::getDeleted, false).last("FOR UPDATE"));
@@ -136,13 +174,15 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         if (maxConcurrent > 0) {
             long activeCount = instanceService.count(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
                     .eq(AgentWorkflowInstance::getWorkflowId, workflowId)
-                    .in(AgentWorkflowInstance::getStatus, "RUNNING", "WAITING_USER")
+                    .in(AgentWorkflowInstance::getStatus, "RUNNING", "WAITING_USER", "WAITING_EVENT", "WAITING_DELAY", "WAITING_SUBFLOW")
                     .eq(AgentWorkflowInstance::getDeleted, false));
             if (activeCount >= maxConcurrent)
                 throw new ServerException(429, I18nUtils.getMessage("workflow.concurrent-instance-limit.exceeded"));
         }
+        int versionNo = fixedVersionNo == null ? workflow.getPublishedVersion() : fixedVersionNo;
         AgentWorkflowVersion version = versionService.getOne(Wrappers.lambdaQuery(AgentWorkflowVersion.class)
-                .eq(AgentWorkflowVersion::getWorkflowId, workflowId).eq(AgentWorkflowVersion::getVersionNo, workflow.getPublishedVersion()));
+                .eq(AgentWorkflowVersion::getWorkflowId, workflowId).eq(AgentWorkflowVersion::getVersionNo, versionNo)
+                .eq(AgentWorkflowVersion::getDeleted, false));
         if (version == null)
             throw new ServerException(409, I18nUtils.getMessage("workflow.published-version.not-found"));
         WorkflowDefinitionValidator.validateStartVariables(version.getInputSchema(), variables);
@@ -158,10 +198,12 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             instance.setCallbackUrl(business.getCallbackUrl());
             instance.setDeadlineAt(business.getDeadlineAt());
         }
+        if (inheritedDeadlineAt != null) instance.setDeadlineAt(inheritedDeadlineAt);
         instance.setStatus("RUNNING");
         instance.setVariables(JSON.toJSONString(variables == null ? new LinkedHashMap<String, Object>() : variables));
         instance.setStartedAt(System.currentTimeMillis());
         instanceService.save(instance);
+        auditEventService.record(instance.getId(), null, "INSTANCE_STARTED", userId, "工作流实例已启动", instance.getVariables());
         executionJobDispatcher.enqueueAfterCommit(instance.getId());
         return instance;
     }
@@ -198,6 +240,14 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         AgentWorkflowNodeInstance node = currentNode(instance);
         Map<String, Object> answer = dto == null || dto.getAnswer() == null ? new LinkedHashMap<String, Object>() : dto.getAnswer();
         JSONObject config = StringUtils.isBlank(node.getInteractionConfig()) ? new JSONObject() : JSONObject.parseObject(node.getInteractionConfig());
+        if ("approval".equals(config.getString("type"))) {
+            String approver = config.getString("approverServiceAccountId");
+            if (StringUtils.isNotBlank(approver) && !StringUtils.equals("sa:" + approver, userId))
+                throw new ServerException(403, "当前服务账号不是该审批节点的审批人");
+            auditEventService.record(instance.getId(), node.getId(), "APPROVAL_SUBMITTED", userId, "已提交审批结论", JSON.toJSONString(answer));
+        } else {
+            auditEventService.record(instance.getId(), node.getId(), "HUMAN_ANSWER_SUBMITTED", userId, "已提交人工节点回答或工具确认", JSON.toJSONString(answer));
+        }
         if ("agent".equals(node.getNodeType()) && "agent".equals(config.getString("source"))) {
             // 将用户回答持久化为节点恢复上下文，模型续聊交给后台任务，不能占住 HTTP 请求。
             config.put("pendingAnswer", answer);
@@ -210,7 +260,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             executionJobDispatcher.enqueueAfterCommit(instance.getId());
             return;
         }
-        if ("mcp".equals(node.getNodeType()) || isMcpToolApprovalConfig(config)) {
+        if (isToolNode(node.getNodeType()) || isMcpToolApprovalConfig(config)) {
             // 工具执行可访问远端 MCP，和模型调用一样交由后台消费者，回答接口只负责可靠落库。
             config.put("pendingAnswer", answer);
             node.setInteractionConfig(config.toJSONString());
@@ -247,6 +297,157 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         executionJobDispatcher.enqueueAfterCommit(instance.getId());
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void signalEvent(String instanceId, String eventType, AgentWorkflowEventDto dto, String userId) {
+        AgentWorkflowInstance instance = ownedForUpdate(instanceId, userId);
+        if (!"WAITING_EVENT".equals(instance.getStatus()))
+            throw new ServerException(409, "工作流实例当前未等待业务事件");
+        AgentWorkflowNodeInstance node = currentNode(instance);
+        resumeEvent(instance, node, eventType, dto, userId, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int signalEventByType(String applicationId, String eventType, AgentWorkflowEventDto dto, String userId) {
+        if (StringUtils.isBlank(eventType)) throw new ServerException(422, "业务事件类型不能为空");
+        if (dto == null || StringUtils.isBlank(dto.getEventId())) throw new ServerException(422, "通用业务事件必须提供 eventId");
+        if (dto.getEventId().length() > 256) throw new ServerException(422, "eventId 长度不能超过 256");
+        if (!eventReceiptService.claim(applicationId, eventType, dto.getEventId(), dto.getCorrelationKey())) return 0;
+        int resumed = 0;
+        List<AgentWorkflowInstance> candidates = instanceService.list(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
+                .eq(AgentWorkflowInstance::getApplicationId, applicationId).eq(AgentWorkflowInstance::getStatus, "WAITING_EVENT")
+                .eq(AgentWorkflowInstance::getDeleted, false).orderByAsc(AgentWorkflowInstance::getCreatedAt).last("LIMIT 100"));
+        for (AgentWorkflowInstance candidate : candidates) {
+            AgentWorkflowInstance instance = instanceService.getOne(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
+                    .eq(AgentWorkflowInstance::getId, candidate.getId()).eq(AgentWorkflowInstance::getStatus, "WAITING_EVENT")
+                    .eq(AgentWorkflowInstance::getDeleted, false).last("FOR UPDATE"));
+            if (instance == null) continue;
+            AgentWorkflowNodeInstance node = currentNode(instance);
+            JSONObject config = StringUtils.isBlank(node.getInteractionConfig()) ? new JSONObject() : JSONObject.parseObject(node.getInteractionConfig());
+            if (!StringUtils.equals(eventType, config.getString("eventType"))) continue;
+            String expected = config.getString("correlationKey");
+            if (StringUtils.isNotBlank(expected) && !StringUtils.equals(expected, dto == null ? null : dto.getCorrelationKey())) continue;
+            resumeEvent(instance, node, eventType, dto, userId, false);
+            resumed++;
+        }
+        return resumed;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void timeoutEvent(String instanceId, String nodeId) {
+        AgentWorkflowInstance instance = instanceService.getOne(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
+                .eq(AgentWorkflowInstance::getId, instanceId).eq(AgentWorkflowInstance::getStatus, "WAITING_EVENT")
+                .eq(AgentWorkflowInstance::getDeleted, false).last("FOR UPDATE"));
+        if (instance == null || !StringUtils.equals(nodeId, instance.getCurrentNodeId())) return;
+        AgentWorkflowNodeInstance node = currentNode(instance);
+        JSONObject config = StringUtils.isBlank(node.getInteractionConfig()) ? new JSONObject() : JSONObject.parseObject(node.getInteractionConfig());
+        if (config.getLongValue("timeoutAt") <= 0 || config.getLongValue("timeoutAt") > System.currentTimeMillis()) return;
+        String target = config.getString("timeoutTargetId");
+        if (StringUtils.isBlank(target)) { fail(instance, node, "等待业务事件超时"); return; }
+        completeNode(node, "{\"timedOut\":true}");
+        instance.setCurrentNodeId(target); instance.setStatus("RUNNING"); instance.setErrorMessage(null);
+        instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "BUSINESS_EVENT_TIMED_OUT", "SYSTEM", "等待业务事件超时，已进入超时分支", null);
+        executionJobDispatcher.enqueueAfterCommit(instance.getId());
+    }
+
+    private void resumeEvent(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node, String eventType,
+                             AgentWorkflowEventDto dto, String userId, boolean strict) {
+        JSONObject config = StringUtils.isBlank(node.getInteractionConfig()) ? new JSONObject() : JSONObject.parseObject(node.getInteractionConfig());
+        if (strict && !StringUtils.equals(eventType, config.getString("eventType")))
+            throw new ServerException(422, "业务事件类型与等待节点不匹配");
+        String expectedCorrelation = config.getString("correlationKey");
+        String actualCorrelation = dto == null ? null : dto.getCorrelationKey();
+        if (strict && StringUtils.isNotBlank(expectedCorrelation) && !StringUtils.equals(expectedCorrelation, actualCorrelation))
+            throw new ServerException(422, "业务事件关联键不匹配");
+        Map<String, Object> variables = variables(instance);
+        if (dto != null && dto.getData() != null) {
+            variables.putAll(dto.getData());
+            applyStateMapping(currentDefinition(instance, node), dto.getData(), variables);
+        }
+        instance.setVariables(JSON.toJSONString(variables));
+        completeNode(node, dto == null ? null : JSON.toJSONString(dto.getData()));
+        String nextNodeId = findNextNodeId(instance, node);
+        if (nextNodeId != null) instance.setCurrentNodeId(nextNodeId);
+        instance.setStatus("RUNNING");
+        instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "BUSINESS_EVENT_RECEIVED", userId, "已接收业务事件：" + eventType,
+                dto == null ? null : JSON.toJSONString(dto.getData()));
+        executionJobDispatcher.enqueueAfterCommit(instance.getId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void resumeDelay(String instanceId, String nodeId) {
+        AgentWorkflowInstance instance = instanceService.getOne(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
+                .eq(AgentWorkflowInstance::getId, instanceId).eq(AgentWorkflowInstance::getStatus, "WAITING_DELAY")
+                .eq(AgentWorkflowInstance::getDeleted, false).last("FOR UPDATE"));
+        if (instance == null || !StringUtils.equals(nodeId, instance.getCurrentNodeId())) return;
+        AgentWorkflowNodeInstance node = currentNode(instance);
+        if (node == null || !"WAITING_DELAY".equals(node.getStatus())) return;
+        JSONObject config = StringUtils.isBlank(node.getInteractionConfig()) ? new JSONObject() : JSONObject.parseObject(node.getInteractionConfig());
+        if (config.getLongValue("resumeAt") > System.currentTimeMillis()) return;
+        completeNode(node, null);
+        String nextNodeId = findNextNodeId(instance, node);
+        if (nextNodeId != null) instance.setCurrentNodeId(nextNodeId);
+        instance.setStatus("RUNNING");
+        instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "DELAY_ELAPSED", "SYSTEM", "延时节点已到期", null);
+        executionJobDispatcher.enqueueAfterCommit(instance.getId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void confirmExternalInvocation(String instanceId, String invocationId, String responseData, String userId) {
+        AgentWorkflowInstance instance = ownedForUpdate(instanceId, userId);
+        AgentWorkflowExternalInvocation invocation = requiredUnknownExternalInvocation(instance, invocationId);
+        if (!"FAILED".equals(instance.getStatus()))
+            throw new ServerException(409, "仅失败实例可以确认外部调用结果");
+        AgentWorkflowNodeInstance node = currentNode(instance);
+        if (!StringUtils.equals(node.getId(), invocation.getNodeInstanceId()))
+            throw new ServerException(409, "外部调用记录不属于当前失败节点");
+        String output = StringUtils.defaultIfBlank(responseData, invocation.getResponseData());
+        externalInvocationService.confirmSuccess(invocation.getId(), output);
+        JSONObject definition = currentDefinition(instance, node);
+        Map<String, Object> variables = variables(instance);
+        applyStateMapping(definition, output, variables);
+        instance.setVariables(JSON.toJSONString(variables));
+        completeNode(node, output);
+        String nextNodeId = findNextNodeId(instance, node);
+        if (nextNodeId != null) instance.setCurrentNodeId(nextNodeId);
+        instance.setStatus("RUNNING");
+        instance.setErrorMessage(null);
+        instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "EXTERNAL_INVOCATION_CONFIRMED", userId,
+                "已人工确认外部调用成功", output);
+        executionJobDispatcher.enqueueAfterCommit(instance.getId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void retryExternalInvocation(String instanceId, String invocationId, String userId) {
+        AgentWorkflowInstance instance = ownedForUpdate(instanceId, userId);
+        AgentWorkflowExternalInvocation invocation = requiredUnknownExternalInvocation(instance, invocationId);
+        if (!"FAILED".equals(instance.getStatus()))
+            throw new ServerException(409, "仅失败实例可以重试外部调用");
+        AgentWorkflowNodeInstance node = currentNode(instance);
+        if (!StringUtils.equals(node.getId(), invocation.getNodeInstanceId()))
+            throw new ServerException(409, "外部调用记录不属于当前失败节点");
+        node.setStatus("PENDING");
+        node.setErrorMessage(null);
+        node.setRetryCount((node.getRetryCount() == null ? 0 : node.getRetryCount()) + 1);
+        nodeService.updateById(node);
+        externalInvocationService.resetForManualRetry(node.getId());
+        instance.setStatus("RUNNING");
+        instance.setErrorMessage(null);
+        instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "EXTERNAL_INVOCATION_RETRY_REQUESTED", userId,
+                "已人工确认重试外部调用", null);
+        executionJobDispatcher.enqueueAfterCommit(instance.getId());
+    }
+
     /**
      * 重试当前请求。
      */
@@ -261,9 +462,32 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         node.setErrorMessage(null);
         node.setRetryCount((node.getRetryCount() == null ? 0 : node.getRetryCount()) + 1);
         nodeService.updateById(node);
+        externalInvocationService.resetForManualRetry(node.getId());
+        auditEventService.record(instance.getId(), node.getId(), "INSTANCE_RETRY_REQUESTED", userId, "已请求重试当前节点", null);
         instance.setStatus("RUNNING");
         instance.setErrorMessage(null);
         instanceService.updateById(instance);
+        executionJobDispatcher.enqueueAfterCommit(instance.getId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void retryNode(String instanceId, String nodeId, String userId) {
+        AgentWorkflowInstance instance = ownedForUpdate(instanceId, userId);
+        if (!"FAILED".equals(instance.getStatus()))
+            throw new ServerException(409, I18nUtils.getMessage("workflow.instance.retry.failed-only"));
+        AgentWorkflowNodeInstance node = currentNode(instance);
+        if (!StringUtils.equals(nodeId, node.getNodeId()))
+            throw new ServerException(409, "只能重试当前失败节点");
+        node.setStatus("PENDING");
+        node.setErrorMessage(null);
+        node.setRetryCount((node.getRetryCount() == null ? 0 : node.getRetryCount()) + 1);
+        nodeService.updateById(node);
+        externalInvocationService.resetForManualRetry(node.getId());
+        instance.setStatus("RUNNING");
+        instance.setErrorMessage(null);
+        instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "NODE_RETRY_REQUESTED", userId, "已请求重试当前节点", null);
         executionJobDispatcher.enqueueAfterCommit(instance.getId());
     }
 
@@ -283,7 +507,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         } catch (Exception ex) {
             throw new ServerException(422, I18nUtils.getMessage("workflow.instance.replay.variables.invalid"));
         }
-        return startInternal(source.getWorkflowId(), variables, userId, null);
+        return startInternal(source.getWorkflowId(), variables, userId, null, null);
     }
 
     /**
@@ -310,8 +534,10 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         instance.setErrorMessage(StringUtils.defaultIfBlank(errorMessage, "后台执行任务连续失败"));
         instance.setCompletedAt(System.currentTimeMillis());
         instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), null, "INSTANCE_FAILED", "SYSTEM", instance.getErrorMessage(), null);
         sseHub.publish(instance.getId(), "run.failed", instance);
         callbackService.recordTerminal(instance);
+        resumeParentSubflow(instance);
     }
 
     /**
@@ -326,7 +552,9 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         instance.setStatus("TERMINATED");
         instance.setCompletedAt(System.currentTimeMillis());
         instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), null, "INSTANCE_TERMINATED", userId, "工作流实例已终止", null);
         callbackService.recordTerminal(instance);
+        resumeParentSubflow(instance);
     }
 
     /**
@@ -348,6 +576,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         }
         instance.setVariables(JSON.toJSONString(current));
         instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), null, "VARIABLES_UPDATED", userId, "已更新工作流变量", instance.getVariables());
         sseHub.publish(instance.getId(), "variables.updated", instance);
     }
 
@@ -385,7 +614,17 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
 
             // 已完成的节点跳过
             if ("COMPLETED".equals(history.getStatus())) {
-                nodeId = findNextNodeIdFromGraph(adj, nodeId, nodeMap, variables, history, instance);
+                // 并行节点完成时分支已经由 executeParallel 执行完毕，重试/恢复时必须直接进入汇聚节点，
+                // 不能再次沿普通边进入第一个分支。
+                if ("parallel".equals(history.getNodeType())) {
+                    JSONObject parallelDefinition = nodeMap.get(nodeId);
+                    String joinId = findParallelJoinNodeId(parallelDefinition, nodeMap, adj);
+                    nodeId = StringUtils.isBlank(joinId)
+                            ? findNextNodeIdFromGraph(adj, nodeId, nodeMap, variables, history, instance)
+                            : joinId;
+                } else {
+                    nodeId = findNextNodeIdFromGraph(adj, nodeId, nodeMap, variables, history, instance);
+                }
                 continue;
             }
 
@@ -397,7 +636,13 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             if (!"RUNNING".equals(instance.getStatus())) return;
 
             // 节点完成，找下一个节点
-            nodeId = findNextNodeIdFromGraph(adj, nodeId, nodeMap, variables, history, instance);
+            if ("parallel".equals(history.getNodeType()) && "COMPLETED".equals(history.getStatus())) {
+                JSONObject parallelDefinition = nodeMap.get(nodeId);
+                String joinId = findParallelJoinNodeId(parallelDefinition, nodeMap, adj);
+                nodeId = StringUtils.isBlank(joinId) ? findNextNodeIdFromGraph(adj, nodeId, nodeMap, variables, history, instance) : joinId;
+            } else {
+                nodeId = findNextNodeIdFromGraph(adj, nodeId, nodeMap, variables, history, instance);
+            }
         }
 
         // 只有实际到达结束节点才能完成实例；发布校验会保证所有路径最终可到达结束节点。
@@ -408,14 +653,18 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 instance.setCurrentNodeId(null);
                 instance.setCompletedAt(System.currentTimeMillis());
                 instanceService.updateById(instance);
+                auditEventService.record(instance.getId(), null, "INSTANCE_COMPLETED", null, "工作流实例已完成", instance.getVariables());
                 sseHub.publish(instance.getId(), "run.completed", instance);
                 callbackService.recordTerminal(instance);
+                resumeParentSubflow(instance);
             } else {
                 instance.setStatus("FAILED");
                 instance.setErrorMessage("流程未到达结束节点");
                 instanceService.updateById(instance);
+                auditEventService.record(instance.getId(), null, "INSTANCE_FAILED", null, "流程未到达结束节点", null);
                 sseHub.publish(instance.getId(), "run.failed", instance);
                 callbackService.recordTerminal(instance);
+                resumeParentSubflow(instance);
             }
         }
     }
@@ -438,13 +687,69 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 waitForHuman(instance, node, definition, variables, false);
                 return;
             }
-            if ("mcp".equals(type)) {
+            if ("approval".equals(type)) {
+                waitForApproval(instance, node, definition, variables);
+                return;
+            }
+            if (isToolNode(type)) {
                 JSONObject interaction = StringUtils.isBlank(node.getInteractionConfig()) ? null : JSONObject.parseObject(node.getInteractionConfig());
                 if (interaction != null && interaction.containsKey("pendingAnswer")) {
                     resumeMcpApproval(instance, node, interaction, readPendingAnswer(interaction), instance.getUserId());
                 } else if (isScheduledInstance(instance)) {
                     resumeMcpApproval(instance, node, mcpInteractionConfig(instance, definition, variables), approvedMcpNodeAnswer(), instance.getUserId());
                 } else waitForHuman(instance, node, definition, variables, true);
+                return;
+            }
+            if ("transform".equals(type)) {
+                Map<String, Object> transformed = applyTransform(definition, variables);
+                applyStateMapping(definition, transformed, variables);
+                instance.setVariables(JSON.toJSONString(variables));
+                instanceService.updateById(instance);
+                completeNode(node, JSON.toJSONString(transformed));
+                return;
+            }
+            if ("rule".equals(type)) {
+                Object result = evaluateRule(definition, variables);
+                applyStateMapping(definition, result, variables);
+                instance.setVariables(JSON.toJSONString(variables));
+                instanceService.updateById(instance);
+                completeNode(node, JSON.toJSONString(result));
+                return;
+            }
+            if ("http".equals(type)) {
+                String output = executeHttpNode(instance, node, definition, variables);
+                applyStateMapping(definition, output, variables);
+                instance.setVariables(JSON.toJSONString(variables));
+                instanceService.updateById(instance);
+                completeNode(node, output);
+                return;
+            }
+            if ("notification".equals(type)) {
+                String output = executeNotificationNode(instance, node, definition, variables);
+                applyStateMapping(definition, output, variables);
+                instance.setVariables(JSON.toJSONString(variables));
+                instanceService.updateById(instance);
+                completeNode(node, output);
+                return;
+            }
+            if ("subflow".equals(type)) {
+                startSubflow(instance, node, definition, variables);
+                return;
+            }
+            if ("parallel".equals(type)) {
+                executeParallel(instance, node, definition, variables);
+                return;
+            }
+            if ("join".equals(type)) {
+                executeJoin(instance, node, definition);
+                return;
+            }
+            if ("wait_event".equals(type)) {
+                waitForEvent(instance, node, definition, variables);
+                return;
+            }
+            if ("delay".equals(type)) {
+                waitForDelay(instance, node, definition);
                 return;
             }
             if ("agent".equals(type)) {
@@ -740,6 +1045,30 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     }
 
     /**
+     * 审批节点复用服务账号作为审批主体，但交互类型和审计语义独立于普通人工录入。
+     */
+    private void waitForApproval(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node,
+                                 JSONObject definition, Map<String, Object> variables) {
+        JSONObject config = new JSONObject();
+        config.put("type", "approval");
+        config.put("question", definition.getString("question"));
+        config.put("outputKey", definition.getString("outputKey"));
+        config.put("internalKey", definition.getString("internalKey"));
+        config.put("approvalMode", StringUtils.defaultIfBlank(definition.getString("approvalMode"), "ANY"));
+        config.put("approverServiceAccountId", definition.getString("approverServiceAccountId"));
+        node.setStatus("WAITING_USER");
+        node.setErrorMessage(null);
+        node.setCompletedAt(null);
+        node.setInteractionConfig(config.toJSONString());
+        nodeService.updateById(node);
+        instance.setStatus("WAITING_USER");
+        instance.setErrorMessage(null);
+        instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "APPROVAL_REQUIRED", null, "等待服务账号审批", config.toJSONString());
+        sseHub.publish(instance.getId(), "approval.required", node);
+    }
+
+    /**
      * 将 Agent 聊天服务产生的 MCP 确认或 ask_user 交互挂接到当前工作流节点。
      */
     private void waitForAgentInteraction(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node,
@@ -805,12 +1134,27 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             agentId = definition == null ? null : definition.getString("resourceId");
         }
         if (StringUtils.isBlank(agentId)) agentId = resolveMcpAgentId(instance);
-        ToolExecutionResult result = toolWorkflow.executeWorkflowApprovedMcpTool(config.getString("toolId"), config.getString("toolName"), args,
-                instance.getId(), userId, agentId, "allow_10m".equals(decision),
-                "workflow:" + instance.getId() + ":node:" + node.getNodeId());
-        if (result.getStatus() != null && result.getStatus() != 0) {
-            fail(instance, node, result.getErrorMsg());
-            return;
+        String idempotencyKey = "workflow:" + instance.getId() + ":node:" + node.getNodeId();
+        AgentWorkflowExternalInvocation invocation = externalInvocationService.recordIntent(instance.getApplicationId(), instance.getId(),
+                node.getId(), node.getNodeId(), "TOOL", idempotencyKey, "CALL", config.getString("toolName"), JSON.toJSONString(args));
+        if ("COMPLETED".equals(invocation.getStatus()))
+            throw new ServerException(409, "工具调用已完成但流程状态未确认，请由管理员核对调用记录后恢复");
+        if ("UNKNOWN".equals(invocation.getStatus()))
+            throw new ServerException(409, "工具调用结果未知，请确认后手动重试");
+        externalInvocationService.markRunning(invocation.getId());
+        ToolExecutionResult result;
+        try {
+            result = toolWorkflow.executeWorkflowApprovedMcpTool(config.getString("toolId"), config.getString("toolName"), args,
+                    instance.getId(), userId, agentId, "allow_10m".equals(decision), idempotencyKey);
+            if (result.getStatus() != null && result.getStatus() != 0) {
+                externalInvocationService.markUnknown(invocation.getId(), result.getErrorMsg());
+                fail(instance, node, result.getErrorMsg());
+                return;
+            }
+            externalInvocationService.complete(invocation.getId(), JSON.toJSONString(result));
+        } catch (Exception ex) {
+            externalInvocationService.markUnknown(invocation.getId(), ex.getMessage());
+            throw ex;
         }
         Map<String, Object> variables = variables(instance);
         JSONObject definition = currentDefinition(instance, node);
@@ -918,6 +1262,399 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         return config != null && "mcp_tool_approval".equals(config.getString("approvalType"));
     }
 
+    private boolean isToolNode(String type) {
+        return "tool".equals(type);
+    }
+
+    /**
+     * 将确定性字段映射写入共享变量。mapping 支持 source、template 和 value 三种来源。
+     */
+    private Map<String, Object> applyTransform(JSONObject definition, Map<String, Object> variables) {
+        Map<String, Object> output = new LinkedHashMap<String, Object>();
+        JSONArray mappings = definition.getJSONArray("mappings");
+        if (mappings == null) return output;
+        for (Object value : mappings) {
+            JSONObject mapping = (JSONObject) value;
+            String target = mapping.getString("target");
+            Object mapped;
+            if (mapping.containsKey("source")) mapped = resolveVariablePath(variables, mapping.getString("source"));
+            else if (mapping.containsKey("template")) mapped = WorkflowVariableRenderer.render(mapping.getString("template"), variables);
+            else mapped = mapping.get("value");
+            variables.put(target, mapped);
+            output.put(target, mapped);
+        }
+        return output;
+    }
+
+    /**
+     * 按顺序执行规则；第一个命中规则的 value 为结果，未命中时使用 defaultValue。
+     */
+    private Object evaluateRule(JSONObject definition, Map<String, Object> variables) {
+        JSONArray rules = definition.getJSONArray("rules");
+        if (rules != null) for (Object value : rules) {
+            JSONObject rule = (JSONObject) value;
+            if (WorkflowConditionEvaluator.evaluate(rule.getString("condition"), variables)) return rule.get("value");
+        }
+        return definition.get("defaultValue");
+    }
+
+    private void waitForEvent(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node,
+                              JSONObject definition, Map<String, Object> variables) {
+        JSONObject config = new JSONObject();
+        config.put("eventType", definition.getString("eventType"));
+        config.put("correlationKey", WorkflowVariableRenderer.render(definition.getString("correlationKeyTemplate"), variables));
+        long timeoutMillis = definition.getLongValue("timeoutMillis");
+        if (timeoutMillis > 0) config.put("timeoutAt", System.currentTimeMillis() + timeoutMillis);
+        config.put("timeoutTargetId", definition.getString("timeoutTargetId"));
+        node.setStatus("WAITING_EVENT");
+        node.setInteractionConfig(config.toJSONString());
+        nodeService.updateById(node);
+        instance.setStatus("WAITING_EVENT");
+        instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "BUSINESS_EVENT_WAITING", null,
+                "等待业务事件：" + definition.getString("eventType"), config.toJSONString());
+        sseHub.publish(instance.getId(), "business_event.required", node);
+    }
+
+    private void waitForDelay(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node, JSONObject definition) {
+        long resumeAt = System.currentTimeMillis() + definition.getLongValue("delayMillis");
+        JSONObject config = new JSONObject();
+        config.put("resumeAt", resumeAt);
+        node.setStatus("WAITING_DELAY");
+        node.setInteractionConfig(config.toJSONString());
+        nodeService.updateById(node);
+        instance.setStatus("WAITING_DELAY");
+        instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "DELAY_WAITING", null, "延时节点等待中", config.toJSONString());
+        sseHub.publish(instance.getId(), "delay.waiting", node);
+    }
+
+    /**
+     * 执行受控 HTTP 节点。调用意图在独立事务中落库，异常后保留 UNKNOWN 状态而不自动重放。
+     */
+    private String executeHttpNode(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node,
+                                   JSONObject definition, Map<String, Object> variables) {
+        String method = StringUtils.defaultIfBlank(definition.getString("method"), "POST").toUpperCase(Locale.ROOT);
+        String url = WorkflowVariableRenderer.render(definition.getString("url"), variables);
+        String body = definition.containsKey("bodyTemplate")
+                ? WorkflowVariableRenderer.render(definition.getString("bodyTemplate"), variables)
+                : (definition.containsKey("body") ? JSON.toJSONString(definition.get("body")) : null);
+        HttpHeaders headers = new HttpHeaders();
+        JSONObject configuredHeaders = definition.getJSONObject("headers");
+        if (configuredHeaders != null) for (Map.Entry<String, Object> header : configuredHeaders.entrySet())
+            headers.add(header.getKey(), WorkflowVariableRenderer.render(String.valueOf(header.getValue()), variables));
+        String idempotencyKey = definition.containsKey("idempotencyKeyTemplate")
+                ? WorkflowVariableRenderer.render(definition.getString("idempotencyKeyTemplate"), variables)
+                : "workflow:" + instance.getId() + ":node:" + node.getNodeId();
+        headers.set("X-Idempotency-Key", idempotencyKey);
+        JSONObject requestAudit = new JSONObject();
+        requestAudit.put("headers", headers.toSingleValueMap());
+        requestAudit.put("body", body);
+        AgentWorkflowExternalInvocation invocation = externalInvocationService.recordIntent(instance.getApplicationId(), instance.getId(),
+                node.getId(), node.getNodeId(), "HTTP", idempotencyKey, method, url, requestAudit.toJSONString());
+        if ("COMPLETED".equals(invocation.getStatus()))
+            throw new ServerException(409, "HTTP 节点外部调用已完成但流程状态未确认，请由管理员核对调用记录后恢复");
+        if ("UNKNOWN".equals(invocation.getStatus()))
+            throw new ServerException(409, "HTTP 节点上次调用结果未知，请确认后手动重试");
+        externalInvocationService.markRunning(invocation.getId());
+        try {
+            String response = httpNodeExecutor.execute(method, url, headers, body);
+            externalInvocationService.complete(invocation.getId(), response);
+            return response;
+        } catch (Exception ex) {
+            externalInvocationService.markUnknown(invocation.getId(), ex.getMessage());
+            throw ex;
+        }
+    }
+
+    /**
+     * 发送确定性通知。首版复用平台邮件通道；其他渠道须由工具或 HTTP 节点显式接入。
+     */
+    private String executeNotificationNode(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node,
+                                           JSONObject definition, Map<String, Object> variables) {
+        String channel = StringUtils.defaultIfBlank(definition.getString("channel"), "email");
+        if (!"email".equalsIgnoreCase(channel)) throw new ServerException(422, "通知节点不支持渠道：" + channel);
+        String recipient = WorkflowVariableRenderer.render(definition.getString("toTemplate"), variables);
+        String subject = WorkflowVariableRenderer.render(definition.getString("subjectTemplate"), variables);
+        String body = WorkflowVariableRenderer.render(definition.getString("bodyTemplate"), variables);
+        if (StringUtils.isBlank(recipient)) throw new ServerException(422, "通知节点收件人不能为空");
+        String idempotencyKey = definition.containsKey("idempotencyKeyTemplate")
+                ? WorkflowVariableRenderer.render(definition.getString("idempotencyKeyTemplate"), variables)
+                : "workflow:" + instance.getId() + ":node:" + node.getNodeId();
+        JSONObject requestAudit = new JSONObject();
+        requestAudit.put("channel", "email");
+        requestAudit.put("recipient", recipient);
+        requestAudit.put("subject", subject);
+        requestAudit.put("body", body);
+        AgentWorkflowExternalInvocation invocation = externalInvocationService.recordIntent(instance.getApplicationId(), instance.getId(),
+                node.getId(), node.getNodeId(), "NOTIFICATION", idempotencyKey, "SEND", "email:" + recipient, requestAudit.toJSONString());
+        if ("COMPLETED".equals(invocation.getStatus()))
+            throw new ServerException(409, "通知已发送但流程状态未确认，请由管理员核对调用记录后恢复");
+        if ("UNKNOWN".equals(invocation.getStatus()))
+            throw new ServerException(409, "通知上次发送结果未知，请确认后手动重试");
+        externalInvocationService.markRunning(invocation.getId());
+        try {
+            Email email = new Email();
+            email.setUserId(instance.getUserId());
+            email.setEmail(recipient);
+            email.setType("workflow_notification");
+            email.setSubject(subject);
+            email.setBody(body);
+            if (!Boolean.TRUE.equals(emailMessageService.send(email))) throw new ServerException(502, "邮件通知发送失败");
+            JSONObject result = new JSONObject();
+            result.put("channel", "email");
+            result.put("recipient", recipient);
+            result.put("status", "SENT");
+            externalInvocationService.complete(invocation.getId(), result.toJSONString());
+            return result.toJSONString();
+        } catch (Exception ex) {
+            externalInvocationService.markUnknown(invocation.getId(), ex.getMessage());
+            throw ex;
+        }
+    }
+
+    /**
+     * 使用已发布的固定版本启动子流程。父节点进入 WAITING_SUBFLOW，子流程终态由 resumeParentSubflow 回传。
+     */
+    private void executeParallel(AgentWorkflowInstance instance, AgentWorkflowNodeInstance parallelNode,
+                                 JSONObject definition, Map<String, Object> variables) {
+        JSONArray branches = definition.getJSONArray("branches");
+        AgentWorkflowVersion version = versionService.getById(instance.getWorkflowVersionId());
+        Map<String, JSONObject> nodeMap = buildNodeMap(version.getNodes());
+        Map<String, List<JSONObject>> adjacency = WorkflowDefinitionValidator.buildAdjacency(version.getEdges());
+        String joinNodeId = findParallelJoinNodeId(definition, nodeMap, adjacency);
+        if (StringUtils.isBlank(joinNodeId) || nodeMap.get(joinNodeId) == null || !"join".equals(nodeMap.get(joinNodeId).getString("type")))
+            throw new ServerException(422, "并行节点必须连接汇聚节点");
+        int maxBranches = definition.getIntValue("maxBranches");
+        if (maxBranches > 0 && branches.size() > maxBranches)
+            throw new ServerException(429, "并行分支数量超过节点配额");
+        long branchTimeoutMillis = definition.getLongValue("branchTimeoutMillis");
+        long branchStartedAt = System.currentTimeMillis();
+        String tokenKey = parallelNode.getNodeId();
+        AgentWorkflowJoinState state = joinStateService.getOne(Wrappers.lambdaQuery(AgentWorkflowJoinState.class)
+                .eq(AgentWorkflowJoinState::getInstanceId, instance.getId()).eq(AgentWorkflowJoinState::getJoinNodeId, joinNodeId)
+                .eq(AgentWorkflowJoinState::getTokenKey, tokenKey).eq(AgentWorkflowJoinState::getDeleted, false).last("FOR UPDATE"));
+        if (state == null) {
+            state = new AgentWorkflowJoinState();
+            state.setInstanceId(instance.getId()); state.setJoinNodeId(joinNodeId); state.setTokenKey(tokenKey);
+            state.setJoinMode(StringUtils.defaultIfBlank(definition.getString("joinMode"), "ALL_SUCCESS"));
+            state.setExpectedCount(branches.size()); state.setCompletedCount(0); state.setFailedCount(0); state.setStatus("WAITING");
+            joinStateService.save(state);
+        }
+        if ("READY".equals(state.getStatus()) || "COMPLETED".equals(state.getStatus())) return;
+        int completed = 0, failed = 0;
+        for (int i = 0; i < branches.size(); i++) {
+            if (branchTimeoutMillis > 0 && System.currentTimeMillis() - branchStartedAt > branchTimeoutMillis)
+                throw new ServerException(504, "并行分支执行超时");
+            String entryId = String.valueOf(branches.get(i));
+            AgentWorkflowNodeToken token = nodeTokenService.getOne(Wrappers.lambdaQuery(AgentWorkflowNodeToken.class)
+                    .eq(AgentWorkflowNodeToken::getInstanceId, instance.getId()).eq(AgentWorkflowNodeToken::getNodeId, entryId)
+                    .eq(AgentWorkflowNodeToken::getTokenKey, tokenKey + ":" + i).eq(AgentWorkflowNodeToken::getDeleted, false));
+            if (token == null) {
+                token = new AgentWorkflowNodeToken(); token.setInstanceId(instance.getId()); token.setNodeId(entryId);
+                token.setTokenKey(tokenKey + ":" + i); token.setStatus("RUNNING"); nodeTokenService.save(token);
+            }
+            if ("COMPLETED".equals(token.getStatus())) { completed++; continue; }
+            try {
+                if (!"ALL_SUCCESS".equals(state.getJoinMode())) partialParallelBranch.set(Boolean.TRUE);
+                try {
+                    runParallelBranch(instance, entryId, joinNodeId, adjacency, nodeMap, variables, branchTimeoutMillis, branchStartedAt);
+                } finally {
+                    partialParallelBranch.remove();
+                }
+                token.setStatus("COMPLETED"); token.setErrorMessage(null); nodeTokenService.updateById(token); completed++;
+            } catch (Exception ex) {
+                token.setStatus("FAILED"); token.setErrorMessage(StringUtils.abbreviate(ex.getMessage(), 2048)); nodeTokenService.updateById(token); failed++;
+                String mode = state.getJoinMode();
+                instance.setStatus("RUNNING"); instance.setErrorMessage(null); instanceService.updateById(instance);
+                if ("ALL_SUCCESS".equals(mode)) {
+                    if (ex instanceof RuntimeException) throw (RuntimeException) ex;
+                    throw new ServerException(502, ex.getMessage());
+                }
+            }
+        }
+        state.setCompletedCount(completed); state.setFailedCount(failed);
+        if ("ANY_SUCCESS".equals(state.getJoinMode()) && completed == 0) {
+            state.setStatus("FAILED"); state.setErrorMessage("并行分支没有成功分支"); joinStateService.updateById(state);
+            throw new ServerException(502, state.getErrorMessage());
+        }
+        if (completed + failed < branches.size()) { state.setStatus("WAITING"); joinStateService.updateById(state); return; }
+        state.setStatus("READY"); joinStateService.updateById(state);
+        completeNode(parallelNode, JSON.toJSONString(Collections.singletonMap("branches", branches.size())));
+    }
+
+    private void runParallelBranch(AgentWorkflowInstance instance, String entryId, String joinNodeId,
+                                   Map<String, List<JSONObject>> adjacency, Map<String, JSONObject> nodeMap,
+                                   Map<String, Object> variables, long timeoutMillis, long startedAt) {
+        String nodeId = entryId;
+        Set<String> visited = new HashSet<String>();
+        for (int guard = 0; guard < 100 && nodeId != null; guard++) {
+            if (timeoutMillis > 0 && System.currentTimeMillis() - startedAt > timeoutMillis)
+                throw new ServerException(504, "并行分支执行超时");
+            if (StringUtils.equals(nodeId, joinNodeId)) return;
+            if (!visited.add(nodeId)) throw new ServerException(422, "并行分支存在循环：" + nodeId);
+            JSONObject definition = nodeMap.get(nodeId);
+            if (definition == null) throw new ServerException(422, "并行分支节点不存在：" + nodeId);
+            AgentWorkflowNodeInstance history = getOrCreateNodeInstance(instance, nodeId, definition);
+            if (!"COMPLETED".equals(history.getStatus())) {
+                instance.setCurrentNodeId(nodeId); instanceService.updateById(instance);
+                executeNode(instance, history, definition, variables);
+                if ("FAILED".equals(history.getStatus())) throw new ServerException(502, "并行分支节点执行失败：" + nodeId);
+                if (!"RUNNING".equals(instance.getStatus())) throw new ServerException(502, "并行分支节点未完成：" + nodeId);
+            }
+            nodeId = findNextNodeIdFromGraph(adjacency, nodeId, nodeMap, variables, history, instance);
+        }
+        throw new ServerException(422, "并行分支未在限定步数内到达汇聚节点");
+    }
+
+    private String findParallelJoinNodeId(JSONObject definition, Map<String, JSONObject> nodeMap,
+                                          Map<String, List<JSONObject>> adjacency) {
+        String configured = definition == null ? null : definition.getString("joinNodeId");
+        if (StringUtils.isNotBlank(configured) && nodeMap.get(configured) != null && "join".equals(nodeMap.get(configured).getString("type"))) return configured;
+        JSONArray branches = definition == null ? null : definition.getJSONArray("branches");
+        if (branches == null || branches.isEmpty()) return null;
+        for (JSONObject candidate : nodeMap.values()) {
+            if (!"join".equals(candidate.getString("type"))) continue;
+            boolean reachableFromEveryBranch = true;
+            for (Object branch : branches) {
+                if (!canReach(adjacency, String.valueOf(branch), candidate.getString("id"))) { reachableFromEveryBranch = false; break; }
+            }
+            if (reachableFromEveryBranch) return candidate.getString("id");
+        }
+        return null;
+    }
+
+    private boolean canReach(Map<String, List<JSONObject>> adjacency, String source, String target) {
+        Queue<String> queue = new LinkedList<String>();
+        Set<String> visited = new HashSet<String>();
+        queue.add(source);
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            if (!visited.add(current)) continue;
+            if (StringUtils.equals(current, target)) return true;
+            for (JSONObject edge : adjacency.getOrDefault(current, Collections.<JSONObject>emptyList())) queue.add(edge.getString("target"));
+        }
+        return false;
+    }
+
+    private void executeJoin(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node, JSONObject definition) {
+        AgentWorkflowJoinState state = joinStateService.getOne(Wrappers.lambdaQuery(AgentWorkflowJoinState.class)
+                .eq(AgentWorkflowJoinState::getInstanceId, instance.getId()).eq(AgentWorkflowJoinState::getJoinNodeId, node.getNodeId())
+                .eq(AgentWorkflowJoinState::getDeleted, false).orderByDesc(AgentWorkflowJoinState::getCreatedAt).last("LIMIT 1"));
+        if (state == null || !"READY".equals(state.getStatus())) throw new ServerException(409, "汇聚节点尚未满足执行条件");
+        completeNode(node, JSON.toJSONString(state));
+        state.setStatus("COMPLETED"); joinStateService.updateById(state);
+    }
+
+    private void startSubflow(AgentWorkflowInstance parent, AgentWorkflowNodeInstance node,
+                              JSONObject definition, Map<String, Object> variables) {
+        AgentWorkflowSubflowLink existing = subflowLinkService.getOne(Wrappers.lambdaQuery(AgentWorkflowSubflowLink.class)
+                .eq(AgentWorkflowSubflowLink::getParentInstanceId, parent.getId())
+                .eq(AgentWorkflowSubflowLink::getParentNodeId, node.getNodeId())
+                .eq(AgentWorkflowSubflowLink::getDeleted, false));
+        if (existing != null) {
+            parent.setStatus("WAITING_SUBFLOW");
+            instanceService.updateById(parent);
+            return;
+        }
+        String childWorkflowId = definition.getString("workflowId");
+        int versionNo = definition.getIntValue("versionNo");
+        if (StringUtils.equals(childWorkflowId, parent.getWorkflowId())) throw new ServerException(422, "子流程不能引用自身");
+        String idempotencyKey = "workflow:" + parent.getId() + ":node:" + node.getNodeId();
+        AgentWorkflowExternalInvocation invocation = externalInvocationService.recordIntent(parent.getApplicationId(), parent.getId(),
+                node.getId(), node.getNodeId(), "SUBFLOW", idempotencyKey, "START", childWorkflowId + ":" + versionNo, null);
+        if ("COMPLETED".equals(invocation.getStatus()))
+            throw new ServerException(409, "子流程已启动但父流程状态未确认，请由管理员核对调用记录后恢复");
+        if ("UNKNOWN".equals(invocation.getStatus()))
+            throw new ServerException(409, "子流程启动结果未知，请确认后手动重试");
+        externalInvocationService.markRunning(invocation.getId());
+        Long childDeadline = parent.getDeadlineAt();
+        long timeoutMillis = definition.getLongValue("timeoutMillis");
+        if (timeoutMillis > 0) {
+            long configuredDeadline = System.currentTimeMillis() + timeoutMillis;
+            childDeadline = childDeadline == null ? configuredDeadline : Math.min(childDeadline, configuredDeadline);
+        }
+        AgentWorkflowInstance child;
+        try {
+            child = startInternal(childWorkflowId,
+                    mapSubflowVariables(definition.getJSONArray("inputMappings"), variables), parent.getUserId(), null, versionNo, childDeadline);
+            externalInvocationService.complete(invocation.getId(), "{\"childInstanceId\":\"" + child.getId() + "\"}");
+        } catch (Exception ex) {
+            externalInvocationService.markUnknown(invocation.getId(), ex.getMessage());
+            throw ex;
+        }
+        AgentWorkflowSubflowLink link = new AgentWorkflowSubflowLink();
+        link.setParentInstanceId(parent.getId());
+        link.setParentNodeId(node.getNodeId());
+        link.setChildInstanceId(child.getId());
+        link.setChildWorkflowId(child.getWorkflowId());
+        link.setChildWorkflowVersionId(child.getWorkflowVersionId());
+        link.setStatus("RUNNING");
+        subflowLinkService.save(link);
+        JSONObject config = new JSONObject();
+        config.put("childInstanceId", child.getId());
+        config.put("childWorkflowVersionId", child.getWorkflowVersionId());
+        node.setStatus("WAITING_SUBFLOW");
+        node.setInteractionConfig(config.toJSONString());
+        nodeService.updateById(node);
+        parent.setStatus("WAITING_SUBFLOW");
+        parent.setErrorMessage(null);
+        instanceService.updateById(parent);
+        auditEventService.record(parent.getId(), node.getId(), "SUBFLOW_STARTED", parent.getUserId(), "子流程已按固定版本启动", config.toJSONString());
+        sseHub.publish(parent.getId(), "subflow.waiting", node);
+    }
+
+    /** 子流程进入终态后恢复父节点；失败、终止或超时会让父节点失败，避免静默卡住。 */
+    private void resumeParentSubflow(AgentWorkflowInstance child) {
+        AgentWorkflowSubflowLink link = subflowLinkService.getOne(Wrappers.lambdaQuery(AgentWorkflowSubflowLink.class)
+                .eq(AgentWorkflowSubflowLink::getChildInstanceId, child.getId())
+                .eq(AgentWorkflowSubflowLink::getStatus, "RUNNING")
+                .eq(AgentWorkflowSubflowLink::getDeleted, false).last("FOR UPDATE"));
+        if (link == null) return;
+        AgentWorkflowInstance parent = instanceService.getOne(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
+                .eq(AgentWorkflowInstance::getId, link.getParentInstanceId()).eq(AgentWorkflowInstance::getDeleted, false).last("FOR UPDATE"));
+        if (parent == null || !"WAITING_SUBFLOW".equals(parent.getStatus())) return;
+        AgentWorkflowNodeInstance node = currentNode(parent);
+        if (!StringUtils.equals(node.getNodeId(), link.getParentNodeId())) return;
+        if (!"COMPLETED".equals(child.getStatus())) {
+            link.setStatus("FAILED");
+            subflowLinkService.updateById(link);
+            fail(parent, node, "子流程未成功完成：" + child.getStatus());
+            return;
+        }
+        JSONObject definition = currentDefinition(parent, node);
+        Map<String, Object> childOutput = outputResolver.resolve(child);
+        Map<String, Object> variables = variables(parent);
+        variables.putAll(mapSubflowVariables(definition == null ? null : definition.getJSONArray("outputMappings"), childOutput));
+        applyStateMapping(definition, childOutput, variables);
+        parent.setVariables(JSON.toJSONString(variables));
+        completeNode(node, JSON.toJSONString(childOutput));
+        String nextNodeId = findNextNodeId(parent, node);
+        if (nextNodeId != null) parent.setCurrentNodeId(nextNodeId);
+        parent.setStatus("RUNNING");
+        parent.setErrorMessage(null);
+        instanceService.updateById(parent);
+        link.setStatus("COMPLETED");
+        subflowLinkService.updateById(link);
+        auditEventService.record(parent.getId(), node.getId(), "SUBFLOW_COMPLETED", child.getUserId(), "子流程已完成并回填输出", JSON.toJSONString(childOutput));
+        executionJobDispatcher.enqueueAfterCommit(parent.getId());
+    }
+
+    private Map<String, Object> mapSubflowVariables(JSONArray mappings, Map<String, Object> source) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (mappings == null) return result;
+        for (Object value : mappings) {
+            JSONObject mapping = (JSONObject) value;
+            String target = mapping.getString("target");
+            if (StringUtils.isBlank(target)) continue;
+            Object mapped = mapping.containsKey("source") ? resolveVariablePath(source, mapping.getString("source"))
+                    : mapping.containsKey("template") ? WorkflowVariableRenderer.render(mapping.getString("template"), source)
+                    : mapping.get("value");
+            result.put(target, mapped);
+        }
+        return result;
+    }
+
     /**
      * 定时触发器创建的实例使用受控的 schedule: 前缀幂等键，MCP 调用无需人工在线确认。
      */
@@ -980,6 +1717,10 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         node.setCompletedAt(System.currentTimeMillis());
         node.setInteractionConfig(null);
         nodeService.updateById(node);
+        auditEventService.record(node.getInstanceId(), node.getId(), "NODE_COMPLETED", null, "节点执行完成", node.getOutputData());
+        AgentWorkflowInstance snapshotInstance = instanceService.getById(node.getInstanceId());
+        if (snapshotInstance != null)
+            variableSnapshotService.capture(snapshotInstance.getId(), node.getId(), node.getNodeId(), snapshotInstance.getVariables());
         sseHub.publish(node.getInstanceId(), "node.completed", node);
     }
 
@@ -991,11 +1732,18 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         node.setErrorMessage(StringUtils.defaultIfBlank(error, "节点执行失败"));
         node.setCompletedAt(System.currentTimeMillis());
         nodeService.updateById(node);
+        if (Boolean.TRUE.equals(partialParallelBranch.get())) {
+            auditEventService.record(instance.getId(), node.getId(), "NODE_FAILED", null, node.getErrorMessage(), null);
+            sseHub.publish(instance.getId(), "node.failed", node);
+            return;
+        }
         instance.setStatus("FAILED");
         instance.setErrorMessage(node.getErrorMessage());
         instanceService.updateById(instance);
+        auditEventService.record(instance.getId(), node.getId(), "NODE_FAILED", null, node.getErrorMessage(), null);
         sseHub.publish(instance.getId(), "run.failed", node);
         callbackService.recordTerminal(instance);
+        resumeParentSubflow(instance);
     }
 
     /**
@@ -1006,6 +1754,15 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         if (value == null || Boolean.TRUE.equals(value.getDeleted()))
             throw new ServerException(404, I18nUtils.getMessage("workflow.not-found"));
         return value;
+    }
+
+    private AgentWorkflowExternalInvocation requiredUnknownExternalInvocation(AgentWorkflowInstance instance, String invocationId) {
+        AgentWorkflowExternalInvocation invocation = externalInvocationService.getById(invocationId);
+        if (invocation == null || Boolean.TRUE.equals(invocation.getDeleted()) || !StringUtils.equals(instance.getId(), invocation.getInstanceId()))
+            throw new ServerException(404, "外部调用记录不存在");
+        if (!"UNKNOWN".equals(invocation.getStatus()))
+            throw new ServerException(409, "仅结果未知的外部调用支持此操作");
+        return invocation;
     }
 
     /**
@@ -1108,6 +1865,24 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         if ("$output".equals(trimmed)) return output;
         if (trimmed.startsWith("$json.")) return extractJsonPath(output, trimmed.substring("$json.".length()));
         return expr; // 字面量
+    }
+
+    /** 解析转换与子流程映射的安全变量路径：root.path 或 $.root.path。 */
+    private Object resolveVariablePath(Map<String, Object> variables, String path) {
+        if (StringUtils.isBlank(path)) return null;
+        String normalized = StringUtils.removeStart(path.trim(), "$." );
+        String[] parts = normalized.split("\\.");
+        Object current = variables.get(parts[0]);
+        for (int i = 1; i < parts.length && current != null; i++) {
+            String part = parts[i];
+            if (current instanceof Map) current = ((Map<?, ?>) current).get(part);
+            else if (current instanceof JSONObject) current = ((JSONObject) current).get(part);
+            else if (current instanceof JSONArray && part.matches("\\d+")) {
+                int index = Integer.parseInt(part);
+                current = index >= 0 && index < ((JSONArray) current).size() ? ((JSONArray) current).get(index) : null;
+            } else return null;
+        }
+        return current;
     }
 
     /**

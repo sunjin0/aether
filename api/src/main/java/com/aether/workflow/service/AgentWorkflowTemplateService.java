@@ -16,5 +16,5 @@ public interface AgentWorkflowTemplateService extends IService<AgentWorkflowTemp
     /**
      * 根据模板创建新的工作流草稿。
      */
-    AgentWorkflow instantiate(String templateId, String name, String description);
+    AgentWorkflow instantiate(String templateId, String code, String name, String description);
 }

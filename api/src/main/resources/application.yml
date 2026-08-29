@@ -33,6 +33,13 @@ aether:
       scan-interval-ms: ${AETHER_WORKFLOW_EXECUTION_SCAN_INTERVAL_MS:1000}
       # 后台任务因基础设施错误可自动重试的最大次数；超出后流程标记为失败，避免无限占用资源。
       max-attempts: ${AETHER_WORKFLOW_EXECUTION_MAX_ATTEMPTS:8}
+    # HTTP 节点默认拒绝所有出站目标；生产环境仅配置受控业务域名。
+    http:
+      allowed-hosts: ${AETHER_WORKFLOW_HTTP_ALLOWED_HOSTS:}
+      connect-timeout-ms: ${AETHER_WORKFLOW_HTTP_CONNECT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${AETHER_WORKFLOW_HTTP_READ_TIMEOUT_MS:10000}
+    delay:
+      scan-interval-ms: ${AETHER_WORKFLOW_DELAY_SCAN_INTERVAL_MS:1000}
     webhook:
       # Webhook 签名时间戳最大允许偏差（毫秒），用于抵御请求重放。
       signature-max-age-ms: ${AETHER_WORKFLOW_WEBHOOK_SIGNATURE_MAX_AGE_MS:300000}

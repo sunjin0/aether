@@ -3,6 +3,7 @@ package com.aether.workflow.runtime;
 import com.aether.workflow.entity.AgentWorkflowExecutionJob;
 import com.aether.workflow.service.AgentWorkflowExecutionJobService;
 import com.aether.workflow.service.AgentWorkflowExecutionService;
+import com.aether.workflow.service.AgentWorkflowExternalInvocationService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
@@ -17,15 +18,16 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.util.List;
 
 /**
- * 以数据库任务表驱动流程推进。任务可以在进程重启后重新领取，避免 HTTP 请求持有模型调用。
+ * 以数据库任务表驱动流程推进。外部节点无法保证幂等时，异常任务不自动重放，
+ * 由业务方确认影响后通过实例重试接口显式恢复。
  */
 @Component
 public class WorkflowExecutionJobDispatcher {
     private static final long LEASE_MILLIS = 5 * 60 * 1000L;
-    private final int maxAttempts;
     private final AgentWorkflowExecutionJobService jobService;
     private final AgentWorkflowExecutionService executionService;
     private final TaskExecutor taskExecutor;
+    private final AgentWorkflowExternalInvocationService externalInvocationService;
 
     /**
      * 创建 {@code WorkflowExecutionJobDispatcher} 实例。
@@ -33,11 +35,11 @@ public class WorkflowExecutionJobDispatcher {
     public WorkflowExecutionJobDispatcher(AgentWorkflowExecutionJobService jobService,
                                           @Lazy AgentWorkflowExecutionService executionService,
                                           @Qualifier("asyncPoolTaskExecutor") TaskExecutor taskExecutor,
-                                          @org.springframework.beans.factory.annotation.Value("${aether.workflow.execution.max-attempts:8}") int maxAttempts) {
+                                          AgentWorkflowExternalInvocationService externalInvocationService) {
         this.jobService = jobService;
         this.executionService = executionService;
         this.taskExecutor = taskExecutor;
-        this.maxAttempts = Math.max(1, maxAttempts);
+        this.externalInvocationService = externalInvocationService;
     }
 
     /**
@@ -125,6 +127,10 @@ public class WorkflowExecutionJobDispatcher {
      */
     private void processJob(String jobId) {
         long now = System.currentTimeMillis();
+        AgentWorkflowExecutionJob candidate = jobService.getById(jobId);
+        if (candidate == null || Boolean.TRUE.equals(candidate.getDeleted())) return;
+        boolean expiredLease = "PROCESSING".equals(candidate.getStatus())
+                && candidate.getLockedAt() != null && candidate.getLockedAt() <= now - LEASE_MILLIS;
         boolean claimed = jobService.update(new LambdaUpdateWrapper<AgentWorkflowExecutionJob>()
                 .set(AgentWorkflowExecutionJob::getStatus, "PROCESSING").set(AgentWorkflowExecutionJob::getLockedAt, now)
                 .setSql("attempt_count = attempt_count + 1")
@@ -133,6 +139,12 @@ public class WorkflowExecutionJobDispatcher {
                         .or().eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING").le(AgentWorkflowExecutionJob::getLockedAt, now - LEASE_MILLIS)));
         if (!claimed) return;
         AgentWorkflowExecutionJob job = jobService.getById(jobId);
+        if (expiredLease) {
+            String error = "后台执行租约已过期，外部节点执行结果未知；请确认后手动重试";
+            externalInvocationService.markActiveAsUnknown(job.getInstanceId(), error);
+            failJob(job, error);
+            return;
+        }
         try {
             executionService.executePending(job.getInstanceId());
             jobService.update(new LambdaUpdateWrapper<AgentWorkflowExecutionJob>()
@@ -140,27 +152,19 @@ public class WorkflowExecutionJobDispatcher {
                     .set(AgentWorkflowExecutionJob::getErrorMessage, null).eq(AgentWorkflowExecutionJob::getId, jobId).eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING"));
         } catch (Exception ex) {
             String error = StringUtils.defaultIfBlank(StringUtils.abbreviate(ex.getMessage(), 2048), "后台执行任务异常");
-            int attempts = job.getAttemptCount() == null ? 1 : job.getAttemptCount();
-            if (attempts >= maxAttempts) {
-                boolean failed = jobService.update(new LambdaUpdateWrapper<AgentWorkflowExecutionJob>()
-                        .set(AgentWorkflowExecutionJob::getStatus, "FAILED").set(AgentWorkflowExecutionJob::getErrorMessage, error)
-                        .set(AgentWorkflowExecutionJob::getCompletedAt, System.currentTimeMillis())
-                        .eq(AgentWorkflowExecutionJob::getId, jobId).eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING"));
-                if (failed) executionService.failPendingExecution(job.getInstanceId(), error);
-            } else {
-                jobService.update(new LambdaUpdateWrapper<AgentWorkflowExecutionJob>()
-                        .set(AgentWorkflowExecutionJob::getStatus, "PENDING").set(AgentWorkflowExecutionJob::getErrorMessage, error)
-                        .set(AgentWorkflowExecutionJob::getNextAttemptAt, System.currentTimeMillis() + retryDelayMillis(attempts))
-                        .eq(AgentWorkflowExecutionJob::getId, jobId).eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING"));
-            }
+            failJob(job, error);
         }
     }
 
     /**
-     * 10 秒起步、指数退避，上限 5 分钟，避免故障时密集冲击模型或数据库。
+     * 将异常任务标记失败；不将其重新排队，避免未知的外部副作用被静默重复执行。
      */
-    private long retryDelayMillis(int attempts) {
-        int exponent = Math.min(Math.max(0, attempts - 1), 5);
-        return Math.min(300000L, 10000L * (1L << exponent));
+    private void failJob(AgentWorkflowExecutionJob job, String error) {
+        if (job == null) return;
+        boolean failed = jobService.update(new LambdaUpdateWrapper<AgentWorkflowExecutionJob>()
+                .set(AgentWorkflowExecutionJob::getStatus, "FAILED").set(AgentWorkflowExecutionJob::getErrorMessage, error)
+                .set(AgentWorkflowExecutionJob::getCompletedAt, System.currentTimeMillis())
+                .eq(AgentWorkflowExecutionJob::getId, job.getId()).eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING"));
+        if (failed) executionService.failPendingExecution(job.getInstanceId(), error);
     }
 }

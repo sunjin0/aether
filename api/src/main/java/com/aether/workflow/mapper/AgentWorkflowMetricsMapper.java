@@ -26,7 +26,7 @@ public interface AgentWorkflowMetricsMapper {
      * 处理nodeMetrics。
      */
     @Select("SELECT COALESCE(AVG(completed_at - started_at) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL), 0) AS node_duration, " +
-            "COUNT(*) FILTER (WHERE node_type = 'mcp' AND status = 'FAILED') AS mcp_failed " +
+            "COUNT(*) FILTER (WHERE node_type = 'tool' AND status = 'FAILED') AS mcp_failed " +
             "FROM agent_workflow_node_instance WHERE deleted = FALSE")
     Map<String, Object> nodeMetrics();
 
