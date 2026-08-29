@@ -11,12 +11,16 @@ import com.aether.agent.product.service.AgentProductProfileService;
 import com.aether.workflow.dto.AgentWorkflowAnswerInstanceRequest;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
 import com.aether.workflow.dto.AgentWorkflowInteractionDto;
+import com.aether.workflow.dto.AgentWorkflowEventDto;
 import com.aether.workflow.dto.BusinessWorkflowStartInstanceRequest;
 import com.aether.workflow.entity.AgentWorkflowInstance;
 import com.aether.workflow.entity.AgentWorkflow;
+import com.aether.workflow.entity.AgentWorkflowVersion;
+import com.aether.workflow.runtime.WorkflowOutputResolver;
 import com.aether.workflow.runtime.WorkflowSseHub;
 import com.aether.workflow.service.AgentWorkflowExecutionService;
 import com.aether.workflow.service.AgentWorkflowService;
+import com.aether.workflow.service.AgentWorkflowVersionService;
 import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.aether.workflow.vo.BusinessWorkflowOptionVo;
 import io.swagger.annotations.Api;
@@ -29,6 +33,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.Map;
 import java.util.List;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.stream.Collectors;
 import org.springframework.beans.BeanUtils;
 
@@ -42,19 +47,25 @@ public class BusinessWorkflowController {
     private final ServiceAccountService serviceAccountService;
     private final AgentProductProfileService productProfileService;
     private final AgentWorkflowService workflowService;
+    private final AgentWorkflowVersionService workflowVersionService;
     private final AgentWorkflowExecutionService executionService;
     private final WorkflowSseHub sseHub;
+    private final WorkflowOutputResolver outputResolver;
 
     public BusinessWorkflowController(ServiceAccountService serviceAccountService,
                                       AgentProductProfileService productProfileService,
                                       AgentWorkflowService workflowService,
+                                      AgentWorkflowVersionService workflowVersionService,
                                       AgentWorkflowExecutionService executionService,
-                                      WorkflowSseHub sseHub) {
+                                      WorkflowSseHub sseHub,
+                                      WorkflowOutputResolver outputResolver) {
         this.serviceAccountService = serviceAccountService;
         this.productProfileService = productProfileService;
         this.workflowService = workflowService;
+        this.workflowVersionService = workflowVersionService;
         this.executionService = executionService;
         this.sseHub = sseHub;
+        this.outputResolver = outputResolver;
     }
 
     @ApiOperation("查询当前服务账号可启动工作流")
@@ -69,7 +80,12 @@ public class BusinessWorkflowController {
         List<AgentWorkflow> workflows = workflowService.list(Wrappers.lambdaQuery(AgentWorkflow.class)
                 .in(AgentWorkflow::getId, workflowIds).eq(AgentWorkflow::getApplicationId, account.getApplicationId())
                 .eq(AgentWorkflow::getStatus, 1).eq(AgentWorkflow::getDeleted, false).orderByAsc(AgentWorkflow::getName));
-        return WebResponse.OK(workflows.stream().map(this::toOption).collect(Collectors.toList()));
+        Map<String, AgentWorkflowVersion> versions = workflowVersionService.list(Wrappers.lambdaQuery(AgentWorkflowVersion.class)
+                .in(AgentWorkflowVersion::getWorkflowId, workflowIds).eq(AgentWorkflowVersion::getDeleted, false)).stream()
+                .collect(Collectors.toMap(version -> versionKey(version.getWorkflowId(), version.getVersionNo()), version -> version,
+                        (first, ignored) -> first, HashMap::new));
+        return WebResponse.OK(workflows.stream().map(workflow -> toOption(workflow,
+                versions.get(versionKey(workflow.getId(), workflow.getPublishedVersion())))).collect(Collectors.toList()));
     }
 
     @ApiOperation("外部系统启动工作流")
@@ -106,13 +122,19 @@ public class BusinessWorkflowController {
         return WebResponse.OK((Void) null);
     }
 
+    @ApiOperation("提交业务事件并恢复等待节点")
+    @PostMapping("/instances/{instanceId}/events/{eventType}")
+    public WebResponse<Void> signalEvent(@PathVariable String instanceId, @PathVariable String eventType,
+                                         @RequestBody(required = false) AgentWorkflowEventDto request) {
+        executionService.signalEvent(instanceId, eventType, request, currentPrincipalId());
+        return WebResponse.OK((Void) null);
+    }
+
     @ApiOperation("获取工作流实例当前返回值")
     @GetMapping("/instances/{instanceId}/result")
     public WebResponse<Map<String, Object>> result(@PathVariable String instanceId) {
         AgentWorkflowInstanceVo instance = executionService.detail(instanceId, currentPrincipalId());
-        Map<String, Object> variables = StringUtils.isBlank(instance.getVariables())
-                ? Collections.<String, Object>emptyMap() : com.alibaba.fastjson2.JSON.parseObject(instance.getVariables(), Map.class);
-        return WebResponse.OK(variables);
+        return WebResponse.OK(outputResolver.resolve(instance));
     }
 
     private String currentServiceAccountId() {
@@ -130,10 +152,19 @@ public class BusinessWorkflowController {
         return dto;
     }
 
-    private BusinessWorkflowOptionVo toOption(AgentWorkflow workflow) {
+    private BusinessWorkflowOptionVo toOption(AgentWorkflow workflow, AgentWorkflowVersion version) {
         BusinessWorkflowOptionVo value = new BusinessWorkflowOptionVo();
         value.setId(workflow.getId()); value.setName(workflow.getName()); value.setDescription(workflow.getDescription());
-        value.setPublishedVersion(workflow.getPublishedVersion()); return value;
+        value.setPublishedVersion(workflow.getPublishedVersion());
+        if (version != null) {
+            value.setInputSchema(version.getInputSchema());
+            value.setOutputSchema(version.getOutputSchema());
+        }
+        return value;
+    }
+
+    private String versionKey(String workflowId, Integer versionNo) {
+        return workflowId + ":" + versionNo;
     }
 
     private ServiceAccount currentAccount() {

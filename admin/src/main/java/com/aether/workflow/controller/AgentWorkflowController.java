@@ -8,7 +8,12 @@ import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.workflow.entity.AgentWorkflowCallbackDelivery;
+import com.aether.workflow.entity.AgentWorkflowAuditEvent;
+import com.aether.workflow.entity.AgentWorkflowExternalInvocation;
+import com.aether.workflow.entity.AgentWorkflowNodeToken;
+import com.aether.workflow.entity.AgentWorkflowVariableSnapshot;
 import com.aether.workflow.service.*;
 import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.aether.workflow.vo.AgentWorkflowVo;
@@ -22,6 +27,7 @@ import com.aether.workflow.runtime.WorkflowDefinitionValidator;
 import com.aether.workflow.runtime.WorkflowSseHub;
 import com.aether.workflow.runtime.WorkflowCallbackService;
 import com.aether.sys.service.ServiceAccountService;
+import com.aether.sys.entity.ServiceAccount;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -62,11 +68,16 @@ public class AgentWorkflowController {
     private final AgentDefinitionService agentDefinitionService;
     private final AgentToolService agentToolService;
     private final AgentWorkflowCallbackDeliveryService callbackDeliveryService;
+    private final AgentWorkflowAuditEventService auditEventService;
+    private final AgentWorkflowExternalInvocationService externalInvocationService;
+    private final AgentWorkflowNodeTokenService nodeTokenService;
+    private final AgentWorkflowVariableSnapshotService variableSnapshotService;
     private final WorkflowCallbackService workflowCallbackService;
     private final ServiceAccountService serviceAccountService;
     private final AgentWorkflowWebhookTriggerService webhookTriggerService;
     private final AgentWorkflowOperationsService operationsService;
     private final AgentWorkflowTemplateService templateService;
+    private final AgentApplicationService applicationService;
 
     /**
      * 创建 {@code AgentWorkflowController} 实例。
@@ -74,10 +85,13 @@ public class AgentWorkflowController {
     public AgentWorkflowController(AgentWorkflowService workflowService, AgentWorkflowVersionService versionService,
                                    AgentWorkflowInstanceService instanceService, AgentWorkflowExecutionService executionService, WorkflowSseHub sseHub,
                                    AgentDefinitionService agentDefinitionService, AgentToolService agentToolService,
-                                   AgentWorkflowCallbackDeliveryService callbackDeliveryService,
+                                   AgentWorkflowCallbackDeliveryService callbackDeliveryService, AgentWorkflowAuditEventService auditEventService,
+                                   AgentWorkflowExternalInvocationService externalInvocationService,
+                                   AgentWorkflowNodeTokenService nodeTokenService,
+                                   AgentWorkflowVariableSnapshotService variableSnapshotService,
                                    WorkflowCallbackService workflowCallbackService, ServiceAccountService serviceAccountService,
                                    AgentWorkflowWebhookTriggerService webhookTriggerService, AgentWorkflowOperationsService operationsService,
-                                   AgentWorkflowTemplateService templateService) {
+                                   AgentWorkflowTemplateService templateService, AgentApplicationService applicationService) {
         this.workflowService = workflowService;
         this.versionService = versionService;
         this.instanceService = instanceService;
@@ -86,11 +100,16 @@ public class AgentWorkflowController {
         this.agentDefinitionService = agentDefinitionService;
         this.agentToolService = agentToolService;
         this.callbackDeliveryService = callbackDeliveryService;
+        this.auditEventService = auditEventService;
+        this.externalInvocationService = externalInvocationService;
+        this.nodeTokenService = nodeTokenService;
+        this.variableSnapshotService = variableSnapshotService;
         this.workflowCallbackService = workflowCallbackService;
         this.serviceAccountService = serviceAccountService;
         this.webhookTriggerService = webhookTriggerService;
         this.operationsService = operationsService;
         this.templateService = templateService;
+        this.applicationService = applicationService;
     }
 
     /**
@@ -111,6 +130,32 @@ public class AgentWorkflowController {
             BeanUtils.copyProperties(item, vo);
             return vo;
         }).collect(Collectors.toList()), page.getTotal());
+    }
+
+    /**
+     * 返回画布可用节点类型；MCP 是历史协议类型，产品界面统一展示为工具节点。
+     */
+    @ApiOperation("工作流节点类型")
+    @Permission(path = "/workflow/workflow")
+    @GetMapping("/node-types")
+    public WebResponse<List<Map<String, String>>> nodeTypes() {
+        List<Map<String, String>> result = new ArrayList<Map<String, String>>();
+        addNodeType(result, "start", "开始节点");
+        addNodeType(result, "end", "结束节点");
+        addNodeType(result, "agent", "Agent 节点");
+        addNodeType(result, "tool", "工具节点");
+        addNodeType(result, "human", "人工录入节点");
+        addNodeType(result, "approval", "审批节点");
+        addNodeType(result, "rule", "规则节点");
+        addNodeType(result, "transform", "数据转换节点");
+        addNodeType(result, "http", "HTTP 调用节点");
+        addNodeType(result, "notification", "通知节点");
+        addNodeType(result, "subflow", "子流程节点");
+        addNodeType(result, "parallel", "并行分叉节点");
+        addNodeType(result, "join", "汇聚节点");
+        addNodeType(result, "wait_event", "等待事件节点");
+        addNodeType(result, "delay", "延时节点");
+        return WebResponse.OK(result);
     }
 
     /**
@@ -143,14 +188,16 @@ public class AgentWorkflowController {
     public WebResponse<String> create(@RequestBody AgentWorkflowCreateRequest request) {
         AgentWorkflowDto dto = toWorkflowDto(request);
         validateConcurrencyLimit(dto);
+        String applicationId = requireActiveApplication(dto == null ? null : dto.getApplicationId());
+        dto.setApplicationId(applicationId);
         if (StringUtils.isBlank(dto.getCode()) || !dto.getCode().matches("[A-Za-z][A-Za-z0-9_-]{2,63}"))
             throw new ServerException(422, "工作流编码必须为 3-64 位字母、数字、下划线或短横线");
         if (workflowService.count(Wrappers.lambdaQuery(AgentWorkflow.class).eq(AgentWorkflow::getApplicationId,
-                StringUtils.defaultIfBlank(dto.getApplicationId(), "0")).eq(AgentWorkflow::getCode, dto.getCode())
+                applicationId).eq(AgentWorkflow::getCode, dto.getCode())
                 .eq(AgentWorkflow::getDeleted, false)) > 0) throw new ServerException(422, "工作流编码已存在");
         AgentWorkflow entity = new AgentWorkflow();
         BeanUtils.copyProperties(dto, entity);
-        entity.setApplicationId(StringUtils.defaultIfBlank(dto.getApplicationId(), "0"));
+        entity.setApplicationId(applicationId);
         entity.setStatus(0);
         // 新建草稿即具备一个合法的最小顺序流程，避免尚未编辑画布时保存或发布被空画布校验拦截。
         entity.setNodes("[{\"id\":\"start\",\"type\":\"start\",\"name\":\"开始\",\"position\":{\"x\":80,\"y\":180}},{\"id\":\"end\",\"type\":\"end\",\"name\":\"结束\",\"position\":{\"x\":420,\"y\":180}}]");
@@ -171,6 +218,9 @@ public class AgentWorkflowController {
         AgentWorkflowDto dto = toWorkflowDto(request);
         validateConcurrencyLimit(dto);
         AgentWorkflow entity = required(id);
+        String applicationId = requireActiveApplication(StringUtils.defaultIfBlank(dto.getApplicationId(), entity.getApplicationId()));
+        dto.setApplicationId(applicationId);
+        validateResources(StringUtils.defaultIfBlank(dto.getNodes(), entity.getNodes()), applicationId);
         BeanUtils.copyProperties(dto, entity, "status", "publishedVersion", "agentDefinitionId");
         workflowService.updateById(entity);
         return WebResponse.OK(I18nUtils.getMessage("workflow.draft.save.success"));
@@ -185,10 +235,12 @@ public class AgentWorkflowController {
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<Integer> publish(@PathVariable String id) {
         AgentWorkflow workflow = required(id);
+        String applicationId = requireActiveApplication(workflow.getApplicationId());
         WorkflowDefinitionValidator.validate(workflow.getNodes(), workflow.getEdges());
         WorkflowDefinitionValidator.validateVariables(workflow.getNodes(), workflow.getEdges(), workflow.getInputSchema());
         WorkflowDefinitionValidator.validateOutputSchema(workflow.getNodes(), workflow.getEdges(), workflow.getInputSchema(), workflow.getOutputSchema());
-        validateResources(workflow.getNodes());
+        validateResources(workflow.getNodes(), applicationId);
+        validateSubflowDependencies(workflow);
         int number = workflow.getPublishedVersion() == null ? 1 : workflow.getPublishedVersion() + 1;
         AgentWorkflowVersion version = new AgentWorkflowVersion();
         version.setWorkflowId(id);
@@ -290,7 +342,8 @@ public class AgentWorkflowController {
         WorkflowDefinitionValidator.validate(dto.getNodes(), dto.getEdges());
         WorkflowDefinitionValidator.validateVariables(dto.getNodes(), dto.getEdges(), dto.getInputSchema());
         WorkflowDefinitionValidator.validateOutputSchema(dto.getNodes(), dto.getEdges(), dto.getInputSchema(), dto.getOutputSchema());
-        validateResources(dto.getNodes());
+        dto.setApplicationId(requireActiveApplication(dto.getApplicationId()));
+        validateResources(dto.getNodes(), dto.getApplicationId());
         AgentWorkflow workflow = new AgentWorkflow();
         BeanUtils.copyProperties(dto, workflow);
         workflow.setStatus(0);
@@ -331,7 +384,8 @@ public class AgentWorkflowController {
     @Permission(path = "/workflow/workflow", type = Permission.Type.Write)
     @PostMapping("/templates/{id}/instantiate")
     public WebResponse<String> instantiateTemplate(@PathVariable String id, @RequestBody AgentWorkflowInstantiateTemplateRequest request) {
-        AgentWorkflow workflow = templateService.instantiate(id, request == null ? null : request.getName(), request == null ? null : request.getDescription());
+        AgentWorkflow workflow = templateService.instantiate(id, request == null ? null : request.getCode(),
+                request == null ? null : request.getName(), request == null ? null : request.getDescription());
         return WebResponse.OK(I18nUtils.getMessage("workflow.template.instantiate.success"), workflow.getId());
     }
 
@@ -343,10 +397,11 @@ public class AgentWorkflowController {
     @PostMapping("/{id}/draft/validate")
     public WebResponse<Void> validateDraft(@PathVariable String id) {
         AgentWorkflow workflow = required(id);
+        String applicationId = requireActiveApplication(workflow.getApplicationId());
         WorkflowDefinitionValidator.validate(workflow.getNodes(), workflow.getEdges());
         WorkflowDefinitionValidator.validateVariables(workflow.getNodes(), workflow.getEdges(), workflow.getInputSchema());
         WorkflowDefinitionValidator.validateOutputSchema(workflow.getNodes(), workflow.getEdges(), workflow.getInputSchema(), workflow.getOutputSchema());
-        validateResources(workflow.getNodes());
+        validateResources(workflow.getNodes(), applicationId);
         return WebResponse.OK(I18nUtils.getMessage("workflow.draft.validate.success"));
     }
 
@@ -529,6 +584,81 @@ public class AgentWorkflowController {
         executionService.detail(id, userId());
         return WebResponse.OK(callbackDeliveryService.list(Wrappers.lambdaQuery(AgentWorkflowCallbackDelivery.class)
                 .eq(AgentWorkflowCallbackDelivery::getInstanceId, id).orderByAsc(AgentWorkflowCallbackDelivery::getCreatedAt)));
+    }
+
+    /**
+     * 查询流程实例审计轨迹。
+     */
+    @ApiOperation("查询流程实例审计轨迹")
+    @Permission(path = "/workflow/run")
+    @GetMapping("/instances/{id}/audit-events")
+    public WebResponse<List<AgentWorkflowAuditEvent>> auditEvents(@PathVariable String id) {
+        executionService.detail(id, userId());
+        return WebResponse.OK(auditEventService.listByInstanceId(id));
+    }
+
+    @ApiOperation("查询流程实例统一时间线")
+    @Permission(path = "/workflow/run")
+    @GetMapping("/instances/{id}/timeline")
+    public WebResponse<List<AgentWorkflowAuditEvent>> timeline(@PathVariable String id) {
+        executionService.detail(id, userId());
+        return WebResponse.OK(auditEventService.listByInstanceId(id));
+    }
+
+    @ApiOperation("查询流程实例节点令牌")
+    @Permission(path = "/workflow/run")
+    @GetMapping("/instances/{id}/tokens")
+    public WebResponse<List<AgentWorkflowNodeToken>> tokens(@PathVariable String id) {
+        executionService.detail(id, userId());
+        return WebResponse.OK(nodeTokenService.list(Wrappers.lambdaQuery(AgentWorkflowNodeToken.class)
+                .eq(AgentWorkflowNodeToken::getInstanceId, id).eq(AgentWorkflowNodeToken::getDeleted, false)
+                .orderByAsc(AgentWorkflowNodeToken::getCreatedAt)));
+    }
+
+    @ApiOperation("查询流程实例变量快照")
+    @Permission(path = "/workflow/run")
+    @GetMapping("/instances/{id}/variable-snapshots")
+    public WebResponse<List<AgentWorkflowVariableSnapshot>> variableSnapshots(@PathVariable String id) {
+        executionService.detail(id, userId());
+        return WebResponse.OK(variableSnapshotService.list(Wrappers.lambdaQuery(AgentWorkflowVariableSnapshot.class)
+                .eq(AgentWorkflowVariableSnapshot::getInstanceId, id).eq(AgentWorkflowVariableSnapshot::getDeleted, false)
+                .orderByAsc(AgentWorkflowVariableSnapshot::getCreatedAt)));
+    }
+
+    @ApiOperation("重试流程实例的当前失败节点")
+    @Permission(path = "/workflow/run", type = Permission.Type.Write)
+    @PostMapping("/instances/{id}/nodes/{nodeId}/retry")
+    public WebResponse<Void> retryNode(@PathVariable String id, @PathVariable String nodeId) {
+        executionService.retryNode(id, nodeId, userId());
+        return WebResponse.OK("已请求重试当前节点");
+    }
+
+    /**
+     * 查询流程实例的外部调用记录，供结果未知时人工核对。
+     */
+    @ApiOperation("查询流程实例外部调用记录")
+    @Permission(path = "/workflow/run")
+    @GetMapping("/instances/{id}/external-invocations")
+    public WebResponse<List<AgentWorkflowExternalInvocation>> externalInvocations(@PathVariable String id) {
+        executionService.detail(id, userId());
+        return WebResponse.OK(externalInvocationService.listByInstanceId(id));
+    }
+
+    @ApiOperation("人工确认结果未知的外部调用已成功")
+    @Permission(path = "/workflow/run", type = Permission.Type.Write)
+    @PostMapping("/instances/{id}/external-invocations/{invocationId}/confirm")
+    public WebResponse<Void> confirmExternalInvocation(@PathVariable String id, @PathVariable String invocationId,
+                                                        @RequestBody(required = false) AgentWorkflowConfirmExternalInvocationRequest request) {
+        executionService.confirmExternalInvocation(id, invocationId, request == null ? null : request.getResponseData(), userId());
+        return WebResponse.OK("外部调用已确认并恢复工作流");
+    }
+
+    @ApiOperation("人工确认后重试结果未知的外部调用")
+    @Permission(path = "/workflow/run", type = Permission.Type.Write)
+    @PostMapping("/instances/{id}/external-invocations/{invocationId}/retry")
+    public WebResponse<Void> retryExternalInvocation(@PathVariable String id, @PathVariable String invocationId) {
+        executionService.retryExternalInvocation(id, invocationId, userId());
+        return WebResponse.OK("已请求重试外部调用");
     }
 
     /**
@@ -716,10 +846,17 @@ public class AgentWorkflowController {
         return value;
     }
 
+    private void addNodeType(List<Map<String, String>> types, String type, String label) {
+        Map<String, String> item = new LinkedHashMap<String, String>();
+        item.put("type", type);
+        item.put("label", label);
+        types.add(item);
+    }
+
     /**
      * 校验Resources。
      */
-    private void validateResources(String nodes) {
+    private void validateResources(String nodes, String applicationId) {
         for (Object value : JSONArray.parseArray(nodes)) {
             JSONObject node = (JSONObject) value;
             String type = node.getString("type"), resourceId = node.getString("resourceId");
@@ -727,13 +864,80 @@ public class AgentWorkflowController {
                 AgentDefinition agent = agentDefinitionService.getById(resourceId);
                 if (agent == null || Boolean.TRUE.equals(agent.getDeleted()) || !Integer.valueOf(1).equals(agent.getStatus()))
                     throw new ServerException(422, I18nUtils.getMessage("workflow.node.agent.unavailable"));
+                if (!StringUtils.equals(applicationId, normalizedApplicationId(agent.getApplicationId())))
+                    throw new ServerException(422, "工作流与 Agent 必须绑定到同一业务空间");
             }
-            if ("mcp".equals(type)) {
+            if ("tool".equals(type)) {
                 AgentTool tool = agentToolService.getById(resourceId);
                 if (tool == null || Boolean.TRUE.equals(tool.getDeleted()) || !Integer.valueOf(1).equals(tool.getStatus()))
                     throw new ServerException(422, I18nUtils.getMessage("workflow.node.mcp-tool.unavailable"));
             }
+            if ("approval".equals(type) && StringUtils.isNotBlank(node.getString("approverServiceAccountId"))) {
+                ServiceAccount approver = serviceAccountService.getById(node.getString("approverServiceAccountId"));
+                if (approver == null || Boolean.TRUE.equals(approver.getDeleted()) || !Boolean.TRUE.equals(approver.getEnabled()))
+                    throw new ServerException(422, "审批节点绑定的服务账号不存在或已停用");
+                if (!StringUtils.equals(applicationId, normalizedApplicationId(approver.getApplicationId())))
+                    throw new ServerException(422, "工作流与审批服务账号必须绑定到同一业务空间");
+            }
+            if ("subflow".equals(type)) {
+                AgentWorkflow child = workflowService.getById(node.getString("workflowId"));
+                if (child == null || Boolean.TRUE.equals(child.getDeleted()) || !Integer.valueOf(1).equals(child.getStatus()))
+                    throw new ServerException(422, "子流程不存在或未发布");
+                if (!StringUtils.equals(applicationId, normalizedApplicationId(child.getApplicationId())))
+                    throw new ServerException(422, "工作流与子流程必须绑定到同一业务空间");
+                AgentWorkflowVersion childVersion = versionService.getOne(Wrappers.lambdaQuery(AgentWorkflowVersion.class)
+                        .eq(AgentWorkflowVersion::getWorkflowId, child.getId()).eq(AgentWorkflowVersion::getVersionNo, node.getIntValue("versionNo"))
+                        .eq(AgentWorkflowVersion::getDeleted, false));
+                if (childVersion == null) throw new ServerException(422, "子流程固定版本不存在");
+            }
         }
+    }
+
+    /** 发布时递归检查子流程引用环，防止实例运行后递归启动。 */
+    private void validateSubflowDependencies(AgentWorkflow root) {
+        validateSubflowDependencies(root, new LinkedHashSet<String>());
+    }
+
+    private void validateSubflowDependencies(AgentWorkflow workflow, Set<String> visiting) {
+        if (!visiting.add(workflow.getId())) throw new ServerException(422, "子流程存在循环引用");
+        try {
+            for (Object value : JSONArray.parseArray(StringUtils.defaultIfBlank(workflow.getNodes(), "[]"))) {
+                JSONObject node = (JSONObject) value;
+                if (!"subflow".equals(node.getString("type"))) continue;
+                String childId = node.getString("workflowId");
+                if (StringUtils.equals(childId, workflow.getId())) throw new ServerException(422, "子流程不能引用自身");
+                AgentWorkflow child = workflowService.getById(childId);
+                if (child == null || Boolean.TRUE.equals(child.getDeleted()) || !Integer.valueOf(1).equals(child.getStatus()))
+                    throw new ServerException(422, "子流程不存在或未发布");
+                if (!StringUtils.equals(workflow.getApplicationId(), child.getApplicationId()))
+                    throw new ServerException(422, "工作流与子流程必须绑定到同一业务空间");
+                AgentWorkflowVersion fixedVersion = versionService.getOne(Wrappers.lambdaQuery(AgentWorkflowVersion.class)
+                        .eq(AgentWorkflowVersion::getWorkflowId, childId).eq(AgentWorkflowVersion::getVersionNo, node.getIntValue("versionNo"))
+                        .eq(AgentWorkflowVersion::getDeleted, false));
+                if (fixedVersion == null) throw new ServerException(422, "子流程固定版本不存在");
+                AgentWorkflow snapshot = new AgentWorkflow();
+                snapshot.setId(child.getId());
+                snapshot.setApplicationId(child.getApplicationId());
+                snapshot.setStatus(child.getStatus());
+                snapshot.setNodes(fixedVersion.getNodes());
+                validateSubflowDependencies(snapshot, visiting);
+            }
+        } finally {
+            visiting.remove(workflow.getId());
+        }
+    }
+
+    /**
+     * 统一将空业务空间归入平台默认空间，并拒绝已停用或不存在的空间。
+     */
+    private String requireActiveApplication(String applicationId) {
+        String value = normalizedApplicationId(applicationId);
+        applicationService.requireActive(value);
+        return value;
+    }
+
+    private String normalizedApplicationId(String applicationId) {
+        return StringUtils.defaultIfBlank(applicationId, AgentApplicationService.PLATFORM_APPLICATION_ID);
     }
 
     /**

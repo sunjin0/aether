@@ -180,7 +180,7 @@ storage MinIO 对象存储抽象（知识库/附件复用；front 不直接依�
 - `McpClient`/`McpSessionManager` 管理 MCP 连接（http/sse/streamable_http），`McpTransportFactory` 按传输创建。
 - `McpToolExecutor` 调用时注入委派 JWT（`Authorization: Bearer <DelegationToken>`）与 `X-Aether-Idempotency-Key`，防止重复执行。
 - `ToolCallRiskAnalyzer` 在确认前做确定性风险分级（SQL/Shell 特征正则），fail-closed。普通聊天和手动/业务启动的工作流需用户确认；定时触发的工作流会自动批准其已配置的
-  MCP 节点，须通过工作流发布权限、服务账号范围和工具配置控制风险。
+  工具节点，须通过工作流发布权限、服务账号范围和工具配置控制风险。
 - 审批授权缓存：Redis `agent:tool-approval:{userId}:{agentId}:{toolId}` 10 分钟免确认。
 - 审计写入 `agent_tool_call_log`（状态：成功/失败/安全拦截/待审批），字段截断防止超长，Authorization 头脱敏。
 
@@ -202,7 +202,7 @@ storage MinIO 对象存储抽象（知识库/附件复用；front 不直接依�
 ### 9.1 状态机
 
 `AgentWorkflowExecutionServiceImpl`：启动 → 校验（幂等键、人工等待 deadline、并发上限、输入契约）→
-遍历图（start/end/human/mcp/agent 节点）→ 人工/MCP 节点暂停 `WAITING_USER` → 恢复/重试/回放/终止/超时。当前 deadline
+遍历图（start/end/human/tool/agent 节点）→ 人工/工具节点暂停 `WAITING_USER` → 恢复/重试/回放/终止/超时。当前 deadline
 调度器仅超时处理 `WAITING_USER` 实例，不中断 `RUNNING` 中的节点执行。
 
 - 循环：DFS 回边检测，`_loop_{edgeId}_count` 计数，默认最大 10 次。

@@ -4,7 +4,7 @@
 
 业务系统通过服务账号调用已发布的工作流。平台会记录业务关联、保证同一幂等键只创建一个实例，并在实例进入终态后向业务系统发送可验证、可重试的回调。
 
-人工提问与 MCP 工具确认仍会暂停手动或业务启动的实例；定时触发实例会自动批准其已配置的 MCP 节点。回调只在 `COMPLETED`、
+人工提问与工具确认仍会暂停手动或业务启动的实例；定时触发实例会自动批准其已配置的工具节点。回调只在 `COMPLETED`、
 `FAILED`、`TERMINATED` 或 `TIMED_OUT` 时发送。
 
 流程启动、人工回答和失败重试只会完成数据校验与任务入队，不会同步等待模型或远端
@@ -69,7 +69,7 @@ ID，不会重复执行节点。`deadlineAt` 为可选 Unix 毫秒时间；若�
 - `GET /api/agent/workflow/instances/{instanceId}`：实例、版本快照、变量和节点执行记录。
 - `GET /api/agent/workflow/instances/{instanceId}/callbacks`：回调投递审计和最近错误。
 - `POST /api/agent/workflow/instances/{instanceId}/callbacks/{deliveryId}/retry`：人工重投失败的回调（修复业务端配置后使用）。
-- `POST /api/agent/workflow/instances/{instanceId}/answer`：提交人工提问答案或 MCP 确认。
+- `POST /api/agent/workflow/instances/{instanceId}/answer`：提交人工提问答案或工具确认。
 - `POST /api/agent/workflow/instances/{instanceId}/retry`：重试当前失败节点。
 - `POST /api/agent/workflow/instances/{instanceId}/replay`：从起始节点回放实例；业务系统启动的实例不支持该操作。
 - `POST /api/agent/workflow/instances/{instanceId}/terminate`：终止实例。
@@ -117,7 +117,7 @@ JWT 自然过期即可生效。
 
 ## MCP 写操作幂等
 
-工作流的 MCP 确认节点会向 MCP 服务透传 `X-Aether-Idempotency-Key`，格式稳定为 `workflow:{实例ID}:node:{节点ID}`。流程因网络异常或
+工作流的工具确认节点会向 MCP 服务透传 `X-Aether-Idempotency-Key`，格式稳定为 `workflow:{实例ID}:node:{节点ID}`。流程因网络异常或
 Worker 恢复而重试时使用相同的键；接入的 MCP 写工具应按该请求头保存并复用首次结果，避免重复建单、通知或扣费。工具调用审计仍保留每次尝试，便于定位需要人工处理的幂等冲突。
 
 ## 运营观测与死信
