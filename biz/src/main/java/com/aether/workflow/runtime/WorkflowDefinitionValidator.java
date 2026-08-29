@@ -46,6 +46,11 @@ public static void validate(String nodesText, String edgesText) {
             if ("end".equals(type)) ends++;
             if (("agent".equals(type) || "tool".equals(type)) && StringUtils.isBlank(node.getString("resourceId")))
                 throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.resource.required", new Object[]{type}));
+            if ("tool".equals(type)) {
+                String policy = node.getString("toolApprovalPolicy");
+                if (StringUtils.isNotBlank(policy) && !"ask".equals(policy) && !"risky".equals(policy) && !"never".equals(policy))
+                    throw new ServerException(422, "工具节点 toolApprovalPolicy 仅支持 ask/risky/never：" + node.getString("id"));
+            }
             if ("transform".equals(type) && (node.getJSONArray("mappings") == null || node.getJSONArray("mappings").isEmpty()))
                 throw new ServerException(422, "数据转换节点必须配置 mappings");
             if ("http".equals(type) && StringUtils.isBlank(node.getString("url")))

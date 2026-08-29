@@ -67,6 +67,11 @@ public interface AgentWorkflowExecutionService {
     void executePending(String instanceId);
 
     /**
+     * 子流程实例进入终态（含等待超时）时通知父流程收敛，避免父流程永久 WAITING_SUBFLOW。
+     */
+    void notifyParentSubflowTerminal(String childInstanceId);
+
+    /**
      * 后台执行基础设施连续失败达到上限时，将实例收敛为可见失败终态。
      */
     void failPendingExecution(String instanceId, String errorMessage);

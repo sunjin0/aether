@@ -19,4 +19,6 @@ public class AgentWorkflowInstanceVo extends AgentWorkflowInstance {
     private String versionEdges;
     private Long current;
     private Long pageSize;
+    /** 父流程处于 WAITING_SUBFLOW 时，穿透展示子流程当前的人工交互/审批等待；否则为 null。 */
+    private AgentWorkflowPendingSubflowInteraction pendingSubflowInteraction;
 }

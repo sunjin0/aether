@@ -4,8 +4,11 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.agent.dto.AgentChatDto;
+import com.aether.agent.entity.AgentTool;
+import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentStreamCallback;
+import com.aether.agent.service.AgentToolService;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
 import com.aether.workflow.dto.AgentWorkflowInteractionDto;
 import com.aether.workflow.dto.AgentWorkflowEventDto;
@@ -18,6 +21,7 @@ import com.aether.agent.vo.AgentMessageVo;
 import com.aether.msg.entity.Email;
 import com.aether.msg.service.EmailMessageService;
 import com.aether.workflow.vo.AgentWorkflowInstanceVo;
+import com.aether.workflow.vo.AgentWorkflowPendingSubflowInteraction;
 import com.aether.workflow.runtime.WorkflowConditionEvaluator;
 import com.aether.workflow.runtime.WorkflowDefinitionValidator;
 import com.aether.workflow.runtime.WorkflowVariableRenderer;
@@ -35,6 +39,7 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpHeaders;
@@ -74,6 +79,15 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     private final AgentWorkflowEventReceiptService eventReceiptService;
     private final UserRoleService userRoleService;
     private final RoleService roleService;
+    private final AgentToolService agentToolService;
+    private final ToolCallRiskAnalyzer toolCallRiskAnalyzer;
+
+    /**
+     * 人工/审批/事件/子流程等等待态的兜底超时。等待节点未配置 timeoutMillis 时生效，
+     * 避免无 deadline 的实例永久挂起。
+     */
+    @Value("${aether.workflow.waiting-timeout-ms:86400000}")
+    private long waitingTimeoutMillis;
 
     /**
      * 创建 {@code AgentWorkflowExecutionServiceImpl} 实例。
@@ -87,7 +101,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                                              EmailMessageService emailMessageService, AgentWorkflowSubflowLinkService subflowLinkService,
                                              WorkflowOutputResolver outputResolver, AgentWorkflowNodeTokenService nodeTokenService,
                                              AgentWorkflowJoinStateService joinStateService, AgentWorkflowVariableSnapshotService variableSnapshotService,
-                                             AgentWorkflowEventReceiptService eventReceiptService, UserRoleService userRoleService, RoleService roleService) {
+                                             AgentWorkflowEventReceiptService eventReceiptService, UserRoleService userRoleService, RoleService roleService,
+                                             AgentToolService agentToolService, ToolCallRiskAnalyzer toolCallRiskAnalyzer) {
         this.workflowService = workflowService;
         this.versionService = versionService;
         this.instanceService = instanceService;
@@ -110,6 +125,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         this.eventReceiptService = eventReceiptService;
         this.userRoleService = userRoleService;
         this.roleService = roleService;
+        this.agentToolService = agentToolService;
+        this.toolCallRiskAnalyzer = toolCallRiskAnalyzer;
     }
 
     // ── 公共接口 ─────────────────────────────────────────────
@@ -225,7 +242,57 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         }
         vo.setNodes(nodeService.list(Wrappers.lambdaQuery(AgentWorkflowNodeInstance.class)
                 .eq(AgentWorkflowNodeInstance::getInstanceId, instanceId).orderByAsc(AgentWorkflowNodeInstance::getCreatedAt)));
+        // 父流程等待子流程时，穿透展示子流程当前的人工交互/审批，便于父页面直接查看或代答。
+        if ("WAITING_SUBFLOW".equals(instance.getStatus())) {
+            vo.setPendingSubflowInteraction(resolvePendingSubflowInteraction(instance.getId()));
+        }
         return vo;
+    }
+
+    /**
+     * 沿子流程 link 链解析父实例当前等待的子流程交互信息（支持嵌套）。
+     * 子流程以父实例发起人身份启动，父流程发起人可直接代答 ask/工具审批/无指定审批人的 approval。
+     */
+    private AgentWorkflowPendingSubflowInteraction resolvePendingSubflowInteraction(String instanceId) {
+        AgentWorkflowSubflowLink link = subflowLinkService.getOne(Wrappers.lambdaQuery(AgentWorkflowSubflowLink.class)
+                .eq(AgentWorkflowSubflowLink::getParentInstanceId, instanceId)
+                .eq(AgentWorkflowSubflowLink::getStatus, "RUNNING")
+                .eq(AgentWorkflowSubflowLink::getDeleted, false));
+        if (link == null) return null;
+        AgentWorkflowInstance child = instanceService.getById(link.getChildInstanceId());
+        if (child == null) return null;
+        AgentWorkflowPendingSubflowInteraction result = new AgentWorkflowPendingSubflowInteraction();
+        result.setChildInstanceId(child.getId());
+        result.setChildWorkflowId(child.getWorkflowId());
+        result.setChildWorkflowVersionId(child.getWorkflowVersionId());
+        result.setStatus(child.getStatus());
+        result.setDeadlineAt(child.getDeadlineAt());
+        AgentWorkflow childWorkflow = workflowService.getById(child.getWorkflowId());
+        if (childWorkflow != null) result.setChildWorkflowName(childWorkflow.getName());
+        // 嵌套子流程：继续向下解析，直到最深层等待交互的实例。
+        if ("WAITING_SUBFLOW".equals(child.getStatus())) {
+            AgentWorkflowPendingSubflowInteraction inner = resolvePendingSubflowInteraction(child.getId());
+            if (inner != null) return inner;
+        }
+        // 子流程未进入人工等待（正在执行等），无交互内容，仅暴露实例状态供父页面展示。
+        if (!"WAITING_USER".equals(child.getStatus())) return result;
+        AgentWorkflowNodeInstance node = currentNodeById(child, child.getCurrentNodeId());
+        if (node == null) return result;
+        JSONObject config = StringUtils.isBlank(node.getInteractionConfig())
+                ? new JSONObject() : JSONObject.parseObject(node.getInteractionConfig());
+        String type = isMcpToolApprovalConfig(config) ? "mcp_tool_approval" : config.getString("type");
+        result.setNodeId(node.getNodeId());
+        result.setNodeType(node.getNodeType());
+        result.setInteractionType(type);
+        result.setQuestion(config.getString("question"));
+        result.setQuestions(config.getJSONArray("questions"));
+        result.setArguments(config.getString("arguments"));
+        result.setApprovalMode(config.getString("approvalMode"));
+        String approver = config.getString("approverServiceAccountId");
+        result.setApproverServiceAccountId(approver);
+        // 指定审批人的 approval 必须由审批人处理；其余交互可由父流程发起人代答。
+        result.setAnswerable(!"approval".equals(type) || StringUtils.isBlank(approver));
+        return result;
     }
 
     /**
@@ -522,6 +589,18 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     }
 
     /**
+     * 子流程进入终态（含等待超时）时回传父流程。resumeParentSubflow 对非 COMPLETED
+     * 子流程会失败父节点，确保父流程不会因子流程中断而永久 WAITING_SUBFLOW。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void notifyParentSubflowTerminal(String childInstanceId) {
+        if (StringUtils.isBlank(childInstanceId)) return;
+        AgentWorkflowInstance child = instanceService.getById(childInstanceId);
+        if (child != null) resumeParentSubflow(child);
+    }
+
+    /**
      * 处理failPendingExecution。
      */
     @Override
@@ -695,7 +774,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 JSONObject interaction = StringUtils.isBlank(node.getInteractionConfig()) ? null : JSONObject.parseObject(node.getInteractionConfig());
                 if (interaction != null && interaction.containsKey("pendingAnswer")) {
                     resumeMcpApproval(instance, node, interaction, readPendingAnswer(interaction), instance.getUserId());
-                } else if (isScheduledInstance(instance)) {
+                } else if (isScheduledInstance(instance) || isToolApprovalAutoPass(instance, definition, variables)) {
                     resumeMcpApproval(instance, node, mcpInteractionConfig(instance, definition, variables), approvedMcpNodeAnswer(), instance.getUserId());
                 } else waitForHuman(instance, node, definition, variables, true);
                 return;
@@ -1017,6 +1096,21 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     }
 
     /**
+     * 进入等待态时确保实例有兜底超时，避免无 deadline 的实例永久挂起。
+     * 优先继承外部/子流程传入的截止时间；否则用节点 timeoutMillis，最后回落到全局默认。
+     */
+    private void ensureWaitingDeadline(AgentWorkflowInstance instance, JSONObject definition, Long inheritedDeadline) {
+        if (instance.getDeadlineAt() != null) return;
+        long deadline;
+        if (inheritedDeadline != null) deadline = inheritedDeadline;
+        else {
+            long timeoutMillis = definition == null ? 0 : definition.getLongValue("timeoutMillis");
+            deadline = System.currentTimeMillis() + (timeoutMillis > 0 ? timeoutMillis : waitingTimeoutMillis);
+        }
+        instance.setDeadlineAt(deadline);
+    }
+
+    /**
      * 处理wait用于Human。
      */
     private void waitForHuman(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node, JSONObject definition, Map<String, Object> variables, boolean mcp) {
@@ -1040,6 +1134,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         nodeService.updateById(node);
         instance.setStatus("WAITING_USER");
         instance.setErrorMessage(null);
+        ensureWaitingDeadline(instance, definition, null);
         instanceService.updateById(instance);
         sseHub.publish(instance.getId(), mcp ? "tool.approval.required" : "ask_user.required", node);
     }
@@ -1063,6 +1158,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         nodeService.updateById(node);
         instance.setStatus("WAITING_USER");
         instance.setErrorMessage(null);
+        ensureWaitingDeadline(instance, definition, null);
         instanceService.updateById(instance);
         auditEventService.record(instance.getId(), node.getId(), "APPROVAL_REQUIRED", null, "等待服务账号审批", config.toJSONString());
         sseHub.publish(instance.getId(), "approval.required", node);
@@ -1089,6 +1185,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         nodeService.updateById(node);
         instance.setStatus("WAITING_USER");
         instance.setErrorMessage(null);
+        ensureWaitingDeadline(instance, definition, null);
         instanceService.updateById(instance);
         sseHub.publish(instance.getId(), isMcpToolApprovalConfig(config) ? "tool.approval.required" : "ask_user.required", node);
     }
@@ -1310,6 +1407,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         node.setInteractionConfig(config.toJSONString());
         nodeService.updateById(node);
         instance.setStatus("WAITING_EVENT");
+        if (definition.getLongValue("timeoutMillis") > 0) ensureWaitingDeadline(instance, definition, null);
         instanceService.updateById(instance);
         auditEventService.record(instance.getId(), node.getId(), "BUSINESS_EVENT_WAITING", null,
                 "等待业务事件：" + definition.getString("eventType"), config.toJSONString());
@@ -1597,6 +1695,11 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         node.setStatus("WAITING_SUBFLOW");
         node.setInteractionConfig(config.toJSONString());
         nodeService.updateById(node);
+        // 父流程截止时间与子流程对齐，保证子流程中断（含超时）时父流程能同步收敛。
+        if (childDeadline != null) {
+            if (parent.getDeadlineAt() == null) parent.setDeadlineAt(childDeadline);
+            else parent.setDeadlineAt(Math.min(parent.getDeadlineAt(), childDeadline));
+        }
         parent.setStatus("WAITING_SUBFLOW");
         parent.setErrorMessage(null);
         instanceService.updateById(parent);
@@ -1619,7 +1722,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         if (!"COMPLETED".equals(child.getStatus())) {
             link.setStatus("FAILED");
             subflowLinkService.updateById(link);
-            fail(parent, node, "子流程未成功完成：" + child.getStatus());
+            String reason = "TIMED_OUT".equals(child.getStatus()) ? "子流程等待超时未完成" : "子流程未成功完成：" + child.getStatus();
+            fail(parent, node, reason);
             return;
         }
         JSONObject definition = currentDefinition(parent, node);
@@ -1660,6 +1764,43 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
      */
     private boolean isScheduledInstance(AgentWorkflowInstance instance) {
         return instance != null && StringUtils.startsWith(instance.getIdempotencyKey(), "schedule:");
+    }
+
+    /**
+     * 依据工具审批策略判断当前工具调用是否自动放行：
+     * never 直接放行；risky 仅当调用非高风险时放行；ask 始终要求人工确认。
+     * 调度实例不受节点策略影响，统一自动放行。
+     */
+    private boolean isToolApprovalAutoPass(AgentWorkflowInstance instance, JSONObject definition, Map<String, Object> variables) {
+        String policy = StringUtils.defaultIfBlank(definition == null ? null : definition.getString("toolApprovalPolicy"), "ask");
+        if ("never".equals(policy)) return true;
+        if ("risky".equals(policy)) return !isHighRiskToolCall(definition, variables);
+        return false;
+    }
+
+    /**
+     * 判定工具调用是否为高风险。工具不可解析或参数渲染失败时按 fail-closed 处理为高风险，
+     * 保证 risky 策略下未知调用不会静默放行。
+     */
+    private boolean isHighRiskToolCall(JSONObject definition, Map<String, Object> variables) {
+        AgentTool tool = definition == null || StringUtils.isBlank(definition.getString("resourceId"))
+                ? null : agentToolService.getById(definition.getString("resourceId"));
+        if (tool == null) return true;
+        String rendered;
+        try {
+            rendered = WorkflowVariableRenderer.render(definition.getString("argumentsTemplate"), variables);
+        } catch (Exception ignored) {
+            return true;
+        }
+        Map<String, Object> args = new LinkedHashMap<String, Object>();
+        if (StringUtils.isNotBlank(rendered)) {
+            try {
+                args.putAll(JSONObject.parseObject(rendered));
+            } catch (Exception ignored) {
+                args.put("raw", rendered);
+            }
+        }
+        return "high".equals(toolCallRiskAnalyzer.analyze(tool, args).getLevel());
     }
 
     /**

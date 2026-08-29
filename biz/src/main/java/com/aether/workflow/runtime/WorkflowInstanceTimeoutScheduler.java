@@ -73,6 +73,8 @@ public class WorkflowInstanceTimeoutScheduler {
                 candidate.setCompletedAt(now);
                 auditEventService.record(candidate.getId(), null, "INSTANCE_TIMED_OUT", "SYSTEM", "工作流等待超时", null);
                 callbackService.recordTerminal(candidate);
+                // 子流程实例超时需回传父流程，否则父流程会永久停留在 WAITING_SUBFLOW。
+                executionService.notifyParentSubflowTerminal(candidate.getId());
             }
         }
     }
