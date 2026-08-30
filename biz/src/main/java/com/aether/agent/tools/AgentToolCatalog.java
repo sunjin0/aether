@@ -48,10 +48,7 @@ public class AgentToolCatalog {
      * 获取RequestTools。
      */
     public List<AgentTool> getRequestTools(String agentId) {
-        // 模型请求既包含 Agent 绑定的 MCP 工具，也包含平台内置工具。
-        List<AgentTool> tools = new ArrayList<>(getBoundTools(agentId));
-        tools.addAll(toolRegistry.getTools());
-        return tools;
+        return getBoundTools(agentId);
     }
 
     /**
@@ -73,6 +70,7 @@ public class AgentToolCatalog {
         List<AgentTool> tools = new ArrayList<>();
         for (AgentToolBinding binding : bindings) {
             AgentTool tool = agentToolService.getById(binding.getToolId());
+            if (tool == null) tool = toolRegistry.getTool(binding.getToolId());
             if (tool != null && !Boolean.TRUE.equals(tool.getDeleted()) && Integer.valueOf(1).equals(tool.getStatus())) {
                 tools.add(tool);
             }

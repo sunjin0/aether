@@ -51,4 +51,12 @@ public class ToolRegistry {
         }
         return null;
     }
+
+    /**
+     * 返回内置工具的模型定义；内置工具不再自动注入 Agent，而是作为可绑定工具提供。
+     */
+    public AgentTool getTool(String toolId) {
+        Tool handler = getHandler(toolId);
+        return handler == null ? null : handler.getTool();
+    }
 }

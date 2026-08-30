@@ -124,27 +124,22 @@ public class AgentToolWorkflow {
     }
 
     /**
-     * Skill 运行时使用已冻结的 MCP 工具，并保留平台内置交互工具。
+     * Skill 运行时使用已冻结且显式绑定的工具。
      */
     public List<AgentTool> getRequestTools(List<AgentTool> scopedTools) {
         return getRequestTools(scopedTools, null, java.util.Collections.<String>emptySet());
     }
 
     /**
-     * 返回请求模型时可公开的工具定义。内置交互工具与 Skill required 工具常驻保留，
+     * 返回请求模型时可公开的工具定义。仅显式绑定或被 Skill 声明的工具可用，
      * 其余工具按关键字匹配与 query 向量召回 Top-K 裁剪以节省上下文，未匹配的工具不携带；
      * query 为空时不裁剪。
      */
     public List<AgentTool> getRequestTools(List<AgentTool> scopedTools, String query, Set<String> requiredToolIds) {
-        List<AgentTool> builtInTools = toolRegistry.getTools();
         List<AgentTool> candidates = new ArrayList<>(scopedTools == null
                 ? java.util.Collections.<AgentTool>emptyList() : scopedTools);
-        candidates.addAll(builtInTools);
         Set<String> protectedToolIds = new java.util.HashSet<>(requiredToolIds == null
                 ? java.util.Collections.<String>emptySet() : requiredToolIds);
-        for (AgentTool builtIn : builtInTools) {
-            if (builtIn != null && builtIn.getId() != null) protectedToolIds.add(builtIn.getId());
-        }
         List<AgentTool> routed = toolRouterService.route(candidates, protectedToolIds, query);
         List<AgentTool> tools = new ArrayList<>();
         int schemaChars = 0;

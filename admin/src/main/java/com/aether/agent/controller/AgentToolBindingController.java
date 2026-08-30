@@ -9,6 +9,7 @@ import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.tools.core.ToolRegistry;
 import com.aether.agent.vo.AgentToolBindingVo;
 import com.aether.agent.vo.AgentToolVo;
 import com.aether.entity.WebResponse;
@@ -46,16 +47,18 @@ public class AgentToolBindingController {
     private final AgentToolBindingService agentToolBindingService;
     private final AgentToolService agentToolService;
     private final AgentMcpServerService agentMcpServerService;
+    private final ToolRegistry toolRegistry;
 
     /**
      * 创建 {@code AgentToolBindingController} 实例。
      */
     @Autowired
     public AgentToolBindingController(AgentToolBindingService agentToolBindingService, AgentToolService agentToolService,
-                                      AgentMcpServerService agentMcpServerService) {
+                                      AgentMcpServerService agentMcpServerService, ToolRegistry toolRegistry) {
         this.agentToolBindingService = agentToolBindingService;
         this.agentToolService = agentToolService;
         this.agentMcpServerService = agentMcpServerService;
+        this.toolRegistry = toolRegistry;
     }
 
     /**
@@ -104,6 +107,7 @@ public class AgentToolBindingController {
         List<AgentToolBindingVo> vos = page.getRecords().stream().map(item -> {
             AgentToolBindingVo vo = new AgentToolBindingVo();
             AgentTool tool = tools.get(item.getToolId());
+            if (tool == null) tool = toolRegistry.getTool(item.getToolId());
             BeanUtils.copyProperties(item, vo);
             if (tool != null) {
                 vo.setToolName(tool.getName());
@@ -140,7 +144,18 @@ public class AgentToolBindingController {
             BeanUtils.copyProperties(tool, vo);
             return vo;
         }).collect(Collectors.toList());
-        return WebResponse.Page(records, page.getTotal());
+        List<AgentTool> internalTools = toolRegistry.getTools().stream()
+                .filter(tool -> !boundIds.contains(tool.getId()))
+                .filter(tool -> matches(tool, query))
+                .collect(Collectors.toList());
+        if (current == 1) {
+            List<AgentToolVo> availableInternal = internalTools.stream().map(tool -> {
+                AgentToolVo vo = new AgentToolVo(); BeanUtils.copyProperties(tool, vo); return vo;
+            }).collect(Collectors.toList());
+            availableInternal.addAll(records);
+            records = availableInternal.stream().limit(pageSize).collect(Collectors.toList());
+        }
+        return WebResponse.Page(records, page.getTotal() + internalTools.size());
     }
 
     /**
@@ -154,6 +169,9 @@ public class AgentToolBindingController {
     @Transactional(rollbackFor = Exception.class)
     @PostMapping("/{agentId}/tools")
     public WebResponse<Void> bind(@PathVariable @NotBlank String agentId, @RequestBody AgentToolBindingDto dto) {
+        if (dto == null || (agentToolService.getById(dto.getToolId()) == null && toolRegistry.getTool(dto.getToolId()) == null)) {
+            return WebResponse.Error(404, I18nUtils.getMessage("agent.tool.not.found"), null);
+        }
         if (!agentToolBindingService.list(
                 Wrappers.lambdaQuery(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
@@ -169,6 +187,18 @@ public class AgentToolBindingController {
         binding.setStatus(dto.getStatus() != null ? dto.getStatus() : 1);
         boolean saved = agentToolBindingService.save(binding);
         return WebResponse.OK(saved ? I18nUtils.getMessage("agent.tool-binding.create.success") : I18nUtils.getMessage("agent.tool-binding.create.fail"));
+    }
+
+    private boolean matches(AgentTool tool, AvailableToolList query) {
+        return matchesText(tool.getName(), query.getName()) && matchesText(tool.getCode(), query.getCode())
+                && matchesText(tool.getDescription(), query.getDescription())
+                && (query.getToolType() == null || query.getToolType().trim().isEmpty()
+                || query.getToolType().equals(tool.getToolType()));
+    }
+
+    private boolean matchesText(String value, String keyword) {
+        return keyword == null || keyword.trim().isEmpty()
+                || (value != null && value.toLowerCase().contains(keyword.trim().toLowerCase()));
     }
 
     /**
