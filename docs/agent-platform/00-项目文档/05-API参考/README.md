@@ -167,9 +167,14 @@
 | 方法     | 路径                                                        | 权限                       | 说明          |
 |--------|-----------------------------------------------------------|--------------------------|-------------|
 | GET    | `/api/agent/definition/{agentId}/tools`                   | `/agent/tool`            | 查询工具绑定      |
+| POST   | `/api/agent/definition/{agentId}/tools/list`              | `/agent/tool`            | 分页查询工具绑定    |
+| POST   | `/api/agent/definition/{agentId}/tools/available`         | `/agent/tool`            | 查询可绑定工具（含平台内置工具） |
 | POST   | `/api/agent/definition/{agentId}/tools`                   | `/agent/definition` Read | 绑定工具（当前实现）  |
 | DELETE | `/api/agent/definition/{agentId}/tools/{toolId}`          | `/agent/definition` Read | 解绑工具（当前实现）  |
 | PUT    | `/api/agent/definition/{agentId}/tools/{toolId}/priority` | `/agent/definition` Read | 调整优先级（当前实现） |
+| PUT    | `/api/agent/definition/{agentId}/tools/{toolId}/status`   | `/agent/definition` Read | 启用/停用绑定（当前实现） |
+
+平台内置工具与 MCP 工具均须先绑定，才会进入 Agent 的默认模型工具作用域；`available` 会排除已绑定项，支持按名称、编码、描述和类型筛选。绑定不存在的工具 ID 返回 `404`。
 | POST   | `/api/agent/knowledge-base-binding/list`                  | `/agent/definition`      | 绑定列表        |
 | POST   | `/api/agent/knowledge-base-binding`                       | Write                    | 创建绑定        |
 | PUT    | `/api/agent/knowledge-base-binding/{id}/status`           | Write                    | 启用/禁用       |
@@ -364,6 +369,7 @@ Agent 全部启用 Skill。请求不得携带 `skillIds` 或选择/跳过字段�
 | 方法     | 路径                                                                                    | 权限                     | 说明              |
 |--------|---------------------------------------------------------------------------------------|------------------------|-----------------|
 | POST   | `/api/agent/workflow/list`                                                            | `/workflow/workflow`   | 工作流列表           |
+| GET    | `/api/agent/workflow/node-types`                                                      | `/workflow/workflow`   | 画布节点类型字典        |
 | GET    | `/api/agent/workflow/{id}`                                                            | 类                      | 详情              |
 | POST   | `/api/agent/workflow`                                                                 | Write                  | 创建草稿            |
 | PUT    | `/api/agent/workflow/{id}`                                                            | Write                  | 保存画布草稿          |
@@ -387,6 +393,10 @@ Agent 全部启用 Skill。请求不得携带 `skillIds` 或选择/跳过字段�
 | POST   | `/api/agent/workflow/instances/{id}/answer` `/retry` `/replay` `/terminate`           | Write                  | 人工操作            |
 | PUT    | `/api/agent/workflow/instances/{id}/variables`                                        | Write                  | 运行中改变量          |
 
+实例详情在父实例状态为 `WAITING_SUBFLOW` 时可能返回 `pendingSubflowInteraction`，用于穿透展示最深层子流程的当前交互。其包括子实例/工作流标识、状态、等待节点、问题或审批信息与 `deadlineAt`。`answerable=false` 表示指定服务账号的审批，父流程发起人不能代答。
+
+工具节点可用 `toolApprovalPolicy` 配置审批策略：`ask`（默认，每次确认）、`risky`（仅高风险调用确认）和 `never`（自动放行）。无法解析工具或参数时，`risky` 按高风险处理。人工、审批和工具确认等待会优先使用实例既有截止时间或节点 `timeoutMillis`；均未设置时使用服务端兜底等待超时。子流程终态未成功（含超时）会使父流程对应节点失败，而不会无限停留在 `WAITING_SUBFLOW`。
+
 ### 6.3 AgentWorkflowScheduleController — `/api/agent/workflow/schedules`
 
 `POST /`(Write)、`POST /list`(类)、`PUT /{id}`(Write)、`POST /{id}/enabled?enabled=true|false`(Write)、`DELETE /{id}`(Write)
@@ -401,7 +411,7 @@ Agent 全部启用 Skill。请求不得携带 `skillIds` 或选择/跳过字段�
 | 普通聊天    | `message` / `reasoning` / `tool_call` / `question` / `done` / `error`                                                    | 文本、推理、工具、提问卡片、结束/错误                                |
 | Deep 运行 | `accepted` / `run_step` / `question` / `done` / `error`                                                                  | 接受创建、事件步骤、提问、结束/错误                                 |
 | Deep 重放 | `run_step`                                                                                                               | `GET /api/agent/deep-runs/{runId}/stream` 重放已持久化事件 |
-| 工作流实例   | `run.completed` / `run.failed` / `node.completed` / `ask_user.required` / `tool.approval.required` / `variables.updated` | `GET /api/agent/workflow/instances/{id}/events`    |
+| 工作流实例   | `run.completed` / `run.failed` / `node.completed` / `ask_user.required` / `tool.approval.required` / `approval.required` / `variables.updated` | `GET /api/agent/workflow/instances/{id}/events`    |
 
 ---
 

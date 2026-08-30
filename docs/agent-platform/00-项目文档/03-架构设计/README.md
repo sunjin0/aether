@@ -1,5 +1,7 @@
 # Aether 架构设计
 
+> 最后更新：2026-08-30
+
 > 更新日期：2026-08-11
 > 面向对象：Java 8 / Spring Boot 2.7.18 / MyBatis-Plus / PostgreSQL + pgvector / Redis / MinIO
 
@@ -179,8 +181,7 @@ storage MinIO 对象存储抽象（知识库/附件复用；front 不直接依�
 
 - `McpClient`/`McpSessionManager` 管理 MCP 连接（http/sse/streamable_http），`McpTransportFactory` 按传输创建。
 - `McpToolExecutor` 调用时注入委派 JWT（`Authorization: Bearer <DelegationToken>`）与 `X-Aether-Idempotency-Key`，防止重复执行。
-- `ToolCallRiskAnalyzer` 在确认前做确定性风险分级（SQL/Shell 特征正则），fail-closed。普通聊天和手动/业务启动的工作流需用户确认；定时触发的工作流会自动批准其已配置的
-  工具节点，须通过工作流发布权限、服务账号范围和工具配置控制风险。
+- `ToolCallRiskAnalyzer` 在确认前做确定性风险分级（SQL/Shell 特征正则），fail-closed。平台内置工具也只会在显式绑定后进入 Agent 工具作用域。普通聊天遵从会话级确认策略；工作流工具节点使用 `ask`、`risky`、`never` 策略，`risky` 对工具或参数无法解析的调用仍要求确认。定时触发的工作流会自动批准其已配置的工具节点，须通过工作流发布权限、服务账号范围和工具配置控制风险。
 - 审批授权缓存：Redis `agent:tool-approval:{userId}:{agentId}:{toolId}` 10 分钟免确认。
 - 审计写入 `agent_tool_call_log`（状态：成功/失败/安全拦截/待审批），字段截断防止超长，Authorization 头脱敏。
 
@@ -201,13 +202,13 @@ storage MinIO 对象存储抽象（知识库/附件复用；front 不直接依�
 
 ### 9.1 状态机
 
-`AgentWorkflowExecutionServiceImpl`：启动 → 校验（幂等键、人工等待 deadline、并发上限、输入契约）→
-遍历图（start/end/human/tool/agent 节点）→ 人工/工具节点暂停 `WAITING_USER` → 恢复/重试/回放/终止/超时。当前 deadline
-调度器仅超时处理 `WAITING_USER` 实例，不中断 `RUNNING` 中的节点执行。
+`AgentWorkflowExecutionServiceImpl`：启动 → 校验（幂等键、并发上限、输入契约）→
+遍历图（开始/结束、Agent、工具、人工/审批、规则、转换、HTTP、通知、延时、事件、子流程、并行/汇聚）→ 等待节点进入对应等待状态 → 恢复/重试/回放/终止/超时。人工、审批和工具确认等待优先继承实例截止时间，其次使用节点 `timeoutMillis`，最后使用服务端兜底等待超时；调度器不主动中断 `RUNNING` 节点执行。
 
 - 循环：DFS 回边检测，`_loop_{edgeId}_count` 计数，默认最大 10 次。
 - 并发控制：`FOR UPDATE` 行锁 + `max_concurrent_instances`。
 - 变量映射：`stateMapping`（`$output` / `$json.path`）或旧式 `outputKey`。
+- 子流程：固定已发布版本启动并保存父子链接。父实例为 `WAITING_SUBFLOW` 时，详情沿链接解析最深层子流程的交互；指定审批服务账号的交互不可由父流程发起人代答。子流程进入非成功终态（包括超时）会使父节点失败并结束等待。
 
 ### 9.2 持久化任务队列
 

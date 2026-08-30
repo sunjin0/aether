@@ -2,7 +2,7 @@
 
 > 合并来源：FRONTEND_MCP_TOOL_INTEGRATION.md、FRONTEND_TOOL_MANAGEMENT_STATISTICS.md、FRONTEND_TOOL_CALL_DISPLAY_PLAN.md
 > 补充来源：FRONTEND_INTEGRATION_CHANGES_V0.8_TOOL_CALL_DISPLAY.md（功能部分）
-> 更新日期：2026-07-20
+> 更新日期：2026-08-30
 
 ---
 
@@ -126,14 +126,21 @@ agent_mcp_server (1) ──→ (N) agent_tool
 
 ## 七、工具绑定管理
 
-绑定对象为 `agent_tool`，绑定关系在 `agent_tool_binding` 表。
+绑定关系存储在 `agent_tool_binding` 表。可绑定对象包括已启用的 MCP 工具和平台内置工具；内置工具不再对所有 Agent 自动可用，必须先显式绑定，才会进入该 Agent 的模型工具作用域。
 
 | 功能            | 方法     | 路径                                                        |
 |---------------|--------|-----------------------------------------------------------|
 | 查询 Agent 工具绑定 | GET    | `/api/agent/definition/{agentId}/tools`                   |
+| 分页查询 Agent 工具绑定 | POST   | `/api/agent/definition/{agentId}/tools/list`              |
+| 查询可绑定工具        | POST   | `/api/agent/definition/{agentId}/tools/available`         |
 | 绑定工具          | POST   | `/api/agent/definition/{agentId}/tools`                   |
 | 解绑工具          | DELETE | `/api/agent/definition/{agentId}/tools/{toolId}`          |
 | 调整优先级         | PUT    | `/api/agent/definition/{agentId}/tools/{toolId}/priority` |
+| 启用/停用绑定       | PUT    | `/api/agent/definition/{agentId}/tools/{toolId}/status`   |
+
+`/available` 接收 `current`、`pageSize`、`name`、`code`、`description` 和 `toolType` 筛选条件；返回结果会排除已绑定工具。内置工具在第一页与数据库工具合并展示，`total` 包含两类工具。绑定不存在的工具 ID 返回 `404`。
+
+运行时只向模型暴露已启用的显式绑定工具；Skill 运行还可暴露其版本中声明的必需工具。前端不应再假设平台内置交互工具始终存在于任意 Agent 的工具列表中。
 
 ---
 

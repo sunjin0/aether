@@ -1,7 +1,7 @@
 # Agent 平台 — 架构设计
 
 > 合并来源：API.md、DATABASE.md
-> 更新日期：2026-08-11
+> 更新日期：2026-08-30
 
 ---
 
@@ -95,9 +95,14 @@ V45 起，供应商页面同时管理模型目录。供应商只保存连接信�
 | 功能             | 方法     | 路径                                                        |
 |----------------|--------|-----------------------------------------------------------|
 | 查询 Agent 的工具绑定 | GET    | `/api/agent/definition/{agentId}/tools`                   |
+| 分页查询 Agent 工具绑定 | POST   | `/api/agent/definition/{agentId}/tools/list`              |
+| 查询可绑定工具        | POST   | `/api/agent/definition/{agentId}/tools/available`         |
 | 绑定工具           | POST   | `/api/agent/definition/{agentId}/tools`                   |
 | 解绑工具           | DELETE | `/api/agent/definition/{agentId}/tools/{toolId}`          |
 | 调整优先级          | PUT    | `/api/agent/definition/{agentId}/tools/{toolId}/priority` |
+| 启用/禁用绑定        | PUT    | `/api/agent/definition/{agentId}/tools/{toolId}/status`   |
+
+平台内置工具与 MCP 工具均须显式绑定后才能进入 Agent 模型工具作用域；可绑定列表会合并内置工具并排除已绑定项。
 
 ### 1.7 会话管理
 
