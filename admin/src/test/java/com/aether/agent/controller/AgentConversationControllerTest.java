@@ -2,6 +2,7 @@ package com.aether.agent.controller;
 
 import com.aether.agent.entity.AgentConversation;
 import com.aether.agent.dto.SessionMemoryCorrectionDto;
+import com.aether.agent.dto.AgentControllerRequests.ToolApprovalPolicy;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
@@ -268,8 +269,8 @@ class AgentConversationControllerTest {
         when(conversationService.getOne(any(Wrapper.class))).thenReturn(conversation);
         when(conversationService.updateById(any(AgentConversation.class))).thenReturn(true);
 
-        HashMap<String, String> request = new HashMap<String, String>();
-        request.put("toolApprovalPolicy", "ask");
+        ToolApprovalPolicy request = new ToolApprovalPolicy();
+        request.setToolApprovalPolicy("ask");
         controller.updateToolApprovalPolicy("conversation-1", request);
 
         ArgumentCaptor<AgentConversation> update = ArgumentCaptor.forClass(AgentConversation.class);

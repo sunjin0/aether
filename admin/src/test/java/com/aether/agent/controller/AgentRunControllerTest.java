@@ -5,6 +5,7 @@ import com.aether.agent.service.AgentRunStepService;
 import com.aether.agent.service.DeepAgentSigningClient;
 import com.aether.agent.service.AgentRunPlanService;
 import com.aether.agent.service.DeepAgentRunService;
+import com.aether.agent.service.AuditDataProtectionService;
 import com.aether.agent.dto.DeepAgentConfig;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.vo.AgentRunStatisticsVo;
@@ -59,6 +60,9 @@ class AgentRunControllerTest {
     @Mock
     private DeepAgentRunService deepAgentRunService;
 
+    @Mock
+    private AuditDataProtectionService auditDataProtectionService;
+
     /**
  * 处理statisticsBindsAndForwards智能体DefinitionId。
  */
@@ -95,6 +99,7 @@ class AgentRunControllerTest {
  * 控制器当前请求。
  */
 private AgentRunController controller() {
-        return new AgentRunController(agentRunService, agentRunStepService, signingClient, deepAgentConfig, planService, deepAgentRunService);
+        return new AgentRunController(agentRunService, agentRunStepService, signingClient, deepAgentConfig, planService, deepAgentRunService,
+                auditDataProtectionService);
     }
 }

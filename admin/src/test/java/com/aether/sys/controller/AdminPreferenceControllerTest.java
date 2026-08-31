@@ -7,6 +7,8 @@ import com.aether.sys.entity.AdminPreference;
 import com.aether.sys.service.AdminPreferenceEventService;
 import com.aether.sys.service.AdminPreferenceService;
 import com.aether.sys.vo.AdminPreferenceVo;
+import com.aether.sys.dto.AdminPreferenceRequests.ListRequest;
+import com.aether.sys.dto.AdminPreferenceRequests.SaveRequest;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -77,8 +79,7 @@ class AdminPreferenceControllerTest {
         result.setRecords(Collections.<AdminPreference>emptyList());
         when(preferenceService.page(any(Page.class), any(Wrapper.class))).thenReturn(result);
 
-        AdminPreferenceVo request = new AdminPreferenceVo();
-        request.setAdminId("other-user");
+        ListRequest request = new ListRequest();
         request.setCurrent(1L);
         request.setPageSize(20L);
         controller.list(request);
@@ -102,8 +103,7 @@ class AdminPreferenceControllerTest {
             preference.setId("preference-1");
             return true;
         });
-        AdminPreferenceVo request = new AdminPreferenceVo();
-        request.setAdminId("other-user");
+        SaveRequest request = new SaveRequest();
         request.setCategory("style");
         request.setKeyName("response_style");
         request.setValue("concise");

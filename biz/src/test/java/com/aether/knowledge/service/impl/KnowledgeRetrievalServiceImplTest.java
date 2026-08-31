@@ -78,7 +78,7 @@ class KnowledgeRetrievalServiceImplTest {
         KnowledgeDocumentChunk irrelevant = chunk("irrelevant", 0.20D);
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
-        when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
+        when(baseService.list(any())).thenReturn(Collections.singletonList(base));
         when(providerService.getById("provider-1")).thenReturn(provider);
         when(embeddingService.embed(provider, "query")).thenReturn(Collections.singletonList(1D));
         when(embeddingService.toVectorLiteral(anyList())).thenReturn("[1]");
@@ -123,7 +123,7 @@ class KnowledgeRetrievalServiceImplTest {
         anotherDocument.setContentHash("hash-3");
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
-        when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
+        when(baseService.list(any())).thenReturn(Collections.singletonList(base));
         when(providerService.getById("provider-1")).thenReturn(provider);
         when(embeddingService.embed(provider, "query")).thenReturn(Collections.singletonList(1D));
         when(embeddingService.toVectorLiteral(anyList())).thenReturn("[1]");
@@ -159,7 +159,7 @@ class KnowledgeRetrievalServiceImplTest {
         second.setTokenCount(5000);
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
-        when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
+        when(baseService.list(any())).thenReturn(Collections.singletonList(base));
         when(providerService.getById("provider-1")).thenReturn(provider);
         when(embeddingService.embed(provider, "query")).thenReturn(Collections.singletonList(1D));
         when(embeddingService.toVectorLiteral(anyList())).thenReturn("[1]");
@@ -190,7 +190,7 @@ class KnowledgeRetrievalServiceImplTest {
         candidate.setDocumentId("doc-cache");
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
-        when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
+        when(baseService.list(any())).thenReturn(Collections.singletonList(base));
         when(providerService.getById("provider-cache")).thenReturn(provider);
         when(embeddingService.embed(provider, "repeat query")).thenReturn(Collections.singletonList(1D));
         when(embeddingService.toVectorLiteral(anyList())).thenReturn("[1]");
@@ -227,7 +227,7 @@ class KnowledgeRetrievalServiceImplTest {
         lexical.setLexicalScore(0.8D);
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
-        when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
+        when(baseService.list(any())).thenReturn(Collections.singletonList(base));
         when(providerService.getById("provider-hybrid")).thenReturn(provider);
         when(embeddingService.embed(provider, "SKU-2026-A")).thenReturn(Collections.singletonList(1D));
         when(embeddingService.toVectorLiteral(anyList())).thenReturn("[1]");
@@ -263,7 +263,7 @@ class KnowledgeRetrievalServiceImplTest {
         preferred.setDocumentId("doc-2");
 
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
-        when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
+        when(baseService.list(any())).thenReturn(Collections.singletonList(base));
         when(providerService.getById("embedding-provider")).thenReturn(embeddingProvider);
         when(providerService.getById("rerank-provider")).thenReturn(rerankProvider);
         when(embeddingService.embed(embeddingProvider, "question")).thenReturn(Collections.singletonList(1D));
@@ -291,7 +291,7 @@ class KnowledgeRetrievalServiceImplTest {
         ModelProvider provider = new ModelProvider().setStatus(1);
         provider.setId("provider-expand");
         when(bindingService.list(any())).thenReturn(Collections.singletonList(binding));
-        when(baseService.list(any())).thenReturn(Collections.emptyList(), Collections.singletonList(base));
+        when(baseService.list(any())).thenReturn(Collections.singletonList(base));
         when(providerService.getById("provider-expand")).thenReturn(provider);
         when(embeddingService.embed(provider, "查询 SKU-2026-A 的状态")).thenReturn(Collections.singletonList(1D));
         when(embeddingService.toVectorLiteral(anyList())).thenReturn("[1]");

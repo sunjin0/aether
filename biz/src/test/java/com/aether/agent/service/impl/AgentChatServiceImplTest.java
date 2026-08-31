@@ -161,7 +161,7 @@ class AgentChatServiceImplTest {
         user.put("userId", "user-1");
         CurrentUser.set(user);
         AskUserTool askUserHandler = new AskUserTool(agentMessageService);
-        when(toolRegistry.getTools()).thenReturn(Collections.singletonList(askUserHandler.getTool()));
+        lenient().when(toolRegistry.getTools()).thenReturn(Collections.singletonList(askUserHandler.getTool()));
         lenient().when(toolRegistry.getHandler("ask_user")).thenReturn(askUserHandler);
         lenient().when(agentToolBindingService.list(any())).thenReturn(Collections.emptyList());
         lenient().when(modelCatalogService.resolveProvider(anyString(), anyString()))
@@ -257,7 +257,7 @@ class AgentChatServiceImplTest {
         assertEquals("provider-1", runCaptor.getValue().getModelProviderId());
         assertEquals("conversation-1", runCaptor.getValue().getConversationId());
         assertEquals("message-user-1", runCaptor.getValue().getMessageId());
-        assertEquals(0, runCaptor.getValue().getStatus());
+        assertEquals(4, runCaptor.getValue().getStatus());
         org.junit.jupiter.api.Assertions.assertNull(runCaptor.getValue().getTotalTokens());
 
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
@@ -339,7 +339,7 @@ class AgentChatServiceImplTest {
 
         ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
         verify(agentRunService).save(runCaptor.capture());
-        assertEquals(0, runCaptor.getValue().getStatus());
+        assertEquals(4, runCaptor.getValue().getStatus());
     }
 
     /**
@@ -403,8 +403,8 @@ class AgentChatServiceImplTest {
         org.junit.jupiter.api.Assertions.assertTrue(result.getQuestionConfig().contains("\"options\""));
 
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
-        verify(agentMessageService, org.mockito.Mockito.times(2)).save(messageCaptor.capture());
-        AgentMessage questionMessage = messageCaptor.getAllValues().get(1);
+        verify(agentMessageService, org.mockito.Mockito.times(3)).save(messageCaptor.capture());
+        AgentMessage questionMessage = messageCaptor.getAllValues().get(2);
         assertEquals("assistant", questionMessage.getRole());
         assertEquals("interaction", questionMessage.getMessageType());
         assertEquals("pending", questionMessage.getInteractionStatus());
@@ -625,7 +625,7 @@ class AgentChatServiceImplTest {
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
-        when(modelClient.stream(any(), any())).thenAnswer(invocation -> {
+        when(modelClient.stream(any(), any(), any())).thenAnswer(invocation -> {
             ModelStreamCallback callback = invocation.getArgument(1);
             callback.onMessage("你");
             callback.onMessage("好");
@@ -667,7 +667,7 @@ class AgentChatServiceImplTest {
         verify(agentRunService).save(runCaptor.capture());
         assertEquals("message-user-1", runCaptor.getValue().getMessageId());
         org.junit.jupiter.api.Assertions.assertNull(runCaptor.getValue().getOutputContent());
-        assertEquals(0, runCaptor.getValue().getStatus());
+        assertEquals(4, runCaptor.getValue().getStatus());
     }
 
     /**
@@ -719,7 +719,7 @@ class AgentChatServiceImplTest {
         when(knowledgeRetrievalService.retrieve(anyString(), anyString(), any())).thenReturn(retrieval);
         when(knowledgeDocumentService.listByIds(any())).thenReturn(Collections.emptyList());
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
-        when(modelClient.stream(any(), any())).thenAnswer(invocation -> {
+        when(modelClient.stream(any(), any(), any())).thenAnswer(invocation -> {
             ModelStreamCallback callback = invocation.getArgument(1);
             callback.onMessage("我需要确认部署信息【1】。");
             ModelStreamResponse response = new ModelStreamResponse();
@@ -753,7 +753,7 @@ class AgentChatServiceImplTest {
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
         verify(agentMessageService, org.mockito.Mockito.times(3)).save(messageCaptor.capture());
         assertEquals("user", messageCaptor.getAllValues().get(0).getRole());
-        assertEquals("chat", messageCaptor.getAllValues().get(1).getMessageType());
+        assertEquals("tool_call", messageCaptor.getAllValues().get(1).getMessageType());
         assertEquals("我需要确认部署信息【1】。", messageCaptor.getAllValues().get(1).getContent());
         org.junit.jupiter.api.Assertions.assertTrue(messageCaptor.getAllValues().get(1).getCitations().contains("chunk-1"));
         assertEquals("interaction", messageCaptor.getAllValues().get(2).getMessageType());
@@ -810,7 +810,7 @@ class AgentChatServiceImplTest {
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
-        when(modelClient.stream(any(), any())).thenAnswer(invocation -> {
+        when(modelClient.stream(any(), any(), any())).thenAnswer(invocation -> {
             ModelStreamCallback callback = invocation.getArgument(1);
             callback.onMessage("已按生产环境继续处理");
             ModelStreamResponse response = new ModelStreamResponse();
@@ -907,7 +907,7 @@ class AgentChatServiceImplTest {
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
-        when(modelClient.stream(any(), any())).thenAnswer(invocation -> {
+        when(modelClient.stream(any(), any(), any())).thenAnswer(invocation -> {
             ModelStreamCallback callback = invocation.getArgument(1);
             callback.onMessage("还需要确认发布窗口。");
             ModelStreamResponse response = new ModelStreamResponse();
@@ -934,7 +934,7 @@ class AgentChatServiceImplTest {
         ArgumentCaptor<AgentMessage> messageCaptor = ArgumentCaptor.forClass(AgentMessage.class);
         verify(agentMessageService, org.mockito.Mockito.times(3)).save(messageCaptor.capture());
         assertEquals("answer", messageCaptor.getAllValues().get(0).getMessageType());
-        assertEquals("chat", messageCaptor.getAllValues().get(1).getMessageType());
+        assertEquals("tool_call", messageCaptor.getAllValues().get(1).getMessageType());
         assertEquals("interaction", messageCaptor.getAllValues().get(2).getMessageType());
     }
 
@@ -976,7 +976,7 @@ class AgentChatServiceImplTest {
         });
         when(agentMessageService.list(any())).thenReturn(new ArrayList<AgentMessage>());
         when(modelClientFactory.getClient(provider)).thenReturn(modelClient);
-        when(modelClient.stream(any(), any())).thenReturn(emptyStreamResponse("google/gemma-4-e4b"));
+        when(modelClient.stream(any(), any(), any())).thenReturn(emptyStreamResponse("google/gemma-4-e4b"));
 
         AgentChatDto dto = new AgentChatDto();
         dto.setAgentId("agent-1");

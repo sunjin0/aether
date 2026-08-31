@@ -37,4 +37,26 @@ class ChatRunServiceTest {
         verify(agentRunService).save(saved.capture());
         assertEquals(response.getRawResponse(), saved.getValue().getRawResponse());
     }
+
+    @Test
+    void redactsCredentialLikeValuesInRunAudit() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setModel("gpt-4.1-mini");
+        ModelProvider provider = new ModelProvider();
+        provider.setId("provider-1");
+        ModelChatResponse response = new ModelChatResponse();
+        response.setContent("api_key=secret-value");
+        response.setRawResponse("{\"access_token\":\"token-value\"}");
+
+        new ChatRunService(agentRunService).create(agent, provider, "user-1", "conversation-1",
+                "message-1", "{\"password\":\"pw-value\"}", response, 100L, 0, null);
+
+        ArgumentCaptor<AgentRun> saved = ArgumentCaptor.forClass(AgentRun.class);
+        verify(agentRunService).save(saved.capture());
+        AgentRun run = saved.getValue();
+        org.junit.jupiter.api.Assertions.assertFalse(run.getInputContent().contains("pw-value"));
+        org.junit.jupiter.api.Assertions.assertFalse(run.getOutputContent().contains("secret-value"));
+        org.junit.jupiter.api.Assertions.assertFalse(run.getRawResponse().contains("token-value"));
+    }
 }

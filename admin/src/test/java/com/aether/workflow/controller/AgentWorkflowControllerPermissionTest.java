@@ -1,9 +1,11 @@
 package com.aether.workflow.controller;
 
-import com.aether.workflow.dto.AgentWorkflowInteractionDto;
-import com.aether.workflow.dto.AgentWorkflowStartDto;
-import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
-import com.aether.workflow.dto.AgentWorkflowDto;
+import com.aether.workflow.dto.AgentWorkflowAnswerInstanceRequest;
+import com.aether.workflow.dto.AgentWorkflowImportRequest;
+import com.aether.workflow.dto.AgentWorkflowListInstancesRequest;
+import com.aether.workflow.dto.AgentWorkflowStartBusinessInstanceRequest;
+import com.aether.workflow.dto.AgentWorkflowStartInstanceRequest;
+import com.aether.workflow.dto.AgentWorkflowUpdateInstanceVariablesRequest;
 import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.aether.permission.Permission;
 import org.junit.jupiter.api.Test;
@@ -22,15 +24,15 @@ class AgentWorkflowControllerPermissionTest {
      */
     @Test
     void protectsRuntimeEndpointsWithTheDedicatedRunPermission() throws Exception {
-        assertRunWrite("start", String.class, AgentWorkflowStartDto.class);
-        assertRunWrite("startBusiness", String.class, AgentWorkflowBusinessStartDto.class);
-        assertRunWrite("answer", String.class, AgentWorkflowInteractionDto.class);
+        assertRunWrite("start", String.class, AgentWorkflowStartInstanceRequest.class);
+        assertRunWrite("startBusiness", String.class, AgentWorkflowStartBusinessInstanceRequest.class);
+        assertRunWrite("answer", String.class, AgentWorkflowAnswerInstanceRequest.class);
         assertRunWrite("retry", String.class);
         assertRunWrite("replay", String.class);
         assertRunWrite("terminate", String.class);
-        assertRunWrite("updateVariables", String.class, AgentWorkflowStartDto.class);
+        assertRunWrite("updateVariables", String.class, AgentWorkflowUpdateInstanceVariablesRequest.class);
         assertRunWrite("retryCallback", String.class, String.class);
-        assertRunRead("instances", AgentWorkflowInstanceVo.class);
+        assertRunRead("instances", AgentWorkflowListInstancesRequest.class);
         assertRunRead("instance", String.class);
         assertRunRead("events", String.class);
         assertRunRead("callbacks", String.class);
@@ -44,7 +46,7 @@ class AgentWorkflowControllerPermissionTest {
         assertWorkflowRead("versions", String.class);
         assertWorkflowRead("versionDiff", String.class, int.class, int.class);
         assertWorkflowRead("exportWorkflow", String.class);
-        assertWorkflowWrite("importWorkflow", AgentWorkflowDto.class);
+        assertWorkflowWrite("importWorkflow", AgentWorkflowImportRequest.class);
         assertOperationsRead("operationsMetrics");
         assertOperationsRead("deadLetters", int.class);
     }

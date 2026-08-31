@@ -51,13 +51,13 @@ class ToolRouterServiceTest {
     }
 
     @Test
-    void fallsBackToFullSetWhenEmbeddingNotConfiguredAndNoKeywordMatch() {
+    void fallsBackToBoundedSetWhenEmbeddingNotConfiguredAndNoKeywordMatch() {
         when(routingConfigService.embeddingModelId()).thenReturn(null);
         ToolRouterService service = new ToolRouterService(indexMapper, embeddingService, modelCatalogService, routingConfigService);
         List<AgentTool> candidates = Arrays.asList(tool("t1", "search", "search"), tool("t2", "http", "http"));
         List<AgentTool> routed = service.route(candidates, Collections.<String>emptySet(), "查找订单");
 
-        assertEquals(2, routed.size());
+        assertEquals(1, routed.size());
     }
 
     @Test

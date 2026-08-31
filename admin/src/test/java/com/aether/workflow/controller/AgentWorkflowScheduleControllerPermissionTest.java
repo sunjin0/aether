@@ -1,8 +1,9 @@
 package com.aether.workflow.controller;
 
 import com.aether.permission.Permission;
-import com.aether.workflow.dto.AgentWorkflowScheduleTriggerDto;
-import com.aether.workflow.entity.AgentWorkflowScheduleTrigger;
+import com.aether.workflow.dto.AgentWorkflowCreateScheduleRequest;
+import com.aether.workflow.dto.AgentWorkflowListSchedulesRequest;
+import com.aether.workflow.dto.AgentWorkflowUpdateScheduleRequest;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -18,9 +19,9 @@ class AgentWorkflowScheduleControllerPermissionTest {
      */
     @Test
     void protectsScheduleEndpointsWithTheDedicatedSchedulePermission() throws Exception {
-        assertPermission("create", Permission.Type.Write, AgentWorkflowScheduleTriggerDto.class);
-        assertPermission("list", Permission.Type.Read, AgentWorkflowScheduleTrigger.class);
-        assertPermission("update", Permission.Type.Write, String.class, AgentWorkflowScheduleTriggerDto.class);
+        assertPermission("create", Permission.Type.Write, AgentWorkflowCreateScheduleRequest.class);
+        assertPermission("list", Permission.Type.Read, AgentWorkflowListSchedulesRequest.class);
+        assertPermission("update", Permission.Type.Write, String.class, AgentWorkflowUpdateScheduleRequest.class);
         assertPermission("setEnabled", Permission.Type.Write, String.class, boolean.class);
         assertPermission("delete", Permission.Type.Write, String.class);
     }

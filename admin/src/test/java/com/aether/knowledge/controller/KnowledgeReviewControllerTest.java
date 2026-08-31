@@ -21,6 +21,10 @@ import com.aether.knowledge.vo.KnowledgeAiReviewDiffVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueAcceptVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueAcceptResultVo;
 import com.aether.knowledge.vo.KnowledgeAiReviewIssueBatchAcceptVo;
+import com.aether.knowledge.controller.KnowledgeReviewTaskController.ListRequest;
+import com.aether.knowledge.controller.KnowledgeAiReviewController.AcceptIssueRequest;
+import com.aether.knowledge.controller.KnowledgeAiReviewController.ApplyAcceptedIssuesRequest;
+import com.aether.knowledge.controller.KnowledgeAiReviewController.BatchAcceptIssuesRequest;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -83,15 +87,15 @@ class KnowledgeReviewControllerTest {
         KnowledgeReviewTaskQueryService queryService = mock(KnowledgeReviewTaskQueryService.class);
         KnowledgeReviewTaskController controller = new KnowledgeReviewTaskController(queryService,
                 mock(KnowledgeDocumentWorkflowService.class));
-        KnowledgeReviewTaskQueryVo query = new KnowledgeReviewTaskQueryVo();
+        ListRequest query = new ListRequest();
         KnowledgeReviewTaskVo task = new KnowledgeReviewTaskVo();
         task.setId("task-1");
-        when(queryService.list(query)).thenReturn(new Page<KnowledgeReviewTaskVo>(1, 20, 1)
+        when(queryService.list(any(KnowledgeReviewTaskQueryVo.class))).thenReturn(new Page<KnowledgeReviewTaskVo>(1, 20, 1)
                 .setRecords(Collections.singletonList(task)));
 
         assertEquals("task-1", controller.list(query).getData().get(0).getId());
 
-        verify(queryService).list(query);
+        verify(queryService).list(any(KnowledgeReviewTaskQueryVo.class));
     }
 
     /**
@@ -195,7 +199,7 @@ class KnowledgeReviewControllerTest {
         KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
                 mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class),
                 workflowService);
-        KnowledgeAiReviewIssueAcceptVo request = new KnowledgeAiReviewIssueAcceptVo();
+        AcceptIssueRequest request = new AcceptIssueRequest();
         request.setExpectedChecksum("checksum-1");
 
         assertEquals("checksum-1", controller.acceptIssue("review-1", "issue-1", request).getData().getContentChecksum());
@@ -237,7 +241,7 @@ class KnowledgeReviewControllerTest {
         KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
                 mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class), workflowService);
 
-        KnowledgeAiReviewIssueAcceptVo request = new KnowledgeAiReviewIssueAcceptVo();
+        ApplyAcceptedIssuesRequest request = new ApplyAcceptedIssuesRequest();
         request.setExpectedChecksum("checksum-1");
 
         KnowledgeAiReviewIssueAcceptResultVo result = controller.applyAcceptedIssues("review-1", request).getData();
@@ -339,7 +343,7 @@ class KnowledgeReviewControllerTest {
         KnowledgeAiReviewController controller = new KnowledgeAiReviewController(reviewService, issueService,
                 mock(KnowledgeAccessService.class), versionService, mock(KnowledgeDocumentService.class),
                 workflowService);
-        KnowledgeAiReviewIssueBatchAcceptVo request = new KnowledgeAiReviewIssueBatchAcceptVo();
+        BatchAcceptIssuesRequest request = new BatchAcceptIssuesRequest();
         request.setIssueIds(Arrays.asList("issue-1", "issue-2"));
         request.setExpectedChecksum("checksum-1");
 

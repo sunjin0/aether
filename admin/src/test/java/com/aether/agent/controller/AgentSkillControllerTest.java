@@ -11,6 +11,8 @@ import com.aether.agent.skill.vo.AgentSkillDetailVo;
 import com.aether.agent.skill.vo.AgentSkillPreviewVo;
 import com.aether.agent.skill.vo.AgentSkillPublishCheckVo;
 import com.aether.agent.skill.vo.AgentSkillVo;
+import com.aether.agent.dto.AgentControllerRequests.SkillList;
+import com.aether.agent.dto.AgentControllerRequests.Status;
 import com.aether.entity.WebResponse;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.Test;
@@ -48,7 +50,9 @@ class AgentSkillControllerTest {
         page.setTotal(1);
         when(skillService.page(any(), any())).thenReturn(page);
 
-        AgentSkillVo query = new AgentSkillVo();
+        SkillList query = new SkillList();
+        query.setCurrent(1L);
+        query.setPageSize(10L);
         WebResponse<List<AgentSkillVo>> response = controller.list(query);
 
         assertEquals(200, response.getCode());
@@ -162,7 +166,7 @@ class AgentSkillControllerTest {
         when(skillService.getById("s1")).thenReturn(skill);
         when(skillService.updateById(any())).thenReturn(true);
 
-        AgentSkillVo dto = new AgentSkillVo();
+        Status dto = new Status();
         dto.setStatus(2);
         WebResponse<Void> response = controller.status("s1", dto);
 
