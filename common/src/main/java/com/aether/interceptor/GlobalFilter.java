@@ -161,7 +161,13 @@ public class GlobalFilter extends OncePerRequestFilter {
      * 处理Exception。
      */
     private void handleException(HttpServletResponse response, ServerException e) throws IOException {
-        log.error("过滤器异常：", e);
+        // 令牌过期、权限不足属于预期的客户端请求，不打印完整堆栈，避免无效错误日志淹没真实故障。
+        Integer statusCode = resolveStatusCode(e.getMessage());
+        if (statusCode != null && statusCode >= 400 && statusCode < 500) {
+            log.warn("请求鉴权失败：{}", e.getMessage());
+        } else {
+            log.error("过滤器异常：", e);
+        }
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
         response.setStatus(HttpServletResponse.SC_OK);
@@ -179,6 +185,20 @@ public class GlobalFilter extends OncePerRequestFilter {
             webResponse = WebResponse.Error(message, null);
         }
         response.getWriter().write(JSON.toJSONString(webResponse));
+    }
+
+    /**
+     * 解析约定为“状态码:提示”的业务异常状态码。
+     */
+    private Integer resolveStatusCode(String message) {
+        if (message == null) return null;
+        String[] parts = message.split(":", 2);
+        if (parts.length != 2) return null;
+        try {
+            return Integer.parseInt(parts[0].trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     /**

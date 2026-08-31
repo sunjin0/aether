@@ -40,6 +40,7 @@ import com.aether.i18n.I18nUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpHeaders;
@@ -1922,8 +1923,15 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
      * 人工回答、终止等状态变化持有实例行锁，避免与 SLA 超时任务相互覆盖状态。
      */
     private AgentWorkflowInstance ownedForUpdate(String id, String userId) {
-        AgentWorkflowInstance value = instanceService.getOne(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
-                .eq(AgentWorkflowInstance::getId, id).eq(AgentWorkflowInstance::getDeleted, false).last("FOR UPDATE"));
+        AgentWorkflowInstance value;
+        try {
+            // 与后台执行器竞争同一实例时立即失败，避免 HTTP 请求等待到 JDBC 读取超时后返回 500。
+            value = instanceService.getOne(Wrappers.lambdaQuery(AgentWorkflowInstance.class)
+                    .eq(AgentWorkflowInstance::getId, id).eq(AgentWorkflowInstance::getDeleted, false)
+                    .last("FOR UPDATE NOWAIT"));
+        } catch (DataAccessException e) {
+            throw new ServerException(409, "工作流实例正在更新，请稍后重试");
+        }
         if (value == null) throw new ServerException(404, I18nUtils.getMessage("workflow.instance.not-found"));
         if (!StringUtils.equals(value.getUserId(), userId) && !isAdministrator(userId))
             throw new ServerException(403, I18nUtils.getMessage("workflow.instance.operation.denied"));
