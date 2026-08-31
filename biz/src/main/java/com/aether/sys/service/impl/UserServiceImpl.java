@@ -22,6 +22,7 @@ import com.aether.sys.vo.ResourceVo;
 import com.aether.sys.vo.UserVo;
 import com.aether.msg.service.EmailMessageService;
 import org.apache.commons.lang3.RandomUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -407,6 +408,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 map.put(resource.getPath(), resource.getAccess() != null && resource.getAccess().contains("Write"));
             }
         }
+        mergeExplicitPermissionPaths(userId, map);
         try {
             TokenUtils.isExpired(AesUtil.decrypt(token));
             map.put("/sys", false);
@@ -414,6 +416,44 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             log.error(e.getMessage());
         }
         return map;
+    }
+
+    /**
+     * 合并带路径的细粒度权限。
+     *
+     * 常规权限仍通过“路由 + 读写”生成缓存；审计载荷等不能映射为独立页面的接口权限，
+     * 直接挂在路由下并携带自身路径，避免破坏授权页面仅支持两层资源树的约束。
+     */
+    private void mergeExplicitPermissionPaths(String userId, Map<String, Object> permissionMap) {
+        if (StringUtils.isBlank(userId)) {
+            return;
+        }
+        List<UserRole> roles = userRoleService.list(Wrappers.<UserRole>lambdaQuery()
+                .select(UserRole::getRoleId)
+                .eq(UserRole::getUserId, userId));
+        if (roles == null || roles.isEmpty()) {
+            return;
+        }
+        List<String> roleIds = roles.stream().map(UserRole::getRoleId).collect(Collectors.toList());
+        List<RoleResource> bindings = roleResourceService.list(Wrappers.<RoleResource>lambdaQuery()
+                .select(RoleResource::getResourceId)
+                .in(RoleResource::getRoleId, roleIds));
+        if (bindings == null || bindings.isEmpty()) {
+            return;
+        }
+        Set<String> resourceIds = bindings.stream().map(RoleResource::getResourceId).collect(Collectors.toSet());
+        List<com.aether.sys.entity.Resource> permissions = resourceService.list(
+                Wrappers.lambdaQuery(com.aether.sys.entity.Resource.class)
+                        .in(com.aether.sys.entity.Resource::getId, resourceIds)
+                        .eq(com.aether.sys.entity.Resource::getType, ResourceType.PERMISSION.getCode())
+                        .isNotNull(com.aether.sys.entity.Resource::getPath)
+                        .ne(com.aether.sys.entity.Resource::getPath, ""));
+        if (permissions == null) {
+            return;
+        }
+        for (com.aether.sys.entity.Resource permission : permissions) {
+            permissionMap.put(permission.getPath(), true);
+        }
     }
 
     /**
