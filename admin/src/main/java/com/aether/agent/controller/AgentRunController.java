@@ -117,7 +117,6 @@ public class AgentRunController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @GetMapping("/{id}")
-    @Permission(path = "/agent/run/audit-payload")
     public WebResponse<AgentRunVo> detail(@PathVariable @NotBlank String id) {
         AgentRun run = agentRunService.getById(id);
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
