@@ -1,6 +1,7 @@
 package com.aether.agent.executor;
 
 import com.aether.agent.entity.AgentTool;
+import com.aether.agent.model.CancellationToken;
 import lombok.Data;
 
 import java.util.Map;
@@ -47,4 +48,7 @@ public class ToolExecutionContext {
     private String serviceAccountId;
     /** Encrypted trusted context; executors must not merge it into model-provided arguments. */
     private String trustedContext;
+
+    /** 当前聊天运行的协作式取消信号，执行器在发起外部调用前必须检查。 */
+    private CancellationToken cancellationToken;
 }

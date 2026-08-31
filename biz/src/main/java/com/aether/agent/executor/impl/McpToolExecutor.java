@@ -27,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 
 /**
  * MCP tool executor. AgentTool stores the concrete MCP tool name and references an MCP server configuration.
@@ -71,6 +72,7 @@ public class McpToolExecutor implements ToolExecutor {
      */
     @Override
     public ToolExecutionResult execute(ToolExecutionContext context) {
+        checkCancelled(context);
         AgentTool tool = context.getTool();
         long startTime = System.currentTimeMillis();
         String requestBody = null;
@@ -91,7 +93,9 @@ public class McpToolExecutor implements ToolExecutor {
             for (String key : trustedContext.keySet()) if (auditArguments.containsKey(key)) auditArguments.put(key, "***");
             if (auditArguments.containsKey("aether_delegation")) auditArguments.put("aether_delegation", "***");
             requestBody = JSON.toJSONString(auditArguments);
+            checkCancelled(context);
             mcpClient.ping(server);
+            checkCancelled(context);
             JSONObject response = mcpClient.callTool(server, mcpToolName, arguments);
             long latencyMs = System.currentTimeMillis() - startTime;
 
@@ -114,10 +118,19 @@ public class McpToolExecutor implements ToolExecutor {
             result.setRequestHeaders(maskAuthorization(server.getRequestHeaders()));
             result.setRequestBody(requestBody);
             return result;
+        } catch (CancellationException e) {
+            throw e;
         } catch (ServerException e) {
             return failure(requestUrl, requestBody, e.getMessage(), startTime);
         } catch (Exception e) {
             return failure(requestUrl, requestBody, I18nUtils.getMessage("agent.mcp.tool.execution.failed"), startTime);
+        }
+    }
+
+    /** 在发起外部 MCP 请求前检查取消状态，避免断开连接后继续产生副作用。 */
+    private void checkCancelled(ToolExecutionContext context) {
+        if (context != null && context.getCancellationToken() != null) {
+            context.getCancellationToken().throwIfCancelled();
         }
     }
 

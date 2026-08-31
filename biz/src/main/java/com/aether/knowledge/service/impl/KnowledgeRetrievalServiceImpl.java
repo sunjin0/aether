@@ -334,7 +334,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * 获取查询Embedding。
      */
     private List<Double> getQueryEmbedding(ModelProvider provider, String query) {
-        String cacheKey = queryEmbeddingCacheKey(provider, query);
+        // 缓存键与向量模型必须使用同一份规范化查询，避免空白差异产生重复向量和缓存穿透。
+        String normalizedQuery = normalizeQuery(query);
+        String cacheKey = queryEmbeddingCacheKey(provider, normalizedQuery);
         long now = System.currentTimeMillis();
         CachedEmbedding cached = queryEmbeddingCache.get(cacheKey);
         if (cached != null && cached.expiresAt > now) {
@@ -353,7 +355,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
             }
             evictQueryEmbeddingCache(now);
             long embeddingStartedAt = System.currentTimeMillis();
-            List<Double> embedding = knowledgeEmbeddingService.embed(provider, query);
+            List<Double> embedding = knowledgeEmbeddingService.embed(provider, normalizedQuery);
             log.info("查询向量生成: requestId={}, providerId={}, duration={}ms", currentRequestId(),
                     provider.getId(), System.currentTimeMillis() - embeddingStartedAt);
             ChatLatencyMetrics.record("chat.rag.embedding", System.currentTimeMillis() - embeddingStartedAt);
@@ -390,7 +392,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * 查询Embedding缓存Key。
      */
     private String queryEmbeddingCacheKey(ModelProvider provider, String query) {
-        String normalizedQuery = query.trim().replaceAll("\\s+", " ");
+        String normalizedQuery = normalizeQuery(query);
         String value = StringUtils.defaultString(provider.getId()) + '\n'
                 + StringUtils.defaultString(provider.getApiBaseUrl()) + '\n'
                 + StringUtils.defaultString(provider.getDefaultModel()) + '\n' + normalizedQuery;
@@ -411,7 +413,14 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * 处理retrieval缓存Key。
      */
     private String retrievalCacheKey(String agentDefinitionId, String query) {
-        return hashValue(agentDefinitionId + '\n' + query.trim().replaceAll("\\s+", " "));
+        return hashValue(agentDefinitionId + '\n' + normalizeQuery(query));
+    }
+
+    /**
+     * 统一查询规范化规则，确保检索缓存与向量调用语义一致。
+     */
+    private String normalizeQuery(String query) {
+        return StringUtils.defaultString(query).trim().replaceAll("\\s+", " ");
     }
 
     /**

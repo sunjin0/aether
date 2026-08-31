@@ -12,6 +12,7 @@ import com.aether.agent.dto.AgentControllerRequests.RunList;
 import com.aether.agent.vo.AgentRunPlanVo;
 import com.aether.agent.service.AgentRunPlanService;
 import com.aether.agent.service.DeepAgentRunService;
+import com.aether.agent.service.AuditDataProtectionService;
 import com.aether.local.CurrentUser;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
@@ -56,6 +57,7 @@ public class AgentRunController {
     private final DeepAgentConfig deepAgentConfig;
     private final AgentRunPlanService planService;
     private final DeepAgentRunService deepAgentRunService;
+    private final AuditDataProtectionService auditDataProtectionService;
 
     /**
      * 创建 {@code AgentRunController} 实例。
@@ -64,13 +66,15 @@ public class AgentRunController {
     public AgentRunController(AgentRunService agentRunService,
                               AgentRunStepService agentRunStepService,
                               DeepAgentSigningClient signingClient,
-                              DeepAgentConfig deepAgentConfig, AgentRunPlanService planService, DeepAgentRunService deepAgentRunService) {
+                              DeepAgentConfig deepAgentConfig, AgentRunPlanService planService, DeepAgentRunService deepAgentRunService,
+                              AuditDataProtectionService auditDataProtectionService) {
         this.agentRunService = agentRunService;
         this.agentRunStepService = agentRunStepService;
         this.signingClient = signingClient;
         this.deepAgentConfig = deepAgentConfig;
         this.planService = planService;
         this.deepAgentRunService = deepAgentRunService;
+        this.auditDataProtectionService = auditDataProtectionService;
     }
 
     /**
@@ -95,6 +99,10 @@ public class AgentRunController {
         List<AgentRunVo> list = result.getRecords().stream().map(item -> {
             AgentRunVo itemVo = new AgentRunVo();
             BeanUtils.copyProperties(item, itemVo);
+            // 列表仅提供运行元数据，避免把输入、输出和供应商原始响应批量暴露。
+            itemVo.setInputContent(null);
+            itemVo.setOutputContent(null);
+            itemVo.setRawResponse(null);
             return itemVo;
         }).collect(Collectors.toList());
         return WebResponse.Page(list, result.getTotal());
@@ -109,6 +117,7 @@ public class AgentRunController {
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
     @GetMapping("/{id}")
+    @Permission(path = "/agent/run/audit-payload")
     public WebResponse<AgentRunVo> detail(@PathVariable @NotBlank String id) {
         AgentRun run = agentRunService.getById(id);
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
@@ -116,6 +125,10 @@ public class AgentRunController {
         }
         AgentRunVo vo = new AgentRunVo();
         BeanUtils.copyProperties(run, vo);
+        // 只有单独的审计载荷权限才能触及明文快照；列表接口始终不返回这些字段。
+        vo.setInputContent(auditDataProtectionService.unprotect(vo.getInputContent()));
+        vo.setOutputContent(auditDataProtectionService.unprotect(vo.getOutputContent()));
+        vo.setRawResponse(auditDataProtectionService.unprotect(vo.getRawResponse()));
         return WebResponse.OK(vo);
     }
 

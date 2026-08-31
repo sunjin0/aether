@@ -135,6 +135,19 @@ public class KnowledgeContextService {
     }
 
     /**
+     * 支持取消令牌的检索入口。底层检索服务后续可覆写为主动取消 HTTP/Rerank 请求；
+     * 当前先在检索前后阻止继续构建和写入上下文。
+     */
+    public List<Map<String, Object>> enhanceCancellable(List<ModelChatMessage> context, String userId,
+                                                        String conversationId, String agentId, String query,
+                                                        com.aether.agent.model.CancellationToken cancellationToken) {
+        if (cancellationToken != null) cancellationToken.throwIfCancelled();
+        List<Map<String, Object>> result = enhance(context, userId, conversationId, agentId, query);
+        if (cancellationToken != null) cancellationToken.throwIfCancelled();
+        return result;
+    }
+
+    /**
      * 按 Skill 冻结后的知识库集合检索，避免平台知识库在受限运行中被自动加入。
      */
     public List<Map<String, Object>> enhance(List<ModelChatMessage> context, String userId, String conversationId,
@@ -150,6 +163,18 @@ public class KnowledgeContextService {
                                               String retrievalMode) {
         return enhanceScoped(context, userId, conversationId, agentId, query, knowledgeBaseIds,
                 "DISABLED".equalsIgnoreCase(retrievalMode), "ENABLED".equalsIgnoreCase(retrievalMode));
+    }
+
+    /** 按受限知识库检索时执行取消检查，避免断开连接后继续组装上下文。 */
+    public List<Map<String, Object>> enhanceCancellable(List<ModelChatMessage> context, String userId, String conversationId,
+                                                         String agentId, String query, Set<String> knowledgeBaseIds,
+                                                         String retrievalMode,
+                                                         com.aether.agent.model.CancellationToken cancellationToken) {
+        if (cancellationToken != null) cancellationToken.throwIfCancelled();
+        List<Map<String, Object>> result = enhance(context, userId, conversationId, agentId, query,
+                knowledgeBaseIds, retrievalMode);
+        if (cancellationToken != null) cancellationToken.throwIfCancelled();
+        return result;
     }
 
     /**

@@ -8,6 +8,11 @@ import com.aether.agent.vo.AgentMessageVo;
  */
 public interface AgentStreamCallback {
 
+    /** 客户端断开连接且应停止后续工作时返回 true。 */
+    default boolean isCancelled() {
+        return false;
+    }
+
     /**
      * 处理on消息。
      */
@@ -47,6 +52,10 @@ public interface AgentStreamCallback {
      * Emits a non-terminal progress stage before the first model token is available.
      */
     default void onStatus(String stage, String message) {
+    }
+
+    /** 最终校验完成后替换此前已经推送的助手草稿。 */
+    default void onReplace(String conversationId, String content) {
     }
 
     /**

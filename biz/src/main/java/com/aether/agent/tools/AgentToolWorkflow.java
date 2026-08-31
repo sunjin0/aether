@@ -9,6 +9,7 @@ import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.model.ModelChatResponse;
+import com.aether.agent.model.CancellationToken;
 import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentRunService;
@@ -45,6 +46,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ThreadPoolExecutor;
 import javax.annotation.PreDestroy;
 
@@ -279,15 +281,25 @@ public class AgentToolWorkflow {
      */
     public List<ToolExecutionResult> executeMcpCalls(ModelChatResponse response, AgentDefinition agent,
                                                      String userId, String runId, List<AgentTool> scopedTools) {
+        return executeMcpCalls(response, agent, userId, runId, scopedTools, null);
+    }
+
+    /**
+     * 执行本次运行作用域内的 MCP 工具。取消后不再启动后续工具调用，避免断开连接后继续产生副作用。
+     */
+    public List<ToolExecutionResult> executeMcpCalls(ModelChatResponse response, AgentDefinition agent,
+                                                     String userId, String runId, List<AgentTool> scopedTools,
+                                                     CancellationToken cancellationToken) {
         List<ToolExecutionResult> results = new ArrayList<>();
         Map<String, AgentTool> toolMap = new HashMap<>();
         for (AgentTool tool : scopedTools == null ? java.util.Collections.<AgentTool>emptyList() : scopedTools)
             toolMap.put(tool.getName(), tool);
         List<ToolCall> calls = parseCalls(response);
-        if (canExecuteReadOnlyCallsInParallel(calls, toolMap)) {
+        if (cancellationToken == null && canExecuteReadOnlyCallsInParallel(calls, toolMap)) {
             return executeReadOnlyCallsInParallel(calls, toolMap, agent, userId, runId);
         }
         for (ToolCall parsedCall : calls) {
+            checkCancelled(cancellationToken);
             AgentTool tool = toolMap.get(parsedCall.getName());
             ToolCall call = withEmailDefaults(tool, parsedCall, userId);
             if (tool == null) {
@@ -297,11 +309,17 @@ public class AgentToolWorkflow {
                 saveAudit(runId, call, null, agent.getId(), failure);
                 continue;
             }
-            ToolExecutionResult result = executeMcpCall(tool, call, runId, userId, agent.getId());
+            ToolExecutionResult result = executeMcpCall(tool, call, runId, userId, agent.getId(), cancellationToken);
             results.add(result);
             saveAudit(runId, call, tool, agent.getId(), result);
+            checkCancelled(cancellationToken);
         }
         return results;
+    }
+
+    /** 在启动下一项工具操作前检查协作式取消信号。 */
+    private void checkCancelled(CancellationToken cancellationToken) {
+        if (cancellationToken != null) cancellationToken.throwIfCancelled();
     }
 
     /**
@@ -357,9 +375,18 @@ public class AgentToolWorkflow {
      */
     private ToolExecutionResult executeMcpCall(AgentTool tool, ToolCall call, String runId,
                                                String userId, String agentId) {
+        return executeMcpCall(tool, call, runId, userId, agentId, null);
+    }
+
+    /** 执行单项 MCP 调用，并将取消信号传入底层执行器。 */
+    private ToolExecutionResult executeMcpCall(AgentTool tool, ToolCall call, String runId,
+                                               String userId, String agentId, CancellationToken cancellationToken) {
         ToolExecutionResult result;
         try {
-            result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId);
+            checkCancelled(cancellationToken);
+            result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId, null, cancellationToken);
+        } catch (CancellationException e) {
+            throw e;
         } catch (Exception e) {
             result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED);
         }
@@ -567,6 +594,13 @@ public class AgentToolWorkflow {
      */
     private ToolExecutionResult executeMcpTool(AgentTool tool, Map<String, Object> arguments,
                                                String runId, String userId, String agentDefinitionId, String idempotencyKey) {
+        return executeMcpTool(tool, arguments, runId, userId, agentDefinitionId, idempotencyKey, null);
+    }
+
+    /** 组装工具执行上下文，并向底层 MCP 执行器传递取消信号。 */
+    private ToolExecutionResult executeMcpTool(AgentTool tool, Map<String, Object> arguments,
+                                               String runId, String userId, String agentDefinitionId,
+                                               String idempotencyKey, CancellationToken cancellationToken) {
         ToolExecutionContext context = new ToolExecutionContext();
         context.setTool(tool);
         context.setArguments(arguments);
@@ -574,6 +608,7 @@ public class AgentToolWorkflow {
         context.setUserId(userId);
         context.setAgentDefinitionId(agentDefinitionId);
         context.setIdempotencyKey(idempotencyKey);
+        context.setCancellationToken(cancellationToken);
         if (StringUtils.isNotBlank(runId)) {
             com.aether.agent.entity.AgentRun run = agentRunService.getById(runId);
             if (run != null) {

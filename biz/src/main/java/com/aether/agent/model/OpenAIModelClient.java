@@ -25,6 +25,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 
 /**
  * 模型客户端入口。实际供应商协议由 {@link ModelProviderAdapter} 负责适配。
@@ -120,23 +121,50 @@ public class OpenAIModelClient implements ModelClient {
      */
     @Override
     public ModelStreamResponse stream(ModelChatRequest request, ModelStreamCallback callback) {
+        return stream(request, callback, null);
+    }
+
+    /**
+     * 执行可取消的流式模型调用。取消时关闭 HTTP 响应，以释放连接池中的长连接。
+     */
+    @Override
+    public ModelStreamResponse stream(ModelChatRequest request, ModelStreamCallback callback,
+                                      CancellationToken cancellationToken) {
         ModelProvider provider = request.getProvider();
         ModelProviderAdapter adapter = adapter(provider);
         try {
+            if (cancellationToken != null) cancellationToken.throwIfCancelled();
             JSONObject body = adapter.body(request, true);
             String url = adapter.chatUrl(request);
             long t0 = System.currentTimeMillis();
-            try (PooledHttpClient.HttpStreamResult result = pooledHttpClient.postStream(url, body.toJSONString(), adapter.streamHeaders(request))) {
+            try (PooledHttpClient.HttpStreamResult result = pooledHttpClient.postStream(url, body.toJSONString(),
+                    adapter.streamHeaders(request), cancellationToken)) {
                 long t1 = System.currentTimeMillis();
                 log.info("模型连接耗时: requestId={}, {}ms, provider={}, model={}",
                         StringUtils.defaultIfBlank(MDC.get("chatRequestId"), "n/a"), t1 - t0,
                         provider == null ? "n/a" : provider.getName(), defaultModel(request, null));
                 ChatLatencyMetrics.record("chat.model_connect", t1 - t0);
-                return adapter.parseStream(result.getInputStream(), defaultModel(request, null), callback);
+                ModelStreamCallback cancellableCallback = new ModelStreamCallback() {
+                    @Override public void onMessage(String chunk) { callback.onMessage(chunk); }
+                    @Override public void onReasoning(String chunk) { callback.onReasoning(chunk); }
+                    @Override public void onToolCall(String toolCallJson) { callback.onToolCall(toolCallJson); }
+                    @Override public boolean isClosed() {
+                        return callback.isClosed() || (cancellationToken != null && cancellationToken.isCancelled());
+                    }
+                };
+                ModelStreamResponse streamResponse = adapter.parseStream(result.getInputStream(),
+                        defaultModel(request, null), cancellableCallback);
+                if (cancellationToken != null) cancellationToken.throwIfCancelled();
+                return streamResponse;
             }
+        } catch (CancellationException e) {
+            throw e;
         } catch (ServerException e) {
             throw e;
         } catch (Exception e) {
+            if (cancellationToken != null && cancellationToken.isCancelled()) {
+                throw new CancellationException("Agent 模型流式请求已取消");
+            }
             log.error("模型流式调用异常, provider={}", provider == null ? "n/a" : provider.getName(), e);
             throw new ServerException(500, I18nUtils.getMessage("agent.model.call.failed"));
         }

@@ -15,12 +15,11 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Deep Agent 卡死运行的兜底扫描：当运行在 QUEUED/RUNNING 状态停留超过阈值
+ * Agent 卡死运行的兜底扫描：当运行在 QUEUED/RUNNING 状态停留超过阈值
  * (默认 30 分钟)且任务不处于等待用户输入/审批时，将其标记为失败并推进任务队列。
  * <p>
- * deep-agent 自身有 runTimeoutSeconds 超时并会回传失败回调；本扫描器覆盖
- * deep-agent 崩溃、网络分区或回调丢失导致始终无终态回调的场景，避免任务永久
- * 停留在 RUNNING/PLANNING。
+ * Deep Agent 自身有超时回调；本扫描器同时覆盖普通/Deep Agent 的进程崩溃、
+ * 网络分区或回调丢失导致始终无终态回调的场景，避免运行永久停留。
  */
 @Component
 public class DeepRunTimeoutScanner {
@@ -55,7 +54,6 @@ public class DeepRunTimeoutScanner {
         }
         long cutoff = System.currentTimeMillis() - timeoutMs;
         List<AgentRun> stale = agentRunService.list(Wrappers.lambdaQuery(AgentRun.class)
-                .eq(AgentRun::getExecutionMode, "DEEP")
                 .in(AgentRun::getStatus, STATUS_QUEUED, STATUS_RUNNING)
                 .eq(AgentRun::getDeleted, false)
                 .lt(AgentRun::getCreatedAt, cutoff)
@@ -72,7 +70,8 @@ public class DeepRunTimeoutScanner {
             boolean marked = deepAgentRunService.markFailed(run.getId(),
                     "运行超时(" + minutes + " 分钟)未完成，已由平台回收");
             if (marked) {
-                log.warn("Deep 运行超时回收: runId={}, ageMs={}", run.getId(),
+                log.warn("Agent 运行超时回收: runId={}, mode={}, ageMs={}", run.getId(),
+                        run.getExecutionMode(),
                         System.currentTimeMillis() - (run.getCreatedAt() == null ? 0L : run.getCreatedAt()));
             }
         }

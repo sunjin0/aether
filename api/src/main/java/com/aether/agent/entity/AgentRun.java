@@ -78,7 +78,7 @@ public class AgentRun extends BaseEntity {
     @ApiModelProperty(value = "等待用户输入/审批的耗时（毫秒）；执行耗时 = latencyMs - waitingMs")
     private Long waitingMs;
 
-    @ApiModelProperty(value = "状态：0-成功，1-失败，2-超时")
+    @ApiModelProperty(value = "状态：0-成功，1-失败，2-超时，3-排队/等待用户，4-运行中，5-客户端取消")
     private Integer status;
 
     @ApiModelProperty(value = "错误信息")
@@ -86,6 +86,10 @@ public class AgentRun extends BaseEntity {
 
     @ApiModelProperty(value = "External Deep Agent run ID")
     private String externalRunId;
+
+    /** 调用方传入的稳定幂等键，用于普通 Agent 请求去重。 */
+    @ApiModelProperty(value = "请求幂等ID")
+    private String requestId;
 
     @ApiModelProperty(value = "Deep Agent dispatch-time retrieval sources JSON")
     private String retrievalSources;

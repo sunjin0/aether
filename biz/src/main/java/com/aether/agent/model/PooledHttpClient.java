@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 连接池HTTP客户端（降低首字延迟）。
@@ -89,6 +90,14 @@ public class PooledHttpClient {
      * 发送POST请求并返回响应流（用于SSE），支持不同模型供应商的自定义认证头。
      */
     public HttpStreamResult postStream(String url, String jsonBody, Map<String, String> headers) {
+        return postStream(url, jsonBody, headers, null);
+    }
+
+    /**
+     * 发送可取消的流式 POST 请求。取消信号触发后会关闭底层响应，解除正在阻塞的读取。
+     */
+    public HttpStreamResult postStream(String url, String jsonBody, Map<String, String> headers,
+                                       CancellationToken cancellationToken) {
         HttpPost post = new HttpPost(url);
         post.setHeader("Content-Type", "application/json");
         if (headers != null) {
@@ -120,7 +129,7 @@ public class PooledHttpClient {
                 throw new RuntimeException("模型调用返回空响应体, status=" + statusCode);
             }
             InputStream inputStream = entity.getContent();
-            return new HttpStreamResult(response, inputStream);
+            return new HttpStreamResult(response, inputStream, cancellationToken);
         } catch (IOException e) {
             post.abort();
             throw new RuntimeException("模型调用IO异常", e);
@@ -133,13 +142,39 @@ public class PooledHttpClient {
     public static class HttpStreamResult implements AutoCloseable {
         private final CloseableHttpResponse response;
         private final InputStream inputStream;
+        private final CancellationToken cancellationToken;
+        private final AtomicBoolean closed = new AtomicBoolean(false);
+        private final Thread cancellationWatcher;
 
         /**
          * 创建 {@code HttpStreamResult} 实例。
          */
-        HttpStreamResult(CloseableHttpResponse response, InputStream inputStream) {
+        HttpStreamResult(CloseableHttpResponse response, InputStream inputStream, CancellationToken cancellationToken) {
             this.response = response;
             this.inputStream = inputStream;
+            this.cancellationToken = cancellationToken;
+            this.cancellationWatcher = cancellationToken == null ? null : new Thread(this::watchCancellation,
+                    "agent-model-stream-cancel");
+            if (cancellationWatcher != null) {
+                cancellationWatcher.setDaemon(true);
+                cancellationWatcher.start();
+            }
+        }
+
+        /** 轮询取消信号并关闭响应，避免 SSE 读取长期占用连接。 */
+        private void watchCancellation() {
+            while (!closed.get()) {
+                if (cancellationToken.isCancelled()) {
+                    close();
+                    return;
+                }
+                try {
+                    Thread.sleep(100L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
         }
 
         /**
@@ -154,6 +189,10 @@ public class PooledHttpClient {
          */
         @Override
         public void close() {
+            if (!closed.compareAndSet(false, true)) return;
+            if (cancellationWatcher != null && cancellationWatcher != Thread.currentThread()) {
+                cancellationWatcher.interrupt();
+            }
             try {
                 inputStream.close();
             } catch (IOException e) {

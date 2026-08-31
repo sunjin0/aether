@@ -18,6 +18,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "AgentMessage", description = "Agent message")
 public class AgentMessage extends BaseEntity {
 
+    /** 调用方请求标识，用于在重试时去重用户消息。 */
+    private String requestId;
+
     @ApiModelProperty(value = "Conversation ID")
     private String conversationId;
 

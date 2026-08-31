@@ -93,6 +93,10 @@ aether:
 
 # 查询重写会额外触发一次同步模型调用；生产环境默认关闭以缩短首字响应时间。
 agent:
+  audit:
+    encryption-key: ${AGENT_AUDIT_ENCRYPTION_KEY:}
+    retention-days: ${AGENT_AUDIT_RETENTION_DAYS:90}
+    retention-scan-ms: ${AGENT_AUDIT_RETENTION_SCAN_MS:3600000}
   chat:
     query-rewrite:
       enabled: ${AGENT_CHAT_QUERY_REWRITE_ENABLED:false}

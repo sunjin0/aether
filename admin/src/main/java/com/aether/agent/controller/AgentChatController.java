@@ -66,6 +66,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -276,12 +277,24 @@ public class AgentChatController {
 
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
         AtomicBoolean closed = new AtomicBoolean(false);
-        emitter.onCompletion(() -> closed.set(true));
+        AtomicReference<Future<?>> workerRef = new AtomicReference<>();
+        Runnable cancelWorker = () -> {
+            Future<?> worker = workerRef.get();
+            if (worker != null && !worker.isDone()) worker.cancel(true);
+        };
+        emitter.onCompletion(() -> {
+            closed.set(true);
+            cancelWorker.run();
+        });
         emitter.onTimeout(() -> {
             closed.set(true);
+            cancelWorker.run();
             emitter.complete();
         });
-        emitter.onError(error -> closed.set(true));
+        emitter.onError(error -> {
+            closed.set(true);
+            cancelWorker.run();
+        });
 
         try {
             emitter.send(SseEmitter.event().comment("connected"));
@@ -303,7 +316,7 @@ public class AgentChatController {
 
         final long enqueuedAt = System.currentTimeMillis();
         try {
-            streamExecutor.execute(() -> {
+            Future<?> worker = streamExecutor.submit(() -> {
                 long queueWaitMs = System.currentTimeMillis() - enqueuedAt;
                 if (queueWaitMs > 0) {
                     ChatLatencyMetrics.record("chat.stream.queue_wait", queueWaitMs);
@@ -338,6 +351,10 @@ public class AgentChatController {
                     heartbeatTask.cancel(false);
                 }
             });
+            workerRef.set(worker);
+            if (closed.get()) {
+                worker.cancel(true);
+            }
         } catch (RejectedExecutionException e) {
             heartbeatTask.cancel(false);
             log.warn("流式聊天任务被拒绝: active={}, queued={}, completed={}", streamExecutor.getActiveCount(),
@@ -451,6 +468,11 @@ public class AgentChatController {
          * 处理on消息。
          */
         @Override
+        public boolean isCancelled() {
+            return closed.get() || Thread.currentThread().isInterrupted();
+        }
+
+        @Override
         public void onMessage(String conversationId, String chunk) {
             if (StringUtils.isEmpty(chunk) || closed.get()) {
                 return;
@@ -531,6 +553,18 @@ public class AgentChatController {
             data.put("toolCalls", JSON.parseArray(toolCallJson));
             data.put("requestId", requestId);
             send("tool_call", data, false);
+        }
+
+        @Override
+        public void onReplace(String conversationId, String content) {
+            synchronized (messageLock) {
+                pendingMessage.setLength(0);
+            }
+            JSONObject data = new JSONObject();
+            data.put("conversationId", conversationId);
+            data.put("requestId", requestId);
+            data.put("content", content);
+            send("replace", data, false);
         }
 
         /**

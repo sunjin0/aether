@@ -18,6 +18,12 @@ public interface ModelClient {
      */
     ModelChatResponse chat(ModelChatRequest request);
 
+    /** 支持协作式取消的非流式入口；适配器可覆盖以主动中止 HTTP 请求。 */
+    default ModelChatResponse chat(ModelChatRequest request, CancellationToken token) {
+        if (token != null) token.throwIfCancelled();
+        return chat(request);
+    }
+
     /**
      * 根据请求指定的模型提供商执行非流式对话。
      */
@@ -27,4 +33,11 @@ public interface ModelClient {
      * 执行流式对话，并通过回调持续返回增量消息、推理内容和工具调用。
      */
     ModelStreamResponse stream(ModelChatRequest request, ModelStreamCallback callback);
+
+    /** 支持协作式取消的流式入口；适配器可覆盖以主动关闭响应流。 */
+    default ModelStreamResponse stream(ModelChatRequest request, ModelStreamCallback callback,
+                                       CancellationToken token) {
+        if (token != null) token.throwIfCancelled();
+        return stream(request, callback);
+    }
 }

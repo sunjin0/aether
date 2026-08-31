@@ -15,6 +15,9 @@ import java.util.Map;
 @Data
 public class ModelChatRequest {
 
+    /** 本次聊天的调用方关联标识与幂等键。 */
+    private String requestId;
+
     private ModelProvider provider;
 
     private AgentDefinition agent;

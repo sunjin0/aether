@@ -123,7 +123,17 @@ public class ToolRouterService {
                 log.debug("工具路由向量召回失败: {}", e.toString());
             }
         }
-        return selected.isEmpty() ? null : new ArrayList<>(selected);
+        if (!selected.isEmpty()) {
+            return new ArrayList<>(selected);
+        }
+        // 无命中时仍需提供可用工具，但全量暴露会挤占模型上下文并增加误调用概率。
+        // 因此保留确定性的有限兜底集合；受保护工具由调用方合并，不受此处影响。
+        int fallbackSize = Math.min(Math.max(1, routingConfigService.topK()), routable.size());
+        List<String> fallback = new ArrayList<>();
+        for (int i = 0; i < fallbackSize; i++) {
+            fallback.add(routable.get(i).getId());
+        }
+        return fallback;
     }
 
     /**
