@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 /** 企业身份集成的脱敏元数据接口。 */
 @Api(tags = "企业身份 API")
 @RestController
+@Permission(path = "/sys/identity")
 public class IdentityController {
     private final OidcIdentityProperties oidc;
     private final ScimIdentityProperties scim;
@@ -65,7 +66,6 @@ public class IdentityController {
     }
 
     @ApiOperation("SAML 联邦登录配置")
-    @Permission(required = false)
     @GetMapping("/api/sys/identity/saml")
     public WebResponse<Map<String, Object>> saml() {
         Map<String, Object> result = new LinkedHashMap<String, Object>();
@@ -80,7 +80,6 @@ public class IdentityController {
     }
 
     @ApiOperation("SCIM 集成配置")
-    @Permission(required = false)
     @GetMapping("/api/sys/identity/scim")
     public WebResponse<Map<String, Object>> scim() {
         Map<String, Object> result = new LinkedHashMap<String, Object>();
@@ -103,7 +102,6 @@ public class IdentityController {
     }
 
     @ApiOperation("OIDC 登录配置")
-    @Permission(required = false)
     @GetMapping("/api/sys/identity/oidc")
     public WebResponse<Map<String, Object>> oidc() {
         Map<String, Object> result = new LinkedHashMap<String, Object>();

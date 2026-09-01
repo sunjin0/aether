@@ -19,7 +19,7 @@ import java.util.List;
 
 @Api(tags = "Project 管理 API")
 @RestController
-@Permission(path = "/system/tenant")
+@Permission(path = "/sys/project")
 @RequestMapping("/api/system/project")
 public class ProjectController {
     private final ProjectService service;
@@ -49,7 +49,7 @@ public class ProjectController {
 
     @ApiOperation("保存项目")
     @PostMapping
-    @Permission(path = "/system/tenant", type = Permission.Type.Write)
+    @Permission(path = "/sys/project", type = Permission.Type.Write)
     public WebResponse<String> save(@RequestBody Project request) {
         if (request == null || StringUtils.isAnyBlank(request.getWorkspaceId(), request.getCode(), request.getName()))
             return WebResponse.Error(400, "workspaceId、code 和 name 不能为空");
@@ -82,7 +82,7 @@ public class ProjectController {
 
     @ApiOperation("停用项目")
     @PostMapping("/{id}/disable")
-    @Permission(path = "/system/tenant", type = Permission.Type.Write)
+    @Permission(path = "/sys/project", type = Permission.Type.Write)
     public WebResponse<Boolean> disable(@PathVariable String id) {
         Project project = service.getById(id);
         if (project == null || Boolean.TRUE.equals(project.getDeleted())) throw new ServerException(404, "项目不存在");

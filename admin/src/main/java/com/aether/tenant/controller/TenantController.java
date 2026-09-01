@@ -15,7 +15,7 @@ import java.util.List;
 
 @Api(tags = "Tenant 管理 API")
 @RestController
-@Permission(path = "/system/tenant")
+@Permission(path = "/sys/tenant")
 @RequestMapping("/api/system/tenant")
 public class TenantController {
     private final TenantService service;
@@ -37,7 +37,7 @@ public class TenantController {
 
     @ApiOperation("保存租户")
     @PostMapping
-    @Permission(path = "/system/tenant", type = Permission.Type.Write)
+    @Permission(path = "/sys/tenant", type = Permission.Type.Write)
     public WebResponse<String> save(@RequestBody Tenant request) {
         if (request == null || StringUtils.isAnyBlank(request.getCode(), request.getName()))
             return WebResponse.Error(400, "code 和 name 不能为空");
@@ -61,7 +61,7 @@ public class TenantController {
 
     @ApiOperation("停用租户")
     @PostMapping("/{id}/disable")
-    @Permission(path = "/system/tenant", type = Permission.Type.Write)
+    @Permission(path = "/sys/tenant", type = Permission.Type.Write)
     public WebResponse<Boolean> disable(@PathVariable String id) {
         Tenant tenant = service.getById(id);
         if (tenant == null || Boolean.TRUE.equals(tenant.getDeleted())) throw new ServerException(404, "租户不存在");

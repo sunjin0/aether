@@ -16,7 +16,7 @@ import java.util.List;
 
 @Api(tags = "Workspace 管理 API")
 @RestController
-@Permission(path = "/system/tenant")
+@Permission(path = "/sys/workspace")
 @RequestMapping("/api/system/workspace")
 public class WorkspaceController {
     private final WorkspaceService service;
@@ -43,7 +43,7 @@ public class WorkspaceController {
 
     @ApiOperation("保存工作空间")
     @PostMapping
-    @Permission(path = "/system/tenant", type = Permission.Type.Write)
+    @Permission(path = "/sys/workspace", type = Permission.Type.Write)
     public WebResponse<String> save(@RequestBody Workspace request) {
         if (request == null || StringUtils.isAnyBlank(request.getTenantId(), request.getCode(), request.getName()))
             return WebResponse.Error(400, "tenantId、code 和 name 不能为空");
@@ -69,7 +69,7 @@ public class WorkspaceController {
 
     @ApiOperation("停用工作空间")
     @PostMapping("/{id}/disable")
-    @Permission(path = "/system/tenant", type = Permission.Type.Write)
+    @Permission(path = "/sys/workspace", type = Permission.Type.Write)
     public WebResponse<Boolean> disable(@PathVariable String id) {
         Workspace workspace = service.getById(id);
         if (workspace == null || Boolean.TRUE.equals(workspace.getDeleted())) throw new ServerException(404, "工作空间不存在");
