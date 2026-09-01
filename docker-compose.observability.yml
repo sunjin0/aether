@@ -4,6 +4,11 @@ services:
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./deploy/otel/collector-config.local.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks:
+      default:
+      aether-services:
+        aliases:
+          - otel-collector
     ports: ["4317:4317", "4318:4318", "9464:9464", "13133:13133"]
     stop_grace_period: 30s
   prometheus:
@@ -31,3 +36,8 @@ services:
 
 volumes:
   grafana-data:
+
+networks:
+  aether-services:
+    external: true
+    name: ${AETHER_SHARED_NETWORK:-aether-services}
