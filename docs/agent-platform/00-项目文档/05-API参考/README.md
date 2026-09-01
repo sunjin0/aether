@@ -430,7 +430,24 @@ Agent 全部启用 Skill。请求不得携带 `skillIds` 或选择/跳过字段�
 
 ---
 
-## 10. 公开端点汇总（无资源权限）
+## 10. SCIM 企业身份同步
+
+SCIM 默认关闭，启用后使用独立 Bearer Token、固定 `tenant-id` 和隔离 base path。当前支持 Users、Groups 的查询、创建、更新、软停用及标准批量操作：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET/POST | `/scim/v2/Users` | 用户查询与幂等建号 |
+| GET/PATCH/PUT/DELETE | `/scim/v2/Users/{id}` | 用户更新、替换与软停用 |
+| GET/POST | `/scim/v2/Groups` | 角色组查询与创建 |
+| PATCH/PUT/DELETE | `/scim/v2/Groups/{id}` | 组成员替换、更新与软停用 |
+| POST | `/scim/v2/Bulk` | 最多 100 个 Users/Groups 操作的事务批处理 |
+| GET | `/scim/v2/ServiceProviderConfig` | SCIM 能力声明 |
+
+Bulk 操作沿用各资源接口的租户校验、成员归属校验和错误状态；可通过 `failOnErrors` 指定累计错误数达到阈值后停止后续操作；不得在请求体、日志或审计中传递 Secret 明文。
+
+---
+
+## 11. 公开端点汇总（无资源权限）
 
 - `FileController`：`/api/file/**`
 - `DeepAgentCallbackController`：`POST /api/agent/deep-runs/callback/{runId}`（HMAC）
@@ -439,7 +456,13 @@ Agent 全部启用 Skill。请求不得携带 `skillIds` 或选择/跳过字段�
 
 ---
 
-## 11. 权限路径总表
+## 12. 运营审计导出
+
+- `GET /api/agent/governance/audit/tool-calls/export`：按可选 `startTime`、`endTime` 导出工具执行审计 CSV，单次最多 10,000 条；结果沿用租户隔离和已脱敏审计字段。
+
+---
+
+## 13. 权限路径总表
 
 | 权限路径                                                                                                                                                                 | 模块       |
 |----------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
