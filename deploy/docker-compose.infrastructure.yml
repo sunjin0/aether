@@ -1,0 +1,75 @@
+# 独立基础服务栈：不包含任何 Aether 应用容器。
+# 所有数据卷均为既有 external 卷，执行 down/rm 不会删除业务数据。
+name: aether-infrastructure
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aether-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-15432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aether}
+      POSTGRES_USER: ${POSTGRES_USER:-aether}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aether_dev}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [aether-services]
+
+  redis:
+    image: redis:7-alpine
+    container_name: aether-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-16379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [aether-services]
+
+  minio:
+    image: minio/minio:latest
+    container_name: aether-minio
+    restart: unless-stopped
+    ports:
+      - "${MINIO_API_PORT:-19000}:9000"
+      - "${MINIO_CONSOLE_PORT:-19001}:9001"
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [aether-services]
+
+networks:
+  aether-services:
+    external: true
+    name: ${AETHER_SHARED_NETWORK:-aether-services}
+
+volumes:
+  postgres-data:
+    external: true
+    name: ${AETHER_POSTGRES_VOLUME:-aether_postgres-data}
+  redis-data:
+    external: true
+    name: ${AETHER_REDIS_VOLUME:-aether_redis-data}
+  minio-data:
+    external: true
+    name: ${AETHER_MINIO_VOLUME:-aether_minio-data}

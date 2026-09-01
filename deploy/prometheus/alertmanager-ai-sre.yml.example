@@ -1,0 +1,17 @@
+# AI SRE Alertmanager 路由示例。部署时必须由 Secret 管理器渲染 webhook_secret，
+# 不要把签名密钥提交到仓库或写入 Prometheus/Alertmanager 日志。
+route:
+  receiver: aether-ai-sre
+  group_by: [alertname, cluster, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: aether-ai-sre
+    webhook_configs:
+      - url: '${AETHER_AI_SRE_ALERT_WEBHOOK_URL}'
+        send_resolved: true
+        # Aether webhook 网关要求按其部署契约生成 X-Aether-Webhook-Timestamp
+        # 与 X-Aether-Webhook-Signature；标准 Alertmanager 原生配置不内置 HMAC 头，
+        # 生产环境应在受控 webhook relay 中完成签名后再转发。

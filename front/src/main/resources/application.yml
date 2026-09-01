@@ -1,6 +1,8 @@
 spring:
   profiles:
     active: dev
+  lifecycle:
+    timeout-per-shutdown-phase: ${SERVER_SHUTDOWN_TIMEOUT:30s}
   # 国际化
   messages:
     basename: i18n.api
@@ -8,3 +10,17 @@ spring:
     fallback-to-system-locale: false
     default-locale: zh_CN
     always-use-message-format: false
+
+# 与 Admin 保持一致的日志关联格式；不输出请求体或凭据。
+logging:
+  pattern:
+    level: "%5p [traceId:%X{traceId:-}]"
+
+server:
+  shutdown: graceful
+
+# 邮件为可选外部能力；本地发布未配置有效 SMTP 时不应影响应用就绪状态。
+management:
+  health:
+    mail:
+      enabled: ${AETHER_MAIL_HEALTH_ENABLED:false}

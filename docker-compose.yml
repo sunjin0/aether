@@ -5,6 +5,13 @@ services:
       dockerfile: admin/Dockerfile
     container_name: aether-admin
     restart: unless-stopped
+    stop_grace_period: 40s
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
     mem_limit: 1g
     mem_reservation: 768m
     ports:
@@ -14,6 +21,8 @@ services:
       # Spring Boot 2.x 使用 spring.redis.*，容器内须通过服务名访问 Redis
       SPRING_REDIS_HOST: ${REDIS_HOST:-redis}
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/aether}
+      SPRING_DATA_REDIS_HOST: ${REDIS_HOST:-redis}
+      SPRING_DATA_REDIS_PORT: 6379
       DB_USERNAME: ${DB_USERNAME:-sunjin}
       DB_PASSWORD: ${DB_PASSWORD:-192837}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
@@ -42,13 +51,23 @@ services:
       dockerfile: front/Dockerfile
     container_name: aether-front
     restart: unless-stopped
+    stop_grace_period: 40s
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
     mem_limit: 1g
     mem_reservation: 768m
     ports:
       - "${FRONT_PORT:-8081}:8080"
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      SERVER_SHUTDOWN_TIMEOUT: ${SERVER_SHUTDOWN_TIMEOUT:-30s}
       SPRING_REDIS_HOST: ${REDIS_HOST:-redis}
+      SPRING_DATA_REDIS_HOST: ${REDIS_HOST:-redis}
+      SPRING_DATA_REDIS_PORT: 6379
       DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/aether}
       DB_USERNAME: ${DB_USERNAME:-sunjin}
       DB_PASSWORD: ${DB_PASSWORD:-192837}
