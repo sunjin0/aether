@@ -15,6 +15,7 @@ import com.aether.agent.vo.AgentToolVo;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.swagger.annotations.Api;
@@ -26,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.apache.commons.lang3.StringUtils;
 
 import javax.validation.constraints.NotBlank;
 import java.util.List;
@@ -93,6 +95,7 @@ public class AgentToolBindingController {
         Page<AgentToolBinding> page = agentToolBindingService.page(new Page<>(current, pageSize),
                 Wrappers.lambdaQuery(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
+                        .eq(CurrentUser.getUser() != null && CurrentUser.getUser().get("tenantId") != null, AgentToolBinding::getTenantId, CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"))
                         .in(!matchingToolIds.isEmpty(), AgentToolBinding::getToolId, matchingToolIds)
                         .eq(AgentToolBinding::getDeleted, false)
                         .orderByAsc(AgentToolBinding::getPriority));
@@ -103,6 +106,7 @@ public class AgentToolBindingController {
                 .filter(tool -> tool != null && tool.getMcpServerId() != null).map(AgentTool::getMcpServerId)
                 .distinct().collect(Collectors.toList());
         Map<String, AgentMcpServer> servers = serverIds.isEmpty() ? Collections.emptyMap() : agentMcpServerService.listByIds(serverIds).stream()
+                .filter(item -> StringUtils.isBlank(currentTenantId()) || currentTenantId().equals(item.getTenantId()))
                 .collect(Collectors.toMap(AgentMcpServer::getId, item -> item, (left, right) -> left));
         List<AgentToolBindingVo> vos = page.getRecords().stream().map(item -> {
             AgentToolBindingVo vo = new AgentToolBindingVo();
@@ -182,6 +186,7 @@ public class AgentToolBindingController {
         }
         AgentToolBinding binding = new AgentToolBinding();
         binding.setAgentDefinitionId(agentId);
+        binding.setTenantId(currentTenantId());
         binding.setToolId(dto.getToolId());
         binding.setPriority(dto.getPriority());
         binding.setStatus(dto.getStatus() != null ? dto.getStatus() : 1);
@@ -194,6 +199,10 @@ public class AgentToolBindingController {
                 && matchesText(tool.getDescription(), query.getDescription())
                 && (query.getToolType() == null || query.getToolType().trim().isEmpty()
                 || query.getToolType().equals(tool.getToolType()));
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
     }
 
     private boolean matchesText(String value, String keyword) {

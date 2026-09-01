@@ -29,6 +29,7 @@ import com.aether.entity.Option;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.aether.sys.service.DictService;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -110,6 +111,7 @@ public class AgentToolController {
                 .eq(StringUtils.isNotBlank(vo.getMcpServerId()), AgentTool::getMcpServerId, vo.getMcpServerId())
                 .eq(vo.getStatus() != null, AgentTool::getStatus, vo.getStatus())
                 .eq(AgentTool::getDeleted, false)
+                .eq(StringUtils.isNotBlank(currentTenantId()), AgentTool::getTenantId, currentTenantId())
                 .orderByDesc(AgentTool::getCreatedAt);
         Page<AgentTool> result = agentToolService.page(page, wrapper);
         Map<String, AgentToolCallStatisticsVo> statisticsMap = agentToolCallLogService.toolStatisticsMap(buildToolCallLogQuery(vo));
@@ -134,6 +136,7 @@ public class AgentToolController {
         List<Option> options = agentToolService.list(Wrappers.lambdaQuery(AgentTool.class)
                         .eq(StringUtils.isNotBlank(mcpServerId), AgentTool::getMcpServerId, mcpServerId)
                         .eq(AgentTool::getStatus, 1).eq(AgentTool::getDeleted, false)
+                .eq(StringUtils.isNotBlank(currentTenantId()), AgentTool::getTenantId, currentTenantId())
                         .orderByAsc(AgentTool::getName))
                 .stream().map(item -> new Option(StringUtils.defaultIfBlank(item.getName(), item.getCode()), item.getId())).collect(Collectors.toList());
         return WebResponse.OK(options);
@@ -147,7 +150,7 @@ public class AgentToolController {
     @PostMapping("/{id}/refresh-definition")
     public WebResponse<Void> refreshDefinition(@PathVariable @NotBlank String id) {
         AgentTool tool = agentToolService.getById(id);
-        if (tool == null || Boolean.TRUE.equals(tool.getDeleted())) {
+        if (tool == null || Boolean.TRUE.equals(tool.getDeleted()) || !toolTenantMatches(tool)) {
             throw new ServerException(404, I18nUtils.getMessage("agent.tool.not-found"));
         }
         if (StringUtils.isBlank(tool.getMcpServerId()) || StringUtils.isBlank(tool.getMcpToolName()) || mcpClient == null) {
@@ -157,6 +160,7 @@ public class AgentToolController {
         if (server == null || Boolean.TRUE.equals(server.getDeleted()) || !Integer.valueOf(1).equals(server.getStatus())) {
             throw new ServerException(422, I18nUtils.getMessage("mcp.server.disabled"));
         }
+        requireCurrentTenant(server);
         if (StringUtils.isBlank(server.getBaseUrl()) || !mcpClient.supportsTransport(server.getTransport())) {
             throw new ServerException(422, I18nUtils.getMessage("mcp.server.transport.unsupported"));
         }
@@ -186,7 +190,7 @@ public class AgentToolController {
             throw new ServerException(400, I18nUtils.getMessage("agent.tool.refresh-definition.unsupported"));
         }
         List<AgentTool> tools = agentToolService.listByIds(ids).stream()
-                .filter(tool -> !Boolean.TRUE.equals(tool.getDeleted()) && StringUtils.isNotBlank(tool.getMcpServerId())
+                .filter(tool -> !Boolean.TRUE.equals(tool.getDeleted()) && toolTenantMatches(tool) && StringUtils.isNotBlank(tool.getMcpServerId())
                         && StringUtils.isNotBlank(tool.getMcpToolName()))
                 .collect(Collectors.toList());
         Map<String, List<AgentTool>> toolsByServer = tools.stream()
@@ -201,6 +205,7 @@ public class AgentToolController {
                     failed += entry.getValue().size();
                     continue;
                 }
+                requireCurrentTenant(server);
                 mcpClient.ping(server);
                 Map<String, McpToolDefinition> definitions = mcpClient.listTools(server).stream()
                         .filter(item -> item != null && StringUtils.isNotBlank(item.getName()))
@@ -273,7 +278,8 @@ public class AgentToolController {
         Map<String, String> serverNames = serverIds.isEmpty() ? Collections.emptyMap() : agentMcpServerService.list(
                         Wrappers.lambdaQuery(AgentMcpServer.class)
                                 .in(AgentMcpServer::getId, serverIds)
-                                .eq(AgentMcpServer::getDeleted, false))
+                                .eq(AgentMcpServer::getDeleted, false)
+                                .eq(StringUtils.isNotBlank(currentTenantId()), AgentMcpServer::getTenantId, currentTenantId()))
                 .stream()
                 .collect(Collectors.toMap(AgentMcpServer::getId, AgentMcpServer::getName));
         Map<String, Long> sourceCounts = tools.stream()
@@ -358,6 +364,7 @@ public class AgentToolController {
     public WebResponse<String> save(@RequestBody AgentToolDto dto) {
         AgentTool tool = new AgentTool();
         BeanUtils.copyProperties(dto, tool);
+        tool.setTenantId(currentTenantId());
         fillToolDefaults(tool);
         boolean saved = agentToolService.save(tool);
         return WebResponse.OK(saved ? I18nUtils.getMessage("agent.tool.create.success") : I18nUtils.getMessage("agent.tool.create.fail"), tool.getId());
@@ -377,9 +384,20 @@ public class AgentToolController {
         AgentTool tool = new AgentTool();
         BeanUtils.copyProperties(dto, tool);
         tool.setId(id);
+        AgentTool existing = agentToolService.getById(id);
+        if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.tool.not-found"));
+        tool.setTenantId(existing.getTenantId());
         fillToolDefaults(tool);
         boolean updated = agentToolService.updateById(tool);
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.tool.update.success") : I18nUtils.getMessage("agent.tool.update.fail"));
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    private boolean toolTenantMatches(AgentTool tool) {
+        return StringUtils.isBlank(currentTenantId()) || currentTenantId().equals(tool.getTenantId());
     }
 
     /**
@@ -506,6 +524,7 @@ public class AgentToolController {
         if (server == null || Boolean.TRUE.equals(server.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("mcp.server.not.found"));
         }
+        requireCurrentTenant(server);
     }
 
     /**
@@ -517,9 +536,19 @@ public class AgentToolController {
         }
         AgentMcpServer server = agentMcpServerService.getById(vo.getMcpServerId());
         if (server != null && !Boolean.TRUE.equals(server.getDeleted())) {
+            if (!tenantMatches(server)) return;
             vo.setMcpServerName(server.getName());
             vo.setMcpBaseUrl(server.getBaseUrl());
         }
+    }
+
+    private void requireCurrentTenant(AgentMcpServer server) {
+        if (!tenantMatches(server)) throw new ServerException(404, I18nUtils.getMessage("mcp.server.not.found"));
+    }
+
+    private boolean tenantMatches(AgentMcpServer server) {
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        return StringUtils.isBlank(tenantId) || tenantId.equals(server.getTenantId());
     }
 
     /**

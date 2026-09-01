@@ -3,6 +3,7 @@ package com.aether.workflow.controller;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.aether.workflow.dto.AgentWorkflowCreateScheduleRequest;
 import com.aether.workflow.dto.AgentWorkflowListSchedulesRequest;
 import com.aether.workflow.dto.AgentWorkflowScheduleTriggerDto;
@@ -68,10 +69,15 @@ public class AgentWorkflowScheduleController {
         Page<AgentWorkflowScheduleTrigger> page = scheduleTriggerService.page(new Page<AgentWorkflowScheduleTrigger>(current, pageSize), Wrappers.lambdaQuery(AgentWorkflowScheduleTrigger.class)
                 .like(StringUtils.isNotBlank(condition.getName()), AgentWorkflowScheduleTrigger::getName, condition.getName())
                 .eq(StringUtils.isNotBlank(condition.getWorkflowId()), AgentWorkflowScheduleTrigger::getWorkflowId, condition.getWorkflowId())
+                .eq(StringUtils.isNotBlank(currentTenantId()), AgentWorkflowScheduleTrigger::getTenantId, currentTenantId())
                 .eq(condition.getEnabled() != null, AgentWorkflowScheduleTrigger::getEnabled, condition.getEnabled())
                 .eq(AgentWorkflowScheduleTrigger::getDeleted, false)
                 .orderByDesc(AgentWorkflowScheduleTrigger::getCreatedAt));
         return WebResponse.Page(page.getRecords(), page.getTotal());
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
     }
 
     /**

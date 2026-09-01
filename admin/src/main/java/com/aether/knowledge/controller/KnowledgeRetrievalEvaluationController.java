@@ -42,6 +42,7 @@ import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -152,6 +153,7 @@ public class KnowledgeRetrievalEvaluationController {
             datasetSnapshot = version.getSnapshotJson();
         }
         KnowledgeRetrievalEvaluationRun run = new KnowledgeRetrievalEvaluationRun();
+        run.setTenantId(currentTenantId());
         run.setEvaluationSetId(id);
         run.setEvaluationSetVersionId(evaluationSetVersionId);
         run.setAgentDefinitionIdSnapshot(set.getAgentDefinitionId());
@@ -188,6 +190,7 @@ public class KnowledgeRetrievalEvaluationController {
             if (chunks.isEmpty()) {
                 invalid++;
                 KnowledgeRetrievalEvaluationResult result = new KnowledgeRetrievalEvaluationResult();
+                result.setTenantId(run.getTenantId());
                 result.setRunId(run.getId());
                 result.setEvaluationCaseId(item.getId());
                 result.setStatus("INVALID_LABEL");
@@ -407,7 +410,8 @@ public class KnowledgeRetrievalEvaluationController {
         snapshot.put("set", set);
         snapshot.put("cases", cases);
         snapshot.put("labels", labels);
-        KnowledgeRetrievalEvaluationSetVersion version = new KnowledgeRetrievalEvaluationSetVersion();
+            KnowledgeRetrievalEvaluationSetVersion version = new KnowledgeRetrievalEvaluationSetVersion();
+        version.setTenantId(set.getTenantId());
         version.setEvaluationSetId(id);
         version.setVersionNo(latest == null ? 1 : latest.getVersionNo() + 1);
         version.setSnapshotJson(JSON.toJSONString(snapshot));
@@ -465,11 +469,13 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("查询评测集列表")
     @GetMapping("/sets")
     public WebResponse<List<KnowledgeRetrievalEvaluationSet>> sets(@RequestParam(defaultValue = "1") Long current, @RequestParam(defaultValue = "10") Long pageSize, @RequestParam(required = false) String name, @RequestParam(required = false) String agentDefinitionId) {
-        Page<KnowledgeRetrievalEvaluationSet> page = setMapper.selectPage(new Page<>(Math.max(current, 1), Math.min(Math.max(pageSize, 1), 100)), Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSet.class)
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeRetrievalEvaluationSet> setQuery = Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSet.class)
                 .eq(KnowledgeRetrievalEvaluationSet::getDeleted, false)
                 .like(StringUtils.isNotBlank(name), KnowledgeRetrievalEvaluationSet::getName, name)
                 .like(StringUtils.isNotBlank(agentDefinitionId), KnowledgeRetrievalEvaluationSet::getAgentDefinitionId, agentDefinitionId)
-                .orderByDesc(KnowledgeRetrievalEvaluationSet::getCreatedAt));
+                .orderByDesc(KnowledgeRetrievalEvaluationSet::getCreatedAt);
+        applyTenant(setQuery);
+        Page<KnowledgeRetrievalEvaluationSet> page = setMapper.selectPage(new Page<>(Math.max(current, 1), Math.min(Math.max(pageSize, 1), 100)), setQuery);
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
 
@@ -493,6 +499,7 @@ public class KnowledgeRetrievalEvaluationController {
     @PostMapping("/sets")
     public WebResponse<String> saveSet(@RequestBody SaveSetRequest request) {
         KnowledgeRetrievalEvaluationSet set = request.toEntity();
+        set.setTenantId(currentTenantId());
         if (StringUtils.isBlank(set.getAgentDefinitionId()) || StringUtils.isBlank(set.getName()))
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.set.agent-definition-and-name.required"));
         if (set.getStatus() == null) set.setStatus(1);
@@ -725,6 +732,7 @@ public class KnowledgeRetrievalEvaluationController {
         long startedAt = System.currentTimeMillis();
         KnowledgeRetrievalEvaluationReport report = evaluationService.evaluate(set.getAgentDefinitionId(), inputs);
         KnowledgeRetrievalEvaluationRun run = new KnowledgeRetrievalEvaluationRun();
+        run.setTenantId(set.getTenantId());
         run.setEvaluationSetId(id);
         run.setAgentDefinitionIdSnapshot(set.getAgentDefinitionId());
         run.setRetrievalConfigSnapshot(retrievalConfigSnapshot(set.getAgentDefinitionId(), cases, Collections.emptyList()));
@@ -745,6 +753,7 @@ public class KnowledgeRetrievalEvaluationController {
             KnowledgeRetrievalEvaluationReport.Item item = report.getItems().get(i);
             KnowledgeRetrievalEvaluationCaseEntity source = validCases.get(i);
             KnowledgeRetrievalEvaluationResult result = new KnowledgeRetrievalEvaluationResult();
+            result.setTenantId(run.getTenantId());
             result.setRunId(run.getId());
             result.setEvaluationCaseId(source.getId());
             result.setStatus(item.getStatus());
@@ -764,6 +773,7 @@ public class KnowledgeRetrievalEvaluationController {
         }
         for (KnowledgeRetrievalEvaluationCaseEntity source : invalidCases) {
             KnowledgeRetrievalEvaluationResult result = new KnowledgeRetrievalEvaluationResult();
+            result.setTenantId(run.getTenantId());
             result.setRunId(run.getId());
             result.setEvaluationCaseId(source.getId());
             result.setStatus("INVALID_LABEL");
@@ -1151,10 +1161,22 @@ public class KnowledgeRetrievalEvaluationController {
      * 处理requireSet。
      */
     private KnowledgeRetrievalEvaluationSet requireSet(String setId) {
-        KnowledgeRetrievalEvaluationSet set = setMapper.selectById(setId);
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeRetrievalEvaluationSet> query = Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSet.class)
+                .eq(KnowledgeRetrievalEvaluationSet::getId, setId);
+        applyTenant(query);
+        KnowledgeRetrievalEvaluationSet set = setMapper.selectOne(query);
         if (set == null || Boolean.TRUE.equals(set.getDeleted()))
             throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.set.not-found"));
         return set;
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    private void applyTenant(com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeRetrievalEvaluationSet> query) {
+        String tenantId = currentTenantId();
+        if (StringUtils.isNotBlank(tenantId)) query.eq(KnowledgeRetrievalEvaluationSet::getTenantId, tenantId);
     }
 
     /**

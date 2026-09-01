@@ -16,6 +16,7 @@ import com.aether.entity.Option;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.aether.utils.AesUtil;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -84,6 +85,7 @@ public class AgentMcpServerController {
                 .eq(StringUtils.isNotBlank(vo.getTransport()), AgentMcpServer::getTransport, vo.getTransport())
                 .eq(vo.getStatus() != null, AgentMcpServer::getStatus, vo.getStatus())
                 .eq(AgentMcpServer::getDeleted, false)
+                .eq(StringUtils.isNotBlank(currentTenantId()), AgentMcpServer::getTenantId, currentTenantId())
                 .orderByDesc(AgentMcpServer::getCreatedAt);
         Page<AgentMcpServer> result = agentMcpServerService.page(page, wrapper);
         List<AgentMcpServerVo> list = result.getRecords().stream().map(item -> {
@@ -104,6 +106,7 @@ public class AgentMcpServerController {
     public WebResponse<List<Option>> options() {
         List<Option> options = agentMcpServerService.list(Wrappers.lambdaQuery(AgentMcpServer.class)
                         .eq(AgentMcpServer::getStatus, 1).eq(AgentMcpServer::getDeleted, false)
+                .eq(StringUtils.isNotBlank(currentTenantId()), AgentMcpServer::getTenantId, currentTenantId())
                         .orderByAsc(AgentMcpServer::getName))
                 .stream().map(item -> new Option(item.getName(), item.getId())).collect(Collectors.toList());
         return WebResponse.OK(options);
@@ -132,6 +135,7 @@ public class AgentMcpServerController {
     public WebResponse<String> save(@RequestBody AgentMcpServerDto dto) {
         AgentMcpServer server = new AgentMcpServer();
         BeanUtils.copyProperties(dto, server);
+        server.setTenantId(currentTenantId());
         fillDefaults(server);
         encryptAuthToken(server);
         boolean saved = agentMcpServerService.save(server);
@@ -150,6 +154,7 @@ public class AgentMcpServerController {
         AgentMcpServer server = new AgentMcpServer();
         BeanUtils.copyProperties(dto, server);
         server.setId(id);
+        server.setTenantId(existing.getTenantId());
         fillDefaults(server);
         applyAuthTokenForUpdate(server, existing, dto);
         boolean updated = agentMcpServerService.updateById(server);
@@ -189,6 +194,28 @@ public class AgentMcpServerController {
         return WebResponse.OK(mcpClient.listTools(server));
     }
 
+    /** 主动检查连接器健康状态，并持久化最近一次结果。 */
+    @ApiOperation("检查MCP服务健康状态")
+    @Permission(path = "/agent/mcp-server", type = Permission.Type.Write)
+    @PostMapping("/{id}/health")
+    public WebResponse<String> health(@PathVariable @NotBlank String id) {
+        AgentMcpServer server = getExistingServer(id);
+        server.setHealthCheckedAt(System.currentTimeMillis());
+        try {
+            validateTransport(server);
+            mcpClient.ping(server);
+            server.setHealthStatus("HEALTHY");
+            server.setHealthMessage(null);
+            agentMcpServerService.updateById(server);
+            return WebResponse.OK("HEALTHY");
+        } catch (RuntimeException ex) {
+            server.setHealthStatus("UNHEALTHY");
+            server.setHealthMessage(safeHealthMessage(ex));
+            agentMcpServerService.updateById(server);
+            return WebResponse.Error(502, "连接检查失败");
+        }
+    }
+
     /**
      * 将选中的远端 MCP 工具导入本地工具中心。
      */
@@ -214,11 +241,13 @@ public class AgentMcpServerController {
             boolean exists = agentToolService.count(Wrappers.lambdaQuery(AgentTool.class)
                     .eq(AgentTool::getMcpServerId, id)
                     .eq(AgentTool::getMcpToolName, definition.getName())
-                    .eq(AgentTool::getDeleted, false)) > 0;
+                    .eq(AgentTool::getDeleted, false)
+                    .eq(StringUtils.isNotBlank(currentTenantId()), AgentTool::getTenantId, currentTenantId())) > 0;
             if (exists) {
                 continue;
             }
             AgentTool tool = new AgentTool();
+            tool.setTenantId(server.getTenantId());
             tool.setMcpServerId(id);
             tool.setMcpToolName(definition.getName());
             tool.setName(definition.getName());
@@ -238,10 +267,21 @@ public class AgentMcpServerController {
      */
     private AgentMcpServer getExistingServer(String id) {
         AgentMcpServer server = agentMcpServerService.getById(id);
-        if (server == null || Boolean.TRUE.equals(server.getDeleted())) {
+        if (server == null || Boolean.TRUE.equals(server.getDeleted())
+                || (StringUtils.isNotBlank(currentTenantId()) && !currentTenantId().equals(server.getTenantId()))) {
             throw new ServerException(404, I18nUtils.getMessage("mcp.server.not.found"));
         }
         return server;
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    private String safeHealthMessage(RuntimeException ex) {
+        String message = StringUtils.defaultString(ex == null ? null : ex.getMessage(), "连接检查失败")
+                .replaceAll("(?i)(password|passwd|secret|token|api[-_]?key)(\\s*[=:]\\s*)[^,;\\s]+", "$1$2[REDACTED]");
+        return StringUtils.abbreviate(message, 500);
     }
 
     /**
@@ -259,6 +299,15 @@ public class AgentMcpServerController {
      * 处理fillDefaults。
      */
     private void fillDefaults(AgentMcpServer server) {
+        if (StringUtils.isNotBlank(server.getCredentialRef())
+                && !server.getCredentialRef().matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
+            throw new ServerException(422, "Connector 凭据引用格式无效");
+        }
+        if (StringUtils.isBlank(server.getVersion())) {
+            server.setVersion("1.0.0");
+        } else if (!server.getVersion().matches("[0-9A-Za-z][0-9A-Za-z._-]{0,31}")) {
+            throw new ServerException(422, "Connector 版本格式无效");
+        }
         if (StringUtils.isBlank(server.getTransport())) {
             server.setTransport("http");
         }

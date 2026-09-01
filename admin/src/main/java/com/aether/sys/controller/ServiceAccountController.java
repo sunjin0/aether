@@ -7,6 +7,7 @@ import com.aether.agent.service.AgentRunService;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.aether.sys.dto.ServiceAccountCreateDto;
 import com.aether.sys.dto.ServiceAccountUpdateDto;
 import com.aether.sys.dto.ServiceAccountListRequest;
@@ -76,6 +77,7 @@ public class ServiceAccountController {
         long pageSize = query == null || query.getPageSize() == null ? 20L : Math.min(query.getPageSize(), 100L);
         Page<ServiceAccount> page = serviceAccountService.page(new Page<ServiceAccount>(current, pageSize),
                 Wrappers.lambdaQuery(ServiceAccount.class).eq(ServiceAccount::getDeleted, false)
+                        .eq(CurrentUser.getUser() != null && org.apache.commons.lang3.StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")), ServiceAccount::getTenantId, CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"))
                         .eq(query != null && org.apache.commons.lang3.StringUtils.isNotBlank(query.getApplicationId()), ServiceAccount::getApplicationId, query == null ? null : query.getApplicationId())
                         .orderByDesc(ServiceAccount::getCreatedAt));
         List<ServiceAccountVo> rows = page.getRecords().stream().map(this::vo).collect(Collectors.toList());
@@ -152,7 +154,9 @@ public class ServiceAccountController {
         long last24HoursStart = now - 24L * 60L * 60L * 1000L;
         long previous24HoursStart = last24HoursStart - 24L * 60L * 60L * 1000L;
         List<ServiceAccount> accounts = serviceAccountService.list(Wrappers.lambdaQuery(ServiceAccount.class)
-                .eq(ServiceAccount::getDeleted, false));
+                .eq(ServiceAccount::getDeleted, false)
+                .and(CurrentUser.getUser() != null && org.apache.commons.lang3.StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")),
+                        q -> q.eq(ServiceAccount::getTenantId, CurrentUser.getUser().get("tenantId"))));
         Map<String, ServiceAccount> accountByPrincipal = new HashMap<String, ServiceAccount>();
         for (ServiceAccount account : accounts) accountByPrincipal.put("sa:" + account.getId(), account);
         List<AgentRun> runs = accountByPrincipal.isEmpty() ? new ArrayList<AgentRun>() : agentRunService.list(

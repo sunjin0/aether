@@ -9,8 +9,11 @@ import com.aether.i18n.I18nService;
 import com.aether.i18n.I18nUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -70,6 +73,28 @@ class AgentMcpServerControllerTest {
         assertThrows(ServerException.class, () -> controller.listTools("server-1"));
 
         verify(mcpClient, never()).listTools(any());
+    }
+
+    @Test
+    void healthMessageRedactsCredentialValues() {
+        AgentMcpServerController controller = new AgentMcpServerController(
+                mock(AgentMcpServerService.class), mock(AgentToolService.class), mock(McpClient.class));
+        String message = ReflectionTestUtils.invokeMethod(controller, "safeHealthMessage",
+                new RuntimeException("remote token=secret-value password=hunter2"));
+        assertTrue(message.contains("[REDACTED]"));
+        assertFalse(message.contains("secret-value"));
+        assertFalse(message.contains("hunter2"));
+    }
+
+    @Test
+    void connectorVersionDefaultsAndRejectsMalformedValue() {
+        AgentMcpServerController controller = new AgentMcpServerController(
+                mock(AgentMcpServerService.class), mock(AgentToolService.class), mock(McpClient.class));
+        AgentMcpServer server = new AgentMcpServer();
+        ReflectionTestUtils.invokeMethod(controller, "fillDefaults", server);
+        org.junit.jupiter.api.Assertions.assertEquals("1.0.0", server.getVersion());
+        server.setVersion("invalid version");
+        assertThrows(ServerException.class, () -> ReflectionTestUtils.invokeMethod(controller, "fillDefaults", server));
     }
 
     /**

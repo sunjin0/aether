@@ -24,6 +24,7 @@ import com.aether.workflow.vo.AgentWorkflowDeadLetterVo;
 import com.aether.workflow.vo.AgentWorkflowVersionVo;
 import com.aether.workflow.vo.AgentWorkflowVersionDiffVo;
 import com.aether.workflow.runtime.WorkflowDefinitionValidator;
+import com.aether.evaluation.service.EvaluationPolicyService;
 import com.aether.workflow.runtime.WorkflowSseHub;
 import com.aether.workflow.runtime.WorkflowCallbackService;
 import com.aether.sys.service.ServiceAccountService;
@@ -31,8 +32,8 @@ import com.aether.sys.entity.ServiceAccount;
 import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
-import com.aether.local.CurrentUser;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.swagger.annotations.Api;
@@ -60,6 +61,8 @@ import com.alibaba.fastjson2.JSONObject;
 @Permission(path = "/workflow/workflow")
 @RequestMapping("/api/agent/workflow")
 public class AgentWorkflowController {
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private EvaluationPolicyService evaluationPolicyService;
     private final AgentWorkflowService workflowService;
     private final AgentWorkflowVersionService versionService;
     private final AgentWorkflowInstanceService instanceService;
@@ -124,7 +127,9 @@ public class AgentWorkflowController {
         Page<AgentWorkflow> page = workflowService.page(new Page<AgentWorkflow>(query.getCurrent(), query.getPageSize()), Wrappers.lambdaQuery(AgentWorkflow.class)
                 .like(StringUtils.isNotBlank(query.getName()), AgentWorkflow::getName, query.getName()).eq(query.getStatus() != null, AgentWorkflow::getStatus, query.getStatus())
                 .eq(StringUtils.isNotBlank(query.getApplicationId()), AgentWorkflow::getApplicationId, query.getApplicationId())
-                .eq(AgentWorkflow::getDeleted, false).orderByDesc(AgentWorkflow::getUpdatedAt));
+                .eq(AgentWorkflow::getDeleted, false)
+                .eq(StringUtils.isNotBlank(currentTenantId()), AgentWorkflow::getTenantId, currentTenantId())
+                .orderByDesc(AgentWorkflow::getUpdatedAt));
         return WebResponse.Page(page.getRecords().stream().map(item -> {
             AgentWorkflowVo vo = new AgentWorkflowVo();
             BeanUtils.copyProperties(item, vo);
@@ -197,6 +202,7 @@ public class AgentWorkflowController {
                 .eq(AgentWorkflow::getDeleted, false)) > 0) throw new ServerException(422, "工作流编码已存在");
         AgentWorkflow entity = new AgentWorkflow();
         BeanUtils.copyProperties(dto, entity);
+        entity.setTenantId(currentTenantId());
         entity.setApplicationId(applicationId);
         entity.setStatus(0);
         // 新建草稿即具备一个合法的最小顺序流程，避免尚未编辑画布时保存或发布被空画布校验拦截。
@@ -235,6 +241,8 @@ public class AgentWorkflowController {
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<Integer> publish(@PathVariable String id) {
         AgentWorkflow workflow = required(id);
+        if (evaluationPolicyService != null && !evaluationPolicyService.allowedToPublish("WORKFLOW", id))
+            throw new ServerException(409, "工作流未通过配置的评测门禁");
         String applicationId = requireActiveApplication(workflow.getApplicationId());
         WorkflowDefinitionValidator.validate(workflow.getNodes(), workflow.getEdges());
         WorkflowDefinitionValidator.validateVariables(workflow.getNodes(), workflow.getEdges(), workflow.getInputSchema());
@@ -243,6 +251,7 @@ public class AgentWorkflowController {
         validateSubflowDependencies(workflow);
         int number = workflow.getPublishedVersion() == null ? 1 : workflow.getPublishedVersion() + 1;
         AgentWorkflowVersion version = new AgentWorkflowVersion();
+        version.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
         version.setWorkflowId(id);
         version.setVersionNo(number);
         version.setNodes(workflow.getNodes());
@@ -346,6 +355,7 @@ public class AgentWorkflowController {
         validateResources(dto.getNodes(), dto.getApplicationId());
         AgentWorkflow workflow = new AgentWorkflow();
         BeanUtils.copyProperties(dto, workflow);
+        workflow.setTenantId(currentTenantId());
         workflow.setStatus(0);
         workflow.setPublishedVersion(null);
         workflowService.save(workflow);
@@ -373,7 +383,9 @@ public class AgentWorkflowController {
     public WebResponse<List<com.aether.workflow.entity.AgentWorkflowTemplate>> templates(@RequestBody(required = false) AgentWorkflowListTemplatesRequest query) {
         return WebResponse.OK(templateService.list(Wrappers.lambdaQuery(com.aether.workflow.entity.AgentWorkflowTemplate.class)
                 .like(query != null && StringUtils.isNotBlank(query.getName()), com.aether.workflow.entity.AgentWorkflowTemplate::getName, query == null ? null : query.getName())
-                .eq(com.aether.workflow.entity.AgentWorkflowTemplate::getDeleted, false).orderByDesc(com.aether.workflow.entity.AgentWorkflowTemplate::getCreatedAt)));
+                .eq(com.aether.workflow.entity.AgentWorkflowTemplate::getDeleted, false)
+                .eq(StringUtils.isNotBlank(currentTenantId()), com.aether.workflow.entity.AgentWorkflowTemplate::getTenantId, currentTenantId())
+                .orderByDesc(com.aether.workflow.entity.AgentWorkflowTemplate::getCreatedAt)));
     }
 
     /**
@@ -468,6 +480,7 @@ public class AgentWorkflowController {
                 new Page<com.aether.workflow.entity.AgentWorkflowWebhookTrigger>(query.getCurrent(), query.getPageSize()),
                 Wrappers.lambdaQuery(com.aether.workflow.entity.AgentWorkflowWebhookTrigger.class)
                         .eq(StringUtils.isNotBlank(query.getWorkflowId()), com.aether.workflow.entity.AgentWorkflowWebhookTrigger::getWorkflowId, query.getWorkflowId())
+                        .eq(StringUtils.isNotBlank(currentTenantId()), com.aether.workflow.entity.AgentWorkflowWebhookTrigger::getTenantId, currentTenantId())
                         .eq(com.aether.workflow.entity.AgentWorkflowWebhookTrigger::getDeleted, false)
                         .orderByDesc(com.aether.workflow.entity.AgentWorkflowWebhookTrigger::getCreatedAt));
         List<AgentWorkflowWebhookTriggerVo> result = page.getRecords().stream().map(item -> {
@@ -846,6 +859,15 @@ public class AgentWorkflowController {
         return value;
     }
 
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    private boolean tenantMatches(String tenantId) {
+        String current = currentTenantId();
+        return StringUtils.isBlank(current) || StringUtils.isBlank(tenantId) || current.equals(tenantId);
+    }
+
     private void addNodeType(List<Map<String, String>> types, String type, String label) {
         Map<String, String> item = new LinkedHashMap<String, String>();
         item.put("type", type);
@@ -864,26 +886,26 @@ public class AgentWorkflowController {
                 AgentDefinition agent = agentDefinitionService.getById(resourceId);
                 if (agent == null || Boolean.TRUE.equals(agent.getDeleted()) || !Integer.valueOf(1).equals(agent.getStatus()))
                     throw new ServerException(422, I18nUtils.getMessage("workflow.node.agent.unavailable"));
-                if (!StringUtils.equals(applicationId, normalizedApplicationId(agent.getApplicationId())))
+                if (!StringUtils.equals(applicationId, normalizedApplicationId(agent.getApplicationId())) || !tenantMatches(agent.getTenantId()))
                     throw new ServerException(422, "工作流与 Agent 必须绑定到同一业务空间");
             }
             if ("tool".equals(type)) {
                 AgentTool tool = agentToolService.getById(resourceId);
-                if (tool == null || Boolean.TRUE.equals(tool.getDeleted()) || !Integer.valueOf(1).equals(tool.getStatus()))
+                if (tool == null || Boolean.TRUE.equals(tool.getDeleted()) || !Integer.valueOf(1).equals(tool.getStatus()) || !tenantMatches(tool.getTenantId()))
                     throw new ServerException(422, I18nUtils.getMessage("workflow.node.mcp-tool.unavailable"));
             }
             if ("approval".equals(type) && StringUtils.isNotBlank(node.getString("approverServiceAccountId"))) {
                 ServiceAccount approver = serviceAccountService.getById(node.getString("approverServiceAccountId"));
                 if (approver == null || Boolean.TRUE.equals(approver.getDeleted()) || !Boolean.TRUE.equals(approver.getEnabled()))
                     throw new ServerException(422, "审批节点绑定的服务账号不存在或已停用");
-                if (!StringUtils.equals(applicationId, normalizedApplicationId(approver.getApplicationId())))
+                if (!StringUtils.equals(applicationId, normalizedApplicationId(approver.getApplicationId())) || !tenantMatches(approver.getTenantId()))
                     throw new ServerException(422, "工作流与审批服务账号必须绑定到同一业务空间");
             }
             if ("subflow".equals(type)) {
                 AgentWorkflow child = workflowService.getById(node.getString("workflowId"));
                 if (child == null || Boolean.TRUE.equals(child.getDeleted()) || !Integer.valueOf(1).equals(child.getStatus()))
                     throw new ServerException(422, "子流程不存在或未发布");
-                if (!StringUtils.equals(applicationId, normalizedApplicationId(child.getApplicationId())))
+                if (!StringUtils.equals(applicationId, normalizedApplicationId(child.getApplicationId())) || !tenantMatches(child.getTenantId()))
                     throw new ServerException(422, "工作流与子流程必须绑定到同一业务空间");
                 AgentWorkflowVersion childVersion = versionService.getOne(Wrappers.lambdaQuery(AgentWorkflowVersion.class)
                         .eq(AgentWorkflowVersion::getWorkflowId, child.getId()).eq(AgentWorkflowVersion::getVersionNo, node.getIntValue("versionNo"))
@@ -911,6 +933,8 @@ public class AgentWorkflowController {
                     throw new ServerException(422, "子流程不存在或未发布");
                 if (!StringUtils.equals(workflow.getApplicationId(), child.getApplicationId()))
                     throw new ServerException(422, "工作流与子流程必须绑定到同一业务空间");
+                if (!tenantMatches(child.getTenantId()))
+                    throw new ServerException(422, "工作流与子流程必须属于同一租户");
                 AgentWorkflowVersion fixedVersion = versionService.getOne(Wrappers.lambdaQuery(AgentWorkflowVersion.class)
                         .eq(AgentWorkflowVersion::getWorkflowId, childId).eq(AgentWorkflowVersion::getVersionNo, node.getIntValue("versionNo"))
                         .eq(AgentWorkflowVersion::getDeleted, false));
@@ -918,6 +942,7 @@ public class AgentWorkflowController {
                 AgentWorkflow snapshot = new AgentWorkflow();
                 snapshot.setId(child.getId());
                 snapshot.setApplicationId(child.getApplicationId());
+                snapshot.setTenantId(child.getTenantId());
                 snapshot.setStatus(child.getStatus());
                 snapshot.setNodes(fixedVersion.getNodes());
                 validateSubflowDependencies(snapshot, visiting);

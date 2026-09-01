@@ -17,6 +17,7 @@ import com.aether.knowledge.model.KnowledgeBaseScope;
 import com.aether.knowledge.model.KnowledgeBaseVisibility;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -83,6 +84,9 @@ public class KnowledgeBaseController {
         }
         Wrapper<KnowledgeBase> wrapper = Wrappers.lambdaQuery(KnowledgeBase.class)
                 .in(KnowledgeBase::getId, readableIds)
+                .and(CurrentUser.getUser() != null && StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")), q ->
+                        q.eq(KnowledgeBase::getTenantId, CurrentUser.getUser().get("tenantId"))
+                                )
                 .eq(StringUtils.isNotBlank(vo.getScope()), KnowledgeBase::getScope, vo.getScope())
                 .eq(StringUtils.isNotBlank(vo.getEmbeddingProviderId()), KnowledgeBase::getEmbeddingProviderId, vo.getEmbeddingProviderId())
                 .like(StringUtils.isNotBlank(vo.getName()), KnowledgeBase::getName, vo.getName())
@@ -110,12 +114,16 @@ public class KnowledgeBaseController {
                                              @RequestParam(value = "indexStatus", required = false) Integer indexStatus) {
         List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
         if (readableIds.isEmpty()) return WebResponse.OK(Collections.emptyList());
-        List<Option> options = knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeBase> optionsQuery = Wrappers.lambdaQuery(KnowledgeBase.class)
                         .in(KnowledgeBase::getId, readableIds)
+                        .and(CurrentUser.getUser() != null && StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")), q ->
+                                q.eq(KnowledgeBase::getTenantId, CurrentUser.getUser().get("tenantId"))
+                                        )
                         .eq(status != null, KnowledgeBase::getStatus, status)
                         .eq(indexStatus != null, KnowledgeBase::getIndexStatus, indexStatus)
                         .eq(KnowledgeBase::getDeleted, false)
-                        .orderByAsc(KnowledgeBase::getName))
+                        .orderByAsc(KnowledgeBase::getName);
+        List<Option> options = knowledgeBaseService.list(optionsQuery)
                 .stream().map(item -> new Option(item.getName(), item.getId())).collect(Collectors.toList());
         return WebResponse.OK(options);
     }
@@ -141,6 +149,9 @@ public class KnowledgeBaseController {
     public WebResponse<String> save(@RequestBody CreateRequest request) {
         KnowledgeBaseVo vo = writableVo(request);
         KnowledgeBase kb = mutableFields(vo);
+        if (CurrentUser.getUser() != null) {
+            kb.setTenantId(CurrentUser.getUser().get("tenantId"));
+        }
         kb.setReviewConfig(validateReviewConfig(vo.getReviewConfig()));
         kb.setOwnerAdminId(knowledgeAccessService.currentAdminId());
         if (kb.getStatus() == null) {

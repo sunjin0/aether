@@ -76,8 +76,10 @@ public class AgentArtifactController {
     @ApiOperation("查询本次运行已生成文件")
     @GetMapping("/run/{runId}")
     public WebResponse<AgentArtifact> byRun(@PathVariable @NotBlank String runId) {
+        String tenantId = currentTenantId();
         AgentArtifact artifact = artifactService.getOne(com.baomidou.mybatisplus.core.toolkit.Wrappers.lambdaQuery(AgentArtifact.class)
                 .eq(AgentArtifact::getRunId, runId).eq(AgentArtifact::getUserId, currentUserId())
+                .eq(StringUtils.isNotBlank(tenantId), AgentArtifact::getTenantId, tenantId)
                 .isNull(AgentArtifact::getRecycledAt).orderByDesc(AgentArtifact::getCreatedAt).last("limit 1"));
         return WebResponse.OK(artifact);
     }
@@ -130,6 +132,10 @@ public class AgentArtifactController {
         if (StringUtils.isBlank(userId))
             throw new ServerException(401, I18nUtils.getMessage("agent.artifact.unauthorized"));
         return userId;
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
     }
 
     /**

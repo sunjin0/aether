@@ -28,13 +28,16 @@ import io.swagger.annotations.ApiOperation;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.beans.BeanUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /** 面向外部业务系统的 Agent 应用空间管理。 */
@@ -42,6 +45,8 @@ import java.util.stream.Collectors;
 @Api(tags = "Agent 应用管理 API")
 @RequestMapping("/api/agent/application")
 public class AgentApplicationController {
+    @Autowired(required = false)
+    private com.aether.tenant.service.TenantService tenantService;
     private final AgentApplicationService applicationService;
     private final AgentRunService agentRunService;
     private final AgentWorkflowInstanceService workflowInstanceService;
@@ -71,6 +76,7 @@ public class AgentApplicationController {
         long pageSize = query == null || query.getPageSize() == null ? 20L : Math.min(100L, query.getPageSize());
         Page<AgentApplication> page = applicationService.page(new Page<AgentApplication>(current, pageSize),
                 Wrappers.lambdaQuery(AgentApplication.class).eq(AgentApplication::getDeleted, false)
+                        .eq(StringUtils.hasText(currentTenantId()), AgentApplication::getTenantId, currentTenantId())
                         .like(query != null && StringUtils.hasText(query.getName()), AgentApplication::getName, query == null ? null : query.getName())
                         .like(query != null && StringUtils.hasText(query.getCode()), AgentApplication::getCode, query == null ? null : query.getCode())
                         .eq(query != null && query.getStatus() != null, AgentApplication::getStatus, query == null ? null : query.getStatus())
@@ -83,10 +89,12 @@ public class AgentApplicationController {
     @Permission(path = "/agent/application", type = Permission.Type.Write)
     public WebResponse<Void> create(@RequestBody AgentApplicationDto dto) {
         validate(dto);
-        if (applicationService.count(Wrappers.lambdaQuery(AgentApplication.class).eq(AgentApplication::getCode, dto.getCode())
-                .eq(AgentApplication::getDeleted, false)) > 0) throw new ServerException(422, I18nUtils.getMessage("agent.application.code.exists"));
         AgentApplication entity = new AgentApplication();
         BeanUtils.copyProperties(dto, entity);
+        if (!StringUtils.hasText(entity.getTenantId())) entity.setTenantId(currentTenantId());
+        if (applicationService.count(Wrappers.lambdaQuery(AgentApplication.class).eq(AgentApplication::getCode, entity.getCode())
+                .eq(AgentApplication::getTenantId, entity.getTenantId()).eq(AgentApplication::getDeleted, false)) > 0)
+            throw new ServerException(422, I18nUtils.getMessage("agent.application.code.exists"));
         if (entity.getStatus() == null) entity.setStatus(1);
         applicationService.save(entity);
         return WebResponse.OK(I18nUtils.getMessage("agent.application.create.success"));
@@ -98,11 +106,16 @@ public class AgentApplicationController {
     public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentApplicationDto dto) {
         AgentApplication entity = applicationService.getById(id);
         if (entity == null || Boolean.TRUE.equals(entity.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.application.not-found"));
+        requireCurrentTenant(entity);
         validate(dto);
-        if (!entity.getCode().equals(dto.getCode()) && applicationService.count(Wrappers.lambdaQuery(AgentApplication.class)
-                .eq(AgentApplication::getCode, dto.getCode()).eq(AgentApplication::getDeleted, false)) > 0)
+        if ((!entity.getCode().equals(dto.getCode()) || !Objects.equals(entity.getTenantId(), dto.getTenantId()))
+                && applicationService.count(Wrappers.lambdaQuery(AgentApplication.class)
+                .eq(AgentApplication::getCode, dto.getCode()).eq(AgentApplication::getTenantId, entity.getTenantId())
+                .ne(AgentApplication::getId, id).eq(AgentApplication::getDeleted, false)) > 0)
             throw new ServerException(422, I18nUtils.getMessage("agent.application.code.exists"));
         BeanUtils.copyProperties(dto, entity);
+        // 租户归属不可通过普通编辑接口变更或清空。
+        entity.setTenantId(applicationService.getById(id).getTenantId());
         applicationService.updateById(entity);
         return WebResponse.OK(I18nUtils.getMessage("agent.application.update.success"));
     }
@@ -113,6 +126,7 @@ public class AgentApplicationController {
     public WebResponse<Void> delete(@PathVariable String id) {
         AgentApplication entity = applicationService.getById(id);
         if (entity == null || Boolean.TRUE.equals(entity.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.application.not-found"));
+        requireCurrentTenant(entity);
         if ("0".equals(id)) throw new ServerException(422, I18nUtils.getMessage("agent.application.default.delete.forbidden"));
         if (hasReferences(id)) throw new ServerException(422, I18nUtils.getMessage("agent.application.delete.references.exist"));
         applicationService.removeById(id);
@@ -123,7 +137,10 @@ public class AgentApplicationController {
     @GetMapping("/{id}/usage")
     @Permission(path = "/agent/application")
     public WebResponse<AgentApplicationUsageVo> usage(@PathVariable String id) {
-        applicationService.requireActive(id);
+        AgentApplication application = applicationService.requireActive(id);
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        if (StringUtils.hasText(tenantId) && !tenantId.equals(application.getTenantId()))
+            throw new ServerException(404, I18nUtils.getMessage("agent.application.not-found"));
         AgentApplicationUsageVo value = new AgentApplicationUsageVo(); value.setApplicationId(id);
         java.util.List<AgentRun> runs = agentRunService.list(Wrappers.lambdaQuery(AgentRun.class).eq(AgentRun::getApplicationId, id).eq(AgentRun::getDeleted, false));
         value.setAgentRuns((long) runs.size()); value.setTotalTokens(runs.stream().mapToLong(item -> item.getTotalTokens() == null ? 0L : item.getTotalTokens()).sum());
@@ -136,9 +153,28 @@ public class AgentApplicationController {
         if (dto == null || !StringUtils.hasText(dto.getCode()) || !StringUtils.hasText(dto.getName()))
             throw new ServerException(422, I18nUtils.getMessage("agent.application.code-name.required"));
         if (!dto.getCode().matches("[A-Za-z0-9_-]{2,64}")) throw new ServerException(422, I18nUtils.getMessage("agent.application.code.invalid"));
+        String currentTenantId = currentTenantId();
+        if (StringUtils.hasText(currentTenantId) && StringUtils.hasText(dto.getTenantId())
+                && !currentTenantId.equals(dto.getTenantId()))
+            throw new ServerException(403, "不能指定其他租户");
+        if (StringUtils.hasText(dto.getTenantId()) && tenantService != null) {
+            com.aether.tenant.entity.Tenant tenant = tenantService.getById(dto.getTenantId());
+            if (tenant == null || Boolean.TRUE.equals(tenant.getDeleted()) || !Integer.valueOf(1).equals(tenant.getStatus()))
+                throw new ServerException(422, "所属租户不存在或已停用");
+        }
         if ((dto.getMaxAgentCallsPerHour() != null && (dto.getMaxAgentCallsPerHour() < 0 || dto.getMaxAgentCallsPerHour() > 100000))
                 || (dto.getMaxWorkflowStartsPerHour() != null && (dto.getMaxWorkflowStartsPerHour() < 0 || dto.getMaxWorkflowStartsPerHour() > 100000)))
             throw new ServerException(422, I18nUtils.getMessage("agent.application.quota.invalid"));
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    private void requireCurrentTenant(AgentApplication entity) {
+        String tenantId = currentTenantId();
+        if (StringUtils.hasText(tenantId) && !tenantId.equals(entity.getTenantId()))
+            throw new ServerException(404, I18nUtils.getMessage("agent.application.not-found"));
     }
 
     private boolean hasReferences(String applicationId) {

@@ -17,6 +17,7 @@ import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.aether.utils.AesUtil;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -85,6 +86,7 @@ public class AgentDefinitionController {
                 .eq(StringUtils.isNotBlank(vo.getModelId()), AgentDefinition::getModelId, vo.getModelId())
                 .eq(StringUtils.isNotBlank(vo.getApplicationId()), AgentDefinition::getApplicationId, vo.getApplicationId())
                 .eq(AgentDefinition::getDeleted, false)
+                .eq(StringUtils.isNotBlank(currentTenantId()), AgentDefinition::getTenantId, currentTenantId())
                 .orderByDesc(AgentDefinition::getCreatedAt);
         Page<AgentDefinition> result = agentDefinitionService.page(page, wrapper);
         List<AgentDefinitionVo> list = result.getRecords().stream().map(item -> {
@@ -111,6 +113,7 @@ public class AgentDefinitionController {
                         .eq(AgentDefinition::getApplicationId, scopedApplicationId)
                         .eq(status != null, AgentDefinition::getStatus, status)
                         .eq(AgentDefinition::getDeleted, false)
+                .eq(StringUtils.isNotBlank(currentTenantId()), AgentDefinition::getTenantId, currentTenantId())
                         .orderByAsc(AgentDefinition::getName))
                 .stream().map(item -> {
                     Option option = new Option(item.getName(), item.getId());
@@ -135,6 +138,7 @@ public class AgentDefinitionController {
         if (definition == null || Boolean.TRUE.equals(definition.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
+        requireTenant(definition);
         AgentDefinitionVo vo = new AgentDefinitionVo();
         List<String> toolIds = agentToolBindingService.lambdaQuery()
                 .eq(AgentToolBinding::getAgentDefinitionId, id)
@@ -161,6 +165,7 @@ public class AgentDefinitionController {
         applyModelCatalog(dto);
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
+        definition.setTenantId(currentTenantId());
         definition.setApplicationId(normalizeApplicationId(dto.getApplicationId()));
         applyEmailConfiguration(definition, dto, null);
         boolean saved = agentDefinitionService.save(definition);
@@ -193,9 +198,11 @@ public class AgentDefinitionController {
         if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
+        requireTenant(existing);
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
         definition.setId(id);
+        definition.setTenantId(existing.getTenantId());
         definition.setApplicationId(normalizeApplicationId(StringUtils.defaultIfBlank(dto.getApplicationId(), existing.getApplicationId())));
         applyEmailConfiguration(definition, dto, existing);
         boolean updated = agentDefinitionService.updateById(definition);
@@ -214,6 +221,18 @@ public class AgentDefinitionController {
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.definition.update.success") : I18nUtils.getMessage("agent.definition.update.fail"));
     }
 
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    private void requireTenant(AgentDefinition definition) {
+        String tenantId = currentTenantId();
+        if (StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(definition.getTenantId())
+                && !tenantId.equals(definition.getTenantId())) {
+            throw new ServerException(403, "不能访问其他租户的 Agent");
+        }
+    }
+
     /**
      * 软删除 Agent 定义。
      */
@@ -225,6 +244,9 @@ public class AgentDefinitionController {
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
+        AgentDefinition existing = agentDefinitionService.getById(id);
+        if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
+        requireTenant(existing);
         boolean removed = agentDefinitionService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.definition.delete.success") : I18nUtils.getMessage("agent.definition.delete.fail"));
     }
@@ -239,6 +261,9 @@ public class AgentDefinitionController {
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
     public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody Status vo) {
+        AgentDefinition existing = agentDefinitionService.getById(id);
+        if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
+        requireTenant(existing);
         AgentDefinition definition = new AgentDefinition();
         definition.setId(id);
         definition.setStatus(vo.getStatus());

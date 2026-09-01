@@ -150,6 +150,7 @@ public class KnowledgeDocumentController {
         KnowledgeDocumentVo vo = createVo(request);
         KnowledgeBase base = knowledgeAccessService.requireWritable(vo.getKnowledgeBaseId());
         KnowledgeDocument document = new KnowledgeDocument();
+        document.setTenantId(base.getTenantId());
         document.setKnowledgeBaseId(vo.getKnowledgeBaseId());
         document.setTitle(vo.getTitle());
         document.setContent(null);
@@ -180,13 +181,14 @@ public class KnowledgeDocumentController {
     public WebResponse<String> upload(@RequestParam("knowledgeBaseId") String knowledgeBaseId,
                                       @RequestParam("file") MultipartFile file,
                                       @RequestParam(value = "title", required = false) String title) throws Exception {
-        knowledgeAccessService.requireWritable(knowledgeBaseId);
+        KnowledgeBase base = knowledgeAccessService.requireWritable(knowledgeBaseId);
         String operatorId = knowledgeAccessService.currentAdminId();
         if (file == null || file.isEmpty() || file.getSize() > 50L * 1024 * 1024)
             throw new ServerException(422, I18nUtils.getMessage("knowledge.document.file.invalid"));
         String name = StringUtils.defaultIfBlank(file.getOriginalFilename(), "document.txt");
         byte[] bytes = file.getBytes();
         KnowledgeDocument document = new KnowledgeDocument();
+        document.setTenantId(base.getTenantId());
         document.setKnowledgeBaseId(knowledgeBaseId);
         document.setTitle(StringUtils.defaultIfBlank(title, name));
         document.setSourceType(KnowledgeDocumentSourceType.FILE);
@@ -202,7 +204,8 @@ public class KnowledgeDocumentController {
         document.setCurrentVersionNo(0);
         if (!knowledgeDocumentService.save(document))
             throw new ServerException(500, I18nUtils.getMessage("knowledge.document.create.fail"));
-        String key = "knowledge/" + knowledgeBaseId + "/" + document.getId() + "/1/" + name.replaceAll("[^a-zA-Z0-9._-]", "_");
+        String tenantPrefix = StringUtils.isBlank(base.getTenantId()) ? "" : "tenant/" + base.getTenantId() + "/";
+        String key = tenantPrefix + "knowledge/" + knowledgeBaseId + "/" + document.getId() + "/1/" + name.replaceAll("[^a-zA-Z0-9._-]", "_");
         boolean uploaded = false;
         try {
             objectStorageService.upload(knowledgeBucket, key, bytes, contentType);

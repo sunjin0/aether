@@ -19,8 +19,43 @@ spring:
     always-use-message-format: false
 server:
   port: 8080
+  shutdown: graceful
   connection-timeout: ${SERVER_CONNECTION_TIMEOUT:600000}
   keep-alive-timeout: ${SERVER_KEEPALIVE_TIMEOUT:600000}
+
+spring.lifecycle:
+  timeout-per-shutdown-phase: ${SERVER_SHUTDOWN_TIMEOUT:30s}
+
+# GlobalFilter 写入的 MDC traceId 只用于日志关联，不记录请求体、凭据或 Prompt。
+logging:
+  pattern:
+    level: "%5p [traceId:%X{traceId:-}]"
+
+management:
+  otlp:
+    metrics:
+      export:
+        enabled: ${AETHER_OTLP_METRICS_ENABLED:false}
+        url: ${AETHER_OTLP_METRICS_URL:http://127.0.0.1:4318/v1/metrics}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: never
+  health:
+    mail:
+      enabled: ${AETHER_MAIL_HEALTH_ENABLED:false}
+
+aether:
+  otel:
+    admin:
+      enabled: ${AETHER_ADMIN_OTEL_ENABLED:false}
+      endpoint: ${AETHER_ADMIN_OTEL_ENDPOINT:http://127.0.0.1:4318/v1/traces}
+      service-name: ${AETHER_ADMIN_OTEL_SERVICE_NAME:aether-admin}
+      logs-enabled: ${AETHER_ADMIN_OTEL_LOGS_ENABLED:false}
+      logs-endpoint: ${AETHER_ADMIN_OTEL_LOGS_ENDPOINT:http://127.0.0.1:4318/v1/logs}
 
 # 文档解析服务（AnyDoc），将其支持的文件转换为 Markdown。
 anydoc:

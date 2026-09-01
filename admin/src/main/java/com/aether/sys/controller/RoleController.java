@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.aether.sys.service.ResourceService;
 import com.aether.sys.service.RoleService;
 import com.aether.entity.Option;
@@ -64,6 +65,7 @@ public class RoleController {
         BeanUtils.copyProperties(request, role);
         Page<Role> dictPage = new Page<>(role.getCurrent(), role.getPageSize());
         Wrapper<Role> queryWrapper = Wrappers.lambdaQuery(Role.class)
+                .eq(CurrentUser.getUser() != null && StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")), Role::getTenantId, CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"))
                 .like(StringUtils.isNotBlank(role.getName()), Role::getName, role.getName())
                 .like(StringUtils.isNotBlank(role.getDescription()), Role::getDescription, role.getDescription())
                 .orderByDesc(Role::getCreatedAt);
@@ -82,6 +84,7 @@ public class RoleController {
     @Permission(path = "/sys/role", type = Permission.Type.Write)
     @GetMapping("/delete")
     public WebResponse<Boolean> delete(@RequestParam @NotBlank String id) throws ServerException {
+        requireCurrentTenant(id);
         LambdaUpdateWrapper<Role> updateWrapper = Wrappers.lambdaUpdate(Role.class);
         updateWrapper
                 .eq(Role::getId, id);
@@ -103,6 +106,7 @@ public class RoleController {
                                       RoleRequests.SaveRequest request) throws ServerException {
         Role role = new Role();
         BeanUtils.copyProperties(request, role);
+        if (CurrentUser.getUser() != null) role.setTenantId(CurrentUser.getUser().get("tenantId"));
         boolean save = roleService.save(role);
         return WebResponse.OK(save ? I18nUtils.getMessage("system.role.create.success") : I18nUtils.getMessage("system.role.create.fail"), save);
     }
@@ -121,6 +125,7 @@ public class RoleController {
                                         RoleRequests.UpdateRequest request) throws ServerException {
         Role role = new Role();
         BeanUtils.copyProperties(request, role);
+        requireCurrentTenant(request.getId());
         boolean update = roleService.updateById(role);
         return WebResponse.OK(update ? I18nUtils.getMessage("system.role.update.success") : I18nUtils.getMessage("system.role.update.fail"), update);
     }
@@ -135,7 +140,7 @@ public class RoleController {
     })
     @GetMapping("/info")
     public WebResponse<Role> detail(@RequestParam @NotBlank String id) throws ServerException {
-        Role role = roleService.getById(id);
+        Role role = requireCurrentTenant(id);
         return WebResponse.OK(role);
     }
 
@@ -148,8 +153,10 @@ public class RoleController {
     })
     @GetMapping("/options")
     public WebResponse<List<Option>> options() throws ServerException {
+        String tenantId = currentTenantId();
         List<Option> options = roleService.lambdaQuery()
                 .select(Role::getId, Role::getName)
+                .eq(StringUtils.isNotBlank(tenantId), Role::getTenantId, tenantId)
                 .list()
                 .stream()
                 .map(role -> new Option(role.getName(), role.getId()))
@@ -171,6 +178,19 @@ public class RoleController {
         resourceVo.setPageSize(100000L);
         Page<ResourceVo> list = resourceService.list(resourceVo);
         return WebResponse.OK(list.getRecords());
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    private Role requireCurrentTenant(String id) {
+        Role role = roleService.getById(id);
+        String tenantId = currentTenantId();
+        if (role == null || (StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(role.getTenantId())
+                && !tenantId.equals(role.getTenantId())))
+            throw new ServerException(404, I18nUtils.getMessage("system.role.not-found"));
+        return role;
     }
 
 

@@ -96,7 +96,11 @@ public class SandboxTaskController {
     public WebResponse<List<AgentArtifact>> artifacts(@PathVariable @NotBlank String id) {
         SandboxTaskVo task = tasks.detail(id, user(), false);
         String executionId = StringUtils.defaultIfBlank(task.getLegacyExecutionId(), task.getId());
-        return WebResponse.OK(artifacts.list(Wrappers.lambdaQuery(AgentArtifact.class).eq(AgentArtifact::getExecutionId, executionId).eq(AgentArtifact::getUserId, user()).isNull(AgentArtifact::getRecycledAt).orderByDesc(AgentArtifact::getCreatedAt)));
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        return WebResponse.OK(artifacts.list(Wrappers.lambdaQuery(AgentArtifact.class)
+                .eq(AgentArtifact::getExecutionId, executionId).eq(AgentArtifact::getUserId, user())
+                .eq(StringUtils.isNotBlank(tenantId), AgentArtifact::getTenantId, tenantId)
+                .isNull(AgentArtifact::getRecycledAt).orderByDesc(AgentArtifact::getCreatedAt)));
     }
 
     /**
