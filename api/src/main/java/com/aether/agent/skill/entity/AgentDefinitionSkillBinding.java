@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_definition_skill_binding")
 public class AgentDefinitionSkillBinding extends BaseEntity {
+    private String tenantId;
     private String agentDefinitionId;
     private String skillId;
     private String skillVersionId;

@@ -18,6 +18,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "AgentWorkflow对象", description = "工作流")
 public class AgentWorkflow extends BaseEntity {
 
+    @ApiModelProperty(value = "所属租户")
+    private String tenantId;
+
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
 

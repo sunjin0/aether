@@ -18,6 +18,12 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "ModelProvider对象", description = "模型供应商")
 public class ModelProvider extends BaseEntity {
 
+    @ApiModelProperty(value = "输入每百万Token价格")
+    private java.math.BigDecimal inputPricePerMillionTokens;
+
+    @ApiModelProperty(value = "输出每百万Token价格")
+    private java.math.BigDecimal outputPricePerMillionTokens;
+
     @ApiModelProperty(value = "供应商名称")
     private String name;
 

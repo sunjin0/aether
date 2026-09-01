@@ -10,5 +10,6 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_variable_snapshot")
 public class AgentWorkflowVariableSnapshot extends BaseEntity {
+    private String tenantId;
     private String instanceId, nodeInstanceId, nodeId, snapshotStage, variables;
 }

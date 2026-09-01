@@ -8,6 +8,8 @@ import lombok.Data;
 @Data
 @ApiModel("业务应用创建或更新请求")
 public class AgentApplicationDto {
+    @ApiModelProperty(value = "所属租户 ID")
+    private String tenantId;
     @ApiModelProperty(value = "唯一应用编码", required = true, example = "support-platform")
     private String code;
     @ApiModelProperty(value = "应用名称", required = true, example = "Support Platform")

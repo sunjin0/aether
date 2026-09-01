@@ -18,6 +18,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "KnowledgeBase对象", description = "知识库")
 public class KnowledgeBase extends BaseEntity {
 
+    @ApiModelProperty(value = "租户边界，平台公共库可为空")
+    private String tenantId;
+
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
 

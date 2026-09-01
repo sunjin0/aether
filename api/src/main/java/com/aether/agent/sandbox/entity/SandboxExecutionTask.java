@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("sandbox_execution_task")
 public class SandboxExecutionTask extends BaseEntity {
+    private String tenantId;
     private String legacyExecutionId, templateId, templateVersionId, templateCode, requesterUserId, agentDefinitionId, runId, messageId;
     private String status, riskLevel, inputSnapshot, inputSha256, scriptSha256, configSnapshot, policyVersion, executionTokenHash;
     private String claimedBy, failureCode, failureReason, logSummary;

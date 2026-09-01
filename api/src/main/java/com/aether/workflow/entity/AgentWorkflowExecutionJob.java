@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_execution_job")
 public class AgentWorkflowExecutionJob extends BaseEntity {
+    private String tenantId;
     private String instanceId;
     /**
      * PENDING / PROCESSING / COMPLETED

@@ -19,6 +19,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "KnowledgeDocumentChunk", description = "知识库文档分块")
 public class KnowledgeDocumentChunk extends BaseEntity {
 
+    /** 冗余租户边界，避免向量检索脱离知识库授权链路。 */
+    private String tenantId;
+
     /**
      * 关联知识库 ID。
      */

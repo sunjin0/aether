@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_callback_delivery")
 public class AgentWorkflowCallbackDelivery extends BaseEntity {
+    private String tenantId;
     /** 关联运行的业务应用空间，供审计和重试范围隔离。 */
     private String applicationId;
     private String instanceId;
@@ -20,6 +21,8 @@ public class AgentWorkflowCallbackDelivery extends BaseEntity {
      */
     private String eventType;
     private String callbackUrl;
+    /** 创建终态事件时捕获的 W3C Trace Context，异步投递及重试时复用。 */
+    private String traceparent;
     private String payload;
     /**
      * PENDING / DELIVERED / RETRYING / FAILED

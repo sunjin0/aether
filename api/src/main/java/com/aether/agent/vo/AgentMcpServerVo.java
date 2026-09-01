@@ -18,6 +18,9 @@ public class AgentMcpServerVo extends BaseEntity {
     @ApiModelProperty(value = "MCP服务编码")
     private String code;
 
+    @ApiModelProperty(value = "Connector 配置版本")
+    private String version;
+
     @ApiModelProperty(value = "传输类型：http/streamable_http")
     private String transport;
 
@@ -33,11 +36,17 @@ public class AgentMcpServerVo extends BaseEntity {
     @ApiModelProperty(value = "认证token")
     private String authToken;
 
+    private String credentialRef;
+
     @ApiModelProperty(value = "超时时间（毫秒）")
     private Integer timeoutMs;
 
     @ApiModelProperty(value = "状态：0-禁用，1-启用")
     private Integer status;
+
+    private String healthStatus;
+    private Long healthCheckedAt;
+    private String healthMessage;
 
     @ApiModelProperty(value = "备注")
     private String remark;

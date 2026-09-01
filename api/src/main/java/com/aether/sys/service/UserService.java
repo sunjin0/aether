@@ -21,6 +21,12 @@ import java.util.List;
  * @since 2024/09/11
  */
 public interface UserService extends IService<User> {
+    /** Provision a tenant-bound user from a validated SCIM request; no external password is accepted. */
+    User provisionScim(String tenantId, String username, String email, boolean active) throws ServerException;
+    /** Update the SCIM-managed, tenant-bound attributes of an existing user. */
+    User updateScim(String tenantId, String userId, String username, String email, Boolean active) throws ServerException;
+    /** 为已完成外部身份验证和绑定的本地用户签发令牌。 */
+    UserVo loginByIdentity(String userId) throws ServerException;
     /**
      * 为非交互身份生成与当前用户一致的资源权限映射。
      */

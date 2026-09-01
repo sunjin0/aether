@@ -24,6 +24,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "SysUser对象", description = "系统用户表")
 public class User extends BaseEntity {
 
+    /** 用户所属租户；为空时兼容历史单租户账号。 */
+    private String tenantId;
+
 
     @ApiModelProperty(value = "用户名")
     private String username;

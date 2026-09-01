@@ -2,6 +2,7 @@ package com.aether.workflow.mapper;
 
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.Map;
 
@@ -19,26 +20,26 @@ public interface AgentWorkflowMetricsMapper {
             "COUNT(*) FILTER (WHERE status = 'WAITING_USER') AS waiting, " +
             "COALESCE(AVG(completed_at - started_at) FILTER (WHERE status = 'COMPLETED' AND completed_at IS NOT NULL AND started_at IS NOT NULL), 0) AS completed_duration, " +
             "COALESCE(AVG(EXTRACT(EPOCH FROM clock_timestamp()) * 1000 - started_at) FILTER (WHERE status = 'WAITING_USER' AND started_at IS NOT NULL), 0) AS waiting_duration " +
-            "FROM agent_workflow_instance WHERE deleted = FALSE")
-    Map<String, Object> instanceMetrics();
+            "FROM agent_workflow_instance WHERE deleted = FALSE AND (CAST(#{tenantId} AS varchar) IS NULL OR tenant_id = CAST(#{tenantId} AS varchar))")
+    Map<String, Object> instanceMetrics(@Param("tenantId") String tenantId);
 
     /**
      * 处理nodeMetrics。
      */
     @Select("SELECT COALESCE(AVG(completed_at - started_at) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL), 0) AS node_duration, " +
             "COUNT(*) FILTER (WHERE node_type = 'tool' AND status = 'FAILED') AS mcp_failed " +
-            "FROM agent_workflow_node_instance WHERE deleted = FALSE")
-    Map<String, Object> nodeMetrics();
+            "FROM agent_workflow_node_instance WHERE deleted = FALSE AND (CAST(#{tenantId} AS varchar) IS NULL OR tenant_id = CAST(#{tenantId} AS varchar))")
+    Map<String, Object> nodeMetrics(@Param("tenantId") String tenantId);
 
     /**
      * 回调Metrics。
      */
-    @Select("SELECT COUNT(*) AS callback_failed FROM agent_workflow_callback_delivery WHERE deleted = FALSE AND status = 'FAILED'")
-    Map<String, Object> callbackMetrics();
+    @Select("SELECT COUNT(*) AS callback_failed FROM agent_workflow_callback_delivery WHERE deleted = FALSE AND status = 'FAILED' AND (CAST(#{tenantId} AS varchar) IS NULL OR tenant_id = CAST(#{tenantId} AS varchar))")
+    Map<String, Object> callbackMetrics(@Param("tenantId") String tenantId);
 
     /**
      * 处理executionMetrics。
      */
-    @Select("SELECT COUNT(*) AS execution_dead_letter FROM agent_workflow_execution_job WHERE deleted = FALSE AND status = 'FAILED'")
-    Map<String, Object> executionMetrics();
+    @Select("SELECT COUNT(*) AS execution_dead_letter FROM agent_workflow_execution_job WHERE deleted = FALSE AND status = 'FAILED' AND (CAST(#{tenantId} AS varchar) IS NULL OR tenant_id = CAST(#{tenantId} AS varchar))")
+    Map<String, Object> executionMetrics(@Param("tenantId") String tenantId);
 }

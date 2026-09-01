@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_external_invocation")
 public class AgentWorkflowExternalInvocation extends BaseEntity {
+    private String tenantId;
     private String applicationId;
     private String instanceId;
     private String nodeInstanceId;

@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_retrieval_evaluation_set_version")
 public class KnowledgeRetrievalEvaluationSetVersion extends BaseEntity {
+    private String tenantId;
     private String evaluationSetId;
     private Integer versionNo;
     private String snapshotJson;

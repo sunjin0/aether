@@ -1,0 +1,3 @@
+ALTER TABLE agent_mcp_server ADD COLUMN IF NOT EXISTS health_status VARCHAR(16) NOT NULL DEFAULT 'UNKNOWN';
+ALTER TABLE agent_mcp_server ADD COLUMN IF NOT EXISTS health_checked_at BIGINT;
+ALTER TABLE agent_mcp_server ADD COLUMN IF NOT EXISTS health_message VARCHAR(500);

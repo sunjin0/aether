@@ -12,6 +12,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_reference_log")
 public class KnowledgeReferenceLog extends BaseEntity {
+    /** 租户边界，和被引用分块一起冻结。 */
+    private String tenantId;
     /** 产生引用的 Agent ID。 */
     private String agentDefinitionId;
     /** 产生引用的会话 ID。 */

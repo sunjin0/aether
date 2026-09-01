@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_sandbox_execution")
 public class AgentSandboxExecution extends BaseEntity {
+    private String tenantId;
     private String runId;
     private String skillVersionId;
     private String messageId;

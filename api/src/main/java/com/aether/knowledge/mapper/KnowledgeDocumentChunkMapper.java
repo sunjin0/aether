@@ -18,7 +18,7 @@ public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocume
     /**
      * 处理selectSimilarChunks。
      */
-    @Select("<script>SELECT chunk.id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
+    @Select("<script>SELECT chunk.id, chunk.tenant_id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
             "chunk.page_no, chunk.section_path, chunk.content_hash, chunk.metadata, chunk.reference_count, chunk.last_referenced_at, " +
             "chunk.embedding::text AS embedding, 1 - (chunk.embedding <![CDATA[<=>]]> CAST(#{embedding} AS vector)) AS similarity, " +
             "chunk.created_at, chunk.updated_at, chunk.sort_num, chunk.deleted, chunk.state " +
@@ -27,6 +27,7 @@ public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocume
             "JOIN knowledge_document_version version ON version.id = chunk.document_version_id " +
             "WHERE chunk.deleted = FALSE AND document.deleted = FALSE AND version.deleted = FALSE " +
             "AND version.index_status = 2 AND version.version_no = document.current_version_no " +
+            "<if test='tenantId != null and tenantId != \"\"'>AND (chunk.tenant_id = #{tenantId} OR chunk.tenant_id IS NULL) </if>" +
             "<if test='knowledgeBaseIds != null and knowledgeBaseIds.size() > 0'>" +
             "AND chunk.knowledge_base_id IN " +
             "<foreach collection='knowledgeBaseIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>" +
@@ -35,12 +36,13 @@ public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocume
             "LIMIT #{limit}</script>")
     List<KnowledgeDocumentChunk> selectSimilarChunks(@Param("knowledgeBaseIds") List<String> knowledgeBaseIds,
                                                      @Param("embedding") String embedding,
-                                                     @Param("limit") int limit);
+                                                     @Param("limit") int limit,
+                                                     @Param("tenantId") String tenantId);
 
     /**
      * 处理selectLexicalChunks。
      */
-    @Select("<script>SELECT chunk.id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
+    @Select("<script>SELECT chunk.id, chunk.tenant_id, chunk.knowledge_base_id, chunk.document_id, chunk.document_version_id, chunk.chunk_index, chunk.content, chunk.token_count, " +
             "chunk.page_no, chunk.section_path, chunk.content_hash, chunk.metadata, chunk.reference_count, chunk.last_referenced_at, " +
             "chunk.embedding::text AS embedding, " +
             "ts_rank_cd(to_tsvector('simple', chunk.content), plainto_tsquery('simple', #{query})) AS lexical_score, " +
@@ -50,6 +52,7 @@ public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocume
             "JOIN knowledge_document_version version ON version.id = chunk.document_version_id " +
             "WHERE chunk.deleted = FALSE AND document.deleted = FALSE AND version.deleted = FALSE " +
             "AND version.index_status = 2 AND version.version_no = document.current_version_no " +
+            "<if test='tenantId != null and tenantId != \"\"'>AND (chunk.tenant_id = #{tenantId} OR chunk.tenant_id IS NULL) </if>" +
             "AND to_tsvector('simple', chunk.content) @@ plainto_tsquery('simple', #{query}) " +
             "<if test='knowledgeBaseIds != null and knowledgeBaseIds.size() > 0'>" +
             "AND chunk.knowledge_base_id IN " +
@@ -58,28 +61,31 @@ public interface KnowledgeDocumentChunkMapper extends BaseMapper<KnowledgeDocume
             "ORDER BY lexical_score DESC, chunk.updated_at DESC LIMIT #{limit}</script>")
     List<KnowledgeDocumentChunk> selectLexicalChunks(@Param("knowledgeBaseIds") List<String> knowledgeBaseIds,
                                                      @Param("query") String query,
-                                                     @Param("limit") int limit);
+                                                     @Param("limit") int limit,
+                                                     @Param("tenantId") String tenantId);
 
     /**
      * 处理selectNeighborChunks。
      */
-    @Select("SELECT id, knowledge_base_id, document_id, document_version_id, chunk_index, content, token_count, " +
+    @Select("SELECT id, tenant_id, knowledge_base_id, document_id, document_version_id, chunk_index, content, token_count, " +
             "page_no, section_path, content_hash, metadata, reference_count, last_referenced_at, " +
             "created_at, updated_at, sort_num, deleted, state " +
             "FROM knowledge_document_chunk " +
             "WHERE deleted = FALSE AND document_version_id = #{documentVersionId} " +
+            "<if test='tenantId != null and tenantId != \"\"'>AND (tenant_id = #{tenantId} OR tenant_id IS NULL) </if>" +
             "AND chunk_index BETWEEN #{startIndex} AND #{endIndex} ORDER BY chunk_index")
     List<KnowledgeDocumentChunk> selectNeighborChunks(@Param("documentVersionId") String documentVersionId,
                                                       @Param("startIndex") int startIndex,
-                                                      @Param("endIndex") int endIndex);
+                                                      @Param("endIndex") int endIndex,
+                                                      @Param("tenantId") String tenantId);
 
     /**
      * 处理insertVectorChunk。
      */
     @Insert("INSERT INTO knowledge_document_chunk " +
-            "(id, knowledge_base_id, document_id, document_version_id, chunk_index, content, token_count, embedding, page_no, section_path, content_hash, metadata, reference_count, last_referenced_at, created_at, updated_at, sort_num, deleted, state) " +
+            "(id, tenant_id, knowledge_base_id, document_id, document_version_id, chunk_index, content, token_count, embedding, page_no, section_path, content_hash, metadata, reference_count, last_referenced_at, created_at, updated_at, sort_num, deleted, state) " +
             "VALUES " +
-            "(#{chunk.id}, #{chunk.knowledgeBaseId}, #{chunk.documentId}, #{chunk.documentVersionId}, #{chunk.chunkIndex}, #{chunk.content}, #{chunk.tokenCount}, " +
+            "(#{chunk.id}, #{chunk.tenantId}, #{chunk.knowledgeBaseId}, #{chunk.documentId}, #{chunk.documentVersionId}, #{chunk.chunkIndex}, #{chunk.content}, #{chunk.tokenCount}, " +
             "CAST(#{chunk.embedding} AS vector), #{chunk.pageNo}, #{chunk.sectionPath}, #{chunk.contentHash}, #{chunk.metadata}, #{chunk.referenceCount}, #{chunk.lastReferencedAt}, " +
             "#{chunk.createdAt}, #{chunk.updatedAt}, #{chunk.sortNum}, #{chunk.deleted}, #{chunk.state})")
     int insertVectorChunk(@Param("chunk") KnowledgeDocumentChunk chunk);

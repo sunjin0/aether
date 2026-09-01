@@ -19,6 +19,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "AgentTool对象", description = "工具")
 public class AgentTool extends BaseEntity {
 
+    @ApiModelProperty(value = "所属租户")
+    private String tenantId;
+
     @ApiModelProperty(value = "工具名称")
     private String name;
 

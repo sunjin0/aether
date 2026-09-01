@@ -10,5 +10,6 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_event_receipt")
 public class AgentWorkflowEventReceipt extends BaseEntity {
+    private String tenantId;
     private String applicationId, eventType, eventId, correlationKey;
 }

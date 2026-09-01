@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_template")
 public class AgentWorkflowTemplate extends BaseEntity {
+    private String tenantId;
     private String name;
     private String description;
     private String agentDefinitionId;

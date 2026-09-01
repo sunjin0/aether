@@ -12,6 +12,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_artifact")
 public class AgentArtifact extends BaseEntity {
+    /** 租户边界，和执行上下文一起冻结。 */
+    private String tenantId;
     private String executionId;
     private String runId;
     private String skillVersionId;

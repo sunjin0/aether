@@ -12,6 +12,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_index_job")
 public class KnowledgeIndexJob extends BaseEntity {
+    /** 异步任务创建时冻结的租户边界。 */
+    private String tenantId;
     /**
      * 所属知识库 ID。
      */

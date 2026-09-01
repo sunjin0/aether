@@ -18,6 +18,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "AgentToolBinding对象", description = "工具绑定")
 public class AgentToolBinding extends BaseEntity {
 
+    @ApiModelProperty(value = "租户ID")
+    private String tenantId;
+
     @ApiModelProperty(value = "关联Agent定义ID")
     private String agentDefinitionId;
 

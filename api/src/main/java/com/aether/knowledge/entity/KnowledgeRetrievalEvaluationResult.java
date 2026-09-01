@@ -12,6 +12,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_retrieval_evaluation_result")
 public class KnowledgeRetrievalEvaluationResult extends BaseEntity {
+    /** 评测结果所属租户，继承自运行快照。 */
+    private String tenantId;
     /**
      * 所属运行记录 ID。
      */

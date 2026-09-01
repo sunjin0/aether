@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_skill_resource")
 public class AgentSkillResource extends BaseEntity {
+    private String tenantId;
     private String skillVersionId;
     private String name;
     private String type;

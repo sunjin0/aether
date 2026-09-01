@@ -1,0 +1,3 @@
+UPDATE aether_solution
+SET manifest_json = '{"schemaVersion":"1.0","displayName":"AI SRE","capabilities":["alert-webhook","diagnosis-workflow","knowledge-retrieval","human-approval"],"dependencies":[{"type":"connector","code":"prometheus","version":"1"},{"type":"connector","code":"grafana","version":"1"},{"type":"connector","code":"kubernetes","version":"1"},{"type":"skill","code":"sre-diagnosis","version":"1"}],"configuration":{"alertWebhook":{"required":true},"diagnosisWorkflow":{"code":"ai-sre-diagnosis"},"knowledgeBase":{"code":"ai-sre-runbooks"},"approval":{"required":true}}}'
+WHERE id = 'solution-ai-sre-1' AND code = 'ai-sre' AND version = '1.0.0' AND tenant_id IS NULL AND deleted = FALSE;

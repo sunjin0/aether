@@ -13,6 +13,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_schedule_trigger")
 public class AgentWorkflowScheduleTrigger extends BaseEntity {
+    private String tenantId;
     private String workflowId;
     private String serviceAccountId;
     private String name;

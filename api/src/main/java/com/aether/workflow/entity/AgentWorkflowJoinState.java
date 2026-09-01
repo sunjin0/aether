@@ -10,6 +10,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_join_state")
 public class AgentWorkflowJoinState extends BaseEntity {
+    private String tenantId;
     private String instanceId, joinNodeId, tokenKey, joinMode, status, errorMessage;
     private Integer expectedCount, completedCount, failedCount;
 }

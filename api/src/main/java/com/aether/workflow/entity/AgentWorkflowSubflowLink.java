@@ -10,6 +10,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_subflow_link")
 public class AgentWorkflowSubflowLink extends BaseEntity {
+    private String tenantId;
     private String parentInstanceId, parentNodeId, childInstanceId;
     private String childWorkflowId, childWorkflowVersionId, status;
 }

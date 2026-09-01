@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS aether_tenant (
+    id VARCHAR(32) PRIMARY KEY,
+    code VARCHAR(64) NOT NULL UNIQUE,
+    name VARCHAR(128) NOT NULL,
+    status INTEGER NOT NULL DEFAULT 1,
+    created_at BIGINT,
+    updated_at BIGINT,
+    sort_num INTEGER NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    state INTEGER NOT NULL DEFAULT 0
+);

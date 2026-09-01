@@ -12,6 +12,8 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_application")
 public class AgentApplication extends BaseEntity {
+    /** 所属租户；为空时兼容历史单租户数据。 */
+    private String tenantId;
     /** 稳定、可用于开放 API 的业务应用编码。 */
     private String code;
     private String name;

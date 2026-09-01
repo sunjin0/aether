@@ -10,5 +10,6 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_node_token")
 public class AgentWorkflowNodeToken extends BaseEntity {
+    private String tenantId;
     private String instanceId, nodeId, tokenKey, status, parentTokenId, errorMessage;
 }

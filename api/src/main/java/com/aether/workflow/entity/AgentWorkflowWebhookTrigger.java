@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_webhook_trigger")
 public class AgentWorkflowWebhookTrigger extends BaseEntity {
+    private String tenantId;
     private String workflowId;
     private String serviceAccountId;
     private String name;

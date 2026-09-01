@@ -18,6 +18,9 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "KnowledgeDocument对象", description = "文档")
 public class KnowledgeDocument extends BaseEntity {
 
+    /** 冗余租户边界，便于文档和文件对象独立校验。 */
+    private String tenantId;
+
     /**
      * 关联知识库 ID。
      */

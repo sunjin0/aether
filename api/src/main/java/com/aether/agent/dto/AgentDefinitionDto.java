@@ -14,6 +14,9 @@ import java.util.List;
 @ApiModel("智能体定义创建或更新请求")
 public class AgentDefinitionDto {
 
+    @ApiModelProperty(value = "所属租户；普通编辑不可跨租户指定")
+    private String tenantId;
+
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
 
