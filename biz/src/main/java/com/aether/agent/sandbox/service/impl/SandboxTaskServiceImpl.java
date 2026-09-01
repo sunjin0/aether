@@ -100,6 +100,9 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
         validateScriptSlot(request, config);
         long now = System.currentTimeMillis();
         SandboxExecutionTask task = new SandboxExecutionTask();
+        if (com.aether.local.CurrentUser.getUser() != null) {
+            task.setTenantId(com.aether.local.CurrentUser.getUser().get("tenantId"));
+        }
         task.setTemplateId(template.getId());
         task.setTemplateVersionId(version.getId());
         task.setTemplateCode(template.getCode());
@@ -486,12 +489,14 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
             throw conflict("sandbox artifact count exceeded");
         AgentArtifact artifact = new AgentArtifact();
         artifact.setExecutionId(id);
+        artifact.setTenantId(task.getTenantId());
         artifact.setRunId(StringUtils.defaultIfBlank(task.getRunId(), "sandbox:" + id));
         artifact.setSkillVersionId(task.getTemplateVersionId());
         artifact.setUserId(task.getRequesterUserId());
         artifact.setAgentDefinitionId(task.getAgentDefinitionId());
         artifact.setFileName(name);
-        artifact.setObjectKey("chat/artifacts/" + id + "/" + UUID.randomUUID() + "." + extension);
+        String tenantPrefix = StringUtils.isBlank(task.getTenantId()) ? "" : "tenant/" + task.getTenantId() + "/";
+        artifact.setObjectKey(tenantPrefix + "chat/artifacts/" + id + "/" + UUID.randomUUID() + "." + extension);
         artifact.setContentSha256(checksum);
         artifact.setCallbackKey("sandbox:" + id + ":" + hash(name + ":" + checksum));
         artifact.setContentType(StringUtils.defaultIfBlank(contentType, "application/octet-stream"));

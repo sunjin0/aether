@@ -67,6 +67,45 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public User provisionScim(String tenantId, String username, String email, boolean active) throws ServerException {
+        if (StringUtils.isBlank(tenantId) || StringUtils.isBlank(username))
+            throw new ServerException(400, "SCIM tenantId 和 userName 不能为空");
+        User existing = getOne(Wrappers.lambdaQuery(User.class)
+                .eq(User::getTenantId, tenantId).eq(User::getUsername, username)
+                .eq(User::getDeleted, false), false);
+        if (existing != null) return existing;
+        User user = new User();
+        user.setTenantId(tenantId);
+        user.setUsername(username);
+        user.setEmail(StringUtils.trimToNull(email));
+        user.setType("SCIM");
+        user.setState(active ? 1 : 0);
+        user.setPassword(encoder.encode(UUID.randomUUID().toString()));
+        save(user);
+        return user;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public User updateScim(String tenantId, String userId, String username, String email, Boolean active) throws ServerException {
+        User user = getOne(Wrappers.lambdaQuery(User.class).eq(User::getId, userId)
+                .eq(User::getTenantId, tenantId).eq(User::getDeleted, false), false);
+        if (user == null) throw new ServerException(404, "SCIM 用户不存在");
+        if (StringUtils.isNotBlank(username) && !username.equals(user.getUsername())) {
+            User duplicate = getOne(Wrappers.lambdaQuery(User.class).eq(User::getTenantId, tenantId)
+                    .eq(User::getUsername, username).eq(User::getDeleted, false), false);
+            if (duplicate != null && !userId.equals(duplicate.getId()))
+                throw new ServerException(409, "SCIM 用户名已存在");
+            user.setUsername(username);
+        }
+        if (email != null) user.setEmail(StringUtils.trimToNull(email));
+        if (active != null) user.setState(active ? 1 : 0);
+        updateById(user);
+        return user;
+    }
+
     /**
      * 处理register。
      */
@@ -202,6 +241,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         //生成token
         HashMap<String, String> payload = new HashMap<>();
         payload.put("userId", String.valueOf(user.getId()));
+        if (one.getTenantId() != null && !one.getTenantId().trim().isEmpty()) payload.put("tenantId", one.getTenantId());
         //角色
         payload.put("role", one.getType());
         Token token = TokenUtils.createToken(payload);
@@ -216,6 +256,28 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         return user;
 
+    }
+
+    /**
+     * 为已完成外部身份验证和绑定的本地用户签发令牌。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public UserVo loginByIdentity(String userId) throws ServerException {
+        User user = getById(userId);
+        if (user == null || !Integer.valueOf(1).equals(user.getState()))
+            throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
+        HashMap<String, String> payload = new HashMap<String, String>();
+        payload.put("userId", String.valueOf(user.getId()));
+        if (StringUtils.isNotBlank(user.getTenantId())) payload.put("tenantId", user.getTenantId());
+        payload.put("role", user.getType());
+        Token token = TokenUtils.createToken(payload);
+        tokenService.saveOrUpdate(token, Wrappers.lambdaUpdate(Token.class).eq(Token::getUserId, user.getId()));
+        redisTemplate.opsForHash().put(TokenUtils.TOKEN_KEY, user.getId(), getPermissionMapByUserId(user.getId(), token.getToken()));
+        UserVo result = new UserVo();
+        result.setToken(token.getToken());
+        result.setRefreshToken(token.getRefreshToken());
+        return result;
     }
 
     /**
@@ -243,6 +305,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         HashMap<String, String> payload = new HashMap<>();
         payload.put("userId", userId);
+        if (user.getTenantId() != null && !user.getTenantId().trim().isEmpty()) payload.put("tenantId", user.getTenantId());
         payload.put("role", user.getType());
         Token nextToken = TokenUtils.createToken(payload);
         boolean rotated = tokenService.update(nextToken, Wrappers.<Token>lambdaUpdate()

@@ -10,6 +10,7 @@ import com.aether.workflow.mapper.AgentWorkflowWebhookTriggerMapper;
 import com.aether.workflow.service.AgentWorkflowExecutionService;
 import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.workflow.service.AgentWorkflowWebhookTriggerService;
+import com.aether.local.CurrentUser;
 import com.aether.workflow.vo.AgentWorkflowWebhookTriggerSecretVo;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -37,6 +38,14 @@ import java.util.*;
 public class AgentWorkflowWebhookTriggerServiceImpl
         extends ServiceImpl<AgentWorkflowWebhookTriggerMapper, AgentWorkflowWebhookTrigger>
         implements AgentWorkflowWebhookTriggerService {
+    private static final int MAX_ALERTS_PER_PAYLOAD = 100;
+    @Override
+    public AgentWorkflowWebhookTrigger getById(java.io.Serializable id) {
+        AgentWorkflowWebhookTrigger trigger = super.getById(id);
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        if (trigger != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(trigger.getTenantId())) return null;
+        return trigger;
+    }
     private static final SecureRandom RANDOM = new SecureRandom();
     private final AgentWorkflowService workflowService;
     private final AgentWorkflowExecutionService executionService;
@@ -64,6 +73,7 @@ public class AgentWorkflowWebhookTriggerServiceImpl
     public AgentWorkflowWebhookTriggerSecretVo create(AgentWorkflowWebhookTriggerDto dto) {
         validate(dto);
         AgentWorkflowWebhookTrigger trigger = new AgentWorkflowWebhookTrigger();
+        trigger.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
         trigger.setWorkflowId(dto.getWorkflowId());
         trigger.setServiceAccountId(dto.getServiceAccountId());
         trigger.setName(dto.getName());
@@ -121,6 +131,7 @@ public class AgentWorkflowWebhookTriggerServiceImpl
         }
         Map<String, Object> body = parsed instanceof Map ? new LinkedHashMap<String, Object>((Map<String, Object>) parsed)
                 : Collections.<String, Object>singletonMap("value", parsed);
+        validateAlertmanagerPayload(trigger.getBusinessType(), body);
         try {
             Map<String, String> mapping = StringUtils.isBlank(trigger.getVariableMapping()) ? Collections.<String, String>emptyMap()
                     : JSON.parseObject(trigger.getVariableMapping(), Map.class);
@@ -147,10 +158,39 @@ public class AgentWorkflowWebhookTriggerServiceImpl
             updateById(trigger);
             return instance;
         } catch (RuntimeException ex) {
-            trigger.setLastErrorMessage(StringUtils.abbreviate(ex.getMessage(), 2048));
+            trigger.setLastErrorMessage(safeFailureMessage(ex));
             updateById(trigger);
             throw ex;
         }
+    }
+
+    /** AI SRE 告警入口只接受 Alertmanager 结构，避免任意对象伪装成诊断事件。 */
+    private void validateAlertmanagerPayload(String businessType, Map<String, Object> body) {
+        if (!"alertmanager".equalsIgnoreCase(businessType) && !"ai-sre-alert".equalsIgnoreCase(businessType)) return;
+        if (body == null || !(body.get("alerts") instanceof List) || ((List<?>) body.get("alerts")).isEmpty())
+            throw new ServerException(422, "Alertmanager 告警列表不能为空");
+        if (((List<?>) body.get("alerts")).size() > MAX_ALERTS_PER_PAYLOAD)
+            throw new ServerException(422, "Alertmanager 单次告警数量超限");
+        Object status = body.get("status");
+        if (status != null && !("firing".equals(status) || "resolved".equals(status)))
+            throw new ServerException(422, "Alertmanager 状态无效");
+        for (Object alert : (List<?>) body.get("alerts")) {
+            if (!(alert instanceof Map) || !(((Map<?, ?>) alert).get("status") instanceof String)
+                    || !((String) ((Map<?, ?>) alert).get("status")).matches("firing|resolved")
+                    || !(((Map<?, ?>) alert).get("labels") instanceof Map)
+                    || ((Map<?, ?>) alert).get("labels").toString().length() > 16384
+                    || !(((Map<?, ?>) ((Map<?, ?>) alert).get("labels")).get("alertname") instanceof String)
+                    || !StringUtils.isNotBlank((String) ((Map<?, ?>) ((Map<?, ?>) alert).get("labels")).get("alertname")))
+                throw new ServerException(422, "Alertmanager 告警格式无效");
+        }
+    }
+
+    /** Persist only an operator-safe failure summary; connector credentials and URLs must not enter audit state. */
+    private String safeFailureMessage(RuntimeException ex) {
+        String message = StringUtils.defaultString(ex == null ? null : ex.getMessage(), "Webhook 处理失败");
+        message = message.replaceAll("(?i)(password|passwd|secret|token|api[-_]?key)(\\s*[=:]\\s*)[^,;\\s]+", "$1$2[REDACTED]");
+        message = message.replaceAll("(?i)(https?://)([^/@\\s]+):([^/@\\s]+)@", "$1[REDACTED]@");
+        return StringUtils.abbreviate(message, 2048);
     }
 
     /**

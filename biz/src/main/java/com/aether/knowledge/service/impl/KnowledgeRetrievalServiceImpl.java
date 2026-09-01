@@ -13,6 +13,7 @@ import com.aether.agent.service.AgentKnowledgeBaseBindingService;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
 import com.aether.knowledge.service.KnowledgeRerankService;
+import com.aether.local.CurrentUser;
 import com.aether.knowledge.model.KnowledgeBaseScope;
 import com.aether.knowledge.model.KnowledgeRetrievalResult;
 import com.aether.agent.service.ModelProviderService;
@@ -25,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.client.HttpClientErrorException;
 
 import java.util.List;
@@ -68,8 +70,10 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     private static final int QUERY_EMBEDDING_CACHE_MAX_SIZE = 2000;
     private static final long RETRIEVAL_CACHE_TTL_MS = 60 * 1000L;
     private static final int RETRIEVAL_CACHE_MAX_SIZE = 1000;
-    private static final int PROVIDER_FAILURE_THRESHOLD = 3;
-    private static final long PROVIDER_CIRCUIT_COOLDOWN_MS = 30 * 1000L;
+    @Value("${aether.reliability.circuit-breaker.failure-threshold:3}")
+    private int providerFailureThreshold = 3;
+    @Value("${aether.reliability.circuit-breaker.cooldown-ms:30000}")
+    private long providerCircuitCooldownMs = 30 * 1000L;
     private static final long RERANK_NOT_FOUND_COOLDOWN_MS = 5 * 60 * 1000L;
     private static final long QUERY_REWRITE_CACHE_TTL_MS = 5 * 60 * 1000L;
     private static final int QUERY_REWRITE_CACHE_MAX_SIZE = 1000;
@@ -276,7 +280,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                         ChatLatencyMetrics.record("chat.rag.lexical", lexicalCompletedAt - vectorCompletedAt);
                         ChatLatencyMetrics.record("chat.rag.rerank", rerankCompletedAt - lexicalCompletedAt);
                     }
-                    providerCircuits.remove(provider.getId());
+                    providerCircuits.remove(circuitKey(provider.getId()));
                     providerSucceeded = true;
                 } catch (Exception e) {
                     // One unavailable embedding provider must not prevent other
@@ -413,7 +417,8 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * 处理retrieval缓存Key。
      */
     private String retrievalCacheKey(String agentDefinitionId, String query) {
-        return hashValue(agentDefinitionId + '\n' + normalizeQuery(query));
+        String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
+        return hashValue(StringUtils.defaultString(tenantId) + '\n' + agentDefinitionId + '\n' + normalizeQuery(query));
     }
 
     /**
@@ -475,7 +480,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * 判断是否为ProviderCircuitOpen。
      */
     private boolean isProviderCircuitOpen(String providerId) {
-        ProviderCircuit circuit = providerCircuits.get(providerId);
+        ProviderCircuit circuit = providerCircuits.get(circuitKey(providerId));
         if (circuit == null) return false;
         synchronized (circuit) {
             if (circuit.openUntil > System.currentTimeMillis()) return true;
@@ -491,13 +496,18 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * 处理recordProviderFailure。
      */
     private void recordProviderFailure(String providerId) {
-        ProviderCircuit circuit = providerCircuits.computeIfAbsent(providerId, key -> new ProviderCircuit());
+        ProviderCircuit circuit = providerCircuits.computeIfAbsent(circuitKey(providerId), key -> new ProviderCircuit());
         synchronized (circuit) {
             circuit.failures++;
-            if (circuit.failures >= PROVIDER_FAILURE_THRESHOLD) {
-                circuit.openUntil = System.currentTimeMillis() + PROVIDER_CIRCUIT_COOLDOWN_MS;
+            if (circuit.failures >= providerFailureThreshold) {
+                circuit.openUntil = System.currentTimeMillis() + providerCircuitCooldownMs;
             }
         }
+    }
+
+    private String circuitKey(String providerId) {
+        String tenantId = CurrentUser.getUser() == null ? "public" : CurrentUser.getUser().get("tenantId");
+        return StringUtils.defaultIfBlank(tenantId, "public") + ":" + providerId;
     }
 
     /**

@@ -12,6 +12,8 @@ import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.DelegationTokenService;
 import com.aether.agent.service.RuntimeEmailCredentialStore;
 import com.aether.agent.service.EmailCredentialTokenService;
+import com.aether.agent.service.ConnectorCredentialTokenService;
+import com.aether.governance.service.SecretProvider;
 import com.aether.sys.service.UserService;
 import com.aether.sys.entity.User;
 import com.aether.utils.AesUtil;
@@ -44,6 +46,10 @@ public class McpToolExecutor implements ToolExecutor {
     private RuntimeEmailCredentialStore runtimeEmailCredentialStore;
     @Autowired(required = false)
     private EmailCredentialTokenService emailCredentialTokenService;
+    @Autowired(required = false)
+    private ConnectorCredentialTokenService connectorCredentialTokenService;
+    @Autowired(required = false)
+    private SecretProvider secretProvider;
     @Autowired(required = false)
     private UserService userService;
     @Autowired(required = false)
@@ -82,6 +88,7 @@ public class McpToolExecutor implements ToolExecutor {
             String delegationToken = applyDelegationToken(server, context, tool);
             requestUrl = server.getBaseUrl();
             String mcpToolName = StringUtils.defaultIfBlank(tool.getMcpToolName(), tool.getName());
+            String connectorCredentialToken = createConnectorCredentialToken(server, context, mcpToolName);
             Map<String, Object> arguments = context.getArguments() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(context.getArguments());
             Map<String, Object> trustedContext = applyTrustedContext(context, arguments);
             sanitizeEmailArguments(mcpToolName, arguments);
@@ -96,7 +103,7 @@ public class McpToolExecutor implements ToolExecutor {
             checkCancelled(context);
             mcpClient.ping(server);
             checkCancelled(context);
-            JSONObject response = mcpClient.callTool(server, mcpToolName, arguments);
+            JSONObject response = mcpClient.callTool(server, mcpToolName, arguments, connectorCredentialToken);
             long latencyMs = System.currentTimeMillis() - startTime;
 
             boolean mcpError = Boolean.TRUE.equals(response.getBoolean("isError"));
@@ -125,6 +132,24 @@ public class McpToolExecutor implements ToolExecutor {
         } catch (Exception e) {
             return failure(requestUrl, requestBody, I18nUtils.getMessage("agent.mcp.tool.execution.failed"), startTime);
         }
+    }
+
+    /** 为官方只读运维连接器生成请求级凭据令牌；未配置凭据时不使用静态回退。 */
+    private String createConnectorCredentialToken(AgentMcpServer server, ToolExecutionContext context, String toolName) {
+        if (!isOfficialConnectorTool(toolName)) return null;
+        if (StringUtils.isAnyBlank(server.getCredentialRef(), server.getId(), server.getTenantId())
+                || secretProvider == null || connectorCredentialTokenService == null) {
+            throw new ServerException(422, "连接器临时凭据未配置");
+        }
+        Map<String, String> credential = secretProvider.resolve(server.getCredentialRef(), "tenant", server.getTenantId());
+        if (credential == null || credential.isEmpty()) throw new ServerException(422, "连接器临时凭据不存在");
+        return connectorCredentialTokenService.create(context.getRunId(), context.getUserId(), server.getTenantId(),
+                server.getId(), Collections.singletonList(toolName), credential);
+    }
+
+    private boolean isOfficialConnectorTool(String toolName) {
+        return "prometheus_query".equals(toolName) || "grafana_query".equals(toolName)
+                || "kubernetes_get_pods".equals(toolName);
     }
 
     /** 在发起外部 MCP 请求前检查取消状态，避免断开连接后继续产生副作用。 */

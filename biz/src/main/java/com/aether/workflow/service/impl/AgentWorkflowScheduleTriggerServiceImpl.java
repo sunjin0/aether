@@ -8,6 +8,9 @@ import com.aether.workflow.entity.AgentWorkflowScheduleTrigger;
 import com.aether.workflow.mapper.AgentWorkflowScheduleTriggerMapper;
 import com.aether.workflow.service.AgentWorkflowExecutionService;
 import com.aether.workflow.service.AgentWorkflowScheduleTriggerService;
+import com.aether.local.CurrentUser;
+import org.apache.commons.lang3.StringUtils;
+import com.aether.local.CurrentUser;
 import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -33,6 +36,13 @@ import java.util.Map;
 @Service
 public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWorkflowScheduleTriggerMapper, AgentWorkflowScheduleTrigger>
         implements AgentWorkflowScheduleTriggerService {
+    @Override
+    public AgentWorkflowScheduleTrigger getById(java.io.Serializable id) {
+        AgentWorkflowScheduleTrigger trigger = super.getById(id);
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        if (trigger != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(trigger.getTenantId())) return null;
+        return trigger;
+    }
     private static final long LEASE_MILLIS = 5 * 60 * 1000L;
     private final AgentWorkflowService workflowService;
     private final ServiceAccountService serviceAccountService;
@@ -57,6 +67,7 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
         validate(dto);
         long now = System.currentTimeMillis();
         AgentWorkflowScheduleTrigger trigger = new AgentWorkflowScheduleTrigger();
+        trigger.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
         trigger.setWorkflowId(dto.getWorkflowId());
         trigger.setServiceAccountId(dto.getServiceAccountId());
         trigger.setName(dto.getName());

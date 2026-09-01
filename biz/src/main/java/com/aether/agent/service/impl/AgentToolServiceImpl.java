@@ -6,11 +6,13 @@ import com.aether.agent.mapper.AgentToolMapper;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.service.ToolRoutingIndexService;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -20,6 +22,15 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool> implements AgentToolService {
+
+    @Override
+    public AgentTool getById(java.io.Serializable id) {
+        AgentTool tool = super.getById(id);
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        if (tool != null && StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(tool.getTenantId())
+                && !tenantId.equals(tool.getTenantId())) return null;
+        return tool;
+    }
 
     private static final String TOOLS_CACHE_KEY_PREFIX = "agent:tools:";
     private static final long TOOLS_CACHE_TTL_MINUTES = 10;
@@ -71,6 +82,7 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
      */
     @Override
     public boolean removeById(java.io.Serializable id) {
+        if (getById(id) == null) return false;
         boolean removed = super.removeById(id);
         if (removed) {
             evictRelatedCaches(id.toString());
@@ -90,7 +102,8 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
                             .eq(AgentToolBinding::getDeleted, false)
             );
             for (AgentToolBinding binding : bindings) {
-                String cacheKey = TOOLS_CACHE_KEY_PREFIX + binding.getAgentDefinitionId();
+                String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
+                String cacheKey = TOOLS_CACHE_KEY_PREFIX + tenantId + ":" + binding.getAgentDefinitionId();
                 redisTemplate.delete(cacheKey);
             }
         } catch (Exception e) {

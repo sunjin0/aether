@@ -7,12 +7,14 @@ import com.aether.workflow.entity.AgentWorkflowCallbackDelivery;
 import com.aether.workflow.entity.AgentWorkflowInstance;
 import com.aether.workflow.entity.AgentWorkflowVersion;
 import com.aether.workflow.service.AgentWorkflowCallbackDeliveryService;
+import com.aether.local.CurrentUser;
 import com.aether.workflow.service.AgentWorkflowVersionService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -34,6 +36,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -100,10 +103,12 @@ public class WorkflowCallbackService {
                 .eq(AgentWorkflowCallbackDelivery::getEventType, eventType));
         if (existing != null) return;
         AgentWorkflowCallbackDelivery delivery = new AgentWorkflowCallbackDelivery();
+        delivery.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
         delivery.setApplicationId(instance.getApplicationId());
         delivery.setInstanceId(instance.getId());
         delivery.setEventType(eventType);
         delivery.setCallbackUrl(instance.getCallbackUrl());
+        delivery.setTraceparent(traceparentForCurrentRequest());
         delivery.setStatus("PENDING");
         delivery.setAttemptCount(0);
         delivery.setNextAttemptAt(System.currentTimeMillis());
@@ -222,7 +227,25 @@ public class WorkflowCallbackService {
         headers.set("X-Aether-Workflow-Delivery-Id", delivery.getId());
         headers.set("X-Aether-Workflow-Timestamp", timestamp);
         headers.set("X-Aether-Workflow-Signature", "sha256=" + sign(timestamp + "." + delivery.getPayload()));
+        if (StringUtils.isNotBlank(delivery.getTraceparent())) headers.set("traceparent", delivery.getTraceparent());
         return new HttpEntity<String>(delivery.getPayload(), headers);
+    }
+
+    /** 捕获当前请求的 W3C Trace Context；旧调用方只有 traceId 时兼容生成合法父链路。 */
+    private String traceparentForCurrentRequest() {
+        String current = MDC.get("traceparent");
+        if (isValidTraceparent(current)) return current;
+        String traceId = MDC.get("traceId");
+        if (StringUtils.isBlank(traceId)) return null;
+        String normalized = traceId.replaceAll("[^0-9a-fA-F]", "").toLowerCase();
+        if (normalized.length() < 32) normalized = String.format("%032x", normalized.hashCode());
+        if (normalized.length() > 32) normalized = normalized.substring(0, 32);
+        return "00-" + normalized + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16) + "-01";
+    }
+
+    private boolean isValidTraceparent(String value) {
+        return StringUtils.isNotBlank(value) && value.matches("00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}")
+                && !value.substring(3, 35).matches("0{32}") && !value.substring(36, 52).matches("0{16}");
     }
 
     /**

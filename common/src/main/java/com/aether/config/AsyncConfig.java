@@ -56,6 +56,7 @@ public class AsyncConfig implements AsyncConfigurer {
      */
     @Override
     public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
-        return (ex, method, params) -> log.error("线程池执行任务发现未知错误, 执行方法：{}", method.getName(), ex);
+        return (ex, method, params) -> log.error("线程池执行任务发现未知错误，执行方法：{}，异常类型：{}",
+                method.getName(), ex == null ? "unknown" : ex.getClass().getName());
     }
 }

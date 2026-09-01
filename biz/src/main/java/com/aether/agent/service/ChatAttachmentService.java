@@ -2,6 +2,7 @@ package com.aether.agent.service;
 
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
+import com.aether.local.CurrentUser;
 import com.aether.knowledge.service.impl.KnowledgeDocumentContentExtractor;
 import com.aether.storage.service.ObjectStorageService;
 import org.apache.commons.lang3.StringUtils;
@@ -74,7 +75,9 @@ public class ChatAttachmentService {
             if (content.length() > maxExtractedChars) {
                 content = content.substring(0, maxExtractedChars) + "\n\n[文件内容因长度限制已截断]";
             }
-            String objectKey = "chat/" + LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
+            String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+            String tenantPrefix = StringUtils.isBlank(tenantId) ? "" : tenantId + "/";
+            String objectKey = "chat/" + tenantPrefix + LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
                     + "/" + UUID.randomUUID().toString().replace("-", "") + suffix(fileName);
             long uploadStart = System.currentTimeMillis();
             objectStorageService.upload(bucket, objectKey, file);

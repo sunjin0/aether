@@ -4,6 +4,7 @@ import com.aether.agent.dto.DeepAgentConfig;
 import com.alibaba.fastjson2.JSON;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
@@ -11,6 +12,7 @@ import org.springframework.web.client.RestTemplate;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 /**
  * 表示Deep智能体SigningClient。
@@ -45,6 +47,7 @@ public class DeepAgentSigningClient {
         headers.set("X-Aether-Key-Id", config.getKeyId());
         headers.set("X-Aether-Timestamp", timestamp);
         headers.set("X-Aether-Signature", signature);
+        applyTraceContext(headers);
 
         HttpEntity<byte[]> entity = new HttpEntity<>(bodyBytes, headers);
         String runId = body instanceof java.util.Map ? String.valueOf(((java.util.Map<?, ?>) body).get("run_id")) : null;
@@ -54,6 +57,17 @@ public class DeepAgentSigningClient {
             throw new IllegalStateException("Deep Agent returned HTTP " + response.getStatusCodeValue());
         }
         return response;
+    }
+
+    /** 将控制面当前 Trace Context 传播到 Deep Agent，不把请求体或密钥写入追踪头。 */
+    private void applyTraceContext(HttpHeaders headers) {
+        String traceId = MDC.get("traceId");
+        if (traceId == null || traceId.trim().isEmpty()) return;
+        String normalized = traceId.replaceAll("[^0-9a-fA-F]", "").toLowerCase();
+        if (normalized.length() < 32) normalized = String.format("%032x", normalized.hashCode());
+        if (normalized.length() > 32) normalized = normalized.substring(0, 32);
+        String spanId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        headers.set("traceparent", "00-" + normalized + "-" + spanId + "-01");
     }
 
     /**

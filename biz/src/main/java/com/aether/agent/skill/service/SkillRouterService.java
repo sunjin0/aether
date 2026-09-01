@@ -15,6 +15,7 @@ import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.mapper.AgentSkillRoutingIndexMapper;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.knowledge.service.KnowledgeEmbeddingService;
+import com.aether.local.CurrentUser;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
@@ -122,11 +123,12 @@ public class SkillRouterService {
      * 处理route缓存Key。
      */
     private String routeCacheKey(AgentDefinition agent, String query, List<AgentDefinitionSkillBinding> bindings) {
+        String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
         String installedVersions = bindings.stream().map(binding -> StringUtils.defaultString(binding.getSkillVersionId()) + ':'
                         + StringUtils.defaultString(binding.getSkillId()) + ':' + StringUtils.defaultString(binding.getPriority() == null ? null : binding.getPriority().toString())
                         + ':' + StringUtils.defaultString(binding.getStatus() == null ? null : binding.getStatus().toString()))
                 .sorted().collect(Collectors.joining("|"));
-        return StringUtils.defaultString(agent == null ? null : agent.getId()) + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + installedVersions;
+        return tenantId + '|' + StringUtils.defaultString(agent == null ? null : agent.getId()) + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + installedVersions;
     }
 
     /**

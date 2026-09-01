@@ -20,6 +20,7 @@ import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
+import com.aether.local.CurrentUser;
 import com.aether.storage.service.ObjectStorageService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -154,7 +155,11 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
             appendKnowledgeDeclarations(knowledgePrompt, knowledgeDeclarations);
 
             Map<String, Object> maskedInput = validateAndMaskInput(version.getInputSchema(), inputs.get(skill.getCode()));
-            List<AgentSkillResource> resources = resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, version.getId()));
+            com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<AgentSkillResource> resourceQuery =
+                    Wrappers.<AgentSkillResource>query().eq("skill_version_id", version.getId());
+            String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+            if (StringUtils.isNotBlank(tenantId)) resourceQuery.eq("tenant_id", tenantId);
+            List<AgentSkillResource> resources = resourceService.list(resourceQuery);
             skillPrompt.append(resolveStaticPrompt(skill, version, resources));
             if (!maskedInput.isEmpty()) skillPrompt.append("\nValidated inputs: ").append(JSON.toJSONString(maskedInput));
             Map<String, Object> snapshot = new LinkedHashMap<>();
@@ -304,7 +309,7 @@ private boolean isLiveMcpTool(AgentTool tool) {
  * 资源Snapshot。
  */
 private Map<String, Object> resourceSnapshot(AgentSkillResource resource) {
-        Map<String, Object> result = new LinkedHashMap<>(); result.put("id", resource.getId()); result.put("name", resource.getName()); result.put("type", resource.getType()); result.put("objectKey", resource.getObjectKey()); result.put("sha256", resource.getContentSha256()); result.put("size", resource.getSize()); return result;
+        Map<String, Object> result = new LinkedHashMap<>(); result.put("id", resource.getId()); result.put("name", resource.getName()); result.put("type", resource.getType()); result.put("objectKey", resource.getObjectKey()); result.put("sha256", resource.getContentSha256()); result.put("size", resource.getSize()); result.put("tenantId", resource.getTenantId()); return result;
     }
 
     /**

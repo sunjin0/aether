@@ -10,6 +10,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import com.aether.local.CurrentUser;
 
 import java.util.List;
 
@@ -27,6 +28,14 @@ public class AgentWorkflowExternalInvocationServiceImpl
     }
 
     @Override
+    public AgentWorkflowExternalInvocation getById(java.io.Serializable id) {
+        AgentWorkflowExternalInvocation value = super.getById(id);
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        if (value != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(value.getTenantId())) return null;
+        return value;
+    }
+
+    @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public AgentWorkflowExternalInvocation recordIntent(String applicationId, String instanceId, String nodeInstanceId,
                                                          String nodeId, String invocationType, String idempotencyKey,
@@ -37,6 +46,7 @@ public class AgentWorkflowExternalInvocationServiceImpl
                 .eq(AgentWorkflowExternalInvocation::getDeleted, false).last("FOR UPDATE"));
         if (existing != null) return existing;
         AgentWorkflowExternalInvocation value = new AgentWorkflowExternalInvocation();
+        value.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
         value.setApplicationId(StringUtils.defaultIfBlank(applicationId, "0"));
         value.setInstanceId(instanceId);
         value.setNodeInstanceId(nodeInstanceId);

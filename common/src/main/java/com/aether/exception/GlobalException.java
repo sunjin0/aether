@@ -35,22 +35,22 @@ public class GlobalException {
             return ResponseEntity.status(HttpStatus.valueOf(status)).body(WebResponse.OpenApiError(status, openApi.getErrorCode()));
         }
         String message = e.getMessage();
-        log.error("服务器异常：", e);
+        log.error("服务器异常，类型：{}", e.getClass().getName());
         // 处理自定义异常
         String[] strings = message.split(":");
         if (strings.length > 1) {
             try {
                 // 转换成数字,可能发生数字转换异常
                 int code = Integer.parseInt(strings[0]);
-                String messages = strings[1];
+                String messages = sanitize(strings[1]);
                 return ResponseEntity.status(HttpStatus.valueOf(code)).body(WebResponse.Error(code, messages, null));
             } catch (Exception ex) {
-                log.error("转换异常：{}", ex.getMessage());
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(WebResponse.Error(message));
+                log.error("异常响应转换失败，类型：{}", ex.getClass().getName());
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(WebResponse.Error(sanitize(message)));
             }
         }
 
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(WebResponse.Error(message));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(WebResponse.Error(sanitize(message)));
     }
 
     /**
@@ -62,16 +62,17 @@ public class GlobalException {
     @ExceptionHandler(value = Exception.class)
     public ResponseEntity<WebResponse<String>> handleOtherException(Exception e) {
         if (e instanceof ValidationException) {
-            log.error("参数异常", e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(WebResponse.Error(400, e.getMessage(), null));
+            log.error("参数异常，类型：{}", e.getClass().getName());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(WebResponse.Error(400, sanitize(e.getMessage()), null));
         }
         if (e instanceof TokenExpiredException) {
-            log.error("token过期", e);
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(WebResponse.Error(401, e.getMessage(), null));
+            log.error("token过期，类型：{}", e.getClass().getName());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(WebResponse.Error(401, sanitize(e.getMessage()), null));
         }
 
-        log.error("其他异常", e);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(WebResponse.Error(e.getMessage()));
+        log.error("其他异常，类型：{}", e.getClass().getName());
+        // 未知异常可能包含数据库连接串、凭据或下游响应，禁止直接回传给客户端。
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(WebResponse.Error("系统内部错误"));
     }
 
     /**
@@ -80,6 +81,11 @@ public class GlobalException {
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<WebResponse<String>> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
-                .body(WebResponse.Error(HttpStatus.METHOD_NOT_ALLOWED.value(), e.getMessage(), null));
+                .body(WebResponse.Error(HttpStatus.METHOD_NOT_ALLOWED.value(), sanitize(e.getMessage()), null));
+    }
+
+    private String sanitize(String message) {
+        if (message == null) return null;
+        return message.replaceAll("(?i)(password|passwd|secret|token|api[_-]?key)(\\s*[=:]\\s*)[^,;\\s]+", "$1$2[REDACTED]");
     }
 }

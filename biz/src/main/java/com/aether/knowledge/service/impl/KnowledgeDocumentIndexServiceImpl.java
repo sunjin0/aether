@@ -93,6 +93,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
             throw new ServerException(400, I18nUtils.getMessage("knowledge.document-version.required"));
         }
         KnowledgeIndexJob job = new KnowledgeIndexJob();
+        job.setTenantId(document.getTenantId());
         job.setKnowledgeBaseId(document.getKnowledgeBaseId());
         job.setDocumentId(document.getId());
         job.setDocumentVersionId(version.getId());
@@ -179,6 +180,7 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
             String contentHash = chunkHashes.get(index);
             String vector = existingEmbeddings.get(contentHash);
             KnowledgeDocumentChunk chunk = new KnowledgeDocumentChunk();
+            chunk.setTenantId(document.getTenantId());
             chunk.setKnowledgeBaseId(knowledgeBase.getId());
             chunk.setDocumentId(document.getId());
             chunk.setDocumentVersionId(documentVersionId);

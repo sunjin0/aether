@@ -7,6 +7,7 @@ import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.workflow.service.AgentWorkflowTemplateService;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class AgentWorkflowTemplateServiceImpl extends ServiceImpl<AgentWorkflowT
         if (StringUtils.isBlank(name))
             throw new ServerException(422, I18nUtils.getMessage("workflow.template.name.required"));
         AgentWorkflowTemplate template = new AgentWorkflowTemplate();
+        template.setTenantId(workflow.getTenantId());
         template.setName(name);
         template.setDescription(StringUtils.abbreviate(description, 1024));
         template.setAgentDefinitionId(workflow.getAgentDefinitionId());
@@ -67,6 +69,7 @@ public class AgentWorkflowTemplateServiceImpl extends ServiceImpl<AgentWorkflowT
         AgentWorkflow source = StringUtils.isBlank(template.getSourceWorkflowId()) ? null : workflowService.getById(template.getSourceWorkflowId());
         String applicationId = source == null ? "0" : StringUtils.defaultIfBlank(source.getApplicationId(), "0");
         workflow.setApplicationId(applicationId);
+        workflow.setTenantId(source == null ? currentTenantId() : source.getTenantId());
         workflow.setCode(resolveCode(applicationId, code));
         workflow.setName(name);
         workflow.setDescription(StringUtils.abbreviate(description, 1024));
@@ -78,6 +81,19 @@ public class AgentWorkflowTemplateServiceImpl extends ServiceImpl<AgentWorkflowT
         workflow.setStatus(0);
         workflowService.save(workflow);
         return workflow;
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    @Override
+    public AgentWorkflowTemplate getById(java.io.Serializable id) {
+        AgentWorkflowTemplate template = super.getById(id);
+        String tenantId = currentTenantId();
+        if (template != null && StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(template.getTenantId())
+                && !tenantId.equals(template.getTenantId())) return null;
+        return template;
     }
 
     /**

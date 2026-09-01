@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.aether.local.CurrentUser;
 
 @Service
 public class AgentWorkflowEventReceiptServiceImpl extends ServiceImpl<AgentWorkflowEventReceiptMapper, AgentWorkflowEventReceipt>
@@ -16,6 +17,7 @@ public class AgentWorkflowEventReceiptServiceImpl extends ServiceImpl<AgentWorkf
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public boolean claim(String applicationId, String eventType, String eventId, String correlationKey) {
         long now = System.currentTimeMillis();
-        return baseMapper.insertIgnore(IdWorker.getIdStr(), applicationId, eventType, eventId, correlationKey, now, now) > 0;
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        return baseMapper.insertIgnore(IdWorker.getIdStr(), tenantId, applicationId, eventType, eventId, correlationKey, now, now) > 0;
     }
 }

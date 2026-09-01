@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.beans.factory.ObjectProvider;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -47,14 +48,17 @@ public class GlobalFilter extends OncePerRequestFilter {
     private static final String PRINCIPAL_TYPE_SERVICE_ACCOUNT = "SERVICE_ACCOUNT";
     private final ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider;
     private final ObjectProvider<UserTokenVerifier> userTokenVerifierProvider;
+    private final ObjectProvider<MeterRegistry> meterRegistryProvider;
 
     /**
      * 创建 {@code GlobalFilter} 实例。
      */
     public GlobalFilter(ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider,
-                        ObjectProvider<UserTokenVerifier> userTokenVerifierProvider) {
+                        ObjectProvider<UserTokenVerifier> userTokenVerifierProvider,
+                        ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this.serviceTokenVerifierProvider = serviceTokenVerifierProvider;
         this.userTokenVerifierProvider = userTokenVerifierProvider;
+        this.meterRegistryProvider = meterRegistryProvider;
     }
 
     /**
@@ -66,11 +70,23 @@ public class GlobalFilter extends OncePerRequestFilter {
         long startTime = System.currentTimeMillis();
         HashMap<String, String> payload = new HashMap<>();
         String traceId = request.getHeader("X-Trace-Id");
+        String spanId = null;
+        String traceparent = request.getHeader("traceparent");
+        if (traceparent != null && traceparent.matches("00-[0-9a-fA-F]{32}-[0-9a-fA-F]{16}-[0-9a-fA-F]{2}")) {
+            String[] parts = traceparent.split("-");
+            if (!parts[1].matches("0{32}") && !parts[2].matches("0{16}")) {
+                traceId = parts[1].toLowerCase();
+                spanId = parts[2].toLowerCase();
+            }
+        }
         if (traceId == null || !traceId.matches("[A-Za-z0-9_-]{8,128}")) {
             traceId = UUID.randomUUID().toString().replace("-", "");
         }
         response.setHeader("X-Trace-Id", traceId);
+        if (spanId == null) spanId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        response.setHeader("traceparent", "00-" + normalizeTraceId(traceId) + "-" + spanId + "-01");
         MDC.put("traceId", traceId);
+        MDC.put("spanId", spanId);
 
         try {
             // 认证处理
@@ -85,6 +101,7 @@ public class GlobalFilter extends OncePerRequestFilter {
                     String principalId = TokenUtils.getClaim(token, "principalId");
                     String serviceAccountId = TokenUtils.getClaim(token, "serviceAccountId");
                     String applicationId = TokenUtils.getClaim(token, "applicationId");
+                    String tenantId = TokenUtils.getClaim(token, "tenantId");
                     if (serviceAccountId != null && !serviceAccountId.isEmpty()) {
                         ServiceTokenVerifier verifier = serviceTokenVerifierProvider.getIfAvailable();
                         String tokenVersion = TokenUtils.getClaim(token, "serviceTokenVersion");
@@ -98,6 +115,7 @@ public class GlobalFilter extends OncePerRequestFilter {
                         payload.put("principalId", principalId != null && !principalId.isEmpty() ? principalId : userId);
                         payload.put("serviceAccountId", serviceAccountId);
                         if (applicationId != null && !applicationId.isEmpty()) payload.put("applicationId", applicationId);
+                        if (tenantId != null && !tenantId.isEmpty()) payload.put("tenantId", tenantId);
                     } else {
                         if (!TokenUtils.hasTokenType(token, TokenUtils.ACCESS_TOKEN_TYPE)) {
                             throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
@@ -112,6 +130,7 @@ public class GlobalFilter extends OncePerRequestFilter {
                         payload.put("principalId", principalId);
                     }
                     payload.put("userId", userId);
+                    if (tenantId != null && !tenantId.isEmpty()) payload.put("tenantId", tenantId);
                     payload.put("token", token);
                 } catch (ServerException e) {
                     handleException(response, e);
@@ -126,35 +145,59 @@ public class GlobalFilter extends OncePerRequestFilter {
             payload.put("startTime", String.valueOf(startTime));
             payload.put("traceId", traceId);
             CurrentUser.set(payload);
+            if (payload.get("tenantId") != null && !payload.get("tenantId").trim().isEmpty()) {
+                MDC.put("tenantId", payload.get("tenantId"));
+            }
 
             // 继续执行后续过滤器和控制器
             filterChain.doFilter(request, response);
         } catch (ServerException e) {
             handleException(response, e);
         } catch (Exception e) {
-            log.error("请求处理异常", e);
-            handleException(response, new ServerException(500, e.getMessage()));
+            log.error("请求处理异常，类型：{}，traceId：{}", e.getClass().getName(), traceId);
+            handleException(response, new ServerException(500, "系统内部错误"));
         } finally {
             // 记录请求日志
             try {
                 long duration = System.currentTimeMillis() - startTime;
                 String userId = payload.get("userId");
-                String query = request.getQueryString();
                 log.info("用户:{}, 耗时:{}ms, {} {}, 状态:{}",
                         userId != null ? userId : "匿名",
                         duration,
                         request.getMethod(),
-                        query != null ? request.getRequestURI() + "?" + query : request.getRequestURI(),
+                        request.getRequestURI(),
                         response.getStatus());
+                MeterRegistry registry = meterRegistryProvider.getIfAvailable();
+                if (registry != null) {
+                    registry.timer("aether.http.requests", "method", request.getMethod(),
+                            "route", normalizeRoute(request.getRequestURI()),
+                            "status", String.valueOf(response.getStatus())).record(duration, java.util.concurrent.TimeUnit.MILLISECONDS);
+                }
             } catch (Exception e) {
                 // 日志记录失败不影响主流程
-                log.warn("请求日志记录失败", e);
+                log.warn("请求日志记录失败，类型：{}", e.getClass().getName());
             }
 
             // 清理ThreadLocal，防止内存泄漏
             CurrentUser.remove();
             MDC.remove("traceId");
+            MDC.remove("spanId");
+            MDC.remove("tenantId");
         }
+    }
+
+    private String normalizeRoute(String uri) {
+        if (uri == null || uri.trim().isEmpty()) return "unknown";
+        return uri.replaceAll("/[0-9a-fA-F-]{16,}", "/{id}");
+    }
+
+    private String normalizeTraceId(String traceId) {
+        String value = traceId == null ? "" : traceId.replaceAll("[^0-9a-fA-F]", "").toLowerCase();
+        if (value.length() > 32) value = value.substring(0, 32);
+        StringBuilder result = new StringBuilder(value);
+        while (result.length() < 32) result.append('0');
+        if (result.toString().matches("0{32}")) result.setCharAt(31, '1');
+        return result.toString();
     }
 
     /**
@@ -164,9 +207,9 @@ public class GlobalFilter extends OncePerRequestFilter {
         // 令牌过期、权限不足属于预期的客户端请求，不打印完整堆栈，避免无效错误日志淹没真实故障。
         Integer statusCode = resolveStatusCode(e.getMessage());
         if (statusCode != null && statusCode >= 400 && statusCode < 500) {
-            log.warn("请求鉴权失败：{}", e.getMessage());
+            log.warn("请求鉴权失败，类型：{}，traceId：{}", e.getClass().getName(), MDC.get("traceId"));
         } else {
-            log.error("过滤器异常：", e);
+            log.error("过滤器异常，类型：{}，traceId：{}", e.getClass().getName(), MDC.get("traceId"));
         }
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
@@ -177,12 +220,12 @@ public class GlobalFilter extends OncePerRequestFilter {
         if (parts.length == 2) {
             try {
                 int code = Integer.parseInt(parts[0].trim());
-                webResponse = WebResponse.Error(code, parts[1].trim(), null);
+                webResponse = WebResponse.Error(code, sanitize(parts[1].trim()), null);
             } catch (NumberFormatException ex) {
-                webResponse = WebResponse.Error(message, null);
+                webResponse = WebResponse.Error(sanitize(message), null);
             }
         } else {
-            webResponse = WebResponse.Error(message, null);
+            webResponse = WebResponse.Error(sanitize(message), null);
         }
         response.getWriter().write(JSON.toJSONString(webResponse));
     }
@@ -199,6 +242,11 @@ public class GlobalFilter extends OncePerRequestFilter {
         } catch (NumberFormatException ignored) {
             return null;
         }
+    }
+
+    private String sanitize(String message) {
+        if (message == null) return null;
+        return message.replaceAll("(?i)(password|passwd|secret|token|api[_-]?key)(\\s*[=:]\\s*)[^,;\\s]+", "$1$2[REDACTED]");
     }
 
     /**

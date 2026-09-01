@@ -2,12 +2,14 @@ package com.aether.workflow.runtime;
 
 import com.aether.workflow.entity.AgentWorkflowExecutionJob;
 import com.aether.workflow.service.AgentWorkflowExecutionJobService;
+import com.aether.local.CurrentUser;
 import com.aether.workflow.service.AgentWorkflowExecutionService;
 import com.aether.workflow.service.AgentWorkflowExternalInvocationService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,7 +25,7 @@ import java.util.List;
  */
 @Component
 public class WorkflowExecutionJobDispatcher {
-    private static final long LEASE_MILLIS = 5 * 60 * 1000L;
+    private final long leaseMillis;
     private final AgentWorkflowExecutionJobService jobService;
     private final AgentWorkflowExecutionService executionService;
     private final TaskExecutor taskExecutor;
@@ -35,11 +37,13 @@ public class WorkflowExecutionJobDispatcher {
     public WorkflowExecutionJobDispatcher(AgentWorkflowExecutionJobService jobService,
                                           @Lazy AgentWorkflowExecutionService executionService,
                                           @Qualifier("asyncPoolTaskExecutor") TaskExecutor taskExecutor,
-                                          AgentWorkflowExternalInvocationService externalInvocationService) {
+                                          AgentWorkflowExternalInvocationService externalInvocationService,
+                                          @Value("${aether.workflow.execution.lease-ms:300000}") long leaseMillis) {
         this.jobService = jobService;
         this.executionService = executionService;
         this.taskExecutor = taskExecutor;
         this.externalInvocationService = externalInvocationService;
+        this.leaseMillis = Math.max(1000L, leaseMillis);
     }
 
     /**
@@ -54,6 +58,7 @@ public class WorkflowExecutionJobDispatcher {
                 .eq(AgentWorkflowExecutionJob::getDeleted, false).last("LIMIT 1"));
         if (existing == null) {
             AgentWorkflowExecutionJob job = new AgentWorkflowExecutionJob();
+            job.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
             job.setInstanceId(instanceId);
             job.setStatus("PENDING");
             job.setAttemptCount(0);
@@ -98,7 +103,7 @@ public class WorkflowExecutionJobDispatcher {
         long now = System.currentTimeMillis();
         List<AgentWorkflowExecutionJob> jobs = jobService.list(Wrappers.lambdaQuery(AgentWorkflowExecutionJob.class)
                 .and(w -> w.eq(AgentWorkflowExecutionJob::getStatus, "PENDING").le(AgentWorkflowExecutionJob::getNextAttemptAt, now)
-                        .or().eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING").le(AgentWorkflowExecutionJob::getLockedAt, now - LEASE_MILLIS))
+                        .or().eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING").le(AgentWorkflowExecutionJob::getLockedAt, now - leaseMillis))
                 .eq(AgentWorkflowExecutionJob::getDeleted, false).orderByAsc(AgentWorkflowExecutionJob::getNextAttemptAt).last("LIMIT 20"));
         for (final AgentWorkflowExecutionJob job : jobs)
             taskExecutor.execute(new Runnable() {
@@ -130,13 +135,13 @@ public class WorkflowExecutionJobDispatcher {
         AgentWorkflowExecutionJob candidate = jobService.getById(jobId);
         if (candidate == null || Boolean.TRUE.equals(candidate.getDeleted())) return;
         boolean expiredLease = "PROCESSING".equals(candidate.getStatus())
-                && candidate.getLockedAt() != null && candidate.getLockedAt() <= now - LEASE_MILLIS;
+                && candidate.getLockedAt() != null && candidate.getLockedAt() <= now - leaseMillis;
         boolean claimed = jobService.update(new LambdaUpdateWrapper<AgentWorkflowExecutionJob>()
                 .set(AgentWorkflowExecutionJob::getStatus, "PROCESSING").set(AgentWorkflowExecutionJob::getLockedAt, now)
                 .setSql("attempt_count = attempt_count + 1")
                 .eq(AgentWorkflowExecutionJob::getId, jobId).eq(AgentWorkflowExecutionJob::getDeleted, false)
                 .and(w -> w.eq(AgentWorkflowExecutionJob::getStatus, "PENDING")
-                        .or().eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING").le(AgentWorkflowExecutionJob::getLockedAt, now - LEASE_MILLIS)));
+                        .or().eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING").le(AgentWorkflowExecutionJob::getLockedAt, now - leaseMillis)));
         if (!claimed) return;
         AgentWorkflowExecutionJob job = jobService.getById(jobId);
         if (expiredLease) {

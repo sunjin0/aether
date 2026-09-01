@@ -3,10 +3,13 @@ package com.aether.agent.service.impl;
 import com.aether.agent.entity.AgentToolBinding;
 import com.aether.agent.mapper.AgentToolBindingMapper;
 import com.aether.agent.service.AgentToolBindingService;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * 工具绑定 Service 实现
@@ -24,6 +27,14 @@ public class AgentToolBindingServiceImpl extends ServiceImpl<AgentToolBindingMap
     @Autowired
     public AgentToolBindingServiceImpl(RedisTemplate<String, Object> redisTemplate) {
         this.redisTemplate = redisTemplate;
+    }
+
+    @Override
+    public AgentToolBinding getById(java.io.Serializable id) {
+        AgentToolBinding binding = super.getById(id);
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        if (binding != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(binding.getTenantId())) return null;
+        return binding;
     }
 
     /**
@@ -69,8 +80,8 @@ public class AgentToolBindingServiceImpl extends ServiceImpl<AgentToolBindingMap
      */
     private void evictAgentCache(String agentId) {
         try {
-            String cacheKey = TOOLS_CACHE_KEY_PREFIX + agentId;
-            redisTemplate.delete(cacheKey);
+            String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
+            redisTemplate.delete(TOOLS_CACHE_KEY_PREFIX + tenantId + ":" + agentId);
         } catch (Exception e) {
             // 清除缓存失败不影响主流程
         }

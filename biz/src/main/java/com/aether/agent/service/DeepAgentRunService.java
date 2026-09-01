@@ -10,6 +10,8 @@ import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.skill.service.SkillRuntimeContext;
 import com.aether.agent.skill.service.SkillArtifactExecutionService;
+import com.aether.execution.entity.Execution;
+import com.aether.execution.service.ExecutionService;
 import com.aether.sys.entity.AdminPreference;
 import com.aether.sys.entity.User;
 import com.aether.sys.service.AdminPreferenceService;
@@ -67,6 +69,9 @@ public class DeepAgentRunService {
     private final AgentRunPlanService planService;
     private final ToolRouterService toolRouterService;
     private final DeepAgentConfig config;
+
+    @Autowired(required = false)
+    private ExecutionService executionService;
 
     /** Optional to preserve direct construction used by legacy unit tests. */
     @Autowired(required = false)
@@ -245,6 +250,11 @@ public class DeepAgentRunService {
             run.setExternalRunId(externalRunId);
         }
         agentRunService.save(run);
+        if (executionService != null) {
+            Execution execution = executionService.start("AGENT", null, null, userId, agent.getId());
+            run.setExecutionId(execution.getId());
+            agentRunService.updateById(run);
+        }
         String runId = run.getId();
         if (runtimeEmailCredentialStore != null) runtimeEmailCredentialStore.bindPending(runId, conversationId, userId);
         boolean dispatchImmediately = taskRecord == null || agentSessionService == null || route.reuseTask
@@ -842,6 +852,9 @@ public class DeepAgentRunService {
         if ("tool.started".equals(eventType)) {
             AgentToolCallLog logEntry = new AgentToolCallLog();
             logEntry.setRunId(runId);
+            if (com.aether.local.CurrentUser.getUser() != null) {
+                logEntry.setTenantId(com.aether.local.CurrentUser.getUser().get("tenantId"));
+            }
             logEntry.setToolCallId(toolCallId);
             logEntry.setToolName(toolName);
             logEntry.setAgentDefinitionId(run.getAgentDefinitionId());
@@ -965,6 +978,7 @@ public class DeepAgentRunService {
         if (!updated) {
             throw new IllegalStateException("更新 Deep Agent 最终运行记录失败");
         }
+        finishExecution(run, "SUCCEEDED", promptTokens, completionTokens, totalTokens, model, effectiveLatencyMs, null);
         artifactExecutionService.attachPendingArtifacts(runId, message.getId());
         agentConversationService.update(null, Wrappers.lambdaUpdate(AgentConversation.class)
                 .eq(AgentConversation::getId, run.getConversationId())
@@ -1073,6 +1087,7 @@ public class DeepAgentRunService {
                 .eq(AgentRun::getId, runId)
                 .in(AgentRun::getStatus, STATUS_QUEUED, STATUS_RUNNING));
         if (updated) updateTaskStatus(run, "FAILED", safeError);
+        if (updated) finishExecution(run, "FAILED", null, null, null, null, null, safeError);
         return updated;
     }
 
@@ -1086,7 +1101,22 @@ public class DeepAgentRunService {
                 .eq(AgentRun::getId, runId)
                 .in(AgentRun::getStatus, STATUS_QUEUED, STATUS_RUNNING));
         if (updated) updateTaskStatus(run, "CANCELLED", "用户取消");
+        if (updated) finishExecution(run, "CANCELLED", null, null, null, null, null, "用户取消");
         return updated;
+    }
+
+    private void finishExecution(AgentRun run, String status, Integer promptTokens, Integer completionTokens,
+                                 Integer totalTokens, String model, Integer latencyMs, String error) {
+        if (executionService == null || run == null || StringUtils.isBlank(run.getExecutionId())) return;
+        Execution update = new Execution();
+        update.setId(run.getExecutionId());
+        update.setPromptTokens(promptTokens);
+        update.setCompletionTokens(completionTokens);
+        update.setTotalTokens(totalTokens);
+        update.setModel(model);
+        update.setDurationMs(latencyMs == null ? null : latencyMs.longValue());
+        executionService.updateById(update);
+        executionService.finish(run.getExecutionId(), status, null, error);
     }
 
     /**

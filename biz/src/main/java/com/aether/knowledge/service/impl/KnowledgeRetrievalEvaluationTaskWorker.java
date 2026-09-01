@@ -12,6 +12,8 @@ import com.aether.knowledge.mapper.KnowledgeRetrievalEvaluationTaskMapper;
 import com.aether.knowledge.model.KnowledgeRetrievalResult;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
 import com.aether.knowledge.service.KnowledgeDocumentService;
+import com.aether.evaluation.entity.EvaluationPolicy;
+import com.aether.evaluation.service.EvaluationPolicyService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -39,6 +41,8 @@ public class KnowledgeRetrievalEvaluationTaskWorker {
     private final KnowledgeRetrievalService retrievalService;
     private final KnowledgeDocumentService documentService;
     private final TaskExecutor taskExecutor;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private EvaluationPolicyService evaluationPolicyService;
 
     /**
  * 创建 {@code KnowledgeRetrievalEvaluationTaskWorker} 实例。
@@ -190,5 +194,21 @@ public void updateRun(String runId) {
         run.setStatus(failed == 0 ? "SUCCEEDED" : evaluated == 0 ? "FAILED" : "PARTIAL_FAILED"); run.setTotalCount(evaluated); run.setFailedCount(failed);
         run.setRecallAtK(evaluated == 0 ? 0D : recall / evaluated); run.setMrr(evaluated == 0 ? 0D : mrr / evaluated); run.setNdcg(evaluated == 0 ? 0D : ndcg / evaluated);
         run.setFinishedAt(System.currentTimeMillis()); run.setErrorSummaryJson(failed == 0 ? null : JSON.toJSONString(Collections.singletonMap("RETRIEVAL_FAILED", failed))); runMapper.updateById(run);
+        updateEvaluationPolicy(run);
+    }
+
+    private void updateEvaluationPolicy(KnowledgeRetrievalEvaluationRun run) {
+        if (evaluationPolicyService == null || StringUtils.isBlank(run.getAgentDefinitionIdSnapshot())) return;
+        EvaluationPolicy policy = evaluationPolicyService.getOne(Wrappers.lambdaQuery(EvaluationPolicy.class)
+                .eq(EvaluationPolicy::getTargetType, "AGENT")
+                .eq(EvaluationPolicy::getTargetId, run.getAgentDefinitionIdSnapshot())
+                .eq(EvaluationPolicy::getDeleted, false), false);
+        if (policy == null) return;
+        int score = (int) Math.round(run.getNdcg() * 100D);
+        policy.setLastScore(score);
+        policy.setLastStatus("SUCCEEDED".equals(run.getStatus()) ? "PASSED" : "FAILED");
+        policy.setLastRunId(run.getId());
+        policy.setEvaluatedAt(run.getFinishedAt());
+        evaluationPolicyService.updateById(policy);
     }
 }

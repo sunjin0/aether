@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import com.aether.local.CurrentUser;
 
 import java.util.Collections;
 import java.util.List;
@@ -34,7 +35,7 @@ public class KnowledgeDocumentChunkServiceImpl
         if (filteredIds.isEmpty()) {
             return Collections.emptyList();
         }
-        return baseMapper.selectSimilarChunks(filteredIds, embedding, limit);
+        return baseMapper.selectSimilarChunks(filteredIds, embedding, limit, currentTenantId());
     }
 
     /**
@@ -51,7 +52,7 @@ public class KnowledgeDocumentChunkServiceImpl
         if (filteredIds.isEmpty()) {
             return Collections.emptyList();
         }
-        return baseMapper.selectLexicalChunks(filteredIds, query.trim(), limit);
+        return baseMapper.selectLexicalChunks(filteredIds, query.trim(), limit, currentTenantId());
     }
 
     /**
@@ -63,7 +64,11 @@ public class KnowledgeDocumentChunkServiceImpl
             return Collections.emptyList();
         }
         return baseMapper.selectNeighborChunks(documentVersionId,
-                Math.max(0, chunkIndex - radius), chunkIndex + radius);
+                Math.max(0, chunkIndex - radius), chunkIndex + radius, currentTenantId());
+    }
+
+    private String currentTenantId() {
+        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
     }
 
     /**

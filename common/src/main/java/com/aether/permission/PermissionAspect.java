@@ -12,7 +12,10 @@ import org.aspectj.lang.annotation.Pointcut;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ClassUtils;
 
 import java.util.HashMap;
 import javax.annotation.Resource;
@@ -44,12 +47,33 @@ public class PermissionAspect {
     @Before("pointcut()")
     public void before(JoinPoint joinPoint) {
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
-        Method method = signature.getMethod();
+        // JDK/CGLIB 代理可能只暴露接口、父类或 CGLIB 生成的方法；必须解析用户的目标类。
+        // 否则方法级 @Permission(required = false) 会被类级权限错误覆盖。
+        Class<?> targetClass = ClassUtils.getUserClass(joinPoint.getTarget());
+        Method method = AopUtils.getMostSpecificMethod(signature.getMethod(), targetClass);
 
         // 获取类上的注解
-        Permission classAnnotation = (Permission) joinPoint.getSignature().getDeclaringType().getAnnotation(Permission.class);
+        Permission classAnnotation = AnnotationUtils.findAnnotation(targetClass, Permission.class);
+        if (classAnnotation == null) {
+            classAnnotation = AnnotationUtils.findAnnotation(joinPoint.getSignature().getDeclaringType(), Permission.class);
+        }
         // 获取方法上的注解
-        Permission methodAnnotation = method.getAnnotation(Permission.class);
+        Permission methodAnnotation = AnnotationUtils.findAnnotation(method, Permission.class);
+        if (methodAnnotation == null) {
+            methodAnnotation = AnnotationUtils.findAnnotation(signature.getMethod(), Permission.class);
+        }
+        if (methodAnnotation == null) {
+            // 某些代理会改写参数签名；按方法名扫描声明方法，保留方法级配置的优先级。
+            for (Method declaredMethod : targetClass.getDeclaredMethods()) {
+                if (declaredMethod.getName().equals(signature.getName())
+                        && declaredMethod.getParameterTypes().length == signature.getParameterTypes().length) {
+                    methodAnnotation = AnnotationUtils.findAnnotation(declaredMethod, Permission.class);
+                    if (methodAnnotation != null) {
+                        break;
+                    }
+                }
+            }
+        }
 
         // 优先使用方法上的注解，如果没有则使用类上的注解
         Permission annotation = methodAnnotation != null ? methodAnnotation : classAnnotation;

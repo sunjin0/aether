@@ -20,6 +20,7 @@ import com.aether.agent.skill.vo.AgentSkillVo;
 import com.aether.agent.skill.vo.AgentSkillStatisticsVo;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
+import com.aether.local.CurrentUser;
 import com.aether.storage.service.ObjectStorageService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -155,6 +156,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         }
         for (AgentSkillResource sourceResource : resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, source.getId()))) {
             AgentSkillResource copy = new AgentSkillResource();
+            copy.setTenantId(sourceResource.getTenantId());
             copy.setSkillVersionId(draft.getId());
             copy.setName(sourceResource.getName());
             copy.setType(sourceResource.getType());
@@ -239,7 +241,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         }
         result.setTools(toolBindingService.list(Wrappers.lambdaQuery(AgentSkillToolBinding.class).eq(AgentSkillToolBinding::getSkillVersionId, versionId)));
         result.setKnowledgeBases(knowledgeBindingService.list(Wrappers.lambdaQuery(AgentSkillKnowledgeBinding.class).eq(AgentSkillKnowledgeBinding::getSkillVersionId, versionId)));
-        result.setResources(resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, versionId)));
+        result.setResources(resourceService.list(resourceQuery(versionId)));
         return result;
     }
 
@@ -257,7 +259,11 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
      */
     @Override
     public List<AgentDefinitionSkillBinding> listBindings(String agentId) {
-        return definitionBindingService.list(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class).eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId).orderByAsc(AgentDefinitionSkillBinding::getPriority));
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        return definitionBindingService.list(Wrappers.lambdaQuery(AgentDefinitionSkillBinding.class)
+                .eq(AgentDefinitionSkillBinding::getAgentDefinitionId, agentId)
+                .eq(StringUtils.isNotBlank(tenantId), AgentDefinitionSkillBinding::getTenantId, tenantId)
+                .orderByAsc(AgentDefinitionSkillBinding::getPriority));
     }
 
     /**
@@ -272,6 +278,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
             throw new ServerException(409, I18nUtils.getMessage("skill.installation.already-exists"));
         AgentDefinitionSkillBinding binding = new AgentDefinitionSkillBinding();
         binding.setAgentDefinitionId(agentId);
+        binding.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
         binding.setSkillId(version.getSkillId());
         binding.setSkillVersionId(version.getId());
         binding.setPriority(dto.getPriority());
@@ -325,11 +332,14 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         }
         String sha256 = sha256Hex(content);
         // 不可覆盖对象键：skills/{skillId}/{versionId}/{sha256}，同内容上传幂等复用。
-        String objectKey = "skills/" + skillId + "/" + draft.getId() + "/" + sha256;
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        String tenantPrefix = StringUtils.isBlank(tenantId) ? "" : "tenant/" + tenantId + "/";
+        String objectKey = tenantPrefix + "skills/" + skillId + "/" + draft.getId() + "/" + sha256;
         AgentSkillResource existing = resourceService.getOne(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getObjectKey, objectKey).eq(AgentSkillResource::getSkillVersionId, draft.getId()));
         if (existing != null) throw new ServerException(409, I18nUtils.getMessage("skill.resource.duplicate"));
         objectStorageService.upload(resourceBucket, objectKey, content, StringUtils.defaultIfBlank(contentType, "application/octet-stream"));
         AgentSkillResource resource = new AgentSkillResource();
+        resource.setTenantId(tenantId);
         resource.setSkillVersionId(draft.getId());
         resource.setName(fileName);
         resource.setType(parsed[0]);
@@ -351,12 +361,13 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     public AgentSkillResource updateDraftResource(String skillId, String resourceId, String fileName, String contentType, byte[] content, String purpose, String type) {
         AgentSkillVersion draft = requireDraft(skillId);
         AgentSkillResource resource = resourceService.getById(resourceId);
-        if (resource == null || !draft.getId().equals(resource.getSkillVersionId()))
+        if (resource == null || !draft.getId().equals(resource.getSkillVersionId()) || !resourceVisible(resource))
             throw new ServerException(404, I18nUtils.getMessage("skill.resource.not-found"));
         if (content == null || content.length == 0 || content.length > maxResourceSize)
             throw new ServerException(400, I18nUtils.getMessage("skill.resource.file.size-exceeded"));
         String[] parsed = parseResource(fileName, type);
-        String newObjectKey = "skills/" + skillId + "/" + draft.getId() + "/" + sha256Hex(content);
+        String tenantPrefix = StringUtils.isBlank(resource.getTenantId()) ? "" : "tenant/" + resource.getTenantId() + "/";
+        String newObjectKey = tenantPrefix + "skills/" + skillId + "/" + draft.getId() + "/" + sha256Hex(content);
         objectStorageService.upload(resourceBucket, newObjectKey, content, StringUtils.defaultIfBlank(contentType, "application/octet-stream"));
         resource.setName(fileName);
         resource.setType(parsed[0]);
@@ -378,7 +389,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         AgentSkillVersion draft = versionService.getOne(Wrappers.lambdaQuery(AgentSkillVersion.class).eq(AgentSkillVersion::getSkillId, skillId).eq(AgentSkillVersion::getStatus, 0));
         String versionId = draft != null ? draft.getId() : getById(skillId).getCurrentVersionId();
         if (versionId == null) return Collections.emptyList();
-        return resourceService.list(Wrappers.lambdaQuery(AgentSkillResource.class).eq(AgentSkillResource::getSkillVersionId, versionId));
+        return resourceService.list(resourceQuery(versionId));
     }
 
     /**
@@ -389,7 +400,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
     public void removeDraftResource(String skillId, String resourceId) {
         AgentSkillVersion draft = requireDraft(skillId);
         AgentSkillResource resource = resourceService.getById(resourceId);
-        if (resource == null || !draft.getId().equals(resource.getSkillVersionId())) {
+        if (resource == null || !draft.getId().equals(resource.getSkillVersionId()) || !resourceVisible(resource)) {
             throw new ServerException(404, I18nUtils.getMessage("skill.resource.not-found"));
         }
         // 文件生成已迁移到平台通用渲染器，Skill 资源不再作为可执行入口，
@@ -400,6 +411,19 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
         } catch (RuntimeException e) {
             // 对象清理失败不影响数据库记录删除，避免草稿编辑被存储故障阻塞。
         }
+    }
+
+    private com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<AgentSkillResource> resourceQuery(String versionId) {
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<AgentSkillResource> query =
+                Wrappers.<AgentSkillResource>query().eq("skill_version_id", versionId);
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        if (StringUtils.isNotBlank(tenantId)) query.eq("tenant_id", tenantId);
+        return query;
+    }
+
+    private boolean resourceVisible(AgentSkillResource resource) {
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        return StringUtils.isBlank(tenantId) || tenantId.equals(resource.getTenantId());
     }
 
     /**

@@ -297,6 +297,14 @@ public class KnowledgeContextService {
                     continue;
                 }
                 KnowledgeReferenceLog log = new KnowledgeReferenceLog();
+                String sourceTenantId = stringValue(source.get("tenantId"));
+                String currentTenantId = com.aether.local.CurrentUser.getUser() == null ? null
+                        : com.aether.local.CurrentUser.getUser().get("tenantId");
+                if (StringUtils.isNotBlank(currentTenantId)) {
+                    if (StringUtils.isNotBlank(sourceTenantId) && !currentTenantId.equals(sourceTenantId)) continue;
+                    sourceTenantId = currentTenantId;
+                }
+                log.setTenantId(sourceTenantId);
                 log.setAgentDefinitionId(agentId);
                 log.setConversationId(conversationId);
                 log.setMessageId(messageId);

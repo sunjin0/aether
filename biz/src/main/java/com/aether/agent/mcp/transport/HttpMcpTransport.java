@@ -15,8 +15,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.slf4j.MDC;
 
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 /**
  * HTTP-based MCP transport.
@@ -41,8 +43,14 @@ public class HttpMcpTransport implements McpTransport {
      */
     @Override
     public McpResponse send(AgentMcpServer server, McpSession session, JSONObject body) {
+        return send(server, session, body, null);
+    }
+
+    @Override
+    public McpResponse send(AgentMcpServer server, McpSession session, JSONObject body,
+                            String connectorCredentialToken) {
         RestTemplate restTemplate = createRestTemplate(server);
-        HttpHeaders headers = createHeaders(server, session);
+        HttpHeaders headers = createHeaders(server, session, connectorCredentialToken);
         byte[] requestBody = body.toJSONString().getBytes(StandardCharsets.UTF_8);
         HttpEntity<byte[]> entity = new HttpEntity<>(requestBody, headers);
         ResponseEntity<byte[]> response = restTemplate.exchange(server.getBaseUrl(), HttpMethod.POST, entity, byte[].class);
@@ -69,7 +77,8 @@ public class HttpMcpTransport implements McpTransport {
     /**
      * 创建Headers。
      */
-    private HttpHeaders createHeaders(AgentMcpServer server, McpSession session) {
+    private HttpHeaders createHeaders(AgentMcpServer server, McpSession session,
+                                      String connectorCredentialToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(new MediaType("application", "json", StandardCharsets.UTF_8));
         headers.add("Accept", "application/json, text/event-stream");
@@ -78,7 +87,22 @@ public class HttpMcpTransport implements McpTransport {
         }
         applyCustomHeaders(headers, server.getRequestHeaders());
         applyAuth(headers, server);
+        if (StringUtils.isNotBlank(connectorCredentialToken)) {
+            headers.set("X-Aether-Connector-Credential", connectorCredentialToken);
+        }
+        applyTraceContext(headers);
         return headers;
+    }
+
+    /** 将当前请求的低基数 Trace ID 以 W3C 格式传播到 MCP；不携带凭据或业务内容。 */
+    private void applyTraceContext(HttpHeaders headers) {
+        String traceId = MDC.get("traceId");
+        if (StringUtils.isBlank(traceId)) return;
+        String normalized = traceId.replaceAll("[^0-9a-fA-F]", "").toLowerCase();
+        if (normalized.length() < 32) normalized = String.format("%032x", normalized.hashCode());
+        if (normalized.length() > 32) normalized = normalized.substring(0, 32);
+        String spanId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        headers.set("traceparent", "00-" + normalized + "-" + spanId + "-01");
     }
 
     /**

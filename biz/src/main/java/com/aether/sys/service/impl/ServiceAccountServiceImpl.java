@@ -12,6 +12,7 @@ import com.aether.sys.dto.ServiceAccountUpdateDto;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.mapper.ServiceAccountMapper;
 import com.aether.sys.service.ServiceAccountService;
+import com.aether.local.CurrentUser;
 import com.aether.sys.vo.ServiceAccountSecretVo;
 import com.aether.sys.vo.ServiceAccountTokenVo;
 import com.aether.workflow.entity.AgentWorkflow;
@@ -82,6 +83,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
             throw new ServerException(409, I18nUtils.getMessage("service-account.client-id.exists"));
         String secret = "sa_" + randomToken(32);
         ServiceAccount account = new ServiceAccount();
+        if (CurrentUser.getUser() != null) account.setTenantId(CurrentUser.getUser().get("tenantId"));
         String applicationId = normalizeApplicationId(dto.getApplicationId());
         account.setApplicationId(applicationId);
         account.setName(dto.getName());
@@ -176,6 +178,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         claims.put("userId", principalId(account.getId()));
         claims.put("serviceAccountId", account.getId());
         claims.put("applicationId", normalizeApplicationId(account.getApplicationId()));
+        if (StringUtils.isNotBlank(account.getTenantId())) claims.put("tenantId", account.getTenantId());
         claims.put("serviceTokenVersion", String.valueOf(account.getTokenVersion()));
         String accessToken = TokenUtils.createAccessToken(claims, accessTokenSeconds);
         account.setLastUsedAt(System.currentTimeMillis());
@@ -299,7 +302,10 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
      */
     private ServiceAccount required(String id) {
         ServiceAccount account = getById(id);
-        if (account == null || Boolean.TRUE.equals(account.getDeleted()))
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        if (account == null || Boolean.TRUE.equals(account.getDeleted())
+                || (StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(account.getTenantId())
+                && !tenantId.equals(account.getTenantId())))
             throw new ServerException(404, I18nUtils.getMessage("service-account.not-found"));
         return account;
     }

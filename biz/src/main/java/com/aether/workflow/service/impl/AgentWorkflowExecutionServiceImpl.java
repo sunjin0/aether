@@ -9,6 +9,8 @@ import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.AgentToolService;
+import com.aether.execution.entity.Execution;
+import com.aether.execution.service.ExecutionService;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
 import com.aether.workflow.dto.AgentWorkflowInteractionDto;
 import com.aether.workflow.dto.AgentWorkflowEventDto;
@@ -82,6 +84,10 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     private final RoleService roleService;
     private final AgentToolService agentToolService;
     private final ToolCallRiskAnalyzer toolCallRiskAnalyzer;
+
+    /** 统一 Execution 账本；保留可选注入以兼容旧部署。 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ExecutionService executionService;
 
     /**
      * 人工/审批/事件/子流程等等待态的兜底超时。等待节点未配置 timeoutMillis 时生效，
@@ -221,6 +227,11 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         instance.setVariables(JSON.toJSONString(variables == null ? new LinkedHashMap<String, Object>() : variables));
         instance.setStartedAt(System.currentTimeMillis());
         instanceService.save(instance);
+        if (executionService != null) {
+            Execution execution = executionService.start("WORKFLOW", null, null, userId, workflowId);
+            instance.setExecutionId(execution.getId());
+            instanceService.updateById(instance);
+        }
         auditEventService.record(instance.getId(), null, "INSTANCE_STARTED", userId, "工作流实例已启动", instance.getVariables());
         executionJobDispatcher.enqueueAfterCommit(instance.getId());
         return instance;
@@ -614,6 +625,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         instance.setErrorMessage(StringUtils.defaultIfBlank(errorMessage, "后台执行任务连续失败"));
         instance.setCompletedAt(System.currentTimeMillis());
         instanceService.updateById(instance);
+        finishExecution(instance, "FAILED", instance.getErrorMessage());
         auditEventService.record(instance.getId(), null, "INSTANCE_FAILED", "SYSTEM", instance.getErrorMessage(), null);
         sseHub.publish(instance.getId(), "run.failed", instance);
         callbackService.recordTerminal(instance);
@@ -632,6 +644,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         instance.setStatus("TERMINATED");
         instance.setCompletedAt(System.currentTimeMillis());
         instanceService.updateById(instance);
+        finishExecution(instance, "CANCELLED", null);
         auditEventService.record(instance.getId(), null, "INSTANCE_TERMINATED", userId, "工作流实例已终止", null);
         callbackService.recordTerminal(instance);
         resumeParentSubflow(instance);
@@ -733,6 +746,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 instance.setCurrentNodeId(null);
                 instance.setCompletedAt(System.currentTimeMillis());
                 instanceService.updateById(instance);
+                finishExecution(instance, "SUCCEEDED", null);
                 auditEventService.record(instance.getId(), null, "INSTANCE_COMPLETED", null, "工作流实例已完成", instance.getVariables());
                 sseHub.publish(instance.getId(), "run.completed", instance);
                 callbackService.recordTerminal(instance);
@@ -741,6 +755,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 instance.setStatus("FAILED");
                 instance.setErrorMessage("流程未到达结束节点");
                 instanceService.updateById(instance);
+                finishExecution(instance, "FAILED", instance.getErrorMessage());
                 auditEventService.record(instance.getId(), null, "INSTANCE_FAILED", null, "流程未到达结束节点", null);
                 sseHub.publish(instance.getId(), "run.failed", instance);
                 callbackService.recordTerminal(instance);
@@ -1040,6 +1055,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 .eq(AgentWorkflowNodeInstance::getInstanceId, instance.getId()).eq(AgentWorkflowNodeInstance::getNodeId, nodeId));
         if (existing != null) return existing;
         AgentWorkflowNodeInstance newNode = new AgentWorkflowNodeInstance();
+        newNode.setTenantId(instance.getTenantId());
         newNode.setInstanceId(instance.getId());
         newNode.setNodeId(nodeId);
         newNode.setNodeType(definition.getString("type"));
@@ -1535,6 +1551,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 .eq(AgentWorkflowJoinState::getTokenKey, tokenKey).eq(AgentWorkflowJoinState::getDeleted, false).last("FOR UPDATE"));
         if (state == null) {
             state = new AgentWorkflowJoinState();
+            state.setTenantId(instance.getTenantId());
             state.setInstanceId(instance.getId()); state.setJoinNodeId(joinNodeId); state.setTokenKey(tokenKey);
             state.setJoinMode(StringUtils.defaultIfBlank(definition.getString("joinMode"), "ALL_SUCCESS"));
             state.setExpectedCount(branches.size()); state.setCompletedCount(0); state.setFailedCount(0); state.setStatus("WAITING");
@@ -1550,7 +1567,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                     .eq(AgentWorkflowNodeToken::getInstanceId, instance.getId()).eq(AgentWorkflowNodeToken::getNodeId, entryId)
                     .eq(AgentWorkflowNodeToken::getTokenKey, tokenKey + ":" + i).eq(AgentWorkflowNodeToken::getDeleted, false));
             if (token == null) {
-                token = new AgentWorkflowNodeToken(); token.setInstanceId(instance.getId()); token.setNodeId(entryId);
+                token = new AgentWorkflowNodeToken(); token.setTenantId(instance.getTenantId()); token.setInstanceId(instance.getId()); token.setNodeId(entryId);
                 token.setTokenKey(tokenKey + ":" + i); token.setStatus("RUNNING"); nodeTokenService.save(token);
             }
             if ("COMPLETED".equals(token.getStatus())) { completed++; continue; }
@@ -1683,6 +1700,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             throw ex;
         }
         AgentWorkflowSubflowLink link = new AgentWorkflowSubflowLink();
+        link.setTenantId(parent.getTenantId());
         link.setParentInstanceId(parent.getId());
         link.setParentNodeId(node.getNodeId());
         link.setChildInstanceId(child.getId());
@@ -1882,10 +1900,16 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         instance.setStatus("FAILED");
         instance.setErrorMessage(node.getErrorMessage());
         instanceService.updateById(instance);
+        finishExecution(instance, "FAILED", node.getErrorMessage());
         auditEventService.record(instance.getId(), node.getId(), "NODE_FAILED", null, node.getErrorMessage(), null);
         sseHub.publish(instance.getId(), "run.failed", node);
         callbackService.recordTerminal(instance);
         resumeParentSubflow(instance);
+    }
+
+    private void finishExecution(AgentWorkflowInstance instance, String status, String error) {
+        if (executionService != null && instance != null && StringUtils.isNotBlank(instance.getExecutionId()))
+            executionService.finish(instance.getExecutionId(), status, null, error);
     }
 
     /**

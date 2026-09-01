@@ -17,6 +17,9 @@ import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentToolCallLogService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.service.ToolRouterService;
+import com.aether.execution.entity.Execution;
+import com.aether.execution.service.ExecutionService;
+import com.aether.governance.service.ResourcePolicyService;
 import com.aether.sys.entity.User;
 import com.aether.sys.service.UserService;
 import com.aether.agent.tools.ToolCallParser.ToolCall;
@@ -83,6 +86,10 @@ public class AgentToolWorkflow {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ToolRegistry toolRegistry;
     private final ToolRouterService toolRouterService;
+    @Autowired(required = false)
+    private ExecutionService executionService;
+    @Autowired(required = false)
+    private ResourcePolicyService resourcePolicyService;
     private final ToolCallRiskAnalyzer riskAnalyzer = new ToolCallRiskAnalyzer();
     private final ExecutorService readOnlyToolExecutor = new ThreadPoolExecutor(2, 8, 30L, TimeUnit.SECONDS,
             new ArrayBlockingQueue<Runnable>(64), new ThreadPoolExecutor.CallerRunsPolicy());
@@ -384,6 +391,11 @@ public class AgentToolWorkflow {
         ToolExecutionResult result;
         try {
             checkCancelled(cancellationToken);
+            if (!allowedByResourcePolicy(tool, call.getName(), agentId, userId)) {
+                result = ToolExecutionResult.failure("资源策略拒绝执行该工具", STATUS_SECURITY_BLOCK);
+                result.setToolCallId(call.getId());
+                return result;
+            }
             result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId, null, cancellationToken);
         } catch (CancellationException e) {
             throw e;
@@ -539,6 +551,8 @@ public class AgentToolWorkflow {
             result = ToolExecutionResult.failure("用户拒绝执行此 MCP 工具调用", STATUS_SECURITY_BLOCK);
         } else if (!isAvailable(tool) || !isToolInRunScope(runId, tool.getId(), agent.getId())) {
             result = ToolExecutionResult.failure("待确认工具已不可用或不在本次运行授权范围内", STATUS_SECURITY_BLOCK);
+        } else if (!allowedByResourcePolicy(tool, toolName, agent.getId(), userId)) {
+            result = ToolExecutionResult.failure("资源策略拒绝执行该工具", STATUS_SECURITY_BLOCK);
         } else {
             try {
                 result = executeMcpTool(tool, arguments, runId, userId, agent.getId());
@@ -568,6 +582,8 @@ public class AgentToolWorkflow {
         ToolExecutionResult result;
         if (!isAvailable(tool)) {
             result = ToolExecutionResult.failure("待确认的工具已不存在或被禁用", STATUS_FAILED);
+        } else if (!allowedByResourcePolicy(tool, toolName, agentId, userId)) {
+            result = ToolExecutionResult.failure("资源策略拒绝执行该工具", STATUS_SECURITY_BLOCK);
         } else {
             try {
                 result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId, idempotencyKey);
@@ -619,6 +635,17 @@ public class AgentToolWorkflow {
             }
         }
         return executorFactory.getExecutor("mcp").execute(context);
+    }
+
+    /** 工具执行前的资源策略检查；未配置策略时保持向后兼容（默认允许）。 */
+    private boolean allowedByResourcePolicy(AgentTool tool, String toolName, String agentId, String userId) {
+        if (resourcePolicyService == null) {
+            return true;
+        }
+        String resourceId = tool != null && StringUtils.isNotBlank(tool.getId()) ? tool.getId() : toolName;
+        // Effective permission is the intersection of the human caller and Agent identity.
+        return resourcePolicyService.allowed("USER", userId, "TOOL", resourceId, "EXECUTE")
+                && resourcePolicyService.allowed("AGENT", agentId, "TOOL", resourceId, "EXECUTE");
     }
 
     /**
@@ -825,6 +852,9 @@ public class AgentToolWorkflow {
                                        String agentId, ToolExecutionResult result) {
         AgentToolCallLog log = new AgentToolCallLog();
         log.setRunId(runId);
+        if (com.aether.local.CurrentUser.getUser() != null) {
+            log.setTenantId(com.aether.local.CurrentUser.getUser().get("tenantId"));
+        }
         com.aether.agent.entity.AgentRun run = StringUtils.isBlank(runId) ? null : agentRunService.getById(runId);
         if (run != null) log.setApplicationId(run.getApplicationId());
         log.setToolCallId(call.getId());
@@ -843,7 +873,35 @@ public class AgentToolWorkflow {
         log.setStatus(result.getStatus());
         log.setErrorMsg(truncate(result.getErrorMsg(), 1024));
         toolCallLogService.save(log);
+        if (executionService != null) {
+            String parentId = run == null ? null : run.getExecutionId();
+            Execution execution = executionService.start("TOOL", null, parentId,
+                    run == null ? null : run.getUserId(), tool == null ? call.getName() : tool.getId());
+            log.setExecutionId(execution.getId());
+            toolCallLogService.updateById(log);
+            Execution executionUpdate = new Execution();
+            executionUpdate.setId(execution.getId());
+            executionUpdate.setModel(tool == null ? null : tool.getMcpToolName());
+            executionUpdate.setDurationMs(result.getLatencyMs() == null ? null : result.getLatencyMs().longValue());
+            executionService.updateById(executionUpdate);
+            if (Integer.valueOf(STATUS_PENDING_APPROVAL).equals(result.getStatus())) {
+                Execution waitingUpdate = new Execution();
+                waitingUpdate.setId(execution.getId());
+                waitingUpdate.setStatus("WAITING_APPROVAL");
+                waitingUpdate.setErrorMessage(result.getErrorMsg());
+                executionService.updateById(waitingUpdate);
+            } else {
+                executionService.finish(execution.getId(), executionStatus(result.getStatus()), null, result.getErrorMsg());
+            }
+        }
         return log;
+    }
+
+    private String executionStatus(Integer status) {
+        if (Integer.valueOf(STATUS_SUCCESS).equals(status)) return "SUCCEEDED";
+        if (Integer.valueOf(STATUS_PENDING_APPROVAL).equals(status)) return "WAITING_APPROVAL";
+        if (Integer.valueOf(STATUS_SECURITY_BLOCK).equals(status)) return "BLOCKED";
+        return "FAILED";
     }
 
     /**
@@ -866,6 +924,13 @@ public class AgentToolWorkflow {
         // 成功时写入空串，确保 MyBatis 更新后不会保留“等待确认”的旧错误文案。
         update.setErrorMsg(truncate(confirmed ? StringUtils.defaultString(result.getErrorMsg()) : "用户拒绝执行", 1024));
         toolCallLogService.updateById(update);
+        if (executionService != null) {
+            AgentToolCallLog existing = toolCallLogService.getById(auditLogId);
+            if (existing != null && StringUtils.isNotBlank(existing.getExecutionId())) {
+                executionService.finish(existing.getExecutionId(), confirmed
+                        ? executionStatus(result.getStatus()) : "REJECTED", null, update.getErrorMsg());
+            }
+        }
     }
 
     /**

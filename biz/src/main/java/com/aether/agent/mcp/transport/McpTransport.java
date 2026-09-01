@@ -19,4 +19,10 @@ public interface McpTransport {
      * 发送当前请求。
      */
     McpResponse send(AgentMcpServer server, McpSession session, JSONObject body);
+
+    /** 发送带请求作用域连接器凭据的 MCP 请求；默认实现保持旧 Transport 兼容。 */
+    default McpResponse send(AgentMcpServer server, McpSession session, JSONObject body,
+                             String connectorCredentialToken) {
+        return send(server, session, body);
+    }
 }

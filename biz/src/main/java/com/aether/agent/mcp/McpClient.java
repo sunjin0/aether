@@ -85,11 +85,17 @@ public class McpClient {
      * 处理callTool。
      */
     public JSONObject callTool(AgentMcpServer server, String toolName, Map<String, Object> arguments) {
+        return callTool(server, toolName, arguments, null);
+    }
+
+    /** 仅为当前 tools/call 请求转发连接器凭据令牌。 */
+    public JSONObject callTool(AgentMcpServer server, String toolName, Map<String, Object> arguments,
+                               String connectorCredentialToken) {
         McpSession session = getOrInitialize(server);
         JSONObject params = new JSONObject();
         params.put("name", toolName);
         params.put("arguments", arguments == null ? new JSONObject() : arguments);
-        return request(server, session, "tools/call", params);
+        return request(server, session, "tools/call", params, connectorCredentialToken);
     }
 
     /**
@@ -129,13 +135,18 @@ public class McpClient {
      * 处理request。
      */
     private JSONObject request(AgentMcpServer server, McpSession session, String method, JSONObject params) {
+        return request(server, session, method, params, null);
+    }
+
+    private JSONObject request(AgentMcpServer server, McpSession session, String method, JSONObject params,
+                               String connectorCredentialToken) {
         JSONObject body = new JSONObject();
         body.put("jsonrpc", "2.0");
         body.put("id", ID.getAndIncrement());
         body.put("method", method);
         body.put("params", params == null ? new JSONObject() : params);
 
-        McpResponse response = send(server, session, body);
+        McpResponse response = send(server, session, body, connectorCredentialToken);
         JSONObject json = parseJsonRpcResponse(response.getBody());
         updateSession(session, response);
         JSONObject error = json.getJSONObject("error");
@@ -154,17 +165,18 @@ public class McpClient {
         body.put("jsonrpc", "2.0");
         body.put("method", method);
         body.put("params", new JSONObject());
-        McpResponse response = send(server, session, body);
+        McpResponse response = send(server, session, body, null);
         updateSession(session, response);
     }
 
     /**
      * 发送当前请求。
      */
-    private McpResponse send(AgentMcpServer server, McpSession session, JSONObject body) {
+    private McpResponse send(AgentMcpServer server, McpSession session, JSONObject body,
+                             String connectorCredentialToken) {
         try {
             McpTransport transport = transportFactory.getTransport(server.getTransport());
-            return transport.send(server, session, body);
+            return transport.send(server, session, body, connectorCredentialToken);
         } catch (IllegalArgumentException e) {
             throw new ServerException(422, I18nUtils.getMessage("agent.mcp.transport.unsupported"));
         }

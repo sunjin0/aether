@@ -6,11 +6,21 @@ import com.aether.agent.application.service.AgentApplicationService;
 import com.aether.exception.ServerException;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
+import com.aether.local.CurrentUser;
+import org.apache.commons.lang3.StringUtils;
 
 /** 业务应用空间服务实现。 */
 @Service
 public class AgentApplicationServiceImpl extends ServiceImpl<AgentApplicationMapper, AgentApplication>
         implements AgentApplicationService {
+    @Override
+    public AgentApplication getById(java.io.Serializable id) {
+        AgentApplication application = super.getById(id);
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        if (application != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(application.getTenantId())) return null;
+        return application;
+    }
+
     @Override
     public AgentApplication requireActive(String applicationId) {
         AgentApplication application = getById(applicationId);

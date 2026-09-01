@@ -5,6 +5,7 @@ import com.aether.agent.entity.AgentToolRoutingIndex;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.mapper.AgentToolRoutingIndexMapper;
 import com.aether.knowledge.service.KnowledgeEmbeddingService;
+import com.aether.local.CurrentUser;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -166,8 +167,9 @@ public class ToolRouterService {
     }
 
     private String cacheKey(String query, List<AgentTool> routable, String embeddingModelId) {
+        String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
         String ids = routable.stream().map(AgentTool::getId).sorted().collect(Collectors.joining(","));
-        return embeddingModelId + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + ids;
+        return tenantId + '|' + embeddingModelId + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + ids;
     }
 
     private void evictRouteCache() {

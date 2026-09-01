@@ -5,6 +5,7 @@ import com.aether.agent.entity.AgentToolBinding;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentToolService;
 import com.aether.agent.tools.core.ToolRegistry;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,7 +56,7 @@ public class AgentToolCatalog {
      * 获取BoundTools。
      */
     public List<AgentTool> getBoundTools(String agentId) {
-        String cacheKey = CACHE_KEY_PREFIX + agentId;
+        String cacheKey = cacheKey(agentId);
         try {
             Object cached = redisTemplate.opsForValue().get(cacheKey);
             if (cached instanceof List) {
@@ -88,10 +89,15 @@ public class AgentToolCatalog {
      */
     public void evict(String agentId) {
         try {
-            redisTemplate.delete(CACHE_KEY_PREFIX + agentId);
+            redisTemplate.delete(cacheKey(agentId));
         } catch (Exception e) {
             log.warn("清理Agent工具缓存失败: agentId={}", agentId, e);
         }
+    }
+
+    private String cacheKey(String agentId) {
+        String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
+        return CACHE_KEY_PREFIX + tenantId + ":" + agentId;
     }
 
     /**

@@ -3,6 +3,8 @@ package com.aether.agent.service;
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.ModelProvider;
+import com.aether.execution.entity.Execution;
+import com.aether.execution.service.ExecutionService;
 import com.aether.agent.model.ModelChatResponse;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -10,6 +12,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import java.math.BigDecimal;
 
 /**
  * 持久化聊天运行记录及其状态变化。
@@ -20,6 +24,7 @@ public class ChatRunService {
     private static final java.util.regex.Pattern SENSITIVE_FIELD = java.util.regex.Pattern.compile(
             "(?i)(\\\"?(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key)\\\"?\\s*[:=]\\s*\\\"?)([^\\\"\\s,}]+)");
     private final AgentRunService agentRunService;
+    private ExecutionService executionService;
     @Autowired(required = false)
     private AuditDataProtectionService auditDataProtectionService;
 
@@ -28,6 +33,12 @@ public class ChatRunService {
      */
     public ChatRunService(AgentRunService agentRunService) {
         this.agentRunService = agentRunService;
+    }
+
+    @Autowired
+    public ChatRunService(AgentRunService agentRunService, ExecutionService executionService) {
+        this.agentRunService = agentRunService;
+        this.executionService = executionService;
     }
 
     /** 查询同一调用方请求创建的未删除运行记录。 */
@@ -94,7 +105,47 @@ public class ChatRunService {
             }
             throw duplicate;
         }
+        recordExecution(run, provider, response, latencyMs, status, errorMsg);
         return run.getId();
+    }
+
+    /** 将已完成的标准对话同步到统一执行账本。 */
+    private void recordExecution(AgentRun run, ModelProvider provider, ModelChatResponse response, long latencyMs,
+                                 Integer status, String errorMsg) {
+        if (executionService == null) return;
+        Execution execution = executionService.start("AGENT", null, null, run.getUserId(), run.getAgentDefinitionId());
+        run.setExecutionId(execution.getId());
+        agentRunService.updateById(run);
+        Execution update = new Execution();
+        update.setId(execution.getId());
+        update.setStartedAt(System.currentTimeMillis() - Math.max(0L, latencyMs));
+        update.setPromptTokens(run.getPromptTokens());
+        update.setCompletionTokens(run.getCompletionTokens());
+        update.setTotalTokens(run.getTotalTokens());
+        update.setModel(run.getModel());
+        update.setEstimatedCost(estimateCost(provider, run));
+        executionService.updateById(update);
+        executionService.finish(execution.getId(), executionStatus(status), null, errorMsg);
+    }
+
+    private BigDecimal estimateCost(ModelProvider provider, AgentRun run) {
+        if (provider == null) return BigDecimal.ZERO;
+        BigDecimal input = provider.getInputPricePerMillionTokens();
+        BigDecimal output = provider.getOutputPricePerMillionTokens();
+        if (input == null && output == null) return BigDecimal.ZERO;
+        BigDecimal prompt = BigDecimal.valueOf(run.getPromptTokens() == null ? 0L : run.getPromptTokens());
+        BigDecimal completion = BigDecimal.valueOf(run.getCompletionTokens() == null ? 0L : run.getCompletionTokens());
+        BigDecimal result = BigDecimal.ZERO;
+        if (input != null) result = result.add(prompt.multiply(input));
+        if (output != null) result = result.add(completion.multiply(output));
+        return result.divide(BigDecimal.valueOf(1000000L), 8, java.math.RoundingMode.HALF_UP);
+    }
+
+    private String executionStatus(Integer status) {
+        if (status == null || status == 0) return "SUCCEEDED";
+        if (status == 2) return "TIMED_OUT";
+        if (status == 5) return "CANCELLED";
+        return "FAILED";
     }
 
     /**
@@ -133,6 +184,17 @@ public class ChatRunService {
         run.setStatus(status);
         run.setErrorMsg(errorMsg);
         agentRunService.updateById(run);
+        AgentRun persisted = agentRunService.getById(runId);
+        if (persisted != null && persisted.getExecutionId() != null) {
+            Execution update = new Execution();
+            update.setId(persisted.getExecutionId());
+            update.setPromptTokens(run.getPromptTokens());
+            update.setCompletionTokens(run.getCompletionTokens());
+            update.setTotalTokens(run.getTotalTokens());
+            update.setModel(run.getModel());
+            executionService.updateById(update);
+            executionService.finish(persisted.getExecutionId(), executionStatus(status), null, errorMsg);
+        }
     }
 
     /**
