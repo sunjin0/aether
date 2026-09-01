@@ -56,6 +56,33 @@ aether:
       service-name: ${AETHER_ADMIN_OTEL_SERVICE_NAME:aether-admin}
       logs-enabled: ${AETHER_ADMIN_OTEL_LOGS_ENABLED:false}
       logs-endpoint: ${AETHER_ADMIN_OTEL_LOGS_ENDPOINT:http://127.0.0.1:4318/v1/logs}
+  # 身份集成配置必须由可执行的 Admin 应用加载；api 模块中的同名配置不会覆盖此处。
+  identity:
+    scim:
+      enabled: ${AETHER_SCIM_ENABLED:false}
+      base-path: ${AETHER_SCIM_BASE_PATH:/scim/v2}
+      bearer-token: ${AETHER_SCIM_BEARER_TOKEN:}
+      tenant-id: ${AETHER_SCIM_TENANT_ID:}
+    saml:
+      enabled: ${AETHER_SAML_ENABLED:false}
+      metadata-driven: ${AETHER_SAML_METADATA_DRIVEN:false}
+      entity-id: ${AETHER_SAML_ENTITY_ID:}
+      metadata-uri: ${AETHER_SAML_METADATA_URI:}
+      idp-entity-id: ${AETHER_SAML_IDP_ENTITY_ID:}
+      certificate: ${AETHER_SAML_CERTIFICATE:}
+      sso-url: ${AETHER_SAML_SSO_URL:}
+      redirect-uri: ${AETHER_SAML_REDIRECT_URI:}
+    oidc:
+      enabled: ${AETHER_OIDC_ENABLED:false}
+      issuer-uri: ${AETHER_OIDC_ISSUER_URI:}
+      authorization-uri: ${AETHER_OIDC_AUTHORIZATION_URI:}
+      token-uri: ${AETHER_OIDC_TOKEN_URI:}
+      jwks-uri: ${AETHER_OIDC_JWKS_URI:}
+      client-id: ${AETHER_OIDC_CLIENT_ID:}
+      client-secret: ${AETHER_OIDC_CLIENT_SECRET:}
+      redirect-uri: ${AETHER_OIDC_REDIRECT_URI:}
+      auto-provision: ${AETHER_OIDC_AUTO_PROVISION:false}
+      scopes: ${AETHER_OIDC_SCOPES:openid,profile,email}
 
 # 文档解析服务（AnyDoc），将其支持的文件转换为 Markdown。
 anydoc:

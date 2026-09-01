@@ -4,6 +4,8 @@
   "registrationAllowed": false,
   "users": [{
     "username": "aether-test-user",
+    "firstName": "Aether",
+    "lastName": "Test",
     "enabled": true,
     "email": "aether-test-user@local.test",
     "emailVerified": true,
@@ -13,7 +15,8 @@
     "clientId": "aether-admin-local",
     "enabled": true,
     "protocol": "openid-connect",
-    "publicClient": true,
+    "publicClient": false,
+    "secret": "aether-local-oidc-secret",
     "standardFlowEnabled": true,
     "directAccessGrantsEnabled": true,
     "redirectUris": ["http://localhost:8080/*"],

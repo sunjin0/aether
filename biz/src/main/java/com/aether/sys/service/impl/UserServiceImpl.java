@@ -265,7 +265,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public UserVo loginByIdentity(String userId) throws ServerException {
         User user = getById(userId);
-        if (user == null || !Integer.valueOf(1).equals(user.getState()))
+        // sys_user 沿用既有约定：0 为正常启用，非 0 为停用状态。
+        if (user == null || !Integer.valueOf(0).equals(user.getState()))
             throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
         HashMap<String, String> payload = new HashMap<String, String>();
         payload.put("userId", String.valueOf(user.getId()));

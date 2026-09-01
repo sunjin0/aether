@@ -148,14 +148,14 @@ public class IdentityController {
     @Permission(required = false)
     @GetMapping("/api/sys/identity/oidc/callback")
     public WebResponse<UserVo> callback(@org.springframework.web.bind.annotation.RequestParam String code,
-                                        @org.springframework.web.bind.annotation.RequestParam String state,
-                                        @org.springframework.web.bind.annotation.RequestParam String tenantId) {
+                                        @org.springframework.web.bind.annotation.RequestParam String state) {
         if (!oidc.isEnabled()) return WebResponse.Error(404, "OIDC 未启用", null);
         String stateValue = redis.opsForValue().get("oidc:login:state:" + state);
         if (stateValue == null) return WebResponse.Error(401, "OIDC state 无效或已过期", null);
         redis.delete("oidc:login:state:" + state);
         String[] stateParts = stateValue.split(":", 3);
-        if (stateParts.length != 3 || !tenantId.equals(stateParts[0])) return WebResponse.Error(401, "OIDC state 无效", null);
+        if (stateParts.length != 3 || stateParts[0].trim().isEmpty()) return WebResponse.Error(401, "OIDC state 无效", null);
+        String tenantId = stateParts[0];
         Map<String, Object> tokenResponse = codeClient.exchange(code, stateParts[2]);
         Jwt jwt = tokenVerifier.verify(String.valueOf(tokenResponse.get("id_token")), oidc.getClientId(), stateParts[1]);
         String issuer = jwt.getIssuer() == null ? null : jwt.getIssuer().toString();

@@ -11,6 +11,10 @@ services:
       KC_METRICS_ENABLED: "true"
     volumes:
       - ./deploy/identity/local-realm.json:/opt/keycloak/data/import/aether-local-realm.json:ro
+    networks:
+      aether-services:
+        aliases:
+          - keycloak
     ports:
       - "8081:8081"
     healthcheck:
@@ -19,3 +23,8 @@ services:
       timeout: 5s
       retries: 12
     stop_grace_period: 30s
+
+networks:
+  aether-services:
+    external: true
+    name: ${AETHER_SHARED_NETWORK:-aether-services}
