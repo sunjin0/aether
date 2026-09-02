@@ -83,7 +83,7 @@ public class KnowledgeDocumentController {
                                        TransactionAfterCommitExecutor afterCommitExecutor,
                                        KnowledgeAccessService knowledgeAccessService,
                                        KnowledgeDocumentWorkflowService workflowService,
-                                       @Value("${knowledge.storage.bucket:${MINIO_KNOWLEDGE_BUCKET:aether-knowledge}}") String knowledgeBucket) {
+                                       @Value("${knowledge.storage.bucket:${STORAGE_KNOWLEDGE_BUCKET:${OSS_BUCKET:${MINIO_KNOWLEDGE_BUCKET:aether-knowledge}}}}") String knowledgeBucket) {
         this.knowledgeDocumentService = knowledgeDocumentService;
         this.knowledgeDocumentChunkService = knowledgeDocumentChunkService;
         this.knowledgeDocumentIndexService = knowledgeDocumentIndexService;

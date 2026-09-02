@@ -1081,6 +1081,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         if (dto != null && StringUtils.isNotBlank(dto.getConversationId())) {
             return "conversation:" + dto.getConversationId();
         }
+        if (dto != null && StringUtils.isNotBlank(dto.getInternalLockScope())) {
+            return "scope:" + dto.getInternalLockScope();
+        }
         String userId = dto == null ? null : dto.getUserId();
         if (StringUtils.isBlank(userId) && CurrentUser.getUser() != null) {
             userId = CurrentUser.getUser().get("userId");

@@ -1,5 +1,6 @@
 package com.aether.agent.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
@@ -54,6 +55,13 @@ public class AgentChatDto {
      * Server-generated request correlation ID for chat latency diagnostics.
      */
     private String requestId;
+
+    /**
+     * 仅供服务端内部调用使用的会话执行锁范围。工作流首次调用尚未创建会话时，
+     * 以工作流实例和节点隔离，避免与用户的普通首轮聊天相互阻塞。
+     */
+    @JsonIgnore
+    private String internalLockScope;
 
     /** True only for the OpenAPI gateway after product-version authorization. */
     private Boolean openApi;

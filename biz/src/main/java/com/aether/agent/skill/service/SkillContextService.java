@@ -70,7 +70,7 @@ public SkillContextService(AgentSkillService skillService, AgentSkillVersionServ
                                AgentSkillResourceServiceImpl resourceService,
                                AgentToolCatalog toolCatalog, AgentMcpServerService mcpServerService,
                                ObjectStorageService objectStorageService,
-                               @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket,
+                               @Value("${skill.storage.bucket:${STORAGE_SKILL_BUCKET:${OSS_BUCKET:${MINIO_SKILL_BUCKET:aether-skill}}}}") String resourceBucket,
                                SkillRouterService skillRouterService, CapabilityIndexService capabilityIndexService) {
         this.skillService = skillService; this.versionService = versionService; this.toolBindingService = toolBindingService;
         this.knowledgeBindingService = knowledgeBindingService;

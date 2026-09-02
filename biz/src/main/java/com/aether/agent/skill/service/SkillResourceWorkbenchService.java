@@ -46,7 +46,7 @@ public class SkillResourceWorkbenchService {
                                          ModelProviderService providerService,
                                          ModelCatalogService modelCatalogService,
                                          ModelClientFactory modelClientFactory,
-                                         @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket) {
+                                         @Value("${skill.storage.bucket:${STORAGE_SKILL_BUCKET:${OSS_BUCKET:${MINIO_SKILL_BUCKET:aether-skill}}}}") String resourceBucket) {
         this.skillService = skillService;
         this.resourceService = resourceService;
         this.storage = storage;

@@ -50,8 +50,8 @@ public class FileController {
      * 创建 {@code FileController} 实例。
      */
     public FileController(ObjectStorageService objectStorageService,
-                          @Value("${storage.file.bucket:${MINIO_FILE_BUCKET:aether}}") String bucket,
-                          @Value("${agent.chat.attachment.bucket:${MINIO_CHAT_ATTACHMENT_BUCKET:aether-chat}}") String chatAttachmentBucket,
+                          @Value("${storage.file.bucket:${STORAGE_FILE_BUCKET:${OSS_BUCKET:${MINIO_FILE_BUCKET:aether}}}}") String bucket,
+                          @Value("${agent.chat.attachment.bucket:${STORAGE_ARTIFACT_BUCKET:${OSS_BUCKET:${MINIO_CHAT_ATTACHMENT_BUCKET:aether-chat}}}}") String chatAttachmentBucket,
                           @Value("${storage.file.max-size:52428800}") long maxFileSize) {
         this.objectStorageService = objectStorageService;
         this.bucket = bucket;

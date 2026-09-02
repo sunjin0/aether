@@ -65,20 +65,30 @@ spring:
 
 knowledge:
   storage:
-    bucket: ${MINIO_KNOWLEDGE_BUCKET:aether-knowledge}
+    bucket: ${STORAGE_KNOWLEDGE_BUCKET:${OSS_BUCKET:${MINIO_KNOWLEDGE_BUCKET:aether-knowledge}}}
 
 skill:
   storage:
-    bucket: ${MINIO_SKILL_BUCKET:aether-skill}
+    bucket: ${STORAGE_SKILL_BUCKET:${OSS_BUCKET:${MINIO_SKILL_BUCKET:aether-skill}}}
     max-size: ${SKILL_RESOURCE_MAX_SIZE:10485760}
 
+artifact:
+  storage:
+    bucket: ${STORAGE_ARTIFACT_BUCKET:${OSS_BUCKET:${MINIO_CHAT_ATTACHMENT_BUCKET:aether-chat}}}
+
 storage:
+  provider: ${STORAGE_PROVIDER:minio}
   minio:
     endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
     access-key: ${MINIO_ACCESS_KEY:minioadmin}
     secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  oss:
+    endpoint: ${OSS_ENDPOINT:}
+    public-endpoint: ${OSS_PUBLIC_ENDPOINT:}
+    access-key-id: ${OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
   file:
-    bucket: ${MINIO_FILE_BUCKET:aether}
+    bucket: ${STORAGE_FILE_BUCKET:${OSS_BUCKET:${MINIO_FILE_BUCKET:aether}}}
     max-size: ${FILE_MAX_SIZE:52428800}
   data:
     redis:
@@ -127,6 +137,9 @@ aether:
     mcp-credential-secret: ${AETHER_MCP_CREDENTIAL_SECRET:aether-mcp-credential-dev-secret-change-me}
 
 agent:
+  chat:
+    attachment:
+      bucket: ${STORAGE_ARTIFACT_BUCKET:${OSS_BUCKET:${MINIO_CHAT_ATTACHMENT_BUCKET:aether-chat}}}
   audit:
     encryption-key: ${AGENT_AUDIT_ENCRYPTION_KEY:}
     retention-days: ${AGENT_AUDIT_RETENTION_DAYS:0}

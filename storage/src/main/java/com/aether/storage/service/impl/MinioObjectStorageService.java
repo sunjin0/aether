@@ -13,6 +13,7 @@ import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.http.Method;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -24,6 +25,7 @@ import java.util.Collections;
  * 基于 MinIO 的私有对象存储服务实现。
  */
 @Service
+@ConditionalOnProperty(name = "storage.provider", havingValue = "minio", matchIfMissing = true)
 /**
  * MinIO 私有对象存储实现。
  * 配置键：storage.minio.endpoint、access-key、secret-key；未配置时仅在实际存储操作时抛出异常，避免阻塞应用启动。

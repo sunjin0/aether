@@ -73,7 +73,7 @@ public class AgentSkillServiceImpl extends ServiceImpl<AgentSkillMapper, AgentSk
                                  AgentToolService agentToolService,
                                  ObjectStorageService objectStorageService,
                                  SkillRoutingIndexService routingIndexService,
-                                 @Value("${skill.storage.bucket:${MINIO_SKILL_BUCKET:aether-skill}}") String resourceBucket,
+                                 @Value("${skill.storage.bucket:${STORAGE_SKILL_BUCKET:${OSS_BUCKET:${MINIO_SKILL_BUCKET:aether-skill}}}}") String resourceBucket,
                                  @Value("${skill.storage.max-size:10485760}") long maxResourceSize) {
         this.versionService = versionService;
         this.toolBindingService = toolBindingService;

@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import com.aether.exception.ServerException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
@@ -21,9 +21,12 @@ public class ChatRunOrchestrator {
             "if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end", Long.class);
     private final ConcurrentHashMap<String, ReentrantLock> localLocks = new ConcurrentHashMap<>();
 
-    /** Redis 不可用时退化为本机串行；正常部署下使用令牌安全的分布式租约。 */
+    /**
+     * 会话锁不能参与业务数据库事务；否则 SET NX 会在事务提交时才执行，
+     * 调用方已经返回冲突时反而留下孤儿锁。
+     */
     @Autowired(required = false)
-    private RedisTemplate<String, Object> redisTemplate;
+    private StringRedisTemplate stringRedisTemplate;
     public interface ResponseSink {
         /** 通知运行已接收。 */
         default void accepted(ChatRunContext context) { }
@@ -67,12 +70,17 @@ public class ChatRunOrchestrator {
                                    java.util.function.Function<ChatRunContext, T> body) {
         Objects.requireNonNull(lockKey, "lockKey");
         ReentrantLock localLock = localLocks.computeIfAbsent(lockKey, key -> new ReentrantLock());
-        localLock.lock();
-        String distributedToken = acquireDistributedLock(lockKey);
+        if (!localLock.tryLock()) {
+            throw new ServerException(409, "当前会话已有请求正在执行，请稍后重试");
+        }
         try {
-            return execute(context, sink, beforeRun, body);
+            String distributedToken = acquireDistributedLock(lockKey);
+            try {
+                return execute(context, sink, beforeRun, body);
+            } finally {
+                releaseDistributedLock(lockKey, distributedToken);
+            }
         } finally {
-            releaseDistributedLock(lockKey, distributedToken);
             localLock.unlock();
             localLocks.remove(lockKey, localLock);
         }
@@ -80,9 +88,9 @@ public class ChatRunOrchestrator {
 
     /** 通过 SET NX 和有限租约抢占跨实例会话锁。 */
     private String acquireDistributedLock(String lockKey) {
-        if (redisTemplate == null) return null;
+        if (stringRedisTemplate == null) return null;
         String token = UUID.randomUUID().toString();
-        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(LOCK_PREFIX + lockKey, token, 30, TimeUnit.MINUTES);
+        Boolean acquired = stringRedisTemplate.opsForValue().setIfAbsent(LOCK_PREFIX + lockKey, token, 30, TimeUnit.MINUTES);
         if (!Boolean.TRUE.equals(acquired)) {
             throw new ServerException(409, "当前会话已有请求正在执行，请稍后重试");
         }
@@ -91,7 +99,7 @@ public class ChatRunOrchestrator {
 
     /** 仅持有同一随机令牌的调用方可以释放锁，避免租约过期后的误删。 */
     private void releaseDistributedLock(String lockKey, String token) {
-        if (redisTemplate == null || token == null) return;
-        redisTemplate.execute(RELEASE_LOCK, Collections.singletonList(LOCK_PREFIX + lockKey), token);
+        if (stringRedisTemplate == null || token == null) return;
+        stringRedisTemplate.execute(RELEASE_LOCK, Collections.singletonList(LOCK_PREFIX + lockKey), token);
     }
 }

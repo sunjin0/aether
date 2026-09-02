@@ -861,6 +861,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 request.setUserId(instance.getUserId());
                 request.setMessage(WorkflowVariableRenderer.render(definition.getString("prompt"), variables));
                 request.setTemporary(true);
+                request.setInternalLockScope("workflow:" + instance.getId() + ":node:" + node.getId());
                 AgentMessageVo response = chatService.chat(request);
                 // 普通聊天服务遇到需要确认的 MCP 调用时会返回 interaction 消息。工作流必须
                 // 将它转换为当前节点的暂停状态，不能把“请确认”误当作 Agent 的最终回答。
