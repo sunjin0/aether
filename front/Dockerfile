@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM maven:3.9-eclipse-temurin-11 AS builder
+FROM maven:3.9-eclipse-temurin-17 AS builder
 WORKDIR /build
 COPY pom.xml ./
 COPY common/pom.xml common/
@@ -20,7 +20,7 @@ COPY front/ front/
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B clean package -pl front -am -Dmaven.test.skip=true
 
-FROM eclipse-temurin:11-jre-jammy
+FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \

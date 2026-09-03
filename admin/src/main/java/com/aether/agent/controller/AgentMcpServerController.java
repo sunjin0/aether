@@ -299,10 +299,6 @@ public class AgentMcpServerController {
      * 处理fillDefaults。
      */
     private void fillDefaults(AgentMcpServer server) {
-        if (StringUtils.isNotBlank(server.getCredentialRef())
-                && !server.getCredentialRef().matches("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")) {
-            throw new ServerException(422, "Connector 凭据引用格式无效");
-        }
         if (StringUtils.isBlank(server.getVersion())) {
             server.setVersion("1.0.0");
         } else if (!server.getVersion().matches("[0-9A-Za-z][0-9A-Za-z._-]{0,31}")) {

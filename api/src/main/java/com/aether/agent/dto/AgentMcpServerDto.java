@@ -35,8 +35,6 @@ public class AgentMcpServerDto {
     @ApiModelProperty(value = "认证token")
     private String authToken;
 
-    private String credentialRef;
-
     @ApiModelProperty(value = "是否清空认证token")
     private Boolean clearAuthToken;
 

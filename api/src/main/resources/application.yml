@@ -20,16 +20,6 @@ spring:
 
 # 业务系统终态通知。默认关闭；启用后回调地址必须命中 allowed-hosts 白名单。
 aether:
-  secret:
-    # local stores encrypted values in-process; external providers are opt-in and read-only.
-    provider: ${AETHER_SECRET_PROVIDER:local}
-    vault:
-      api-base: ${AETHER_VAULT_API_BASE:https://vault:8200}
-      token: ${AETHER_VAULT_TOKEN:}
-    kubernetes:
-      api-base: ${AETHER_KUBERNETES_API_BASE:https://${KUBERNETES_SERVICE_HOST:kubernetes.default.svc}:443}
-      namespace: ${AETHER_KUBERNETES_NAMESPACE:default}
-      bearer-token: ${AETHER_KUBERNETES_BEARER_TOKEN:}
   service-account:
     # 服务账号 client credentials 访问令牌有效期（秒）；最长限制为 3600 秒。
     access-token-seconds: ${AETHER_SERVICE_ACCOUNT_ACCESS_TOKEN_SECONDS:900}
@@ -80,32 +70,6 @@ aether:
       max-attempts: ${AETHER_WORKFLOW_CALLBACK_MAX_ATTEMPTS:8}
       # 扫描待重试回调记录的间隔（毫秒）。
       retry-interval-ms: ${AETHER_WORKFLOW_CALLBACK_RETRY_INTERVAL_MS:60000}
-  identity:
-    scim:
-      enabled: ${AETHER_SCIM_ENABLED:false}
-      base-path: ${AETHER_SCIM_BASE_PATH:/scim/v2}
-      bearer-token: ${AETHER_SCIM_BEARER_TOKEN:}
-      tenant-id: ${AETHER_SCIM_TENANT_ID:}
-    saml:
-      enabled: ${AETHER_SAML_ENABLED:false}
-      metadata-driven: ${AETHER_SAML_METADATA_DRIVEN:false}
-      entity-id: ${AETHER_SAML_ENTITY_ID:}
-      metadata-uri: ${AETHER_SAML_METADATA_URI:}
-      idp-entity-id: ${AETHER_SAML_IDP_ENTITY_ID:}
-      certificate: ${AETHER_SAML_CERTIFICATE:}
-      sso-url: ${AETHER_SAML_SSO_URL:}
-      redirect-uri: ${AETHER_SAML_REDIRECT_URI:}
-    oidc:
-      enabled: ${AETHER_OIDC_ENABLED:false}
-      issuer-uri: ${AETHER_OIDC_ISSUER_URI:}
-      authorization-uri: ${AETHER_OIDC_AUTHORIZATION_URI:}
-      token-uri: ${AETHER_OIDC_TOKEN_URI:}
-      jwks-uri: ${AETHER_OIDC_JWKS_URI:}
-      client-id: ${AETHER_OIDC_CLIENT_ID:}
-      client-secret: ${AETHER_OIDC_CLIENT_SECRET:}
-      redirect-uri: ${AETHER_OIDC_REDIRECT_URI:}
-      auto-provision: ${AETHER_OIDC_AUTO_PROVISION:false}
-      scopes: ${AETHER_OIDC_SCOPES:openid,profile,email}
   reliability:
     rate-limit:
       requests-per-window: ${AETHER_RATE_LIMIT_REQUESTS_PER_WINDOW:0}

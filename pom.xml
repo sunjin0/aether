@@ -23,18 +23,11 @@
     <!-- 统一依赖管理 -->
     <dependencyManagement>
         <dependencies>
-            <dependency>
-                <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-bom</artifactId>
-                <version>1.32.0</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
             <!-- Spring Boot 版本统一管理 -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
-                <version>2.7.18</version> <!-- 最后一个支持Java8的版本 -->
+                <version>2.7.18</version> <!-- 支持 JDK 17 的 Spring Boot 版本 -->
                 <scope>import</scope>
                 <type>pom</type>
             </dependency>
@@ -179,7 +172,7 @@
         </dependency>
     </dependencies>
     <properties>
-        <java.version>8</java.version> <!-- 只写主版本号 -->
+        <java.version>17</java.version> <!-- 只写主版本号 -->
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
     </properties>
@@ -191,8 +184,8 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <source>8</source>
-                    <target>8</target>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
                     <encoding>UTF-8</encoding>
                 </configuration>
             </plugin>

@@ -36,8 +36,6 @@ public class AgentMcpServerVo extends BaseEntity {
     @ApiModelProperty(value = "认证token")
     private String authToken;
 
-    private String credentialRef;
-
     @ApiModelProperty(value = "超时时间（毫秒）")
     private Integer timeoutMs;
 

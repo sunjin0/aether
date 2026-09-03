@@ -45,9 +45,6 @@ public class AgentMcpServer extends BaseEntity {
     @ApiModelProperty(value = "Encrypted auth token")
     private String authToken;
 
-    /** SecretProvider 中连接器凭据的引用，不保存明文。 */
-    private String credentialRef;
-
     @ApiModelProperty(value = "STDIO command, reserved")
     private String command;
 

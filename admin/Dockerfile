@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM maven:3.9-eclipse-temurin-11 AS builder
+FROM maven:3.9-eclipse-temurin-17 AS builder
 WORKDIR /build
 COPY pom.xml ./
 COPY common/pom.xml common/
@@ -22,7 +22,7 @@ COPY front/ front/
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B clean package -pl admin -am -Dmaven.test.skip=true
 
-FROM eclipse-temurin:11-jre-jammy
+FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 # curl 仅供运行时健康检查使用。放在复制业务 Jar 之前，并缓存 apt 索引与软件包：
 # 业务代码变更导致镜像层失效时，无需重新下载 apt 依赖。
