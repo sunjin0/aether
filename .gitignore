@@ -7,3 +7,4 @@
 /storage/target/
 .idea/
 .env.sandbox-pilot
+.env
