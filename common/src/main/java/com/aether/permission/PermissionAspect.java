@@ -94,7 +94,14 @@ public class PermissionAspect {
         String userId = user.get("userId");
         HashOperations<String, Object, Object> operations = redisTemplate.opsForHash();
 
-        Object permissionMap = operations.get(TokenUtils.TOKEN_KEY, userId);
+        String organizationId = CurrentUser.organizationId();
+        String teamId = CurrentUser.teamId();
+        Object permissionMap = operations.get(TokenUtils.TOKEN_KEY,
+                userId + ":" + (organizationId == null ? "-" : organizationId) + ":" + (teamId == null ? "-" : teamId));
+        // 一旦请求带有授权上下文，不得回退到旧的全局用户缓存，否则会把其他组织的权限带入当前请求。
+        if (permissionMap == null && organizationId == null && teamId == null) {
+            permissionMap = operations.get(TokenUtils.TOKEN_KEY, userId);
+        }
         if (permissionMap instanceof HashMap) {
             HashMap<String, Object> map = (HashMap<String, Object>) permissionMap;
             Boolean permission = (Boolean) map.get(path);

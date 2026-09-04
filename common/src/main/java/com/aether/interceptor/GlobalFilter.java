@@ -130,6 +130,8 @@ public class GlobalFilter extends OncePerRequestFilter {
                         payload.put("principalId", principalId);
                     }
                     payload.put("userId", userId);
+                    copyContextHeader(request, payload, "X-Organization-Id", "organizationId");
+                    copyContextHeader(request, payload, "X-Team-Id", "teamId");
                     if (tenantId != null && !tenantId.isEmpty()) payload.put("tenantId", tenantId);
                     payload.put("token", token);
                 } catch (ServerException e) {
@@ -155,7 +157,7 @@ public class GlobalFilter extends OncePerRequestFilter {
             handleException(response, e);
         } catch (Exception e) {
             log.error("请求处理异常，类型：{}，traceId：{}", e.getClass().getName(), traceId);
-            handleException(response, new ServerException(500, "系统内部错误"));
+            handleException(response, new ServerException(500, I18nUtils.getMessage("system.internal.error")));
         } finally {
             // 记录请求日志
             try {
@@ -184,6 +186,12 @@ public class GlobalFilter extends OncePerRequestFilter {
             MDC.remove("spanId");
             MDC.remove("tenantId");
         }
+    }
+
+    private void copyContextHeader(HttpServletRequest request, HashMap<String, String> payload,
+                                   String header, String key) {
+        String value = request.getHeader(header);
+        if (value != null && value.matches("[A-Za-z0-9_-]{1,128}")) payload.put(key, value);
     }
 
     private String normalizeRoute(String uri) {

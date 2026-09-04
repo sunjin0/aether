@@ -65,6 +65,7 @@ public class RoleController {
         BeanUtils.copyProperties(request, role);
         Page<Role> dictPage = new Page<>(role.getCurrent(), role.getPageSize());
         Wrapper<Role> queryWrapper = Wrappers.lambdaQuery(Role.class)
+                .eq(StringUtils.isNotBlank(currentOrganizationId()), Role::getScope, "ORGANIZATION")
                 .eq(CurrentUser.getUser() != null && StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")), Role::getTenantId, CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"))
                 .like(StringUtils.isNotBlank(role.getName()), Role::getName, role.getName())
                 .like(StringUtils.isNotBlank(role.getDescription()), Role::getDescription, role.getDescription())
@@ -84,6 +85,9 @@ public class RoleController {
     @Permission(path = "/sys/role", type = Permission.Type.Write)
     @GetMapping("/delete")
     public WebResponse<Boolean> delete(@RequestParam @NotBlank String id) throws ServerException {
+        if (StringUtils.isNotBlank(currentOrganizationId())) {
+            throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
+        }
         requireCurrentTenant(id);
         LambdaUpdateWrapper<Role> updateWrapper = Wrappers.lambdaUpdate(Role.class);
         updateWrapper
@@ -104,9 +108,13 @@ public class RoleController {
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"name"})
                                       RoleRequests.SaveRequest request) throws ServerException {
+        if (StringUtils.isNotBlank(currentOrganizationId())) {
+            throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
+        }
         Role role = new Role();
         BeanUtils.copyProperties(request, role);
         if (CurrentUser.getUser() != null) role.setTenantId(CurrentUser.getUser().get("tenantId"));
+        if (StringUtils.isNotBlank(currentOrganizationId())) role.setScope("ORGANIZATION");
         boolean save = roleService.save(role);
         return WebResponse.OK(save ? I18nUtils.getMessage("system.role.create.success") : I18nUtils.getMessage("system.role.create.fail"), save);
     }
@@ -123,6 +131,9 @@ public class RoleController {
     public WebResponse<Boolean> update(@RequestBody
                                        @ValidEntity(fieldNames = {"name"})
                                         RoleRequests.UpdateRequest request) throws ServerException {
+        if (StringUtils.isNotBlank(currentOrganizationId())) {
+            throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
+        }
         Role role = new Role();
         BeanUtils.copyProperties(request, role);
         requireCurrentTenant(request.getId());
@@ -182,6 +193,10 @@ public class RoleController {
 
     private String currentTenantId() {
         return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    private String currentOrganizationId() {
+        return CurrentUser.organizationId();
     }
 
     private Role requireCurrentTenant(String id) {

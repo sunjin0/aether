@@ -20,6 +20,10 @@ import com.aether.utils.TokenUtils;
 import com.aether.utils.AesUtil;
 import com.aether.sys.vo.ResourceVo;
 import com.aether.sys.vo.UserVo;
+import com.aether.organization.entity.OrganizationMember;
+import com.aether.organization.entity.TeamMember;
+import com.aether.organization.service.OrganizationMemberService;
+import com.aether.organization.service.TeamMemberService;
 import com.aether.msg.service.EmailMessageService;
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -46,9 +50,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Resource
     private UserRoleService userRoleService;
 
+    @Resource
+    private OrganizationMemberService organizationMemberService;
+    @Resource
+    private TeamMemberService teamMemberService;
+
 
     @Resource
     private RoleResourceService roleResourceService;
+
+    @Resource
+    private RoleService roleService;
 
     @Resource
     private ResourceService resourceService;
@@ -499,6 +511,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return;
         }
         List<String> roleIds = roles.stream().map(UserRole::getRoleId).collect(Collectors.toList());
+        String organizationId = CurrentUser.organizationId();
+        String teamId = CurrentUser.teamId();
+        // 组织只表示成员归属，不再产生组织级管理员或组织级权限。
+        if (StringUtils.isNotBlank(teamId) && StringUtils.isNotBlank(organizationId)) {
+            TeamMember member = teamMemberService.lambdaQuery().eq(TeamMember::getTeamId, teamId)
+                    .eq(TeamMember::getOrganizationId, organizationId).eq(TeamMember::getUserId, userId)
+                    .eq(TeamMember::getState, 0).one();
+            if (member != null) roleIds.addAll(roleServiceIds(member.getRoleCode(), "TEAM"));
+        }
         List<RoleResource> bindings = roleResourceService.list(Wrappers.<RoleResource>lambdaQuery()
                 .select(RoleResource::getResourceId)
                 .in(RoleResource::getRoleId, roleIds));
@@ -518,6 +539,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         for (com.aether.sys.entity.Resource permission : permissions) {
             permissionMap.put(permission.getPath(), true);
         }
+    }
+
+    private List<String> roleServiceIds(String code, String scope) {
+        if (StringUtils.isBlank(code)) return Collections.emptyList();
+        return roleService.list(Wrappers.<Role>lambdaQuery().select(Role::getId).eq(Role::getName, code)
+                .eq(Role::getScope, scope).eq(Role::getDeleted, false)).stream().map(Role::getId).collect(Collectors.toList());
     }
 
     /**

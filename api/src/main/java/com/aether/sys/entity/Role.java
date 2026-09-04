@@ -23,6 +23,9 @@ public class Role extends BaseEntity {
     /** 租户角色归属；空值保留平台内置角色。 */
     private String tenantId;
 
+    /** 授权作用域：PLATFORM、ORGANIZATION 或 TEAM。 */
+    private String scope;
+
     /**
      * 角色名称
      */

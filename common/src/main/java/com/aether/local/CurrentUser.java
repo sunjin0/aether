@@ -39,4 +39,12 @@ public class CurrentUser {
     public static void remove() {
         USER.remove();
     }
+
+    public static String organizationId() {
+        return USER.get() == null ? null : USER.get().get("organizationId");
+    }
+
+    public static String teamId() {
+        return USER.get() == null ? null : USER.get().get("teamId");
+    }
 }

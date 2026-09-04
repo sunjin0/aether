@@ -114,6 +114,11 @@ public class RoleResourceController {
 
     private void requireCurrentTenant(String roleId) {
         Role role = roleService.getById(roleId);
+        String organizationId = CurrentUser.organizationId();
+        if (StringUtils.isNotBlank(organizationId) && role != null
+                && "PLATFORM".equalsIgnoreCase(role.getScope())) {
+            throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
+        }
         String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
         if (role == null || (StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(role.getTenantId())
                 && !tenantId.equals(role.getTenantId()))) {

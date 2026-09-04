@@ -147,11 +147,11 @@ public class UserController {
             User.setPassword(encoder.encode(User.getPassword()));
         }
         encryptSmtpAuthorizationCode(User, null);
-        if (User.getRoleIds() != null) {
+        boolean saved = userService.save(User);
+        if (saved && User.getRoleIds() != null && !User.getRoleIds().isEmpty()) {
             validateRoleTenants(User.getRoleIds());
             userService.bindRole(User.getId(), User.getRoleIds());
         }
-        boolean saved = userService.save(User);
         return WebResponse.OK(saved ? I18nUtils.getMessage("system.admin.create.success") : I18nUtils.getMessage("system.admin.create.fail"), saved);
     }
 

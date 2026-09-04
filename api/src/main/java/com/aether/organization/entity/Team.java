@@ -1,0 +1,13 @@
+package com.aether.organization.entity;
+
+import com.aether.entity.BaseEntity;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+@Data @EqualsAndHashCode(callSuper = true) @TableName("sys_team")
+public class Team extends BaseEntity {
+    private String organizationId;
+    private String code;
+    private String name;
+}
