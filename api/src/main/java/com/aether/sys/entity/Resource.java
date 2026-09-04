@@ -21,6 +21,9 @@ import lombok.experimental.Accessors;
 @TableName("sys_resource")
 public class Resource extends BaseEntity {
 
+    /** 稳定权限码；迁移期为空时使用 path 兼容。 */
+    private String code;
+
     /**
      * 资源名称（英文）
      */

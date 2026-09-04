@@ -14,6 +14,11 @@ import com.aether.organization.service.TeamService;
 import com.aether.sys.entity.Role;
 import com.aether.sys.service.RoleService;
 import com.aether.sys.service.UserService;
+import com.aether.permission.Permission;
+import com.aether.permission.entity.DepartmentMember;
+import com.aether.permission.entity.Department;
+import com.aether.permission.service.DepartmentService;
+import com.aether.permission.service.DepartmentMemberService;
 import lombok.Data;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,7 +28,8 @@ import java.util.List;
 
 /** 超级管理员的组织架构编制入口。普通组织管理员不经过此控制器。 */
 @RestController
-@RequestMapping("/api/sys/organization")
+@Permission(path = "/sys/organization")
+@RequestMapping({"/api/sys/organization", "/api/platform/organizations"})
 public class PlatformOrganizationController {
     private final OrganizationService organizations;
     private final OrganizationMemberService organizationMembers;
@@ -31,19 +37,25 @@ public class PlatformOrganizationController {
     private final TeamMemberService teamMembers;
     private final UserService users;
     private final RoleService roles;
+    private final DepartmentMemberService departmentMembers;
+    private final DepartmentService departments;
 
     public PlatformOrganizationController(OrganizationService organizations,
                                           OrganizationMemberService organizationMembers,
                                           TeamService teams,
                                           TeamMemberService teamMembers,
                                           UserService users,
-                                          RoleService roles) {
+                                          RoleService roles,
+                                          DepartmentMemberService departmentMembers,
+                                          DepartmentService departments) {
         this.organizations = organizations;
         this.organizationMembers = organizationMembers;
         this.teams = teams;
         this.teamMembers = teamMembers;
         this.users = users;
         this.roles = roles;
+        this.departmentMembers = departmentMembers;
+        this.departments = departments;
     }
 
     @GetMapping("/list")
@@ -53,6 +65,7 @@ public class PlatformOrganizationController {
     }
 
     @PostMapping("/create")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
     public WebResponse<Organization> create(@RequestBody OrganizationRequest request) {
         requirePlatformAdmin();
         validateOrganizationRequest(request);
@@ -68,6 +81,7 @@ public class PlatformOrganizationController {
     }
 
     @PostMapping("/update")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
     public WebResponse<Organization> update(@RequestBody OrganizationRequest request) {
         requirePlatformAdmin();
         validateOrganizationRequest(request);
@@ -87,6 +101,7 @@ public class PlatformOrganizationController {
     }
 
     @PostMapping("/delete")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<Boolean> delete(@RequestParam String organizationId) {
         requirePlatformAdmin();
@@ -95,24 +110,33 @@ public class PlatformOrganizationController {
                 .eq(OrganizationMember::getDeleted, false).exists()
                 && !teamMembers.lambdaQuery().eq(TeamMember::getOrganizationId, organizationId)
                 .eq(TeamMember::getDeleted, false).exists()) {
+            if (departmentMembers.lambdaQuery().eq(DepartmentMember::getOrganizationId, organizationId)
+                    .eq(DepartmentMember::getDeleted, false).exists()) {
+                throw new IllegalStateException(I18nUtils.getMessage("organization.delete.members-required"));
+            }
             Organization organization = organizations.getById(organizationId);
             if (organization == null || Boolean.TRUE.equals(organization.getDeleted()))
                 throw new IllegalStateException(I18nUtils.getMessage("organization.not-found"));
             teams.lambdaUpdate().eq(Team::getOrganizationId, organizationId)
                     .eq(Team::getDeleted, false).set(Team::getDeleted, true).update();
+            departments.lambdaUpdate().eq(Department::getOrganizationId, organizationId)
+                    .eq(Department::getDeleted, false).set(Department::getDeleted, true).update();
             organization.setDeleted(true);
-            return WebResponse.OK(organizations.updateById(organization));
+            boolean deleted = organizations.updateById(organization);
+            return WebResponse.OK(deleted);
         }
         throw new IllegalStateException(I18nUtils.getMessage("organization.delete.members-required"));
     }
 
     @PostMapping("/member/assign")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
     public WebResponse<Boolean> assignOrganizationMember(@RequestParam String organizationId,
                                                          @RequestParam String userId) {
         requirePlatformAdmin();
         verifyOrganization(organizationId);
         if (users.getById(userId) == null) throw new IllegalStateException(I18nUtils.getMessage("organization.user.not-found"));
-        return WebResponse.OK(saveOrganizationMember(organizationId, userId));
+        boolean saved = saveOrganizationMember(organizationId, userId);
+        return WebResponse.OK(saved);
     }
 
     @GetMapping("/member/list")
@@ -124,6 +148,7 @@ public class PlatformOrganizationController {
     }
 
     @PostMapping("/member/remove")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<Boolean> removeOrganizationMember(@RequestParam String organizationId, @RequestParam String userId) {
         requirePlatformAdmin();
@@ -137,10 +162,15 @@ public class PlatformOrganizationController {
         teamMembers.lambdaUpdate().eq(TeamMember::getOrganizationId, organizationId)
                 .eq(TeamMember::getUserId, userId).eq(TeamMember::getDeleted, false)
                 .set(TeamMember::getDeleted, true).update();
+        departmentMembers.lambdaUpdate().eq(DepartmentMember::getOrganizationId, organizationId)
+                .eq(DepartmentMember::getUserId, userId).eq(DepartmentMember::getDeleted, false)
+                .set(DepartmentMember::getDeleted, true).update();
         return WebResponse.OK(updated);
     }
 
     @PostMapping("/team/member/assign")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
+    @Transactional(rollbackFor = Exception.class)
     public WebResponse<Boolean> assignTeamMember(@RequestParam String organizationId,
                                                  @RequestParam String teamId,
                                                  @RequestParam String userId,
@@ -161,12 +191,18 @@ public class PlatformOrganizationController {
             member.setTeamId(teamId);
             member.setUserId(userId);
             member.setRoleCode(roleCode);
-            return WebResponse.OK(teamMembers.save(member));
+            boolean saved = teamMembers.save(member);
+            if (!saved) return WebResponse.OK(false);
+            saveDepartmentMembership(organizationId, teamId, userId, roleCode);
+            return WebResponse.OK(true);
         }
         member.setRoleCode(roleCode);
         member.setState(0);
         member.setDeleted(false);
-        return WebResponse.OK(teamMembers.updateById(member));
+        boolean updated = teamMembers.updateById(member);
+        if (!updated) return WebResponse.OK(false);
+        saveDepartmentMembership(organizationId, teamId, userId, roleCode);
+        return WebResponse.OK(true);
     }
 
     @GetMapping("/team/list")
@@ -187,6 +223,7 @@ public class PlatformOrganizationController {
     }
 
     @PostMapping("/team/member/remove")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
     public WebResponse<Boolean> removeTeamMember(@RequestParam String organizationId, @RequestParam String teamId,
                                                  @RequestParam String userId) {
         requirePlatformAdmin();
@@ -196,10 +233,16 @@ public class PlatformOrganizationController {
                 .eq(TeamMember::getDeleted, false).one();
         if (member == null) throw new IllegalStateException(I18nUtils.getMessage("organization.team.member.not-found"));
         member.setDeleted(true);
-        return WebResponse.OK(teamMembers.updateById(member));
+        boolean updated = teamMembers.updateById(member);
+        if (!updated) return WebResponse.OK(false);
+        departmentMembers.lambdaUpdate().eq(DepartmentMember::getOrganizationId, organizationId)
+                .eq(DepartmentMember::getDepartmentId, teamId).eq(DepartmentMember::getUserId, userId)
+                .eq(DepartmentMember::getDeleted, false).set(DepartmentMember::getDeleted, true).update();
+        return WebResponse.OK(true);
     }
 
     @PostMapping("/team/create")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
     public WebResponse<Team> createTeam(@RequestBody TeamRequest request) {
         requirePlatformAdmin();
         validateTeamRequest(request);
@@ -212,10 +255,19 @@ public class PlatformOrganizationController {
         team.setCode(code);
         team.setName(normalized(request.getName()));
         teams.save(team);
+        Department department = new Department();
+        department.setId(team.getId());
+        department.setOrganizationId(team.getOrganizationId());
+        department.setCode(team.getCode());
+        department.setName(team.getName());
+        department.setLevel(1);
+        department.setPath("/" + team.getId());
+        departments.save(department);
         return WebResponse.OK(team);
     }
 
     @PostMapping("/team/update")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
     public WebResponse<Team> updateTeam(@RequestBody TeamRequest request) {
         requirePlatformAdmin();
         validateTeamRequest(request);
@@ -230,10 +282,23 @@ public class PlatformOrganizationController {
         team.setCode(code);
         team.setName(normalized(request.getName()));
         teams.updateById(team);
+        Department department = departments.lambdaQuery().eq(Department::getId, request.getId())
+                .eq(Department::getOrganizationId, request.getOrganizationId()).one();
+        if (department == null) {
+            department = new Department();
+            department.setId(team.getId());
+            department.setOrganizationId(team.getOrganizationId());
+            department.setPath("/" + team.getId());
+            department.setLevel(1);
+        }
+        department.setCode(team.getCode());
+        department.setName(team.getName());
+        if (department.getId() == null) departments.save(department); else departments.updateById(department);
         return WebResponse.OK(teams.getById(request.getId()));
     }
 
     @PostMapping("/team/delete")
+    @Permission(path = "/sys/organization", type = Permission.Type.Write)
     public WebResponse<Boolean> deleteTeam(@RequestParam String organizationId, @RequestParam String teamId) {
         requirePlatformAdmin();
         verifyTeam(organizationId, teamId);
@@ -242,7 +307,11 @@ public class PlatformOrganizationController {
             throw new IllegalStateException(I18nUtils.getMessage("organization.team.delete.members-required"));
         Team team = teams.getById(teamId);
         team.setDeleted(true);
-        return WebResponse.OK(teams.updateById(team));
+        boolean updated = teams.updateById(team);
+        departments.lambdaUpdate().eq(Department::getId, teamId)
+                .eq(Department::getOrganizationId, organizationId)
+                .eq(Department::getDeleted, false).set(Department::getDeleted, true).update();
+        return WebResponse.OK(updated);
     }
 
     private boolean saveOrganizationMember(String organizationId, String userId) {
@@ -258,6 +327,27 @@ public class PlatformOrganizationController {
         member.setSource("PLATFORM");
         member.setState(0);
         return organizationMembers.save(member);
+    }
+
+    private void saveDepartmentMembership(String organizationId, String departmentId, String userId, String identityCode) {
+        DepartmentMember departmentMember = departmentMembers.lambdaQuery()
+                .eq(DepartmentMember::getOrganizationId, organizationId)
+                .eq(DepartmentMember::getDepartmentId, departmentId)
+                .eq(DepartmentMember::getUserId, userId).eq(DepartmentMember::getDeleted, false).one();
+        if (departmentMember == null) {
+            departmentMember = new DepartmentMember();
+            departmentMember.setOrganizationId(organizationId);
+            departmentMember.setDepartmentId(departmentId);
+            departmentMember.setUserId(userId);
+            departmentMember.setPrimaryDepartment(false);
+            departmentMember.setIdentityCode(identityCode);
+            departmentMembers.save(departmentMember);
+        } else {
+            departmentMember.setState(0);
+            departmentMember.setDeleted(false);
+            departmentMember.setIdentityCode(identityCode);
+            departmentMembers.updateById(departmentMember);
+        }
     }
 
     private void verifyOrganization(String organizationId) {

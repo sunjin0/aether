@@ -402,7 +402,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             if (list.isEmpty()) {
                 return routes;
             }
-
             // 5.构建树形结构,使用队列
             Map<String, ResourceVo> map = new HashMap<>();
             list.forEach(v -> map.put(v.getId(), v));
@@ -480,7 +479,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 stack.addAll(resource.getChildren());
             }
             if (resource.getPath() != null && Boolean.TRUE.equals(resource.getLeaf())) {
-                // Route resources are role-filtered; pages without write leaves remain readable.
                 map.put(resource.getPath(), resource.getAccess() != null && resource.getAccess().contains("Write"));
             }
         }
