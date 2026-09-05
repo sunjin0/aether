@@ -178,7 +178,6 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         claims.put("userId", principalId(account.getId()));
         claims.put("serviceAccountId", account.getId());
         claims.put("applicationId", normalizeApplicationId(account.getApplicationId()));
-        if (StringUtils.isNotBlank(account.getTenantId())) claims.put("tenantId", account.getTenantId());
         claims.put("serviceTokenVersion", String.valueOf(account.getTokenVersion()));
         String accessToken = TokenUtils.createAccessToken(claims, accessTokenSeconds);
         account.setLastUsedAt(System.currentTimeMillis());

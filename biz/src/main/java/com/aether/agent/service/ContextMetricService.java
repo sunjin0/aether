@@ -96,7 +96,8 @@ public class ContextMetricService {
                 .setCompressionStatus(StringUtils.defaultIfBlank(compressionStatus, "NOT_NEEDED"));
         classify(metric, messages, agent == null ? null : agent.getModel());
         metric.setToolDefinitionTokens(estimateToolTokens(tools, agent == null ? null : agent.getModel()));
-        metricService.save(metric);
+        // The dedicated observability table was removed in V178. Keep the
+        // in-memory estimate for the current request, without persisting it.
         return metric;
     }
 
@@ -156,7 +157,6 @@ public class ContextMetricService {
                 finalMetric.setCompressedMessageCount(1);
             }
         }
-        metricService.save(finalMetric);
         return finalMetric;
     }
 
@@ -198,20 +198,7 @@ public class ContextMetricService {
     public AgentRunContextMetric recordFinalForLatestPreliminary(String runId, String callType,
                                                                  Integer providerPromptTokens,
                                                                  String compressionStatus) {
-        if (StringUtils.isBlank(runId)) {
-            return null;
-        }
-        List<AgentRunContextMetric> preliminaries = metricService.list(Wrappers.lambdaQuery(AgentRunContextMetric.class)
-                .eq(AgentRunContextMetric::getRunId, runId)
-                .eq(AgentRunContextMetric::getCallType, StringUtils.defaultIfBlank(callType, "ANSWER"))
-                .eq(AgentRunContextMetric::getMetricPhase, "PRELIMINARY")
-                .eq(AgentRunContextMetric::getDeleted, false)
-                .orderByDesc(AgentRunContextMetric::getCreatedAt)
-                .last("limit 1"));
-        if (preliminaries == null || preliminaries.isEmpty()) {
-            return null;
-        }
-        return recordFinal(preliminaries.get(0), providerPromptTokens, compressionStatus);
+        return null;
     }
 
     /**

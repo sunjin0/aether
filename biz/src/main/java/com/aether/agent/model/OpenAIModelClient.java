@@ -192,7 +192,7 @@ public class OpenAIModelClient implements ModelClient {
             throw new ServerException(503, I18nUtils.getMessage("agent.model.provider.not.found"));
         }
         for (ModelProviderAdapter adapter : adapters) {
-            if (adapter.supports(provider.getType())) {
+            if (adapter.supports(provider)) {
                 return adapter;
             }
         }

@@ -5,6 +5,9 @@ import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
 import com.aether.knowledge.service.impl.KnowledgeDocumentContentExtractor;
 import com.aether.storage.service.ObjectStorageService;
+import com.aether.agent.model.ModelInputFile;
+import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -18,6 +21,8 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Parses and persists files uploaded with an agent chat message.
@@ -66,15 +71,8 @@ public class ChatAttachmentService {
         try {
             long totalStart = System.currentTimeMillis();
             byte[] bytes = file.getBytes();
-            long extractStart = System.currentTimeMillis();
-            String content = StringUtils.trimToEmpty(contentExtractor.extractForChat(fileName, bytes));
-            long extractMs = System.currentTimeMillis() - extractStart;
-            if (StringUtils.isBlank(content)) {
-                throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachment.text.unrecognized"));
-            }
-            if (content.length() > maxExtractedChars) {
-                content = content.substring(0, maxExtractedChars) + "\n\n[文件内容因长度限制已截断]";
-            }
+            // Persist first so native model file inputs can be used even when local
+            // OCR/text extraction is unavailable or fails.
             String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
             String tenantPrefix = StringUtils.isBlank(tenantId) ? "" : tenantId + "/";
             String objectKey = "chat/" + tenantPrefix + LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
@@ -82,6 +80,18 @@ public class ChatAttachmentService {
             long uploadStart = System.currentTimeMillis();
             objectStorageService.upload(bucket, objectKey, file);
             long uploadMs = System.currentTimeMillis() - uploadStart;
+            long extractStart = System.currentTimeMillis();
+            String content;
+            try {
+                content = StringUtils.trimToEmpty(contentExtractor.extractForChat(fileName, bytes));
+            } catch (Exception extractionFailure) {
+                log.info("聊天附件本地文本识别失败，保留原文件供模型读取: name={}", fileName);
+                content = "";
+            }
+            long extractMs = System.currentTimeMillis() - extractStart;
+            if (content.length() > maxExtractedChars) {
+                content = content.substring(0, maxExtractedChars) + "\n\n[文件内容因长度限制已截断]";
+            }
             log.info("聊天附件处理完成: name={}, size={}B, extract={}ms, upload={}ms, total={}ms",
                     fileName, file.getSize(), extractMs, uploadMs, System.currentTimeMillis() - totalStart);
             return new ChatAttachment(fileName, StringUtils.defaultIfBlank(file.getContentType(), "application/octet-stream"),
@@ -91,6 +101,34 @@ public class ChatAttachmentService {
         } catch (Exception e) {
             throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachment.parse.failed"));
         }
+    }
+
+    /**
+     * 将客户端在上传接口获得的附件元数据还原为模型原生文件输入。
+     * objectKey 只由服务端用于签发短时 URL，客户端不能注入任意外部链接。
+     */
+    public List<ModelInputFile> resolveNativeFiles(String attachments) {
+        List<ModelInputFile> files = new ArrayList<>();
+        if (StringUtils.isBlank(attachments)) return files;
+        try {
+            JSONArray values = JSONArray.parseArray(attachments);
+            if (values == null || values.size() > 3) return files;
+            String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+            String allowedPrefix = "chat/" + (StringUtils.isBlank(tenantId) ? "" : tenantId + "/");
+            for (int i = 0; i < values.size(); i++) {
+                JSONObject value = values.getJSONObject(i);
+                if (value == null) continue;
+                String objectKey = StringUtils.trimToNull(value.getString("objectKey"));
+                String fileName = normalizeFileName(value.getString("fileName"));
+                if (objectKey == null || !objectKey.startsWith(allowedPrefix)) continue;
+                files.add(new ModelInputFile(fileName,
+                        StringUtils.defaultIfBlank(value.getString("contentType"), "application/octet-stream"),
+                        objectStorageService.presignedGetUrl(bucket, objectKey, 300)));
+            }
+        } catch (Exception e) {
+            log.warn("聊天附件原生模型链接准备失败，将继续使用本地识别结果", e);
+        }
+        return files;
     }
 
     /**

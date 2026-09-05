@@ -1,7 +1,6 @@
 package com.aether.agent.service.impl;
 
 import com.aether.agent.entity.AgentRun;
-import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.mapper.AgentRunMapper;
 import com.aether.agent.service.AgentRunContextMetricService;
 import com.aether.agent.service.AgentRunService;
@@ -12,7 +11,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * 运行记录 Service 实现
@@ -75,32 +73,6 @@ public class AgentRunServiceImpl extends ServiceImpl<AgentRunMapper, AgentRun> i
             if (run.getLatencyMs() != null) {
                 totalLatencyMs += run.getLatencyMs();
                 latencySamples++;
-            }
-        }
-
-        if (!runs.isEmpty()) {
-            List<String> runIds = runs.stream().map(AgentRun::getId).filter(id -> id != null)
-                    .collect(Collectors.toList());
-            if (!runIds.isEmpty()) {
-                List<AgentRunContextMetric> metrics = contextMetricService.list(Wrappers.lambdaQuery(AgentRunContextMetric.class)
-                        .in(AgentRunContextMetric::getRunId, runIds)
-                        .eq(AgentRunContextMetric::getMetricPhase, "FINAL")
-                        .eq(AgentRunContextMetric::getDeleted, false));
-                for (AgentRunContextMetric metric : metrics) {
-                    boolean cacheObserved = metric.getCachedPromptTokens() != null
-                            || metric.getUncachedPromptTokens() != null
-                            || metric.getPromptCacheHitRate() != null;
-                    if (cacheObserved) {
-                        cacheObservedCallCount++;
-                        if (safeLong(metric.getCachedPromptTokens()) == 0L) {
-                            cacheZeroHitCallCount++;
-                        }
-                    } else {
-                        cacheUnobservedCallCount++;
-                    }
-                    totalCachedPromptTokens += safeLong(metric.getCachedPromptTokens());
-                    totalUncachedPromptTokens += safeLong(metric.getUncachedPromptTokens());
-                }
             }
         }
 

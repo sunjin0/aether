@@ -1508,8 +1508,6 @@ public class DeepAgentRunService {
         List<Map<String, Object>> citedSources = knowledgeContextService.ensureCitations(response, retrievedSources);
         Runnable record = () -> {
             knowledgeContextService.recordCitations(run.getAgentDefinitionId(), run.getConversationId(), message.getId(), citedSources);
-            knowledgeContextService.recordRetrievalOutcome(run.getAgentDefinitionId(), run.getConversationId(), message.getId(),
-                    run.getInputContent(), retrievedSources, citedSources);
         };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

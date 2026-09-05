@@ -101,7 +101,6 @@ public class GlobalFilter extends OncePerRequestFilter {
                     String principalId = TokenUtils.getClaim(token, "principalId");
                     String serviceAccountId = TokenUtils.getClaim(token, "serviceAccountId");
                     String applicationId = TokenUtils.getClaim(token, "applicationId");
-                    String tenantId = TokenUtils.getClaim(token, "tenantId");
                     if (serviceAccountId != null && !serviceAccountId.isEmpty()) {
                         ServiceTokenVerifier verifier = serviceTokenVerifierProvider.getIfAvailable();
                         String tokenVersion = TokenUtils.getClaim(token, "serviceTokenVersion");
@@ -115,7 +114,6 @@ public class GlobalFilter extends OncePerRequestFilter {
                         payload.put("principalId", principalId != null && !principalId.isEmpty() ? principalId : userId);
                         payload.put("serviceAccountId", serviceAccountId);
                         if (applicationId != null && !applicationId.isEmpty()) payload.put("applicationId", applicationId);
-                        if (tenantId != null && !tenantId.isEmpty()) payload.put("tenantId", tenantId);
                     } else {
                         if (!TokenUtils.hasTokenType(token, TokenUtils.ACCESS_TOKEN_TYPE)) {
                             throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
@@ -132,7 +130,6 @@ public class GlobalFilter extends OncePerRequestFilter {
                     payload.put("userId", userId);
                     copyContextHeader(request, payload, "X-Organization-Id", "organizationId");
                     copyContextHeader(request, payload, "X-Team-Id", "teamId");
-                    if (tenantId != null && !tenantId.isEmpty()) payload.put("tenantId", tenantId);
                     payload.put("token", token);
                 } catch (ServerException e) {
                     handleException(response, e);
@@ -147,9 +144,6 @@ public class GlobalFilter extends OncePerRequestFilter {
             payload.put("startTime", String.valueOf(startTime));
             payload.put("traceId", traceId);
             CurrentUser.set(payload);
-            if (payload.get("tenantId") != null && !payload.get("tenantId").trim().isEmpty()) {
-                MDC.put("tenantId", payload.get("tenantId"));
-            }
 
             // 继续执行后续过滤器和控制器
             filterChain.doFilter(request, response);
@@ -184,7 +178,6 @@ public class GlobalFilter extends OncePerRequestFilter {
             CurrentUser.remove();
             MDC.remove("traceId");
             MDC.remove("spanId");
-            MDC.remove("tenantId");
         }
     }
 

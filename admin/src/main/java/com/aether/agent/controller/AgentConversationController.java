@@ -251,28 +251,9 @@ public class AgentConversationController {
     @GetMapping("/{id}/context")
     public WebResponse<AgentConversationContextVo> context(@PathVariable @NotBlank String id) {
         getReadableConversation(id);
-        if (agentRunContextMetricService == null) {
-            return WebResponse.OK(null);
-        }
-        List<AgentRun> runs = agentRunService.list(Wrappers.lambdaQuery(AgentRun.class)
-                .eq(AgentRun::getConversationId, id)
-                .eq(AgentRun::getDeleted, false)
-                .orderByDesc(AgentRun::getCreatedAt));
-        if (runs.isEmpty()) {
-            return WebResponse.OK(null);
-        }
-        List<String> runIds = runs.stream().map(AgentRun::getId).collect(Collectors.toList());
-        List<AgentRunContextMetric> metrics = agentRunContextMetricService.list(Wrappers.lambdaQuery(AgentRunContextMetric.class)
-                .in(AgentRunContextMetric::getRunId, runIds)
-                .eq(AgentRunContextMetric::getMetricPhase, "FINAL")
-                .eq(AgentRunContextMetric::getDeleted, false)
-                .orderByDesc(AgentRunContextMetric::getCreatedAt)
-                .last("limit 1"));
-        if (metrics.isEmpty()) {
-            return WebResponse.OK(null);
-        }
-        AgentRunContextMetric metric = metrics.get(0);
-        return WebResponse.OK(toContextVo(metric));
+        // V178 retired the standalone observability table. Keep the endpoint
+        // compatible for older clients, but do not query a retired table.
+        return WebResponse.OK(null);
     }
 
     /**
@@ -426,14 +407,6 @@ public class AgentConversationController {
                 .eq(AgentToolCallLog::getDeleted, false)
                 .orderByAsc(AgentToolCallLog::getCreatedAt));
 
-        List<AgentRunContextMetric> finalMetrics = agentRunContextMetricService == null
-                ? Collections.emptyList()
-                : agentRunContextMetricService.list(Wrappers.lambdaQuery(AgentRunContextMetric.class)
-                .in(AgentRunContextMetric::getRunId, runIds)
-                .eq(AgentRunContextMetric::getMetricPhase, "FINAL")
-                .eq(AgentRunContextMetric::getDeleted, false)
-                .orderByDesc(AgentRunContextMetric::getCreatedAt));
-
         // 5. 建立 runId -> logs 映射
         Map<String, List<AgentToolCallLogVo>> runToLogsMap = new HashMap<>();
         for (AgentToolCallLog log : allLogs) {
@@ -441,11 +414,6 @@ public class AgentConversationController {
             BeanUtils.copyProperties(log, logVo);
             runToLogsMap.computeIfAbsent(log.getRunId(), k -> new ArrayList<>()).add(logVo);
         }
-        Map<String, AgentConversationContextVo> runToContextMetricMap = new HashMap<>();
-        for (AgentRunContextMetric metric : finalMetrics) {
-            runToContextMetricMap.putIfAbsent(metric.getRunId(), toContextVo(metric));
-        }
-
         // 6. 组装到 AgentMessageVo
         for (AgentMessageVo msgVo : messageList) {
             if ("assistant".equals(msgVo.getRole())) {
@@ -454,7 +422,7 @@ public class AgentConversationController {
                     msgVo.setRunId(run.getId());
                     List<AgentToolCallLogVo> logs = runToLogsMap.get(run.getId());
                     msgVo.setToolCallLogs(logs != null ? logs : Collections.emptyList());
-                    msgVo.setContextMetric(runToContextMetricMap.get(run.getId()));
+                    msgVo.setContextMetric(null);
                 }
             }
         }

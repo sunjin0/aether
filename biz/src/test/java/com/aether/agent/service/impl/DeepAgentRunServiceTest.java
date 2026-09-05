@@ -708,8 +708,6 @@ class DeepAgentRunServiceTest {
         ArgumentCaptor<List<Map<String, Object>>> citedCaptor = ArgumentCaptor.forClass(List.class);
         verify(knowledgeContextService).recordCitations(eq("agent-1"), eq("conversation-1"), eq("message-1"), citedCaptor.capture());
         assertEquals("chunk-1", citedCaptor.getValue().get(0).get("chunkId"));
-        verify(knowledgeContextService).recordRetrievalOutcome(eq("agent-1"), eq("conversation-1"), eq("message-1"),
-                eq("original task"), anyList(), eq(citedCaptor.getValue()));
     }
 
     /**
@@ -731,8 +729,6 @@ class DeepAgentRunServiceTest {
         service.completeRun("run-1", "final answer", "deep-model", 12, 8, 20,
                 null, null, null, null);
 
-        verify(knowledgeContextService).recordRetrievalOutcome(eq("agent-1"), eq("conversation-1"), eq("message-1"),
-                eq("original task"), eq(Collections.emptyList()), eq(Collections.emptyList()));
         reset(knowledgeContextService);
         when(agentRunService.update(isNull(), any())).thenReturn(false);
 

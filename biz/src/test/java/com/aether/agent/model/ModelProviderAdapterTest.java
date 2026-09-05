@@ -7,6 +7,7 @@ import com.aether.agent.model.adapter.AnthropicChatAdapter;
 import com.aether.agent.model.adapter.AzureOpenAIChatAdapter;
 import com.aether.agent.model.adapter.ModelProviderAdapter;
 import com.aether.agent.model.adapter.OpenAIChatAdapter;
+import com.aether.agent.model.adapter.LocalOpenAICompatibleAdapter;
 import com.aether.agent.model.adapter.QwenOpenAICompatibleAdapter;
 import com.aether.utils.AesUtil;
 import com.alibaba.fastjson2.JSONArray;
@@ -70,6 +71,22 @@ class ModelProviderAdapterTest {
     }
 
     @Test
+    void openAiAdapterSendsNativeFilesAsMixedUserContent() {
+        OpenAIChatAdapter adapter = new OpenAIChatAdapter();
+        ModelChatRequest request = request("openai", "gpt-4.1-mini");
+        ModelChatMessage message = request.getMessages().get(1);
+        message.setInputFiles(Collections.singletonList(new ModelInputFile("report.pdf", "application/pdf", "https://storage.example/report.pdf?signature=short-lived")));
+
+        JSONObject body = adapter.body(request, false);
+
+        JSONArray content = body.getJSONArray("messages").getJSONObject(1).getJSONArray("content");
+        assertEquals("text", content.getJSONObject(0).getString("type"));
+        assertEquals("file", content.getJSONObject(1).getString("type"));
+        assertEquals("report.pdf", content.getJSONObject(1).getJSONObject("file").getString("filename"));
+        assertEquals("https://storage.example/report.pdf?signature=short-lived", content.getJSONObject(1).getJSONObject("file").getString("file_url"));
+    }
+
+    @Test
     void qwenAdapterFiltersUnsupportedOpenAiExtrasButKeepsReasoningAndTools() {
         QwenOpenAICompatibleAdapter adapter = new QwenOpenAICompatibleAdapter();
         ModelChatRequest request = request("qwen-compatible", "qwen-plus");
@@ -87,6 +104,31 @@ class ModelProviderAdapterTest {
         assertFalse(body.containsKey("seed"));
         assertFalse(body.containsKey("logprobs"));
         assertFalse(body.containsKey("response_format"));
+    }
+
+    @Test
+    void qwenAdapterSendsImageAsImageUrl() {
+        QwenOpenAICompatibleAdapter adapter = new QwenOpenAICompatibleAdapter();
+        ModelChatRequest request = request("qwen-compatible", "qwen-plus");
+        request.getMessages().get(1).setInputFiles(Collections.singletonList(
+                new ModelInputFile("screen.png", "image/png", "https://storage.example/screen.png?signature=short-lived")));
+
+        JSONArray content = adapter.body(request, false).getJSONArray("messages").getJSONObject(1).getJSONArray("content");
+
+        assertEquals("image_url", content.getJSONObject(1).getString("type"));
+        assertEquals("https://storage.example/screen.png?signature=short-lived", content.getJSONObject(1)
+                .getJSONObject("image_url").getString("url"));
+    }
+
+    @Test
+    void qwen3AdapterExplicitlyDisablesThinkingWhenChatThinkingIsOff() {
+        QwenOpenAICompatibleAdapter adapter = new QwenOpenAICompatibleAdapter();
+        ModelChatRequest request = request("qwen-compatible", "qwen3.8-max");
+        request.getAgent().setDefaultThinking(false);
+
+        JSONObject body = adapter.body(request, true);
+
+        assertFalse(body.getBooleanValue("enable_thinking"));
     }
 
     @Test
@@ -175,6 +217,7 @@ class ModelProviderAdapterTest {
     void modelClientRoutesAllBuiltInAdapters() {
         OpenAIModelClient client = new OpenAIModelClient(new PooledHttpClient(), Arrays.<ModelProviderAdapter>asList(
                 new OpenAIChatAdapter(),
+                new LocalOpenAICompatibleAdapter(),
                 new AzureOpenAIChatAdapter(),
                 new AnthropicChatAdapter(),
                 new QwenOpenAICompatibleAdapter()

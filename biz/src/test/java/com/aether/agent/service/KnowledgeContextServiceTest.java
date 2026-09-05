@@ -1,7 +1,6 @@
 package com.aether.agent.service;
 
 import com.aether.knowledge.mapper.KnowledgeReferenceLogMapper;
-import com.aether.knowledge.mapper.KnowledgeRetrievalLogMapper;
 import com.aether.knowledge.model.KnowledgeRetrievalResult;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
@@ -222,33 +221,6 @@ class KnowledgeContextServiceTest {
         verify(retrievalService).retrieve(org.mockito.ArgumentMatchers.eq("agent-1"),
                 org.mockito.ArgumentMatchers.eq("请检索资料"),
                 org.mockito.ArgumentMatchers.anySet());
-    }
-
-    /**
-     * 处理recordsWhetherRetrievedChunkWasCitedWithoutPersistingRaw查询。
-     */
-    @Test
-    void recordsWhetherRetrievedChunkWasCitedWithoutPersistingRawQuery() {
-        KnowledgeRetrievalLogMapper mapper = mock(KnowledgeRetrievalLogMapper.class);
-        KnowledgeContextService service = new KnowledgeContextService(
-                mock(AdminPreferenceService.class), mock(KnowledgeRetrievalService.class),
-                mock(KnowledgeDocumentService.class), mock(KnowledgeReferenceLogMapper.class), mapper);
-        Map<String, Object> source = new HashMap<>();
-        source.put("knowledgeBaseId", "kb-1");
-        source.put("documentId", "doc-1");
-        source.put("chunkId", "chunk-1");
-        source.put("similarity", 0.8D);
-        source.put("retrievalScore", 0.9D);
-
-        service.recordRetrievalOutcome("agent-1", "conversation-1", "message-1", "private question",
-                Collections.singletonList(source), Collections.singletonList(source));
-
-        org.mockito.ArgumentCaptor<com.aether.knowledge.entity.KnowledgeRetrievalLog> captor =
-                org.mockito.ArgumentCaptor.forClass(com.aether.knowledge.entity.KnowledgeRetrievalLog.class);
-        verify(mapper).insert(captor.capture());
-        assertEquals("MATCHED", captor.getValue().getOutcome());
-        org.junit.jupiter.api.Assertions.assertTrue(captor.getValue().getCited());
-        org.junit.jupiter.api.Assertions.assertFalse("private question".equals(captor.getValue().getQueryHash()));
     }
 
     /**

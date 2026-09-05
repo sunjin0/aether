@@ -2,7 +2,11 @@ package com.aether.agent.model.adapter;
 
 import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.model.ModelChatRequest;
+import com.aether.agent.model.ModelChatMessage;
+import com.aether.agent.model.ModelInputFile;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
@@ -15,10 +19,36 @@ import java.util.Set;
 @Component
 public class QwenOpenAICompatibleAdapter extends OpenAIChatAdapter {
 
+    /**
+     * Qwen's OpenAI-compatible endpoint accepts a file content item's value as
+     * the URL string itself, not the Responses-style {filename,file_url} object.
+     */
+    @Override
+    protected Object toJsonContent(ModelChatMessage message) {
+        if (message.getInputFiles() == null || message.getInputFiles().isEmpty()) {
+            return super.toJsonContent(message);
+        }
+        JSONArray content = new JSONArray();
+        content.add(new JSONObject().fluentPut("type", "text")
+                .fluentPut("text", StringUtils.defaultString(message.getContent(), "")));
+        for (ModelInputFile file : message.getInputFiles()) {
+            if (file != null && StringUtils.isNotBlank(file.getFileUrl())) {
+                if (StringUtils.startsWithIgnoreCase(file.getContentType(), "image/")) {
+                    content.add(new JSONObject().fluentPut("type", "image_url")
+                            .fluentPut("image_url", new JSONObject().fluentPut("url", file.getFileUrl())));
+                } else {
+                    content.add(new JSONObject().fluentPut("type", "file").fluentPut("file", file.getFileUrl()));
+                }
+            }
+        }
+        return content;
+    }
+
     @Override
     public boolean supports(String providerType) {
         return "qwen-compatible".equalsIgnoreCase(providerType);
     }
+
 
     @Override
     protected void applyGenerationParameters(JSONObject body, ModelChatRequest request, AgentDefinition agent, boolean stream) {
@@ -43,7 +73,16 @@ public class QwenOpenAICompatibleAdapter extends OpenAIChatAdapter {
         if (org.apache.commons.lang3.StringUtils.isNotBlank(reasoningEffort)) {
             body.put("reasoning_effort", reasoningEffort);
         }
+        // Qwen3 hybrid-thinking models default to thinking when omitted. Keep
+        // the provider request aligned with the chat-level thinking switch.
+        if (supportsThinkingSwitch(resolveModel(request, agent))) {
+            body.put("enable_thinking", Boolean.TRUE.equals(agent.getDefaultThinking()));
+        }
         applyProviderOptions(body, request);
+    }
+
+    private boolean supportsThinkingSwitch(String model) {
+        return StringUtils.startsWithIgnoreCase(StringUtils.defaultString(model), "qwen3");
     }
 
     @Override

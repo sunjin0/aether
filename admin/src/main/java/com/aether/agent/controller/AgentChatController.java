@@ -311,6 +311,12 @@ public class AgentChatController {
                 emitter.send(SseEmitter.event().comment("heartbeat"));
             } catch (IOException | IllegalStateException e) {
                 closed.set(true);
+                // A failed heartbeat is the server-side signal that the SSE
+                // connection disappeared. Completing triggers onCompletion,
+                // which interrupts the worker and lets its conversation lock
+                // be released in the orchestration finally block.
+                emitter.complete();
+                cancelWorker.run();
             }
         }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
 
@@ -676,6 +682,10 @@ public class AgentChatController {
             } catch (IOException | IllegalStateException e) {
                 log.warn("SSE发送失败, event={}, error={}", eventName, e.getMessage());
                 closed.set(true);
+                // Do not leave a model worker running after its client has
+                // gone away; emitter completion invokes the registered
+                // cancellation callback for the worker.
+                emitter.complete();
             }
         }
     }

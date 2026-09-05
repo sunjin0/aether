@@ -7,9 +7,7 @@ import com.aether.knowledge.model.KnowledgeRetrievalResult;
 import com.aether.knowledge.entity.KnowledgeDocument;
 import com.aether.knowledge.entity.KnowledgeDocumentChunk;
 import com.aether.knowledge.entity.KnowledgeReferenceLog;
-import com.aether.knowledge.entity.KnowledgeRetrievalLog;
 import com.aether.knowledge.mapper.KnowledgeReferenceLogMapper;
-import com.aether.knowledge.mapper.KnowledgeRetrievalLogMapper;
 import com.aether.knowledge.service.KnowledgeDocumentService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
 import com.aether.agent.observability.ChatLatencyMetrics;
@@ -27,8 +25,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -48,7 +44,6 @@ public class KnowledgeContextService {
     private final KnowledgeRetrievalService retrievalService;
     private final KnowledgeDocumentService documentService;
     private final KnowledgeReferenceLogMapper referenceLogMapper;
-    private final KnowledgeRetrievalLogMapper retrievalLogMapper;
     /**
      * Audit writes must not delay a streamed answer. The bounded queue protects request workers under DB pressure.
      */
@@ -62,13 +57,11 @@ public class KnowledgeContextService {
     public KnowledgeContextService(AdminPreferenceService preferenceService,
                                    KnowledgeRetrievalService retrievalService,
                                    KnowledgeDocumentService documentService,
-                                   KnowledgeReferenceLogMapper referenceLogMapper,
-                                   KnowledgeRetrievalLogMapper retrievalLogMapper) {
+                                   KnowledgeReferenceLogMapper referenceLogMapper) {
         this.preferenceService = preferenceService;
         this.retrievalService = retrievalService;
         this.documentService = documentService;
         this.referenceLogMapper = referenceLogMapper;
-        this.retrievalLogMapper = retrievalLogMapper;
     }
 
     /**
@@ -77,17 +70,7 @@ public class KnowledgeContextService {
     public KnowledgeContextService(AdminPreferenceService preferenceService,
                                    KnowledgeRetrievalService retrievalService,
                                    KnowledgeDocumentService documentService) {
-        this(preferenceService, retrievalService, documentService, null, null);
-    }
-
-    /**
-     * 创建 {@code KnowledgeContextService} 实例。
-     */
-    public KnowledgeContextService(AdminPreferenceService preferenceService,
-                                   KnowledgeRetrievalService retrievalService,
-                                   KnowledgeDocumentService documentService,
-                                   KnowledgeReferenceLogMapper referenceLogMapper) {
-        this(preferenceService, retrievalService, documentService, referenceLogMapper, null);
+        this(preferenceService, retrievalService, documentService, null);
     }
 
     /**
@@ -335,71 +318,6 @@ public class KnowledgeContextService {
     }
 
     /**
-     * Records candidate-level retrieval outcomes without persisting raw user queries.
-     */
-    public void recordRetrievalOutcome(String agentId, String conversationId, String messageId, String query,
-                                       List<Map<String, Object>> retrievedSources,
-                                       List<Map<String, Object>> citedSources) {
-        if (retrievalLogMapper == null) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        String queryHash = hashQuery(query);
-        Set<String> citedChunkIds = new HashSet<>();
-        if (citedSources != null) {
-            for (Map<String, Object> source : citedSources) {
-                String chunkId = stringValue(source.get("chunkId"));
-                if (StringUtils.isNotBlank(chunkId)) {
-                    citedChunkIds.add(chunkId);
-                }
-            }
-        }
-        try {
-            if (retrievedSources == null || retrievedSources.isEmpty()) {
-                KnowledgeRetrievalLog log = new KnowledgeRetrievalLog();
-                log.setAgentDefinitionId(agentId);
-                log.setConversationId(conversationId);
-                log.setMessageId(messageId);
-                log.setQueryHash(queryHash);
-                log.setCited(false);
-                log.setOutcome("NO_MATCH");
-                log.setRetrievedAt(now);
-                retrievalLogMapper.insert(log);
-                return;
-            }
-            for (Map<String, Object> source : retrievedSources) {
-                KnowledgeRetrievalLog log = new KnowledgeRetrievalLog();
-                String chunkId = stringValue(source.get("chunkId"));
-                log.setAgentDefinitionId(agentId);
-                log.setConversationId(conversationId);
-                log.setMessageId(messageId);
-                log.setQueryHash(queryHash);
-                log.setKnowledgeBaseId(stringValue(source.get("knowledgeBaseId")));
-                log.setDocumentId(stringValue(source.get("documentId")));
-                log.setChunkId(chunkId);
-                log.setSimilarity(doubleValue(source.get("similarity")));
-                log.setRetrievalScore(doubleValue(source.get("retrievalScore")));
-                log.setCited(StringUtils.isNotBlank(chunkId) && citedChunkIds.contains(chunkId));
-                log.setOutcome("MATCHED");
-                log.setRetrievedAt(now);
-                retrievalLogMapper.insert(log);
-            }
-        } catch (Exception ignored) {
-            // Observability failures must not affect a successful response.
-        }
-    }
-
-    /**
-     * Queues retrieval audit persistence after the user-visible response has been finalized.
-     */
-    public void recordRetrievalOutcomeAsync(String agentId, String conversationId, String messageId, String query,
-                                            List<Map<String, Object>> retrievedSources,
-                                            List<Map<String, Object>> citedSources) {
-        submitAudit("retrieval", () -> recordRetrievalOutcome(agentId, conversationId, messageId, query,
-                retrievedSources, citedSources));
-    }
-
-    /**
      * 提交Audit。
      */
     private void submitAudit(String auditType, Runnable task) {
@@ -519,9 +437,6 @@ public class KnowledgeContextService {
         return value == null ? null : String.valueOf(value);
     }
 
-    /**
-     * 处理doubleValue。
-     */
     private Double doubleValue(Object value) {
         return value instanceof Number ? ((Number) value).doubleValue() : null;
     }
@@ -533,20 +448,4 @@ public class KnowledgeContextService {
         return value instanceof Number ? ((Number) value).intValue() : null;
     }
 
-    /**
-     * 处理hash查询。
-     */
-    private String hashQuery(String query) {
-        String normalized = StringUtils.defaultString(query).trim().replaceAll("\\s+", " ");
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(normalized.getBytes(StandardCharsets.UTF_8));
-            StringBuilder value = new StringBuilder(64);
-            for (byte item : digest) {
-                value.append(String.format("%02x", item));
-            }
-            return value.toString();
-        } catch (Exception ignored) {
-            return Integer.toHexString(normalized.hashCode());
-        }
-    }
 }

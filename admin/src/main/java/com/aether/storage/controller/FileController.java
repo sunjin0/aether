@@ -154,6 +154,15 @@ public class FileController {
             throw new ServerException(404, I18nUtils.getMessage("file.not.found"));
         } catch (ObjectStorageUnavailableException e) {
             throw new ServerException(503, I18nUtils.getMessage("file.storage.unavailable"));
+        } catch (RuntimeException e) {
+            // Storage SDKs (for example OSS connection failures) may surface as
+            // provider-specific runtime exceptions. Do not let them reach the
+            // global JSON handler after image/* has been committed; return a
+            // deterministic storage error for the binary endpoint instead.
+            return ResponseEntity.status(503)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(("{\"code\":503,\"message\":\"" + I18nUtils.getMessage("file.storage.unavailable") + "\"}")
+                            .getBytes(StandardCharsets.UTF_8));
         }
         ContentDisposition disposition = (inline ? ContentDisposition.inline() : ContentDisposition.attachment())
                 .filename(outputName, StandardCharsets.UTF_8).build();

@@ -4,6 +4,7 @@ import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatMessage;
+import com.aether.agent.model.ModelInputFile;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.model.ModelStreamCallback;
@@ -43,9 +44,9 @@ public class OpenAIChatAdapter implements ModelProviderAdapter {
 
     @Override
     public boolean supports(String providerType) {
-        return "openai".equalsIgnoreCase(providerType) || "local".equalsIgnoreCase(providerType)
-                || "local-openai-compatible".equalsIgnoreCase(providerType);
+        return "openai".equalsIgnoreCase(providerType);
     }
+
 
     @Override
     public String chatUrl(ModelChatRequest request) {
@@ -172,7 +173,7 @@ public class OpenAIChatAdapter implements ModelProviderAdapter {
             boolean hasToolCalls = StringUtils.isNotBlank(message.getToolCalls());
             JSONObject item = new JSONObject();
             item.put("role", role);
-            item.put("content", StringUtils.defaultString(message.getContent(), ""));
+            item.put("content", toJsonContent(message));
             if ("assistant".equals(role) && StringUtils.isNotBlank(message.getReasoningContent())) {
                 item.put("reasoning_content", message.getReasoningContent());
             }
@@ -185,6 +186,25 @@ public class OpenAIChatAdapter implements ModelProviderAdapter {
             array.add(item);
         }
         return array;
+    }
+
+    /**
+     * Chat Completions supports mixed text/file content. Files use short-lived
+     * signed URLs, so the private object-store location is never exposed.
+     */
+    protected Object toJsonContent(ModelChatMessage message) {
+        List<ModelInputFile> inputFiles = message.getInputFiles();
+        if (inputFiles == null || inputFiles.isEmpty()) return StringUtils.defaultString(message.getContent(), "");
+        JSONArray content = new JSONArray();
+        content.add(new JSONObject().fluentPut("type", "text")
+                .fluentPut("text", StringUtils.defaultString(message.getContent(), "")));
+        for (ModelInputFile file : inputFiles) {
+            if (file == null || StringUtils.isBlank(file.getFileUrl())) continue;
+            JSONObject value = new JSONObject().fluentPut("filename", file.getFileName())
+                    .fluentPut("file_url", file.getFileUrl());
+            content.add(new JSONObject().fluentPut("type", "file").fluentPut("file", value));
+        }
+        return content;
     }
 
     protected JSONArray normalizeToolCalls(JSONArray toolCalls) {

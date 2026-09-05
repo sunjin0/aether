@@ -1,6 +1,7 @@
 package com.aether.agent.model.adapter;
 
 import com.aether.agent.model.ModelChatRequest;
+import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelChatResponse;
 import com.aether.agent.model.ModelStreamCallback;
 import com.aether.agent.model.ModelStreamResponse;
@@ -18,6 +19,15 @@ import java.util.Set;
 public interface ModelProviderAdapter {
 
     boolean supports(String providerType);
+
+    /**
+     * Selects an adapter from the complete provider record. Most providers are
+     * identified by type alone; OpenAI-compatible vendors may additionally
+     * require endpoint or provider-name detection.
+     */
+    default boolean supports(ModelProvider provider) {
+        return provider != null && supports(provider.getType());
+    }
 
     String chatUrl(ModelChatRequest request);
 

@@ -28,6 +28,7 @@ import com.aether.agent.service.AgentConversationService;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentMessageService;
 import com.aether.agent.service.AgentStreamCallback;
+import com.aether.agent.service.ChatAttachmentService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.KnowledgeContextService;
@@ -137,6 +138,10 @@ public class AgentChatServiceImpl implements AgentChatService {
     /** 运行时邮件凭据只绑定到本次 run，绝不进入模型上下文或数据库。 */
     @Autowired(required = false)
     private RuntimeEmailCredentialStore runtimeEmailCredentialStore;
+
+    /** 仅 OpenAI 原生供应商使用；未配置时保留已有文本识别链路。 */
+    @Autowired(required = false)
+    private ChatAttachmentService chatAttachmentService;
 
     /**
      * 默认关闭，避免每轮聊天在主模型调用前额外等待一次同步模型重写。
@@ -260,6 +265,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
 SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveContent(rewrittenContent, dto.getMessage()), provider);
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId(), userId);
+            attachNativeFiles(context, dto, provider);
             applySkillPrompt(context, skillContext);
             List<Map<String, Object>> sources = knowledgeContextService.enhance(
                     context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getKnowledgeBaseIds(), dto.getRetrievalMode());
@@ -371,8 +377,6 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider);
             knowledgeContextService.recordCitationsAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     modelResponse.getSources());
-            knowledgeContextService.recordRetrievalOutcomeAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
-                    effectiveContent(rewrittenContent, dto.getMessage()), sources, modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             extractSessionMemoryAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
@@ -479,6 +483,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveContent(rewrittenContent, dto.getMessage()), provider);
             long skillResolvedAt = System.currentTimeMillis();
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId(), userId);
+            attachNativeFiles(context, dto, provider);
             long contextBuiltAt = System.currentTimeMillis();
             applySkillPrompt(context, skillContext);
             callback.onStatus("retrieving", "正在检索资料");
@@ -661,8 +666,6 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider);
             knowledgeContextService.recordCitationsAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     modelResponse.getSources());
-            knowledgeContextService.recordRetrievalOutcomeAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
-                    effectiveContent(rewrittenContent, dto.getMessage()), sources, modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             extractSessionMemoryAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
@@ -884,8 +887,6 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider);
             knowledgeContextService.recordCitationsAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     modelResponse.getSources());
-            knowledgeContextService.recordRetrievalOutcomeAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
-                    answerContent, sources, modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), answerMessage, assistantMessage, agent, provider);
             extractSessionMemoryAsync(userId, conversation.getId(), answerMessage, assistantMessage, agent, provider);
             updateConversationMessageCount(conversation.getId());
@@ -1698,6 +1699,26 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         List<ModelChatMessage> context = conversationContextService.buildWithSummary(agent, provider, conversationId);
         conversationContextService.injectSessionMemory(context, conversationId, userId, agent.getId());
         return context;
+    }
+
+    /**
+     * 将当前轮附件绑定到最后一条用户消息，交由 OpenAI 的原生文件 URL 能力解析。
+     * 非 OpenAI 兼容供应商继续走既有附件文本识别，不改变其请求协议。
+     */
+    private void attachNativeFiles(List<ModelChatMessage> context, AgentChatDto dto, ModelProvider provider) {
+        if (context == null || dto == null || chatAttachmentService == null
+                || provider == null || !("openai".equalsIgnoreCase(provider.getType())
+                || "qwen-compatible".equalsIgnoreCase(provider.getType()))
+                || StringUtils.isBlank(dto.getAttachments())) return;
+        List<com.aether.agent.model.ModelInputFile> files = chatAttachmentService.resolveNativeFiles(dto.getAttachments());
+        if (files.isEmpty()) return;
+        log.info("为原生文件模型绑定附件: providerType={}, files={}", provider.getType(), files.size());
+        for (int i = context.size() - 1; i >= 0; i--) {
+            if ("user".equals(context.get(i).getRole())) {
+                context.get(i).setInputFiles(files);
+                return;
+            }
+        }
     }
 
     /**
