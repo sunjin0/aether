@@ -8,3 +8,6 @@
 .idea/
 .env.sandbox-pilot
 .env
+.env.prod
+# fetch-sources.sh 的默认检出目录；内含另外三个仓库的 clone，不能提交。
+/.sources/
