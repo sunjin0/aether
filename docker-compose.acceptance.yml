@@ -1,5 +1,5 @@
 # 持续智能体发布前验收的本地构建 Compose。
-# 与 docker-compose.all.yml 的区别：四个应用服务全部从本地工作区构建，
+# 与 docker-compose.prod.yml 的区别：四个应用服务全部从本地工作区构建，
 # 从而纳入未推送的 Session/Task 工作区改动，而不是从 GitHub 远端拉取。
 # 用法：docker compose -f docker-compose.acceptance.yml up -d
 services:
