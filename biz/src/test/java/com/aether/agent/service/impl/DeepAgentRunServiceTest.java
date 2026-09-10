@@ -909,6 +909,37 @@ class DeepAgentRunServiceTest {
         assertTrue(runUpdateCaptor.getAllValues().get(1).getSqlSet().contains("waiting_ms"));
     }
 
+    @Test
+    void evaluationRunDoesNotCreateBusinessConversationState() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-evaluation");
+        agent.setSystemPrompt("frozen prompt");
+        agent.setModel("deepseek-v4");
+        when(agentRunService.save(any(AgentRun.class))).thenAnswer(invocation -> {
+            AgentRun run = invocation.getArgument(0);
+            run.setId("run-evaluation");
+            return true;
+        });
+        when(agentRunService.updateById(any(AgentRun.class))).thenReturn(true);
+        when(delegationTokenService.create(eq("run-evaluation"), eq("evaluation"), eq("agent-evaluation"), anyList()))
+                .thenReturn("delegation-jwt");
+        when(signingClient.signedPost(eq("/v1/runs"), anyMap()))
+                .thenReturn(ResponseEntity.status(HttpStatus.ACCEPTED).body("{}"));
+
+        String runId = service.startEvaluationRun(agent, "evaluation", "evaluation-session", "evaluate this",
+                "external-evaluation-run", Collections.emptyList(), "frozen prompt");
+
+        assertEquals("run-evaluation", runId);
+        verifyNoInteractions(agentConversationService, agentMessageService, agentSessionService, agentTaskService,
+                agentTaskEventService, conversationContextService);
+        ArgumentCaptor<AgentRun> runCaptor = ArgumentCaptor.forClass(AgentRun.class);
+        verify(agentRunService).save(runCaptor.capture());
+        assertEquals("EVALUATION", runCaptor.getValue().getRunOrigin());
+        assertNull(runCaptor.getValue().getConversationId());
+        assertNull(runCaptor.getValue().getSessionId());
+        assertNull(runCaptor.getValue().getMessageId());
+    }
+
     /**
      * 处理deep运行。
      */
