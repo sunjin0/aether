@@ -18,6 +18,8 @@ import com.aether.workflow.entity.*;
 import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.workflow.service.*;
+import com.aether.evaluation.service.EvaluationResultCallbackService;
+import com.aether.evaluation.service.EvaluationSnapshotService;
 import com.aether.agent.tools.AgentToolWorkflow;
 import com.aether.agent.vo.AgentMessageVo;
 import com.aether.msg.entity.Email;
@@ -26,6 +28,7 @@ import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.aether.workflow.vo.AgentWorkflowPendingSubflowInteraction;
 import com.aether.workflow.runtime.WorkflowConditionEvaluator;
 import com.aether.workflow.runtime.WorkflowDefinitionValidator;
+import com.aether.workflow.runtime.WorkflowPathResolver;
 import com.aether.workflow.runtime.WorkflowVariableRenderer;
 import com.aether.workflow.runtime.WorkflowSseHub;
 import com.aether.workflow.runtime.WorkflowCallbackService;
@@ -42,6 +45,7 @@ import com.aether.i18n.I18nUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -84,6 +88,10 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     private final RoleService roleService;
     private final AgentToolService agentToolService;
     private final ToolCallRiskAnalyzer toolCallRiskAnalyzer;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private EvaluationResultCallbackService evaluationResultCallbackService;
+    @Autowired(required = false)
+    private EvaluationSnapshotService evaluationSnapshotService;
 
     /** 统一 Execution 账本；保留可选注入以兼容旧部署。 */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -147,6 +155,53 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         return startInternal(workflowId, variables, userId, null, null);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AgentWorkflowInstance startEvaluation(String snapshotId, Map<String, Object> variables, String userId) {
+        return startEvaluation(snapshotId, variables, userId, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AgentWorkflowInstance startEvaluation(String snapshotId, Map<String, Object> variables, String userId, String evaluationResultId) {
+        if (evaluationSnapshotService == null) throw new UnsupportedOperationException(I18nUtils.getMessage("agent.evaluation.workflow.snapshot.service.disabled"));
+        com.aether.evaluation.entity.EvaluationTargetSnapshot snapshot = evaluationSnapshotService.getById(snapshotId);
+        if (snapshot == null || !"WORKFLOW".equals(snapshot.getTargetType())) throw new IllegalArgumentException(I18nUtils.getMessage("agent.evaluation.workflow.snapshot.not-found"));
+        if (StringUtils.isBlank(snapshot.getSourceVersionId())) return startEvaluationDraft(snapshot, variables, userId, evaluationResultId);
+        AgentWorkflowVersion version = versionService.getById(snapshot.getSourceVersionId());
+        if (version == null || !snapshot.getTargetId().equals(version.getWorkflowId())) throw new IllegalArgumentException(I18nUtils.getMessage("agent.evaluation.workflow.snapshot.version.not-found"));
+        return startInternal(snapshot.getTargetId(), variables, userId, null, version.getVersionNo(), null, snapshotId, evaluationResultId);
+    }
+
+    /** Starts a draft evaluation from the immutable evaluation snapshot, never from the live draft. */
+    private AgentWorkflowInstance startEvaluationDraft(com.aether.evaluation.entity.EvaluationTargetSnapshot snapshot,
+                                                       Map<String, Object> variables, String userId, String evaluationResultId) {
+        AgentWorkflow workflow = workflowService.getById(snapshot.getTargetId());
+        if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted())) throw new IllegalArgumentException(I18nUtils.getMessage("agent.evaluation.target.not-found"));
+        JSONObject definition = JSONObject.parseObject(snapshot.getSnapshotJson());
+        if (definition == null || StringUtils.isBlank(definition.getString("nodes"))) throw new IllegalArgumentException(I18nUtils.getMessage("agent.evaluation.workflow.snapshot.invalid"));
+        WorkflowDefinitionValidator.validateStartVariables(definition.getString("inputSchema"), variables);
+        AgentWorkflowInstance instance = new AgentWorkflowInstance();
+        instance.setApplicationId(workflow.getApplicationId());
+        instance.setWorkflowId(workflow.getId());
+        instance.setUserId(userId);
+        instance.setEvaluationSnapshotId(snapshot.getId());
+        instance.setEvaluationResultId(evaluationResultId);
+        instance.setRunOrigin("EVALUATION");
+        instance.setStatus("RUNNING");
+        instance.setVariables(JSON.toJSONString(variables == null ? new LinkedHashMap<String, Object>() : variables));
+        instance.setStartedAt(System.currentTimeMillis());
+        instanceService.save(instance);
+        if (executionService != null) {
+            Execution execution = executionService.start("WORKFLOW", null, null, userId, workflow.getId());
+            instance.setExecutionId(execution.getId());
+            instanceService.updateById(instance);
+        }
+        auditEventService.record(instance.getId(), null, "INSTANCE_STARTED", userId, "工作流评测草稿实例已启动", instance.getVariables());
+        executionJobDispatcher.enqueueAfterCommit(instance.getId());
+        return instance;
+    }
+
     /**
      * 处理startBusiness。
      */
@@ -188,6 +243,12 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     private AgentWorkflowInstance startInternal(String workflowId, Map<String, Object> variables, String userId,
                                                 AgentWorkflowBusinessStartDto business, Integer fixedVersionNo,
                                                 Long inheritedDeadlineAt) {
+        return startInternal(workflowId, variables, userId, business, fixedVersionNo, inheritedDeadlineAt, null, null);
+    }
+
+    private AgentWorkflowInstance startInternal(String workflowId, Map<String, Object> variables, String userId,
+                                                AgentWorkflowBusinessStartDto business, Integer fixedVersionNo,
+                                                Long inheritedDeadlineAt, String evaluationSnapshotId, String evaluationResultId) {
         // 以定义行锁串行化容量检查与实例插入；不同应用实例不能同时越过并发上限。
         AgentWorkflow workflow = workflowService.getOne(Wrappers.lambdaQuery(AgentWorkflow.class)
                 .eq(AgentWorkflow::getId, workflowId).eq(AgentWorkflow::getDeleted, false).last("FOR UPDATE"));
@@ -215,6 +276,11 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         instance.setWorkflowId(workflowId);
         instance.setWorkflowVersionId(version.getId());
         instance.setUserId(userId);
+        if (StringUtils.isNotBlank(evaluationSnapshotId)) {
+            instance.setRunOrigin("EVALUATION");
+            instance.setEvaluationSnapshotId(evaluationSnapshotId);
+            instance.setEvaluationResultId(evaluationResultId);
+        }
         if (business != null) {
             instance.setBusinessType(business.getBusinessType());
             instance.setBusinessId(business.getBusinessId());
@@ -247,7 +313,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         org.springframework.beans.BeanUtils.copyProperties(instance, vo);
         AgentWorkflow workflow = workflowService.getById(instance.getWorkflowId());
         if (workflow != null) vo.setWorkflowName(workflow.getName());
-        AgentWorkflowVersion version = versionService.getById(instance.getWorkflowVersionId());
+        AgentWorkflowVersion version = resolveWorkflowVersion(instance);
         if (version != null) {
             vo.setVersionNodes(version.getNodes());
             vo.setVersionEdges(version.getEdges());
@@ -353,16 +419,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         } else {
             Map<String, Object> variables = variables(instance);
             JSONObject definition = currentDefinition(instance, node);
-            // 人工回答通常为单个字段（如 {answer: "内容"}），传给后续 AI 时只取内容而非整段 JSON
-            Object answerValue = answer.size() == 1 ? answer.values().iterator().next() : answer;
-            if (definition != null) {
-                applyStateMapping(definition, answerValue, variables);
-            } else {
-                String outputKey = config.getString("outputKey");
-                if (StringUtils.isNotBlank(outputKey)) variables.put(outputKey, answerValue);
-                String internalKey = config.getString("internalKey");
-                if (StringUtils.isNotBlank(internalKey)) variables.put(internalKey, answerValue);
-            }
+            // 交互节点输出为按问题 key 组织的回答对象，后续节点通过 outputs 映射按需取值。
+            applyNodeOutputs(definition, answer, variables);
             instance.setVariables(JSON.toJSONString(variables));
             completeNode(node, JSON.toJSONString(answer));
         }
@@ -443,8 +501,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             throw new ServerException(422, "业务事件关联键不匹配");
         Map<String, Object> variables = variables(instance);
         if (dto != null && dto.getData() != null) {
-            variables.putAll(dto.getData());
-            applyStateMapping(currentDefinition(instance, node), dto.getData(), variables);
+            applyNodeOutputs(currentDefinition(instance, node), dto.getData(), variables);
         }
         instance.setVariables(JSON.toJSONString(variables));
         completeNode(node, dto == null ? null : JSON.toJSONString(dto.getData()));
@@ -491,7 +548,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         externalInvocationService.confirmSuccess(invocation.getId(), output);
         JSONObject definition = currentDefinition(instance, node);
         Map<String, Object> variables = variables(instance);
-        applyStateMapping(definition, output, variables);
+        applyNodeOutputs(definition, output, variables);
         instance.setVariables(JSON.toJSONString(variables));
         completeNode(node, output);
         String nextNodeId = findNextNodeId(instance, node);
@@ -683,7 +740,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     private void advance(AgentWorkflowInstance instance) {
         if (!"RUNNING".equals(instance.getStatus())) return;
 
-        AgentWorkflowVersion version = versionService.getById(instance.getWorkflowVersionId());
+        AgentWorkflowVersion version = resolveWorkflowVersion(instance);
         Map<String, JSONObject> nodeMap = buildNodeMap(version.getNodes());
         Map<String, List<JSONObject>> adj = WorkflowDefinitionValidator.buildAdjacency(version.getEdges());
         Map<String, Object> variables = variables(instance);
@@ -750,6 +807,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 auditEventService.record(instance.getId(), null, "INSTANCE_COMPLETED", null, "工作流实例已完成", instance.getVariables());
                 sseHub.publish(instance.getId(), "run.completed", instance);
                 callbackService.recordTerminal(instance);
+                if (evaluationResultCallbackService != null) evaluationResultCallbackService.complete(instance.getId(), instance.getVariables(), evaluationEvidence(instance), instance.getVariables());
                 resumeParentSubflow(instance);
             } else {
                 instance.setStatus("FAILED");
@@ -759,9 +817,27 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 auditEventService.record(instance.getId(), null, "INSTANCE_FAILED", null, "流程未到达结束节点", null);
                 sseHub.publish(instance.getId(), "run.failed", instance);
                 callbackService.recordTerminal(instance);
+                if (evaluationResultCallbackService != null) evaluationResultCallbackService.fail(instance.getId(), "WORKFLOW_FAILED", instance.getErrorMessage());
                 resumeParentSubflow(instance);
             }
         }
+    }
+
+    /** Provides stable visited node IDs for evaluation assertions without persisting node payloads again. */
+    private String evaluationEvidence(AgentWorkflowInstance instance) {
+        JSONObject evidence = new JSONObject();
+        evidence.put("workflowInstanceId", instance.getId());
+        evidence.put("runOrigin", "EVALUATION");
+        JSONArray nodes = new JSONArray();
+        for (AgentWorkflowNodeInstance node : nodeService.lambdaQuery()
+                .eq(AgentWorkflowNodeInstance::getInstanceId, instance.getId()).list()) {
+            JSONObject item = new JSONObject();
+            item.put("nodeId", node.getNodeId());
+            item.put("status", node.getStatus());
+            nodes.add(item);
+        }
+        evidence.put("nodes", nodes);
+        return evidence.toJSONString();
     }
 
     /**
@@ -778,12 +854,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 completeNode(node, null);
                 return;
             }
-            if ("human".equals(type)) {
-                waitForHuman(instance, node, definition, variables, false);
-                return;
-            }
-            if ("approval".equals(type)) {
-                waitForApproval(instance, node, definition, variables);
+            if ("interaction".equals(type)) {
+                waitForInteraction(instance, node, definition, variables);
                 return;
             }
             if (isToolNode(type)) {
@@ -792,20 +864,12 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                     resumeMcpApproval(instance, node, interaction, readPendingAnswer(interaction), instance.getUserId());
                 } else if (isScheduledInstance(instance) || isToolApprovalAutoPass(instance, definition, variables)) {
                     resumeMcpApproval(instance, node, mcpInteractionConfig(instance, definition, variables), approvedMcpNodeAnswer(), instance.getUserId());
-                } else waitForHuman(instance, node, definition, variables, true);
-                return;
-            }
-            if ("transform".equals(type)) {
-                Map<String, Object> transformed = applyTransform(definition, variables);
-                applyStateMapping(definition, transformed, variables);
-                instance.setVariables(JSON.toJSONString(variables));
-                instanceService.updateById(instance);
-                completeNode(node, JSON.toJSONString(transformed));
+                } else waitForToolApproval(instance, node, definition, variables);
                 return;
             }
             if ("rule".equals(type)) {
                 Object result = evaluateRule(definition, variables);
-                applyStateMapping(definition, result, variables);
+                applyNodeOutputs(definition, result, variables);
                 instance.setVariables(JSON.toJSONString(variables));
                 instanceService.updateById(instance);
                 completeNode(node, JSON.toJSONString(result));
@@ -813,7 +877,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             }
             if ("http".equals(type)) {
                 String output = executeHttpNode(instance, node, definition, variables);
-                applyStateMapping(definition, output, variables);
+                applyNodeOutputs(definition, output, variables);
                 instance.setVariables(JSON.toJSONString(variables));
                 instanceService.updateById(instance);
                 completeNode(node, output);
@@ -821,7 +885,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             }
             if ("notification".equals(type)) {
                 String output = executeNotificationNode(instance, node, definition, variables);
-                applyStateMapping(definition, output, variables);
+                applyNodeOutputs(definition, output, variables);
                 instance.setVariables(JSON.toJSONString(variables));
                 instanceService.updateById(instance);
                 completeNode(node, output);
@@ -870,7 +934,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                     return;
                 }
                 String output = response == null ? "" : response.getContent();
-                applyStateMapping(definition, output, variables);
+                applyNodeOutputs(definition, output, variables);
                 instance.setVariables(JSON.toJSONString(variables));
                 instanceService.updateById(instance);
                 completeNode(node, output);
@@ -963,7 +1027,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
      */
     private void resetLoopBodyNodes(AgentWorkflowInstance instance, String loopEntryId, String loopBackSourceId) {
         // 收集从 loopEntryId 到 loopBackSourceId 之间的所有节点
-        AgentWorkflowVersion version = versionService.getById(instance.getWorkflowVersionId());
+        AgentWorkflowVersion version = resolveWorkflowVersion(instance);
         Map<String, JSONObject> nodeMap = version == null ? Collections.emptyMap() : buildNodeMap(version.getNodes());
         Set<String> bodyNodes = collectLoopBody(loopEntryId, loopBackSourceId, nodeMap);
         for (String nid : bodyNodes) {
@@ -988,7 +1052,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
      * 访问中的祖先节点时才视为回跳边。</p>
      */
     private Set<String> buildBackEdgeIds(AgentWorkflowInstance instance) {
-        AgentWorkflowVersion version = versionService.getById(instance.getWorkflowVersionId());
+        AgentWorkflowVersion version = resolveWorkflowVersion(instance);
         if (version == null) return Collections.emptySet();
         Map<String, List<Object[]>> graph = new LinkedHashMap<String, List<Object[]>>();
         for (Object value : com.alibaba.fastjson2.JSONArray.parseArray(version.getEdges())) {
@@ -1070,7 +1134,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
      * 查找下一个NodeId。
      */
     private String findNextNodeId(AgentWorkflowInstance instance, AgentWorkflowNodeInstance completedNode) {
-        AgentWorkflowVersion version = versionService.getById(instance.getWorkflowVersionId());
+        AgentWorkflowVersion version = resolveWorkflowVersion(instance);
         Map<String, List<JSONObject>> adj = WorkflowDefinitionValidator.buildAdjacency(version.getEdges());
         Map<String, JSONObject> nodeMap = buildNodeMap(version.getNodes());
         Map<String, Object> vars = variables(instance);
@@ -1129,21 +1193,22 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     }
 
     /**
-     * 处理wait用于Human。
+     * 让工作流进入等待用户应答状态。interaction 节点按 mode 区分表单交互与审批：
+     * approval 模式复用服务账号作为审批主体（审计与 answer 鉴权语义独立），其余为普通表单交互。
      */
-    private void waitForHuman(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node, JSONObject definition, Map<String, Object> variables, boolean mcp) {
+    private void waitForInteraction(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node,
+                                    JSONObject definition, Map<String, Object> variables) {
+        boolean approval = "approval".equals(definition.getString("mode"));
         JSONObject config = new JSONObject();
-        config.put("type", mcp ? "mcp_tool_approval" : "group");
+        config.put("type", approval ? "approval" : "group");
         config.put("question", definition.getString("question"));
-        config.put("outputKey", definition.getString("outputKey"));
-        config.put("internalKey", definition.getString("internalKey"));
-        if (mcp) {
-            config.put("toolId", definition.getString("resourceId"));
-            config.put("toolName", definition.getString("toolName"));
-            config.put("agentId", resolveMcpAgentId(instance));
-            config.put("arguments", WorkflowVariableRenderer.render(definition.getString("argumentsTemplate"), variables));
-        } else config.put("questions", definition.getJSONArray("questions"));
-        // 重试失败节点后会重新进入人工交互。此时不能继续携带上一次失败的错误，
+        if (approval) {
+            config.put("approvalMode", StringUtils.defaultIfBlank(definition.getString("approvalMode"), "ANY"));
+            config.put("approverServiceAccountId", definition.getString("approverServiceAccountId"));
+        } else {
+            config.put("questions", definition.getJSONArray("questions"));
+        }
+        // 重试失败节点后会重新进入交互。此时不能继续携带上一次失败的错误，
         // 否则实例虽已处于 WAITING_USER，详情页仍会显示“执行失败”。
         node.setStatus("WAITING_USER");
         node.setErrorMessage(null);
@@ -1154,21 +1219,26 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         instance.setErrorMessage(null);
         ensureWaitingDeadline(instance, definition, null);
         instanceService.updateById(instance);
-        sseHub.publish(instance.getId(), mcp ? "tool.approval.required" : "ask_user.required", node);
+        if (approval) {
+            auditEventService.record(instance.getId(), node.getId(), "APPROVAL_REQUIRED", null, "等待服务账号审批", config.toJSONString());
+            sseHub.publish(instance.getId(), "approval.required", node);
+        } else {
+            sseHub.publish(instance.getId(), "ask_user.required", node);
+        }
     }
 
     /**
-     * 审批节点复用服务账号作为审批主体，但交互类型和审计语义独立于普通人工录入。
+     * 工具节点进入等待确认状态，交互类型固定为 mcp_tool_approval（运行页据此渲染决策按钮）。
      */
-    private void waitForApproval(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node,
-                                 JSONObject definition, Map<String, Object> variables) {
+    private void waitForToolApproval(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node,
+                                     JSONObject definition, Map<String, Object> variables) {
         JSONObject config = new JSONObject();
-        config.put("type", "approval");
+        config.put("type", "mcp_tool_approval");
         config.put("question", definition.getString("question"));
-        config.put("outputKey", definition.getString("outputKey"));
-        config.put("internalKey", definition.getString("internalKey"));
-        config.put("approvalMode", StringUtils.defaultIfBlank(definition.getString("approvalMode"), "ANY"));
-        config.put("approverServiceAccountId", definition.getString("approverServiceAccountId"));
+        config.put("toolId", definition.getString("resourceId"));
+        config.put("toolName", definition.getString("toolName"));
+        config.put("agentId", resolveMcpAgentId(instance));
+        config.put("arguments", WorkflowVariableRenderer.render(definition.getString("argumentsTemplate"), variables));
         node.setStatus("WAITING_USER");
         node.setErrorMessage(null);
         node.setCompletedAt(null);
@@ -1178,8 +1248,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         instance.setErrorMessage(null);
         ensureWaitingDeadline(instance, definition, null);
         instanceService.updateById(instance);
-        auditEventService.record(instance.getId(), node.getId(), "APPROVAL_REQUIRED", null, "等待服务账号审批", config.toJSONString());
-        sseHub.publish(instance.getId(), "approval.required", node);
+        sseHub.publish(instance.getId(), "tool.approval.required", node);
     }
 
     /**
@@ -1273,7 +1342,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         }
         Map<String, Object> variables = variables(instance);
         JSONObject definition = currentDefinition(instance, node);
-        if (definition != null) applyStateMapping(definition, result, variables);
+        if (definition != null) applyNodeOutputs(definition, JSON.parse(JSON.toJSONString(result)), variables);
         instance.setVariables(JSON.toJSONString(variables));
         instanceService.updateById(instance);
         completeNode(node, JSON.toJSONString(result));
@@ -1359,7 +1428,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             return;
         }
         Map<String, Object> variables = variables(instance);
-        applyStateMapping(definition, output[0], variables);
+        applyNodeOutputs(definition, output[0], variables);
         instance.setVariables(JSON.toJSONString(variables));
         instanceService.updateById(instance);
         completeNode(node, output[0]);
@@ -1379,26 +1448,6 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
 
     private boolean isToolNode(String type) {
         return "tool".equals(type);
-    }
-
-    /**
-     * 将确定性字段映射写入共享变量。mapping 支持 source、template 和 value 三种来源。
-     */
-    private Map<String, Object> applyTransform(JSONObject definition, Map<String, Object> variables) {
-        Map<String, Object> output = new LinkedHashMap<String, Object>();
-        JSONArray mappings = definition.getJSONArray("mappings");
-        if (mappings == null) return output;
-        for (Object value : mappings) {
-            JSONObject mapping = (JSONObject) value;
-            String target = mapping.getString("target");
-            Object mapped;
-            if (mapping.containsKey("source")) mapped = resolveVariablePath(variables, mapping.getString("source"));
-            else if (mapping.containsKey("template")) mapped = WorkflowVariableRenderer.render(mapping.getString("template"), variables);
-            else mapped = mapping.get("value");
-            variables.put(target, mapped);
-            output.put(target, mapped);
-        }
-        return output;
     }
 
     /**
@@ -1534,15 +1583,17 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
      */
     private void executeParallel(AgentWorkflowInstance instance, AgentWorkflowNodeInstance parallelNode,
                                  JSONObject definition, Map<String, Object> variables) {
-        JSONArray branches = definition.getJSONArray("branches");
-        AgentWorkflowVersion version = versionService.getById(instance.getWorkflowVersionId());
+        AgentWorkflowVersion version = resolveWorkflowVersion(instance);
         Map<String, JSONObject> nodeMap = buildNodeMap(version.getNodes());
         Map<String, List<JSONObject>> adjacency = WorkflowDefinitionValidator.buildAdjacency(version.getEdges());
+        List<String> branchIds = resolveParallelBranchEntries(definition, adjacency);
+        if (branchIds.isEmpty())
+            throw new ServerException(422, "并行节点必须引出分支边或配置 branches");
         String joinNodeId = findParallelJoinNodeId(definition, nodeMap, adjacency);
         if (StringUtils.isBlank(joinNodeId) || nodeMap.get(joinNodeId) == null || !"join".equals(nodeMap.get(joinNodeId).getString("type")))
             throw new ServerException(422, "并行节点必须连接汇聚节点");
         int maxBranches = definition.getIntValue("maxBranches");
-        if (maxBranches > 0 && branches.size() > maxBranches)
+        if (maxBranches > 0 && branchIds.size() > maxBranches)
             throw new ServerException(429, "并行分支数量超过节点配额");
         long branchTimeoutMillis = definition.getLongValue("branchTimeoutMillis");
         long branchStartedAt = System.currentTimeMillis();
@@ -1554,16 +1605,18 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             state = new AgentWorkflowJoinState();
             state.setTenantId(instance.getTenantId());
             state.setInstanceId(instance.getId()); state.setJoinNodeId(joinNodeId); state.setTokenKey(tokenKey);
-            state.setJoinMode(StringUtils.defaultIfBlank(definition.getString("joinMode"), "ALL_SUCCESS"));
-            state.setExpectedCount(branches.size()); state.setCompletedCount(0); state.setFailedCount(0); state.setStatus("WAITING");
+            JSONObject joinDefinition = nodeMap.get(joinNodeId);
+            state.setJoinMode(StringUtils.defaultIfBlank(joinDefinition == null ? null : joinDefinition.getString("joinMode"),
+                    StringUtils.defaultIfBlank(definition.getString("joinMode"), "ALL_SUCCESS")));
+            state.setExpectedCount(branchIds.size()); state.setCompletedCount(0); state.setFailedCount(0); state.setStatus("WAITING");
             joinStateService.save(state);
         }
         if ("READY".equals(state.getStatus()) || "COMPLETED".equals(state.getStatus())) return;
         int completed = 0, failed = 0;
-        for (int i = 0; i < branches.size(); i++) {
+        for (int i = 0; i < branchIds.size(); i++) {
             if (branchTimeoutMillis > 0 && System.currentTimeMillis() - branchStartedAt > branchTimeoutMillis)
                 throw new ServerException(504, "并行分支执行超时");
-            String entryId = String.valueOf(branches.get(i));
+            String entryId = branchIds.get(i);
             AgentWorkflowNodeToken token = nodeTokenService.getOne(Wrappers.lambdaQuery(AgentWorkflowNodeToken.class)
                     .eq(AgentWorkflowNodeToken::getInstanceId, instance.getId()).eq(AgentWorkflowNodeToken::getNodeId, entryId)
                     .eq(AgentWorkflowNodeToken::getTokenKey, tokenKey + ":" + i).eq(AgentWorkflowNodeToken::getDeleted, false));
@@ -1595,9 +1648,9 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             state.setStatus("FAILED"); state.setErrorMessage("并行分支没有成功分支"); joinStateService.updateById(state);
             throw new ServerException(502, state.getErrorMessage());
         }
-        if (completed + failed < branches.size()) { state.setStatus("WAITING"); joinStateService.updateById(state); return; }
+        if (completed + failed < branchIds.size()) { state.setStatus("WAITING"); joinStateService.updateById(state); return; }
         state.setStatus("READY"); joinStateService.updateById(state);
-        completeNode(parallelNode, JSON.toJSONString(Collections.singletonMap("branches", branches.size())));
+        completeNode(parallelNode, JSON.toJSONString(Collections.singletonMap("branches", branchIds.size())));
     }
 
     private void runParallelBranch(AgentWorkflowInstance instance, String entryId, String joinNodeId,
@@ -1628,17 +1681,40 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                                           Map<String, List<JSONObject>> adjacency) {
         String configured = definition == null ? null : definition.getString("joinNodeId");
         if (StringUtils.isNotBlank(configured) && nodeMap.get(configured) != null && "join".equals(nodeMap.get(configured).getString("type"))) return configured;
-        JSONArray branches = definition == null ? null : definition.getJSONArray("branches");
-        if (branches == null || branches.isEmpty()) return null;
+        List<String> branchIds = resolveParallelBranchEntries(definition, adjacency);
+        if (branchIds.isEmpty()) return null;
         for (JSONObject candidate : nodeMap.values()) {
             if (!"join".equals(candidate.getString("type"))) continue;
             boolean reachableFromEveryBranch = true;
-            for (Object branch : branches) {
-                if (!canReach(adjacency, String.valueOf(branch), candidate.getString("id"))) { reachableFromEveryBranch = false; break; }
+            for (String branch : branchIds) {
+                if (!canReach(adjacency, branch, candidate.getString("id"))) { reachableFromEveryBranch = false; break; }
             }
             if (reachableFromEveryBranch) return candidate.getString("id");
         }
         return null;
+    }
+
+    /**
+     * 解析并行节点分支入口：优先采用“从并行节点连出的边”的目标（编排式并行，连线即分支），
+     * 兼容存量 branches 节点列表定义。
+     */
+    private List<String> resolveParallelBranchEntries(JSONObject definition, Map<String, List<JSONObject>> adjacency) {
+        List<String> entries = new ArrayList<String>();
+        if (definition == null) return entries;
+        List<JSONObject> outs = adjacency == null ? null : adjacency.get(definition.getString("id"));
+        if (outs != null && !outs.isEmpty()) {
+            for (JSONObject edge : outs) {
+                String target = edge.getString("target");
+                if (!entries.contains(target)) entries.add(target);
+            }
+            return entries;
+        }
+        JSONArray branches = definition.getJSONArray("branches");
+        if (branches != null) for (Object branch : branches) {
+            String id = String.valueOf(branch);
+            if (!entries.contains(id)) entries.add(id);
+        }
+        return entries;
     }
 
     private boolean canReach(Map<String, List<JSONObject>> adjacency, String source, String target) {
@@ -1749,8 +1825,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         JSONObject definition = currentDefinition(parent, node);
         Map<String, Object> childOutput = outputResolver.resolve(child);
         Map<String, Object> variables = variables(parent);
-        variables.putAll(mapSubflowVariables(definition == null ? null : definition.getJSONArray("outputMappings"), childOutput));
-        applyStateMapping(definition, childOutput, variables);
+        applyNodeOutputs(definition, childOutput, variables);
         parent.setVariables(JSON.toJSONString(variables));
         completeNode(node, JSON.toJSONString(childOutput));
         String nextNodeId = findNextNodeId(parent, node);
@@ -1771,7 +1846,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             JSONObject mapping = (JSONObject) value;
             String target = mapping.getString("target");
             if (StringUtils.isBlank(target)) continue;
-            Object mapped = mapping.containsKey("source") ? resolveVariablePath(source, mapping.getString("source"))
+            Object mapped = mapping.containsKey("source") ? WorkflowPathResolver.resolve(source, mapping.getString("source"))
                     : mapping.containsKey("template") ? WorkflowVariableRenderer.render(mapping.getString("template"), source)
                     : mapping.get("value");
             result.put(target, mapped);
@@ -1905,6 +1980,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         auditEventService.record(instance.getId(), node.getId(), "NODE_FAILED", null, node.getErrorMessage(), null);
         sseHub.publish(instance.getId(), "run.failed", node);
         callbackService.recordTerminal(instance);
+        if (evaluationResultCallbackService != null) evaluationResultCallbackService.fail(instance.getId(), "WORKFLOW_FAILED", instance.getErrorMessage());
         resumeParentSubflow(instance);
     }
 
@@ -2001,98 +2077,73 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     // ── 共享状态写回 ─────────────────────────────────────────
 
     /**
-     * 将节点输出写入共享状态。
-     * <p>优先使用节点 stateMapping（JSON 对象：目标键 → $output | $json.<path>）；
-     * 未配置时兼容旧字段 outputKey（将整个输出写入该键）。
-     * 另支持 internalKey（内部变量，需带 _ 前缀）：始终写入但不进共享状态面板，
-     * 可被后续节点以 ${_变量名} 引用。</p>
+     * 将节点原始输出按统一的 outputs 数组写入共享变量。
+     * <p>每行映射为 {@code { target, source|template|value }}：</p>
+     * <ul>
+     *   <li>{@code source=$output} 或 {@code $output.a.b}：取当前节点原始输出（字符串型 JSON 自动穿透取值）；</li>
+     *   <li>{@code source=a.b.c}（变量路径）：引用共享变量，与模板 ${a.b.c} 同一路径语法；</li>
+     *   <li>{@code template}：渲染模板（引用共享变量）；</li>
+     *   <li>{@code value}：写入字面值。</li>
+     * </ul>
+     * 目标变量按行序写入，后续行与下游节点立即可用。
      */
-    private void applyStateMapping(JSONObject definition, Object output, Map<String, Object> variables) {
+    static void applyNodeOutputs(JSONObject definition, Object output, Map<String, Object> variables) {
         if (definition == null) return;
-        String stateMapping = definition.getString("stateMapping");
-        boolean mapped = false;
-        if (StringUtils.isNotBlank(stateMapping)) {
-            try {
-                JSONObject mapping = JSONObject.parseObject(stateMapping);
-                for (Map.Entry<String, Object> entry : mapping.entrySet()) {
-                    String targetKey = entry.getKey();
-                    if (StringUtils.isBlank(targetKey) || entry.getValue() == null) continue;
-                    Object value = resolveMappingExpr(String.valueOf(entry.getValue()), output);
-                    if (value != null) variables.put(targetKey, value);
+        JSONArray outputs = definition.getJSONArray("outputs");
+        if (outputs == null) return;
+        for (Object value : outputs) {
+            if (!(value instanceof JSONObject)) continue;
+            JSONObject mapping = (JSONObject) value;
+            String target = mapping.getString("target");
+            if (StringUtils.isBlank(target)) continue;
+            Object mapped;
+            if (mapping.containsKey("template")) {
+                mapped = WorkflowVariableRenderer.render(mapping.getString("template"), variables);
+            } else if (mapping.containsKey("source")) {
+                String source = mapping.getString("source");
+                if (source == null) {
+                    mapped = null;
+                } else if ("$output".equals(source)) {
+                    mapped = WorkflowPathResolver.resolve(output, "");
+                } else if (source.startsWith("$output.")) {
+                    mapped = WorkflowPathResolver.resolve(output, source.substring("$output.".length()));
+                } else {
+                    mapped = WorkflowPathResolver.resolve(variables, source);
                 }
-                mapped = true;
-            } catch (Exception ignored) { /* 回退到 outputKey，保留既有输出 */ }
-        }
-        if (!mapped) {
-            String outputKey = definition.getString("outputKey");
-            if (StringUtils.isNotBlank(outputKey) && output != null) variables.put(outputKey, output);
-        }
-        String internalKey = definition.getString("internalKey");
-        if (StringUtils.isNotBlank(internalKey) && output != null) variables.put(internalKey, output);
-    }
-
-    /**
-     * 解析MappingExpr。
-     */
-    private Object resolveMappingExpr(String expr, Object output) {
-        String trimmed = expr == null ? "" : expr.trim();
-        if ("$output".equals(trimmed)) return output;
-        if (trimmed.startsWith("$json.")) return extractJsonPath(output, trimmed.substring("$json.".length()));
-        return expr; // 字面量
-    }
-
-    /** 解析转换与子流程映射的安全变量路径：root.path 或 $.root.path。 */
-    private Object resolveVariablePath(Map<String, Object> variables, String path) {
-        if (StringUtils.isBlank(path)) return null;
-        String normalized = StringUtils.removeStart(path.trim(), "$." );
-        String[] parts = normalized.split("\\.");
-        Object current = variables.get(parts[0]);
-        for (int i = 1; i < parts.length && current != null; i++) {
-            String part = parts[i];
-            if (current instanceof Map) current = ((Map<?, ?>) current).get(part);
-            else if (current instanceof JSONObject) current = ((JSONObject) current).get(part);
-            else if (current instanceof JSONArray && part.matches("\\d+")) {
-                int index = Integer.parseInt(part);
-                current = index >= 0 && index < ((JSONArray) current).size() ? ((JSONArray) current).get(index) : null;
-            } else return null;
-        }
-        return current;
-    }
-
-    /**
-     * 从输出中按点号路径提取字段；输出为字符串时先尝试 JSON 解析。
-     */
-    private Object extractJsonPath(Object output, String path) {
-        Object current = output;
-        if (current instanceof String) {
-            try {
-                current = JSON.parse((String) current);
-            } catch (Exception e) {
-                return null;
-            }
-        }
-        for (String segment : path.split("\\.")) {
-            if (segment.isEmpty()) return null;
-            if (current instanceof Map) {
-                current = ((Map<?, ?>) current).get(segment);
-            } else if (current instanceof JSONObject) {
-                current = ((JSONObject) current).get(segment);
-            } else if (current instanceof JSONArray && segment.matches("\\d+")) {
-                int index = Integer.parseInt(segment);
-                if (index < 0 || index >= ((JSONArray) current).size()) return null;
-                current = ((JSONArray) current).get(index);
             } else {
-                return null;
+                mapped = mapping.get("value");
+            }
+            if (target.indexOf('.') >= 0) {
+                // 结构化目标：按点号路径递归写入对象树（result.order.total），同一节点多行可拼出嵌套结果。
+                WorkflowPathResolver.write(variables, target, mapped);
+            } else {
+                variables.put(target, mapped);
             }
         }
-        return current;
+    }
+
+    /** Resolves the immutable version for a business run or reconstructs it from an evaluation draft snapshot. */
+    private AgentWorkflowVersion resolveWorkflowVersion(AgentWorkflowInstance instance) {
+        if (StringUtils.isNotBlank(instance.getWorkflowVersionId())) return versionService.getById(instance.getWorkflowVersionId());
+        if (!"EVALUATION".equals(instance.getRunOrigin()) || StringUtils.isBlank(instance.getEvaluationSnapshotId()) || evaluationSnapshotService == null) return null;
+        com.aether.evaluation.entity.EvaluationTargetSnapshot snapshot = evaluationSnapshotService.getById(instance.getEvaluationSnapshotId());
+        if (snapshot == null || !"WORKFLOW".equals(snapshot.getTargetType())) return null;
+        JSONObject definition = JSONObject.parseObject(snapshot.getSnapshotJson());
+        if (definition == null) return null;
+        AgentWorkflowVersion version = new AgentWorkflowVersion();
+        version.setWorkflowId(instance.getWorkflowId());
+        version.setNodes(definition.getString("nodes"));
+        version.setEdges(definition.getString("edges"));
+        version.setInputSchema(definition.getString("inputSchema"));
+        version.setOutputSchema(definition.getString("outputSchema"));
+        return version;
     }
 
     /**
      * 当前Definition。
      */
     private JSONObject currentDefinition(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node) {
-        AgentWorkflowVersion version = versionService.getById(instance.getWorkflowVersionId());
+        AgentWorkflowVersion version = resolveWorkflowVersion(instance);
         if (version == null) return null;
         return buildNodeMap(version.getNodes()).get(node.getNodeId());
     }

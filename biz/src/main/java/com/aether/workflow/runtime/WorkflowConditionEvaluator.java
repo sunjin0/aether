@@ -10,22 +10,24 @@ import java.util.regex.Pattern;
  * 工作流条件表达式求值器。
  * <p>支持的表达式语法：</p>
  * <ul>
- *   <li>{@code ${var} == "value"}  — 字符串相等</li>
- *   <li>{@code ${var} != "value"}  — 字符串不等</li>
- *   <li>{@code ${var} > 80}        — 数值大于</li>
- *   <li>{@code ${var} >= 80}       — 数值大于等于</li>
- *   <li>{@code ${var} < 100}       — 数值小于</li>
- *   <li>{@code ${var} <= 100}      — 数值小于等于</li>
- *   <li>{@code ${var} contains "text"} — 字符串包含</li>
- *   <li>{@code ${var}}             — 真值判断（非 null、非空字符串、非 false、非 0）</li>
+ *   <li>{@code ${path} == "value"}  — 字符串相等</li>
+ *   <li>{@code ${path} != "value"}  — 字符串不等</li>
+ *   <li>{@code ${path} > 80}        — 数值大于</li>
+ *   <li>{@code ${path} >= 80}       — 数值大于等于</li>
+ *   <li>{@code ${path} < 100}       — 数值小于</li>
+ *   <li>{@code ${path} <= 100}      — 数值小于等于</li>
+ *   <li>{@code ${path} contains "text"} — 字符串包含</li>
+ *   <li>{@code ${path}}             — 真值判断（非 null、非空字符串、非 false、非 0）</li>
+ *   <li>{@code path} 支持点号路径与数字下标，如 {@code ${order.total}}、{@code ${items.0.status}}</li>
  *   <li>多个表达式可用 {@code &&} 与 {@code ||} 组合，{@code &&} 优先级高于 {@code ||}</li>
  * </ul>
  */
 public final class WorkflowConditionEvaluator {
-    private static final Pattern VAR_PATTERN = Pattern.compile("\\$\\{([a-zA-Z_][a-zA-Z0-9_]*)}");
-    // 匹配: ${var} op value  或  ${var} op "quoted value"
+    private static final String PATH = "[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)*";
+    private static final Pattern VAR_PATTERN = Pattern.compile("\\$\\{(" + PATH + ")}");
+    // 匹配: ${path} op value  或  ${path} op "quoted value"
     private static final Pattern EXPR_PATTERN = Pattern.compile(
-            "\\$\\{([a-zA-Z_][a-zA-Z0-9_]*)}\\s*(==|!=|>=|<=|>|<|contains)\\s*(?:\"([^\"]*)\"|(\\S+))");
+            "\\$\\{(" + PATH + ")}\\s*(==|!=|>=|<=|>|<|contains)\\s*(?:\"([^\"]*)\"|(\\S+))");
 
     /**
      * 创建 {@code WorkflowConditionEvaluator} 实例。
@@ -66,11 +68,11 @@ public final class WorkflowConditionEvaluator {
     private static boolean evaluateSingle(String expr, Map<String, Object> variables) {
         Matcher m = EXPR_PATTERN.matcher(expr);
         if (m.matches()) {
-            String varName = m.group(1);
+            String path = m.group(1);
             String operator = m.group(2);
             String strRight = m.group(3); // 带引号的字符串值
             String rawRight = m.group(4); // 不带引号的值
-            Object leftValue = variables.get(varName);
+            Object leftValue = WorkflowPathResolver.resolve(variables, path);
             String rightStr = strRight != null ? strRight : rawRight;
 
             return applyOperator(leftValue, operator, rightStr);
@@ -79,7 +81,7 @@ public final class WorkflowConditionEvaluator {
         // 无运算符 → 真值判断
         Matcher varMatcher = VAR_PATTERN.matcher(expr);
         if (varMatcher.matches()) {
-            Object value = variables.get(varMatcher.group(1));
+            Object value = WorkflowPathResolver.resolve(variables, varMatcher.group(1));
             return isTruthy(value);
         }
 

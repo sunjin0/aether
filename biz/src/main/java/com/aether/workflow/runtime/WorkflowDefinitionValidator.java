@@ -20,9 +20,21 @@ import java.util.regex.Pattern;
  */
 public final class WorkflowDefinitionValidator {
     private static final Set<String> TYPES = new HashSet<String>(Arrays.asList(
-            "start", "agent", "tool", "human", "approval", "rule", "transform", "http", "notification", "subflow", "parallel", "join", "wait_event", "delay", "end"));
+            "start", "agent", "tool", "interaction", "rule", "http", "notification", "subflow", "parallel", "join", "wait_event", "delay", "end"));
+    /** 会把输出写入全局变量的节点类型（outputs 仅在这些节点上合法）。wait_event 仅在收到事件时应用 outputs，超时分支不应用。 */
+    private static final Set<String> PRODUCING_TYPES = new HashSet<String>(Arrays.asList(
+            "agent", "tool", "interaction", "rule", "http", "notification", "subflow", "wait_event"));
+    private static boolean isProducing(String type) {
+        return type != null && PRODUCING_TYPES.contains(type);
+    }
     private static final Pattern VARIABLE_NAME = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]*");
-    private static final Pattern VARIABLE_REFERENCE = Pattern.compile("\\$\\{([a-zA-Z_][a-zA-Z0-9_]*)}");
+    /** 结构化输出目标：可为 a.b.c 这类层级路径（每段均为变量名，不支持数组下标写入）。 */
+    private static final Pattern VARIABLE_PATH = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*");
+    private static boolean validWriteTarget(String target) {
+        return target != null && VARIABLE_PATH.matcher(target).matches();
+    }
+    /** 匹配 ${a.b.0.c} 形式的变量引用；校验时仅按根段判定数据流可达性。 */
+    private static final Pattern VARIABLE_REFERENCE = WorkflowPathResolver.REFERENCE;
     /**
  * 创建 {@code WorkflowDefinitionValidator} 实例。
  */
@@ -51,8 +63,6 @@ public static void validate(String nodesText, String edgesText) {
                 if (StringUtils.isNotBlank(policy) && !"ask".equals(policy) && !"risky".equals(policy) && !"never".equals(policy))
                     throw new ServerException(422, "工具节点 toolApprovalPolicy 仅支持 ask/risky/never：" + node.getString("id"));
             }
-            if ("transform".equals(type) && (node.getJSONArray("mappings") == null || node.getJSONArray("mappings").isEmpty()))
-                throw new ServerException(422, "数据转换节点必须配置 mappings");
             if ("http".equals(type) && StringUtils.isBlank(node.getString("url")))
                 throw new ServerException(422, "HTTP 节点必须配置 url");
             if ("notification".equals(type)) {
@@ -72,15 +82,16 @@ public static void validate(String nodesText, String edgesText) {
             }
             if ("parallel".equals(type)) {
                 JSONArray branches = node.getJSONArray("branches");
-                if (branches == null || branches.isEmpty()) throw new ServerException(422, "并行节点必须配置 branches");
+                if (branches != null) {
+                    for (Object branch : branches) {
+                        if (!(branch instanceof String) || StringUtils.isBlank(String.valueOf(branch)))
+                            throw new ServerException(422, "并行分支入口必须是节点 ID");
+                    }
+                }
                 if (node.containsKey("maxBranches") && (node.getIntValue("maxBranches") <= 0 || node.getIntValue("maxBranches") > 50))
                     throw new ServerException(422, "并行节点 maxBranches 必须在 1 到 50 之间");
                 if (node.containsKey("branchTimeoutMillis") && node.getLongValue("branchTimeoutMillis") <= 0)
                     throw new ServerException(422, "并行节点 branchTimeoutMillis 必须大于 0");
-                for (Object branch : branches) {
-                    if (!(branch instanceof String) || StringUtils.isBlank(String.valueOf(branch)))
-                        throw new ServerException(422, "并行分支入口必须是节点 ID");
-                }
             }
             if ("join".equals(type) && StringUtils.isNotBlank(node.getString("joinMode"))
                     && !Arrays.asList("ALL_SUCCESS", "ANY_SUCCESS", "ALLOW_PARTIAL_FAILURE").contains(node.getString("joinMode")))
@@ -99,9 +110,17 @@ public static void validate(String nodesText, String edgesText) {
             }
             if ("delay".equals(type) && node.getLongValue("delayMillis") <= 0)
                 throw new ServerException(422, "延时节点必须配置大于 0 的 delayMillis");
-            if ("approval".equals(type) && StringUtils.isNotBlank(node.getString("approvalMode"))
-                    && !"ANY".equals(node.getString("approvalMode")))
-                throw new ServerException(422, "当前审批节点仅支持 ANY 审批模式");
+            if ("interaction".equals(type)) {
+                String mode = StringUtils.defaultIfBlank(node.getString("mode"), "form");
+                if (!"form".equals(mode) && !"approval".equals(mode))
+                    throw new ServerException(422, "交互节点 mode 仅支持 form/approval：" + node.getString("id"));
+                if ("form".equals(mode) && StringUtils.isBlank(node.getString("question"))
+                        && (node.getJSONArray("questions") == null || node.getJSONArray("questions").isEmpty()))
+                    throw new ServerException(422, "表单交互节点必须配置问题说明或问题列表：" + node.getString("id"));
+                if ("approval".equals(mode) && StringUtils.isNotBlank(node.getString("approvalMode"))
+                        && !"ANY".equals(node.getString("approvalMode")))
+                    throw new ServerException(422, "当前审批交互节点仅支持 ANY 审批模式");
+            }
         }
         for (JSONObject node : nodeMap.values()) {
             if (!"wait_event".equals(node.getString("type")) || !node.containsKey("timeoutMillis")) continue;
@@ -129,28 +148,61 @@ public static void validate(String nodesText, String edgesText) {
             inNodes.computeIfAbsent(target, k -> new ArrayList<String>()).add(source);
         }
 
-        // 并行节点必须能够汇聚到同一个 join，避免分支永远无法合流。
+        // 并行节点：分支优先采用“从并行节点连出的边”的目标（连线即分支）；兼容 legacy branches 节点列表。
+        // 校验：分支可达汇聚节点、分支内容仅确定性节点、分支内不嵌套并行。
         for (JSONObject parallel : nodeMap.values()) {
             if (!"parallel".equals(parallel.getString("type"))) continue;
+            String parallelId = parallel.getString("id");
+            List<JSONObject> outgoing = outEdges.getOrDefault(parallelId, Collections.<JSONObject>emptyList());
+            JSONArray branches = parallel.getJSONArray("branches");
+            boolean hasLegacyBranches = branches != null && !branches.isEmpty();
+            boolean edgeDriven = !outgoing.isEmpty();
+            List<String> entries = resolveParallelEntries(parallel, outEdges);
+            if (!edgeDriven && !hasLegacyBranches)
+                throw new ServerException(422, "并行节点必须引出至少两条分支边或配置 branches：" + parallelId);
+            if (edgeDriven && entries.size() < 2)
+                throw new ServerException(422, "并行分叉至少需要两条分支：" + parallelId);
+            for (String entry : entries) {
+                JSONObject entryNode = nodeMap.get(entry);
+                if (entryNode == null) throw new ServerException(422, "并行分支入口不存在：" + entry);
+                if ("join".equals(entryNode.getString("type")) || "parallel".equals(entryNode.getString("type")))
+                    throw new ServerException(422, "并行分支入口不能是汇聚或并行节点：" + entry);
+            }
+            // 每条分支：走到首个 join 为止收集即时汇聚点，edge-driven 形态同时校验分支内容确定性。
+            Set<String> commonJoins = null;
+            for (String entry : entries) {
+                Set<String> branchJoins = new LinkedHashSet<String>();
+                Set<String> visited = new LinkedHashSet<String>();
+                Deque<String> stack = new ArrayDeque<String>();
+                stack.push(entry);
+                while (!stack.isEmpty()) {
+                    String current = stack.pop();
+                    if (!visited.add(current)) continue;
+                    JSONObject currentDef = nodeMap.get(current);
+                    if (currentDef == null) continue;
+                    if ("join".equals(currentDef.getString("type"))) { branchJoins.add(current); continue; }
+                    if (edgeDriven && "parallel".equals(currentDef.getString("type")))
+                        throw new ServerException(422, "并行分支内暂不支持嵌套并行节点：" + current);
+                    if (edgeDriven && !isDeterministicBranchNode(currentDef))
+                        throw new ServerException(422, "并行分支仅支持普通 Agent 与确定性节点（规则/HTTP/通知/延时/自动放行工具），不支持："
+                                + current + "（" + currentDef.getString("type") + "）");
+                    for (JSONObject edge : outEdges.getOrDefault(current, Collections.<JSONObject>emptyList()))
+                        stack.push(edge.getString("target"));
+                }
+                if (commonJoins == null) commonJoins = new LinkedHashSet<String>(branchJoins);
+                else commonJoins.retainAll(branchJoins);
+            }
             String configuredJoin = parallel.getString("joinNodeId");
             if (StringUtils.isNotBlank(configuredJoin)) {
                 JSONObject join = nodeMap.get(configuredJoin);
                 if (join == null || !"join".equals(join.getString("type")))
                     throw new ServerException(422, "并行节点 joinNodeId 必须指向汇聚节点：" + configuredJoin);
-                continue;
+                continue; // 显式汇聚，沿用 legacy 宽松行为。
             }
-            JSONArray branches = parallel.getJSONArray("branches");
-            Set<String> common = null;
-            for (Object branch : branches) {
-                Set<String> reachable = reachableNodes(String.valueOf(branch), outEdges);
-                if (common == null) common = reachable; else common.retainAll(reachable);
-            }
-            boolean hasJoin = false;
-            if (common != null) for (String candidate : common) {
-                JSONObject n = nodeMap.get(candidate);
-                if (n != null && "join".equals(n.getString("type"))) { hasJoin = true; break; }
-            }
-            if (!hasJoin) throw new ServerException(422, "并行节点必须配置 joinNodeId 或让所有分支汇聚到同一 join");
+            if (commonJoins == null || commonJoins.isEmpty())
+                throw new ServerException(422, "并行节点必须配置 joinNodeId 或让所有分支汇聚到同一 join");
+            if (commonJoins.size() > 1)
+                throw new ServerException(422, "并行分叉可能汇聚到多个 join，请让所有分支直连同一汇聚节点：" + parallelId);
         }
 
         String endId = findEndId(nodeMap);
@@ -217,28 +269,57 @@ public static void validate(String nodesText, String edgesText) {
         }
     }
 
-    private static Set<String> reachableNodes(String start, Map<String, List<JSONObject>> outEdges) {
-        Set<String> visited = new LinkedHashSet<String>();
-        Deque<String> queue = new ArrayDeque<String>();
-        queue.add(start);
-        while (!queue.isEmpty()) {
-            String current = queue.removeFirst();
-            if (!visited.add(current)) continue;
-            for (JSONObject edge : outEdges.getOrDefault(current, Collections.<JSONObject>emptyList()))
-                queue.addLast(edge.getString("target"));
+    /** 解析并行节点分支入口：优先“从并行节点连出的边”的目标（编排式，连线即分支）；否则回退 legacy branches 节点列表。 */
+    private static List<String> resolveParallelEntries(JSONObject parallel, Map<String, List<JSONObject>> outEdges) {
+        List<String> entries = new ArrayList<String>();
+        List<JSONObject> outs = outEdges == null ? null : outEdges.get(parallel.getString("id"));
+        if (outs != null && !outs.isEmpty()) {
+            for (JSONObject edge : outs) {
+                String target = edge.getString("target");
+                if (!entries.contains(target)) entries.add(target);
+            }
+            return entries;
         }
-        return visited;
+        JSONArray branches = parallel.getJSONArray("branches");
+        if (branches != null) for (Object branch : branches) {
+            String id = String.valueOf(branch);
+            if (!entries.contains(id)) entries.add(id);
+        }
+        return entries;
+    }
+
+    /** 并行分支内容允许普通 Agent 或确定性同步节点；工具仅“自动放行(never)”策略可入分支；交互节点/子流程/等待仍不允许。 */
+    private static boolean isDeterministicBranchNode(JSONObject node) {
+        if (node == null) return false;
+        String type = node.getString("type");
+        if ("tool".equals(type))
+            return "never".equalsIgnoreCase(StringUtils.defaultIfBlank(node.getString("toolApprovalPolicy"), "ask"));
+        return "agent".equals(type) || "rule".equals(type) || "http".equals(type)
+                || "notification".equals(type) || "delay".equals(type);
+    }
+
+    /** 由边数组构建 source → 出边列表。 */
+    private static Map<String, List<JSONObject>> buildOutEdgeMap(JSONArray edges) {
+        Map<String, List<JSONObject>> map = new LinkedHashMap<String, List<JSONObject>>();
+        if (edges == null) return map;
+        for (Object value : edges) {
+            if (!(value instanceof JSONObject)) continue;
+            JSONObject edge = (JSONObject) value;
+            map.computeIfAbsent(edge.getString("source"), k -> new ArrayList<JSONObject>()).add(edge);
+        }
+        return map;
     }
 
     /**
-     * 校验启动表单及节点内变量引用。结构校验与变量契约分开保留，方便旧调用方逐步迁移。
-     * 节点输出键、状态映射键及内部键均视为流程可用变量；引用不存在的变量将拒绝发布，
+     * 校验启动表单及节点内变量引用。结构校验与变量契约分开保留。
+     * 节点 outputs 的目标变量均视为流程可用变量；引用不存在的变量（含 ${a.b} 的根 a）将拒绝发布，
      * 从而避免运行到一半才发现提示词或工具参数中的拼写错误。
      */
     public static void validateVariables(String nodesText, String edgesText, String inputSchemaText) {
         JSONArray nodes = parseJsonArray(nodesText, "workflow.definition.canvas.json.invalid");
         JSONArray edges = parseJsonArray(edgesText, "workflow.definition.edges.json.invalid");
         JSONArray schema = parseJsonArray(inputSchemaText, "workflow.definition.start-form.json.invalid");
+        Map<String, List<JSONObject>> outEdges = buildOutEdgeMap(edges);
         Set<String> declared = new LinkedHashSet<String>();
         for (Object value : schema) {
             if (!(value instanceof JSONObject)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.fields.invalid"));
@@ -248,17 +329,24 @@ public static void validate(String nodesText, String edgesText) {
             if (!declared.add(name)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.variable-name.duplicate", new Object[]{name}));
         }
         Map<String, Set<String>> availableBefore = availableVariablesBefore(nodes, edges, declared);
+        // 各节点将产出的根变量（仅产出类型节点的 outputs target 根段），供同节点行内级联与连线条件校验使用。
+        Map<String, Set<String>> nodeProduced = new LinkedHashMap<String, Set<String>>();
         // 使用所有入边均能提供的变量做校验，避免引用后续或另一分支才产生的输出。
         for (Object value : nodes) {
             JSONObject node = (JSONObject) value;
-            Set<String> available = availableBefore.get(node.getString("id"));
-            validateReferences(node.getString("prompt"), available, node.getString("id"));
-            validateReferences(node.getString("argumentsTemplate"), available, node.getString("id"));
-            validateReferences(node.getString("question"), available, node.getString("id"));
-            validateReferences(node.getString("url"), available, node.getString("id"));
-            validateReferences(node.getString("bodyTemplate"), available, node.getString("id"));
-            validateReferences(node.getString("toTemplate"), available, node.getString("id"));
-            validateReferences(node.getString("subjectTemplate"), available, node.getString("id"));
+            String nodeId = node.getString("id");
+            String nodeType = node.getString("type");
+            // 行内运行集：从"节点执行前可用集"出发，随 outputs 逐行推进，让后续行可引用本节点更早行写入的变量（与运行时行序一致）。
+            Set<String> running = new LinkedHashSet<String>(availableBefore.get(nodeId));
+            Set<String> produced = new LinkedHashSet<String>();
+
+            validateReferences(node.getString("prompt"), running, nodeId);
+            validateReferences(node.getString("argumentsTemplate"), running, nodeId);
+            validateReferences(node.getString("question"), running, nodeId);
+            validateReferences(node.getString("url"), running, nodeId);
+            validateReferences(node.getString("bodyTemplate"), running, nodeId);
+            validateReferences(node.getString("toTemplate"), running, nodeId);
+            validateReferences(node.getString("subjectTemplate"), running, nodeId);
             JSONArray subflowInputMappings = node.getJSONArray("inputMappings");
             if (subflowInputMappings != null) for (Object mappingValue : subflowInputMappings) {
                 if (!(mappingValue instanceof JSONObject)) throw new ServerException(422, "子流程输入映射必须是对象数组");
@@ -266,39 +354,64 @@ public static void validate(String nodesText, String edgesText) {
                 String target = mapping.getString("target");
                 if (StringUtils.isBlank(target) || !VARIABLE_NAME.matcher(target).matches())
                     throw new ServerException(422, "子流程输入目标变量名不合法：" + target);
-                validateReferences(mapping.getString("template"), available, node.getString("id"));
-            String source = mapping.getString("source");
-                String sourceRoot = sourceRoot(source);
-                if (StringUtils.isNotBlank(sourceRoot) && !available.contains(sourceRoot))
-                    throw new ServerException(422, I18nUtils.getMessage("workflow.variable.not-provided", new Object[]{sourceRoot}));
+                validateReferences(mapping.getString("template"), running, nodeId);
+                String inputSourceRoot = sourceRoot(mapping.getString("source"));
+                if (StringUtils.isNotBlank(inputSourceRoot) && !inputSourceRoot.startsWith("_") && !running.contains(inputSourceRoot))
+                    throw new ServerException(422, I18nUtils.getMessage("workflow.variable.not-provided", new Object[]{inputSourceRoot}));
             }
-            if ("parallel".equals(node.getString("type"))) {
-                JSONArray branches = node.getJSONArray("branches");
-                for (Object branch : branches) {
-                    String branchId = String.valueOf(branch);
+            if ("parallel".equals(nodeType)) {
+                for (String branchId : resolveParallelEntries(node, outEdges)) {
                     JSONObject branchNode = null;
                     for (Object candidate : nodes) if (branchId.equals(((JSONObject) candidate).getString("id"))) { branchNode = (JSONObject) candidate; break; }
                     if (branchNode == null) throw new ServerException(422, "并行分支入口不存在：" + branchId);
-                    String branchType = branchNode.getString("type");
-                    if (Arrays.asList("agent", "tool", "human", "approval", "subflow", "wait_event", "delay").contains(branchType))
-                        throw new ServerException(422, "并行分支暂不支持交互或等待节点：" + branchId);
+                    if (!isDeterministicBranchNode(branchNode))
+                        throw new ServerException(422, "并行分支仅支持普通 Agent 与确定性节点，不支持交互节点、子流程或等待节点：" + branchId + "（" + branchNode.getString("type") + "）");
                 }
             }
-            validateReferences(node.getString("idempotencyKeyTemplate"), available, node.getString("id"));
-            validateReferences(node.getString("correlationKeyTemplate"), available, node.getString("id"));
-            JSONArray mappings = node.getJSONArray("mappings");
-            if (mappings != null) for (Object mappingValue : mappings) {
-                if (!(mappingValue instanceof JSONObject))
-                    throw new ServerException(422, "数据转换节点 mappings 必须是对象数组");
-                JSONObject mapping = (JSONObject) mappingValue;
+            validateReferences(node.getString("idempotencyKeyTemplate"), running, nodeId);
+            validateReferences(node.getString("correlationKeyTemplate"), running, nodeId);
+
+            JSONArray outputs = node.getJSONArray("outputs");
+            if (outputs != null && !outputs.isEmpty() && !isProducing(nodeType))
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.non-producing-outputs", new Object[]{nodeId, nodeType}));
+            if (outputs != null) for (Object outputValue : outputs) {
+                if (!(outputValue instanceof JSONObject))
+                    throw new ServerException(422, "节点 outputs 必须是对象数组：" + nodeId);
+                JSONObject mapping = (JSONObject) outputValue;
                 String target = mapping.getString("target");
-                if (StringUtils.isBlank(target) || !VARIABLE_NAME.matcher(target).matches())
-                    throw new ServerException(422, "数据转换目标变量名不合法：" + target);
-                validateReferences(mapping.getString("template"), available, node.getString("id"));
-                String source = mapping.getString("source");
-                String sourceRoot = sourceRoot(source);
-                if (StringUtils.isNotBlank(sourceRoot) && !available.contains(sourceRoot))
-                    throw new ServerException(422, I18nUtils.getMessage("workflow.variable.not-provided", new Object[]{sourceRoot}));
+                if (!validWriteTarget(target))
+                    throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.output-variable-name.invalid", new Object[]{target}));
+                validateReferences(mapping.getString("template"), running, nodeId);
+                String outputSourceRoot = outputSourceRoot(mapping.getString("source"));
+                if (StringUtils.isNotBlank(outputSourceRoot) && !outputSourceRoot.startsWith("_") && !running.contains(outputSourceRoot))
+                    throw new ServerException(422, I18nUtils.getMessage("workflow.variable.not-provided", new Object[]{outputSourceRoot}));
+                // 本行通过后，其写入目标对本节点后续行可见；对下游节点始终可见（availableVariablesBefore 已登记全量）。
+                String writeRoot = sourceRoot(target);
+                if (StringUtils.isNotBlank(writeRoot) && produced.add(writeRoot)) running.add(writeRoot);
+            }
+            nodeProduced.put(nodeId, produced);
+        }
+
+        // 连线条件在源节点完成后求值（此时源节点 outputs 已全部写入），故按"源节点执行前可用集 ∪ 源节点产出"校验。
+        for (String sourceId : outEdges.keySet()) {
+            Set<String> base = availableBefore.get(sourceId);
+            if (base == null) continue; // 防御：边引用了节点列表外的源（正常发布路径 validate() 已拒绝）
+            Set<String> after = new LinkedHashSet<String>(base);
+            Set<String> produced = nodeProduced.get(sourceId);
+            if (produced != null) after.addAll(produced);
+            for (JSONObject edge : outEdges.get(sourceId))
+                validateReferences(edge.getString("condition"), after, sourceId);
+        }
+        // 规则节点分支条件在规则执行前按当前变量求值，等价于该节点执行前的可用集。
+        for (Object value : nodes) {
+            JSONObject node = (JSONObject) value;
+            if (!"rule".equals(node.getString("type"))) continue;
+            JSONArray rules = node.getJSONArray("rules");
+            if (rules == null) continue;
+            for (Object ruleValue : rules) {
+                if (!(ruleValue instanceof JSONObject)) continue;
+                JSONObject rule = (JSONObject) ruleValue;
+                validateReferences(rule.getString("condition"), availableBefore.get(node.getString("id")), node.getString("id"));
             }
         }
     }
@@ -349,20 +462,13 @@ private static Set<String> schemaNames(JSONArray schema, String schemaName) {
         for (Object value : nodes) {
             JSONObject node = (JSONObject) value;
             Set<String> nodeProduced = new LinkedHashSet<String>();
-            addVariable(nodeProduced, node.getString("outputKey"), "workflow.definition.node.output-variable-name.invalid");
-            addVariable(nodeProduced, node.getString("internalKey"), "workflow.definition.node.internal-variable-name.invalid");
-            JSONArray mappings = node.getJSONArray("mappings");
-            if (mappings != null) for (Object mappingValue : mappings) {
-                if (mappingValue instanceof JSONObject)
-                    addVariable(nodeProduced, ((JSONObject) mappingValue).getString("target"), "workflow.definition.node.output-variable-name.invalid");
-            }
-            String mapping = node.getString("stateMapping");
-            if (StringUtils.isNotBlank(mapping)) {
-                try {
-                    JSONObject map = JSONObject.parseObject(mapping);
-                    for (String key : map.keySet()) addVariable(nodeProduced, key, "workflow.definition.node.state-mapping-variable-name.invalid");
-                } catch (Exception e) {
-                    throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node-status-mapping.invalid"));
+            // 仅产出类型节点把 outputs target 登记为流程可用变量；start/end/parallel/join/delay 等不产出。
+            JSONArray outputs = isProducing(node.getString("type")) ? node.getJSONArray("outputs") : null;
+            if (outputs != null) for (Object outputValue : outputs) {
+                if (outputValue instanceof JSONObject) {
+                    String target = ((JSONObject) outputValue).getString("target");
+                    // 结构化目标（如 result.order.total）以其根变量声明可用，供下游 ${result...} 引用判定。
+                    addVariable(nodeProduced, target == null ? null : sourceRoot(target), "workflow.definition.node.output-variable-name.invalid");
                 }
             }
             produced.put(node.getString("id"), nodeProduced);
@@ -450,9 +556,12 @@ private static void addVariable(Set<String> variables, String name, String error
         if (StringUtils.isBlank(template)) return;
         Matcher matcher = VARIABLE_REFERENCE.matcher(template);
         while (matcher.find()) {
-            String name = matcher.group(1);
-            if (!available.contains(name))
-                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.variable.undeclared", new Object[]{nodeId, name}));
+            String path = matcher.group(1);
+            String root = sourceRoot(path);
+            // `_` 前缀为运行期内部变量（如循环计数 _loop_<edge>_count 由运行时临时写入），校验器无法静态预知，放宽不误报。
+            if (root.startsWith("_")) continue;
+            if (!available.contains(root))
+                throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.variable.undeclared", new Object[]{nodeId, path}));
         }
     }
 
@@ -463,6 +572,14 @@ private static void addVariable(Set<String> variables, String name, String error
         if (value.startsWith("$.")) value = value.substring(2);
         int dot = value.indexOf('.');
         return dot < 0 ? value : value.substring(0, dot);
+    }
+
+    /** 输出映射 source 的根：$output/$output.<path> 指向节点自身输出（执行时恒可达），其余视为流程变量路径。 */
+    private static String outputSourceRoot(String source) {
+        if (StringUtils.isBlank(source)) return null;
+        String value = source.trim();
+        if ("$output".equals(value) || value.startsWith("$output.")) return null;
+        return sourceRoot(value);
     }
 
     /** 返回按执行拓扑排序的节点列表（供执行引擎顺序遍历使用）。 */

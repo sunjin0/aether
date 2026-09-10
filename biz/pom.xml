@@ -60,6 +60,15 @@
             <groupId>com.jayway.jsonpath</groupId>
             <artifactId>json-path</artifactId>
         </dependency>
+        <!-- Linear-time regex engine for user-defined evaluation rules. -->
+        <dependency>
+            <groupId>com.google.re2j</groupId>
+            <artifactId>re2j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+        </dependency>
         <!-- Apache HttpClient（连接池复用，降低首字延迟） -->
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>

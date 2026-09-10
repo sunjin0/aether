@@ -12,6 +12,14 @@ import java.util.Map;
  * 工作流实例状态机。
  */
 public interface AgentWorkflowExecutionService {
+    /** 使用评测目标快照启动，禁止回退到线上发布版本。 */
+    default AgentWorkflowInstance startEvaluation(String snapshotId, Map<String, Object> variables, String userId) {
+        throw new UnsupportedOperationException("工作流评测快照执行尚未启用");
+    }
+    /** 使用预先分配的评测结果关联启动，实例入队前即持久化关联关系。 */
+    default AgentWorkflowInstance startEvaluation(String snapshotId, Map<String, Object> variables, String userId, String evaluationResultId) {
+        return startEvaluation(snapshotId, variables, userId);
+    }
     /**
      * 启动处理流程。
      */
