@@ -42,6 +42,14 @@ PostgreSQL schema and cleanup are managed by Flyway under `api/src/main/resource
 
 Use `rg` for discovery and `apply_patch` for edits. Search code, YAML, Compose files and migration history when changing a feature. Preserve unrelated user changes, run proportional verification, and check admin container health after publishing.
 
+## Internationalization
+
+All user-facing API response messages, including validation failures, not-found responses, state conflicts, and success notifications, must be resolved with `I18nUtils.getMessage(...)`. Add matching keys to both `api/src/main/resources/i18n/api_zh_CN.properties` and `api/src/main/resources/i18n/api_en_US.properties`; do not return hard-coded natural-language text from controllers or services.
+
+## Status and code presentation
+
+Backend status, enum, and error-code fields must expose stable machine-readable codes or dictionary identifiers. Never use those raw codes as user-facing labels. When an API returns a message for a code, resolve it through `I18nUtils`; frontends must render codes through a dictionary or locale-backed mapping and use a localized fallback rather than displaying an unknown raw code.
+
 ## Git commit convention
 
 Use Conventional Commits: `<type>(<scope>): <中文提交描述>`. 类型使用 `feat`、`fix`、`refactor`、`perf`、`docs`、`test`、`build`、`ci` 或 `chore`；scope 使用 `admin`、`api`、`biz`、`db`、`dashboard` 等。提交描述必须使用中文，简洁说明实际变更；提交正文必须说明修改了哪些内容、影响范围、数据库迁移或配置变化，以及必要的验证结果。提交保持单一目的，不混入无关修改。提交前检查 `git diff`，排除密钥和生成文件，并执行相关构建/测试。
