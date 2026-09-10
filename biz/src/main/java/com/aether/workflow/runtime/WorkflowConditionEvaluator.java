@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  * </ul>
  */
 public final class WorkflowConditionEvaluator {
-    private static final String PATH = "[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)*";
+    private static final String PATH = "[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)*";
     private static final Pattern VAR_PATTERN = Pattern.compile("\\$\\{(" + PATH + ")}");
     // 匹配: ${path} op value  或  ${path} op "quoted value"
     private static final Pattern EXPR_PATTERN = Pattern.compile(

@@ -44,6 +44,8 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
@@ -60,6 +62,7 @@ import java.util.*;
  */
 @Service
 public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecutionService {
+    private static final Logger log = LoggerFactory.getLogger(AgentWorkflowExecutionServiceImpl.class);
     private static final int DEFAULT_MAX_ITERATIONS = 10;
     private static final int MAX_ITERATIONS_CAP = 100;
     private final ThreadLocal<Boolean> partialParallelBranch = new ThreadLocal<Boolean>();
@@ -593,7 +596,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         AgentWorkflowInstance instance = ownedForUpdate(instanceId, userId);
         if (!"FAILED".equals(instance.getStatus()))
             throw new ServerException(409, I18nUtils.getMessage("workflow.instance.retry.failed-only"));
-        AgentWorkflowNodeInstance node = currentNode(instance);
+        AgentWorkflowNodeInstance node = currentNodeForRetry(instance);
         node.setStatus("PENDING");
         node.setErrorMessage(null);
         node.setRetryCount((node.getRetryCount() == null ? 0 : node.getRetryCount()) + 1);
@@ -612,7 +615,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         AgentWorkflowInstance instance = ownedForUpdate(instanceId, userId);
         if (!"FAILED".equals(instance.getStatus()))
             throw new ServerException(409, I18nUtils.getMessage("workflow.instance.retry.failed-only"));
-        AgentWorkflowNodeInstance node = currentNode(instance);
+        AgentWorkflowNodeInstance node = currentNodeForRetry(instance);
         if (!StringUtils.equals(nodeId, node.getNodeId()))
             throw new ServerException(409, "只能重试当前失败节点");
         node.setStatus("PENDING");
@@ -942,6 +945,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             }
             throw new ServerException(422, I18nUtils.getMessage("workflow.node.type.unknown", new Object[]{type}));
         } catch (Exception e) {
+            log.error("工作流节点执行失败: instanceId={}, nodeId={}, nodeType={}",
+                    instance.getId(), node.getNodeId(), type, e);
             fail(instance, node, e.getMessage());
         }
     }
@@ -2064,6 +2069,25 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         if (value == null)
             throw new ServerException(409, I18nUtils.getMessage("workflow.instance.current-node.not-found"));
         return value;
+    }
+
+    /**
+     * 获取待重试节点。节点执行过程中发生未捕获异常时，节点记录和实例状态可能位于不同事务中，
+     * 此时按固定版本的节点定义重建缺失记录，使人工重试可以继续执行。
+     */
+    private AgentWorkflowNodeInstance currentNodeForRetry(AgentWorkflowInstance instance) {
+        AgentWorkflowNodeInstance value = nodeService.getOne(Wrappers.lambdaQuery(AgentWorkflowNodeInstance.class)
+                .eq(AgentWorkflowNodeInstance::getInstanceId, instance.getId())
+                .eq(AgentWorkflowNodeInstance::getNodeId, instance.getCurrentNodeId()));
+        if (value != null) return value;
+        if (StringUtils.isBlank(instance.getCurrentNodeId()))
+            throw new ServerException(409, I18nUtils.getMessage("workflow.instance.current-node.not-found"));
+        AgentWorkflowVersion version = resolveWorkflowVersion(instance);
+        JSONObject definition = version == null ? null : buildNodeMap(version.getNodes()).get(instance.getCurrentNodeId());
+        if (definition == null)
+            throw new ServerException(409, I18nUtils.getMessage("workflow.instance.current-node.not-found"));
+        log.warn("工作流重试时重建缺失的节点运行记录: instanceId={}, nodeId={}", instance.getId(), instance.getCurrentNodeId());
+        return getOrCreateNodeInstance(instance, instance.getCurrentNodeId(), definition);
     }
 
     /**

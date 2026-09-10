@@ -8,6 +8,8 @@ import com.aether.workflow.service.AgentWorkflowExternalInvocationService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
@@ -25,6 +27,7 @@ import java.util.List;
  */
 @Component
 public class WorkflowExecutionJobDispatcher {
+    private static final Logger log = LoggerFactory.getLogger(WorkflowExecutionJobDispatcher.class);
     private final long leaseMillis;
     private final AgentWorkflowExecutionJobService jobService;
     private final AgentWorkflowExecutionService executionService;
@@ -156,6 +159,8 @@ public class WorkflowExecutionJobDispatcher {
                     .set(AgentWorkflowExecutionJob::getStatus, "COMPLETED").set(AgentWorkflowExecutionJob::getCompletedAt, System.currentTimeMillis())
                     .set(AgentWorkflowExecutionJob::getErrorMessage, null).eq(AgentWorkflowExecutionJob::getId, jobId).eq(AgentWorkflowExecutionJob::getStatus, "PROCESSING"));
         } catch (Exception ex) {
+            // 任务表仅保存可安全展示的异常摘要；完整堆栈必须写入服务日志，便于定位异步节点失败。
+            log.error("工作流后台任务执行失败: jobId={}, instanceId={}", job.getId(), job.getInstanceId(), ex);
             String error = StringUtils.defaultIfBlank(StringUtils.abbreviate(ex.getMessage(), 2048), "后台执行任务异常");
             failJob(job, error);
         }
