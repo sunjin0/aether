@@ -23,7 +23,7 @@ public final class WorkflowDefinitionValidator {
             "start", "agent", "tool", "interaction", "rule", "http", "notification", "subflow", "parallel", "join", "wait_event", "delay", "end"));
     /** 会把输出写入全局变量的节点类型（outputs 仅在这些节点上合法）。wait_event 仅在收到事件时应用 outputs，超时分支不应用。 */
     private static final Set<String> PRODUCING_TYPES = new HashSet<String>(Arrays.asList(
-            "agent", "tool", "interaction", "rule", "http", "notification", "subflow", "wait_event"));
+            "agent", "tool", "interaction", "rule", "http", "notification", "subflow", "wait_event", "join"));
     private static boolean isProducing(String type) {
         return type != null && PRODUCING_TYPES.contains(type);
     }
@@ -320,6 +320,7 @@ public static void validate(String nodesText, String edgesText) {
         JSONArray edges = parseJsonArray(edgesText, "workflow.definition.edges.json.invalid");
         JSONArray schema = parseJsonArray(inputSchemaText, "workflow.definition.start-form.json.invalid");
         Map<String, List<JSONObject>> outEdges = buildOutEdgeMap(edges);
+        Set<String> allProducedRoots = allProducedRoots(nodes);
         Set<String> declared = new LinkedHashSet<String>();
         for (Object value : schema) {
             if (!(value instanceof JSONObject)) throw new ServerException(422, I18nUtils.getMessage("workflow.definition.start-form.fields.invalid"));
@@ -383,7 +384,10 @@ public static void validate(String nodesText, String edgesText) {
                     throw new ServerException(422, I18nUtils.getMessage("workflow.definition.node.output-variable-name.invalid", new Object[]{target}));
                 validateReferences(mapping.getString("template"), running, nodeId);
                 String outputSourceRoot = outputSourceRoot(mapping.getString("source"));
-                if (StringUtils.isNotBlank(outputSourceRoot) && !outputSourceRoot.startsWith("_") && !running.contains(outputSourceRoot))
+                // 汇聚节点需要读取各并行分支分别写入的变量；这些变量不会出现在所有入边的交集中。
+                boolean joinBranchOutput = "join".equals(nodeType) && allProducedRoots.contains(outputSourceRoot);
+                if (StringUtils.isNotBlank(outputSourceRoot) && !outputSourceRoot.startsWith("_")
+                        && !running.contains(outputSourceRoot) && !joinBranchOutput)
                     throw new ServerException(422, I18nUtils.getMessage("workflow.variable.not-provided", new Object[]{outputSourceRoot}));
                 // 本行通过后，其写入目标对本节点后续行可见；对下游节点始终可见（availableVariablesBefore 已登记全量）。
                 String writeRoot = sourceRoot(target);
@@ -414,6 +418,20 @@ public static void validate(String nodesText, String edgesText) {
                 validateReferences(rule.getString("condition"), availableBefore.get(node.getString("id")), node.getString("id"));
             }
         }
+    }
+
+    private static Set<String> allProducedRoots(JSONArray nodes) {
+        Set<String> roots = new LinkedHashSet<String>();
+        for (Object value : nodes) {
+            if (!(value instanceof JSONObject)) continue;
+            JSONObject node = (JSONObject) value;
+            if (!isProducing(node.getString("type"))) continue;
+            JSONArray outputs = node.getJSONArray("outputs");
+            if (outputs == null) continue;
+            for (Object output : outputs) if (output instanceof JSONObject)
+                addVariable(roots, sourceRoot(((JSONObject) output).getString("target")), "workflow.definition.node.output-variable-name.invalid");
+        }
+        return roots;
     }
 
     /**
@@ -462,7 +480,7 @@ private static Set<String> schemaNames(JSONArray schema, String schemaName) {
         for (Object value : nodes) {
             JSONObject node = (JSONObject) value;
             Set<String> nodeProduced = new LinkedHashSet<String>();
-            // 仅产出类型节点把 outputs target 登记为流程可用变量；start/end/parallel/join/delay 等不产出。
+            // 仅产出类型节点把 outputs target 登记为流程可用变量；汇聚节点可将分支变量组装为结构化结果。
             JSONArray outputs = isProducing(node.getString("type")) ? node.getJSONArray("outputs") : null;
             if (outputs != null) for (Object outputValue : outputs) {
                 if (outputValue instanceof JSONObject) {

@@ -428,7 +428,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             userId = CurrentUser.getUser().get("userId");
         }
         ChatRunContext context = new ChatRunContext(dto.getRequestId(), dto.getConversationId(), userId);
-        return chatRunOrchestrator.executeSerialized(context, conversationLockKey(dto), null, null, body);
+        String lockKey = conversationLockKey(dto);
+        log.info("智能体请求执行锁: requestId={}, lockKey={}", dto.getRequestId(), lockKey);
+        return chatRunOrchestrator.executeSerialized(context, lockKey, null, null, body);
     }
 
     private void streamInternal(AgentChatDto dto, AgentStreamCallback callback) {
@@ -1079,11 +1081,13 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
      * 避免重复构造首轮上下文。
      */
     private String conversationLockKey(AgentChatDto dto) {
-        if (dto != null && StringUtils.isNotBlank(dto.getConversationId())) {
-            return "conversation:" + dto.getConversationId();
-        }
+        // 工作流节点会显式提供内部锁范围。该范围必须优先于会话 ID，
+        // 否则并行分支在复用或意外携带会话 ID 时会争抢同一会话锁。
         if (dto != null && StringUtils.isNotBlank(dto.getInternalLockScope())) {
             return "scope:" + dto.getInternalLockScope();
+        }
+        if (dto != null && StringUtils.isNotBlank(dto.getConversationId())) {
+            return "conversation:" + dto.getConversationId();
         }
         String userId = dto == null ? null : dto.getUserId();
         if (StringUtils.isBlank(userId) && CurrentUser.getUser() != null) {

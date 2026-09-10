@@ -3,17 +3,20 @@ package com.aether.agent.service;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.UUID;
-import java.util.Collections;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+import java.nio.charset.StandardCharsets;
 import com.aether.exception.ServerException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisStringCommands;
+import org.springframework.data.redis.connection.ReturnType;
+import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,10 +26,10 @@ import org.slf4j.LoggerFactory;
 public class ChatRunOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(ChatRunOrchestrator.class);
     private static final String LOCK_PREFIX = "AgentConversationLock:";
-    private static final DefaultRedisScript<Long> RELEASE_LOCK = new DefaultRedisScript<>(
-            "if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end", Long.class);
-    private static final DefaultRedisScript<Long> RENEW_LOCK = new DefaultRedisScript<>(
-            "if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('pexpire',KEYS[1],ARGV[2]) else return 0 end", Long.class);
+    private static final byte[] RELEASE_LOCK = "if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end"
+            .getBytes(StandardCharsets.UTF_8);
+    private static final byte[] RENEW_LOCK = "if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('pexpire',KEYS[1],ARGV[2]) else return 0 end"
+            .getBytes(StandardCharsets.UTF_8);
     private static final long LOCK_LEASE_SECONDS = 120L;
     private static final long LOCK_RENEW_SECONDS = 30L;
     private final ConcurrentHashMap<String, ReentrantLock> localLocks = new ConcurrentHashMap<>();
@@ -41,7 +44,7 @@ public class ChatRunOrchestrator {
      * 调用方已经返回冲突时反而留下孤儿锁。
      */
     @Autowired(required = false)
-    private StringRedisTemplate stringRedisTemplate;
+    private RedisConnectionFactory redisConnectionFactory;
     public interface ResponseSink {
         /** 通知运行已接收。 */
         default void accepted(ChatRunContext context) { }
@@ -114,10 +117,16 @@ public class ChatRunOrchestrator {
 
     /** 通过 SET NX 和有限租约抢占跨实例会话锁。 */
     private String acquireDistributedLock(String lockKey) {
-        if (stringRedisTemplate == null) return null;
+        if (redisConnectionFactory == null) return null;
         String token = UUID.randomUUID().toString();
-        Boolean acquired = stringRedisTemplate.opsForValue().setIfAbsent(LOCK_PREFIX + lockKey, token,
-                LOCK_LEASE_SECONDS, TimeUnit.SECONDS);
+        byte[] key = redisBytes(LOCK_PREFIX + lockKey);
+        Boolean acquired;
+        // 不能通过 RedisTemplate 执行：其事务绑定会把 SET NX 排队，返回 null 后再在
+        // 事务提交时写入孤儿锁。直接从连接工厂取得连接可确保命令立即执行并取得真实结果。
+        try (RedisConnection connection = redisConnectionFactory.getConnection()) {
+            acquired = connection.stringCommands().set(key, redisBytes(token), Expiration.seconds(LOCK_LEASE_SECONDS),
+                    RedisStringCommands.SetOption.ifAbsent());
+        }
         if (!Boolean.TRUE.equals(acquired)) {
             throw new ServerException(409, "当前会话已有请求正在执行，请稍后重试");
         }
@@ -126,11 +135,11 @@ public class ChatRunOrchestrator {
 
     /** 正常运行期间续租；异常退出时短租约会自动释放，避免遗留锁阻塞下一轮对话。 */
     private ScheduledFuture<?> renewDistributedLock(String lockKey, String token) {
-        if (stringRedisTemplate == null || token == null) return null;
+        if (redisConnectionFactory == null || token == null) return null;
         return lockRenewalExecutor.scheduleAtFixedRate(() -> {
             try {
-                Long renewed = stringRedisTemplate.execute(RENEW_LOCK, Collections.singletonList(LOCK_PREFIX + lockKey),
-                        token, String.valueOf(TimeUnit.SECONDS.toMillis(LOCK_LEASE_SECONDS)));
+                Long renewed = executeLockScript(RENEW_LOCK, LOCK_PREFIX + lockKey, token,
+                        String.valueOf(TimeUnit.SECONDS.toMillis(LOCK_LEASE_SECONDS)));
                 if (!Long.valueOf(1L).equals(renewed)) {
                     log.warn("会话锁续租失败，运行将由取消或租约到期恢复: key={}", LOCK_PREFIX + lockKey);
                 }
@@ -142,10 +151,9 @@ public class ChatRunOrchestrator {
 
     /** 仅持有同一随机令牌的调用方可以释放锁，避免租约过期后的误删。 */
     private void releaseDistributedLock(String lockKey, String token) {
-        if (stringRedisTemplate == null || token == null) return;
+        if (redisConnectionFactory == null || token == null) return;
         try {
-            Long released = stringRedisTemplate.execute(RELEASE_LOCK,
-                    Collections.singletonList(LOCK_PREFIX + lockKey), token);
+            Long released = executeLockScript(RELEASE_LOCK, LOCK_PREFIX + lockKey, token);
             if (!Long.valueOf(1L).equals(released)) {
                 log.debug("会话锁未由当前请求释放（可能已过期或被替换）: key={}", LOCK_PREFIX + lockKey);
             }
@@ -154,5 +162,18 @@ public class ChatRunOrchestrator {
             // 可依赖租约恢复，同时记录 key 便于排查。
             log.warn("会话锁释放失败，将等待租约自动过期: key={}", LOCK_PREFIX + lockKey, e);
         }
+    }
+
+    private Long executeLockScript(byte[] script, String... arguments) {
+        byte[][] bytes = new byte[arguments.length + 1][];
+        bytes[0] = redisBytes(arguments[0]);
+        for (int index = 1; index < arguments.length; index++) bytes[index] = redisBytes(arguments[index]);
+        try (RedisConnection connection = redisConnectionFactory.getConnection()) {
+            return connection.scriptingCommands().eval(script, ReturnType.INTEGER, 1, bytes);
+        }
+    }
+
+    private byte[] redisBytes(String value) {
+        return value.getBytes(StandardCharsets.UTF_8);
     }
 }

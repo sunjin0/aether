@@ -5,10 +5,14 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.agent.dto.AgentChatDto;
 import com.aether.agent.entity.AgentTool;
+import com.aether.agent.entity.AgentConversation;
+import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.security.ToolCallRiskAnalyzer;
 import com.aether.agent.service.AgentChatService;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.service.AgentConversationService;
+import com.aether.agent.service.AgentDefinitionService;
 import com.aether.execution.entity.Execution;
 import com.aether.execution.service.ExecutionService;
 import com.aether.workflow.dto.AgentWorkflowBusinessStartDto;
@@ -91,6 +95,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
     private final RoleService roleService;
     private final AgentToolService agentToolService;
     private final ToolCallRiskAnalyzer toolCallRiskAnalyzer;
+    @Autowired private AgentConversationService agentConversationService;
+    @Autowired private AgentDefinitionService agentDefinitionService;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private EvaluationResultCallbackService evaluationResultCallbackService;
     @Autowired(required = false)
@@ -587,6 +593,20 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         executionJobDispatcher.enqueueAfterCommit(instance.getId());
     }
 
+    private void resetParallelBranchForRetry(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node) {
+        AgentWorkflowNodeToken token = nodeTokenService.getOne(Wrappers.lambdaQuery(AgentWorkflowNodeToken.class)
+                .eq(AgentWorkflowNodeToken::getInstanceId, instance.getId())
+                .eq(AgentWorkflowNodeToken::getNodeId, node.getNodeId())
+                .eq(AgentWorkflowNodeToken::getStatus, "FAILED").last("FOR UPDATE"));
+        if (token == null) return;
+        String parallelNodeId = token.getTokenKey().substring(0, token.getTokenKey().lastIndexOf(':'));
+        token.setStatus("PENDING"); token.setErrorMessage(null); nodeTokenService.updateById(token);
+        AgentWorkflowNodeInstance parallel = nodeService.getOne(Wrappers.lambdaQuery(AgentWorkflowNodeInstance.class)
+                .eq(AgentWorkflowNodeInstance::getInstanceId, instance.getId()).eq(AgentWorkflowNodeInstance::getNodeId, parallelNodeId));
+        if (parallel != null) { parallel.setStatus("PENDING"); parallel.setErrorMessage(null); nodeService.updateById(parallel); }
+        instance.setCurrentNodeId(parallelNodeId);
+    }
+
     /**
      * 重试当前请求。
      */
@@ -602,6 +622,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         node.setRetryCount((node.getRetryCount() == null ? 0 : node.getRetryCount()) + 1);
         nodeService.updateById(node);
         externalInvocationService.resetForManualRetry(node.getId());
+        resetParallelBranchForRetry(instance, node);
         auditEventService.record(instance.getId(), node.getId(), "INSTANCE_RETRY_REQUESTED", userId, "已请求重试当前节点", null);
         instance.setStatus("RUNNING");
         instance.setErrorMessage(null);
@@ -623,6 +644,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         node.setRetryCount((node.getRetryCount() == null ? 0 : node.getRetryCount()) + 1);
         nodeService.updateById(node);
         externalInvocationService.resetForManualRetry(node.getId());
+        resetParallelBranchForRetry(instance, node);
         instance.setStatus("RUNNING");
         instance.setErrorMessage(null);
         instanceService.updateById(instance);
@@ -926,9 +948,11 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 AgentChatDto request = new AgentChatDto();
                 request.setAgentId(definition.getString("resourceId"));
                 request.setUserId(instance.getUserId());
+                request.setConversationId(resolveNodeConversation(instance, node, definition));
                 request.setMessage(WorkflowVariableRenderer.render(definition.getString("prompt"), variables));
                 request.setTemporary(true);
-                request.setInternalLockScope("workflow:" + instance.getId() + ":node:" + node.getId());
+                request.setInternalLockScope("workflow:" + instance.getId() + ":node:" + node.getId()
+                        + ":attempt:" + (node.getRetryCount() == null ? 0 : node.getRetryCount()));
                 AgentMessageVo response = chatService.chat(request);
                 // 普通聊天服务遇到需要确认的 MCP 调用时会返回 interaction 消息。工作流必须
                 // 将它转换为当前节点的暂停状态，不能把“请确认”误当作 Agent 的最终回答。
@@ -949,6 +973,22 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                     instance.getId(), node.getNodeId(), type, e);
             fail(instance, node, e.getMessage());
         }
+    }
+
+    private String resolveNodeConversation(AgentWorkflowInstance instance, AgentWorkflowNodeInstance node, JSONObject definition) {
+        JSONObject config = StringUtils.isBlank(node.getInteractionConfig()) ? new JSONObject() : JSONObject.parseObject(node.getInteractionConfig());
+        String existing = config.getString("workflowConversationId");
+        if (StringUtils.isNotBlank(existing)) return existing;
+        AgentDefinition agent = agentDefinitionService.getById(definition.getString("resourceId"));
+        if (agent == null) throw new ServerException(404, I18nUtils.getMessage("workflow.node.agent.unavailable"));
+        AgentConversation conversation = new AgentConversation();
+        conversation.setApplicationId(agent.getApplicationId()); conversation.setUserId(instance.getUserId());
+        conversation.setAgentDefinitionId(agent.getId()); conversation.setTitle("工作流节点 " + node.getNodeId());
+        // 节点专属会话必须处于进行中状态，智能体服务完成调用后才能关闭或归档。
+        conversation.setMessageCount(0); conversation.setStatus(0); conversation.setToolApprovalPolicy("ask");
+        agentConversationService.save(conversation);
+        config.put("workflowConversationId", conversation.getId()); node.setInteractionConfig(config.toJSONString()); nodeService.updateById(node);
+        return conversation.getId();
     }
 
     /**
@@ -1740,7 +1780,14 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 .eq(AgentWorkflowJoinState::getInstanceId, instance.getId()).eq(AgentWorkflowJoinState::getJoinNodeId, node.getNodeId())
                 .eq(AgentWorkflowJoinState::getDeleted, false).orderByDesc(AgentWorkflowJoinState::getCreatedAt).last("LIMIT 1"));
         if (state == null || !"READY".equals(state.getStatus())) throw new ServerException(409, "汇聚节点尚未满足执行条件");
-        completeNode(node, JSON.toJSONString(state));
+        String output = JSON.toJSONString(state);
+        // 汇聚节点复用统一输出映射：分支节点先将结果写入不同共享变量，
+        // 此处可把这些变量组装为一个下游可消费的结构化结果。
+        Map<String, Object> variables = variables(instance);
+        applyNodeOutputs(definition, output, variables);
+        instance.setVariables(JSON.toJSONString(variables));
+        instanceService.updateById(instance);
+        completeNode(node, output);
         state.setStatus("COMPLETED"); joinStateService.updateById(state);
     }
 
@@ -2080,10 +2127,17 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 .eq(AgentWorkflowNodeInstance::getInstanceId, instance.getId())
                 .eq(AgentWorkflowNodeInstance::getNodeId, instance.getCurrentNodeId()));
         if (value != null) return value;
-        if (StringUtils.isBlank(instance.getCurrentNodeId()))
-            throw new ServerException(409, I18nUtils.getMessage("workflow.instance.current-node.not-found"));
         AgentWorkflowVersion version = resolveWorkflowVersion(instance);
-        JSONObject definition = version == null ? null : buildNodeMap(version.getNodes()).get(instance.getCurrentNodeId());
+        Map<String, JSONObject> nodeMap = version == null ? Collections.<String, JSONObject>emptyMap() : buildNodeMap(version.getNodes());
+        if (StringUtils.isBlank(instance.getCurrentNodeId())) {
+            String startNodeId = findStartNode(nodeMap);
+            if (StringUtils.isBlank(startNodeId))
+                throw new ServerException(409, I18nUtils.getMessage("workflow.instance.current-node.not-found"));
+            instance.setCurrentNodeId(startNodeId);
+            instanceService.updateById(instance);
+            log.warn("工作流重试从首节点恢复: instanceId={}, nodeId={}", instance.getId(), startNodeId);
+        }
+        JSONObject definition = nodeMap.get(instance.getCurrentNodeId());
         if (definition == null)
             throw new ServerException(409, I18nUtils.getMessage("workflow.instance.current-node.not-found"));
         log.warn("工作流重试时重建缺失的节点运行记录: instanceId={}, nodeId={}", instance.getId(), instance.getCurrentNodeId());
