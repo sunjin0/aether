@@ -1,0 +1,4 @@
+package com.aether.evaluation.entity;
+import com.aether.entity.BaseEntity; import com.aether.evaluation.handler.JsonbStringTypeHandler; import com.baomidou.mybatisplus.annotation.TableField; import com.baomidou.mybatisplus.annotation.TableName; import lombok.Data; import lombok.EqualsAndHashCode;
+@Data @EqualsAndHashCode(callSuper = true) @TableName(value = "evaluation_score", autoResultMap = true)
+public class EvaluationScore extends BaseEntity { private String resultId, evaluatorVersionId, bindingKey, status, reason; @TableField(typeHandler = JsonbStringTypeHandler.class) private String evidenceJson; @TableField(typeHandler = JsonbStringTypeHandler.class) private String usageJson; @TableField(typeHandler = JsonbStringTypeHandler.class) private String attemptHistoryJson; private Integer gradingRound; private java.math.BigDecimal score, weight; }

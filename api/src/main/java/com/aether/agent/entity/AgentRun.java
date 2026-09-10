@@ -17,6 +17,9 @@ import lombok.experimental.Accessors;
 @TableName("agent_run")
 @ApiModel(value = "AgentRun对象", description = "运行记录")
 public class AgentRun extends BaseEntity {
+    private String runOrigin;
+    private String evaluationResultId;
+    private String evaluationSnapshotId;
 
     /** 统一 Execution 账本中的节点 ID。 */
     private String executionId;

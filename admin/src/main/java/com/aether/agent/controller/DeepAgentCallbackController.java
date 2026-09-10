@@ -15,6 +15,7 @@ import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.runtime.DeepAgentCallbackRegistry;
 import com.aether.agent.runtime.DeepRunEventHub;
+import com.aether.evaluation.service.EvaluationResultCallbackService;
 import com.aether.utils.AesUtil;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
@@ -58,6 +59,8 @@ public class DeepAgentCallbackController {
     private final ModelCatalogService modelCatalogService;
     private final DeepAgentCallbackRegistry callbackRegistry;
     private final DeepRunEventHub eventHub;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private EvaluationResultCallbackService evaluationResultCallbackService;
 
     /**
      * 创建 {@code DeepAgentCallbackController} 实例。
@@ -236,6 +239,7 @@ public class DeepAgentCallbackController {
                         break;
                     case "plan.approval.required":
                         AgentMessage planApproval = deepAgentRunService.createPlanApproval(runId, dataJson);
+                        if (evaluationResultCallbackService != null) evaluationResultCallbackService.block(runId, "EVALUATION_BLOCKED");
                         if (planApproval == null) {
                             break;
                         }
@@ -264,6 +268,7 @@ public class DeepAgentCallbackController {
                         JSONObject errorData = JSON.parseObject(dataJson);
                         String errorMsg = errorData.getString("error");
                         if (deepAgentRunService.markFailed(runId, errorMsg)) {
+                            if (evaluationResultCallbackService != null) evaluationResultCallbackService.fail(runId, "DEEP_AGENT_FAILED", errorMsg);
                             notifyErrorAndRemove(runId, callbackRegistry.get(runId), 500, errorMsg);
                             eventHub.publish(runId, "error", "{\"code\":500,\"message\":" + JSON.toJSONString(errorMsg) + "}", true);
                         }
@@ -340,6 +345,10 @@ public class DeepAgentCallbackController {
                 jsonField(data, "sources", "citations"), latencyMs, occurredAt);
         if (completed == null) {
             return;
+        }
+        if (evaluationResultCallbackService != null) {
+            evaluationResultCallbackService.complete(runId, content,
+                    jsonField(data, "sources", "citations"), dataJson);
         }
         if (callback == null || callback.isClosed()) {
             JSONObject done = new JSONObject();

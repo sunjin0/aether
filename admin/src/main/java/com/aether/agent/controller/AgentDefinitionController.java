@@ -10,6 +10,8 @@ import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.service.ModelCatalogService;
+import com.aether.evaluation.service.EvaluationPolicyService;
+import com.aether.evaluation.entity.EvaluationPolicy;
 import com.aether.agent.vo.AgentDefinitionVo;
 import com.aether.agent.vo.AgentToolBindingVo;
 import com.aether.entity.Option;
@@ -36,6 +38,7 @@ import org.springframework.web.bind.annotation.*;
 import javax.validation.constraints.NotBlank;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -52,6 +55,8 @@ public class AgentDefinitionController {
     private final AgentToolBindingService agentToolBindingService;
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
+    @Autowired(required = false)
+    private EvaluationPolicyService evaluationPolicyService;
     @Autowired(required = false)
     private AgentApplicationService applicationService;
 
@@ -199,6 +204,9 @@ public class AgentDefinitionController {
             throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
         requireTenant(existing);
+        if (existing.getStatus() != null && existing.getStatus() == 1 && evaluationGateRequired(id) && hasExecutionConfigurationChange(existing, dto)) {
+            throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.configuration.locked"));
+        }
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
         definition.setId(id);
@@ -223,6 +231,22 @@ public class AgentDefinitionController {
 
     private String currentTenantId() {
         return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    }
+
+    private boolean evaluationGateRequired(String agentId) {
+        if (evaluationPolicyService == null) return false;
+        EvaluationPolicy policy = evaluationPolicyService.getOne(Wrappers.lambdaQuery(EvaluationPolicy.class)
+                .eq(EvaluationPolicy::getTargetType, "AGENT").eq(EvaluationPolicy::getTargetId, agentId)
+                .eq(EvaluationPolicy::getDeleted, false), false);
+        return policy != null && Boolean.TRUE.equals(policy.getRequired());
+    }
+
+    private boolean hasExecutionConfigurationChange(AgentDefinition existing, AgentDefinitionDto dto) {
+        if (!Objects.equals(existing.getSystemPrompt(), dto.getSystemPrompt()) || !Objects.equals(existing.getModelProviderId(), dto.getModelProviderId()) || !Objects.equals(existing.getModelId(), dto.getModelId()) || !Objects.equals(existing.getContextCompressionModelId(), dto.getContextCompressionModelId()) || !Objects.equals(existing.getModel(), dto.getModel()) || !Objects.equals(existing.getTemperature(), dto.getTemperature()) || !Objects.equals(existing.getMaxTokens(), dto.getMaxTokens()) || !Objects.equals(existing.getMaxToolRounds(), dto.getMaxToolRounds()) || !Objects.equals(existing.getExecutionMode(), dto.getExecutionMode())) return true;
+        if (dto.getToolIds() == null) return false;
+        List<String> current = agentToolBindingService.lambdaQuery().eq(AgentToolBinding::getAgentDefinitionId, existing.getId()).eq(AgentToolBinding::getStatus, 1).list().stream().map(AgentToolBinding::getToolId).sorted().collect(Collectors.toList());
+        List<String> requested = dto.getToolIds().stream().filter(Objects::nonNull).sorted().collect(Collectors.toList());
+        return !current.equals(requested);
     }
 
     private void requireTenant(AgentDefinition definition) {
@@ -264,6 +288,9 @@ public class AgentDefinitionController {
         AgentDefinition existing = agentDefinitionService.getById(id);
         if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         requireTenant(existing);
+        if (Integer.valueOf(1).equals(vo.getStatus()) && evaluationPolicyService != null && !evaluationPolicyService.allowedToPublish("AGENT", id)) {
+            throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.enable.denied"));
+        }
         AgentDefinition definition = new AgentDefinition();
         definition.setId(id);
         definition.setStatus(vo.getStatus());

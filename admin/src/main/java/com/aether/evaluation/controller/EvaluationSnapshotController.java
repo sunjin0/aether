@@ -1,0 +1,8 @@
+package com.aether.evaluation.controller;
+import com.aether.entity.WebResponse; import com.aether.evaluation.entity.EvaluationTargetSnapshot; import com.aether.evaluation.service.EvaluationSnapshotService; import com.aether.i18n.I18nUtils; import com.aether.permission.Permission; import com.aether.local.CurrentUser; import io.swagger.annotations.Api; import org.springframework.web.bind.annotation.*;
+@Api(tags="评测目标快照 API") @RestController @RequestMapping("/api/evaluation/snapshots") @Permission(path="/evaluation/experiments")
+public class EvaluationSnapshotController { private final EvaluationSnapshotService service; public EvaluationSnapshotController(EvaluationSnapshotService service){this.service=service;}
+ @PostMapping @Permission(path="/evaluation/experiments",type=Permission.Type.Write)
+ public WebResponse<?> create(@RequestBody EvaluationTargetSnapshot request){if(request==null||blank(request.getTargetType())||blank(request.getTargetId()))return WebResponse.Error(422,I18nUtils.getMessage("agent.evaluation.snapshot.required-fields"));if(!"AGENT".equals(request.getTargetType())&&!"WORKFLOW".equals(request.getTargetType()))return WebResponse.Error(422,I18nUtils.getMessage("agent.evaluation.target-type.invalid"));try{return WebResponse.OK(service.createCurrentSnapshot(request.getTargetType(),request.getTargetId(),CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId")));}catch(IllegalArgumentException e){return WebResponse.Error(422,I18nUtils.getMessage("agent.evaluation.snapshot.content.invalid"));}}
+ private boolean blank(String s){return s==null||s.trim().isEmpty();}
+}

@@ -1,0 +1,12 @@
+ALTER TABLE agent_evaluation_policy ADD COLUMN IF NOT EXISTS dataset_version_id VARCHAR(32);
+ALTER TABLE agent_evaluation_policy ADD COLUMN IF NOT EXISTS minimum_pass_rate NUMERIC(5,2) NOT NULL DEFAULT 100;
+ALTER TABLE agent_evaluation_policy ADD COLUMN IF NOT EXISTS require_review BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE agent_evaluation_policy ADD COLUMN IF NOT EXISTS repeats INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE agent_evaluation_policy ADD COLUMN IF NOT EXISTS case_timeout_seconds INTEGER NOT NULL DEFAULT 300;
+ALTER TABLE agent_evaluation_policy ADD COLUMN IF NOT EXISTS parallelism INTEGER NOT NULL DEFAULT 2;
+ALTER TABLE agent_evaluation_policy ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE agent_evaluation_policy ADD COLUMN IF NOT EXISTS updated_by VARCHAR(32);
+ALTER TABLE agent_evaluation_policy ADD CONSTRAINT agent_evaluation_policy_pass_rate_ck CHECK (minimum_pass_rate BETWEEN 0 AND 100);
+ALTER TABLE agent_evaluation_policy ADD CONSTRAINT agent_evaluation_policy_repeats_ck CHECK (repeats BETWEEN 1 AND 5);
+ALTER TABLE agent_evaluation_policy ADD CONSTRAINT agent_evaluation_policy_timeout_ck CHECK (case_timeout_seconds BETWEEN 30 AND 3600);
+ALTER TABLE agent_evaluation_policy ADD CONSTRAINT agent_evaluation_policy_parallelism_ck CHECK (parallelism BETWEEN 1 AND 10);

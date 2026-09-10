@@ -14,6 +14,14 @@ public class EvaluationPolicy extends BaseEntity {
     private String targetId;
     private Boolean required;
     private Integer minimumScore;
+    private String datasetVersionId;
+    private java.math.BigDecimal minimumPassRate;
+    private Boolean requireReview;
+    private Integer repeats;
+    private Integer caseTimeoutSeconds;
+    private Integer parallelism;
+    private Long revision;
+    private String updatedBy;
     private Integer lastScore;
     private String lastStatus;
     private String lastRunId;

@@ -1,0 +1,12 @@
+ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS run_origin VARCHAR(16) NOT NULL DEFAULT 'BUSINESS';
+ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS evaluation_result_id VARCHAR(32);
+ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS evaluation_snapshot_id VARCHAR(32);
+ALTER TABLE agent_workflow_instance ADD COLUMN IF NOT EXISTS run_origin VARCHAR(16) NOT NULL DEFAULT 'BUSINESS';
+ALTER TABLE agent_workflow_instance ADD COLUMN IF NOT EXISTS evaluation_result_id VARCHAR(32);
+ALTER TABLE agent_workflow_instance ADD COLUMN IF NOT EXISTS evaluation_snapshot_id VARCHAR(32);
+ALTER TABLE aether_execution ADD COLUMN IF NOT EXISTS run_origin VARCHAR(16) NOT NULL DEFAULT 'BUSINESS';
+ALTER TABLE aether_execution ADD COLUMN IF NOT EXISTS evaluation_result_id VARCHAR(32);
+ALTER TABLE aether_execution ADD COLUMN IF NOT EXISTS evaluation_snapshot_id VARCHAR(32);
+CREATE INDEX IF NOT EXISTS agent_run_evaluation_origin_idx ON agent_run(run_origin, evaluation_result_id);
+CREATE INDEX IF NOT EXISTS workflow_instance_evaluation_origin_idx ON agent_workflow_instance(run_origin, evaluation_result_id);
+CREATE INDEX IF NOT EXISTS execution_evaluation_origin_idx ON aether_execution(run_origin, evaluation_result_id);

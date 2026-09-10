@@ -9,6 +9,11 @@ import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.AgentToolService;
+import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.entity.AgentDefinition;
+import com.aether.evaluation.entity.EvaluationPolicy;
+import com.aether.evaluation.service.EvaluationPolicyService;
+import com.aether.exception.ServerException;
 import com.aether.agent.tools.core.ToolRegistry;
 import com.aether.agent.vo.AgentToolBindingVo;
 import com.aether.agent.vo.AgentToolVo;
@@ -50,6 +55,8 @@ public class AgentToolBindingController {
     private final AgentToolService agentToolService;
     private final AgentMcpServerService agentMcpServerService;
     private final ToolRegistry toolRegistry;
+    @Autowired(required = false) private AgentDefinitionService agentDefinitionService;
+    @Autowired(required = false) private EvaluationPolicyService evaluationPolicyService;
 
     /**
      * 创建 {@code AgentToolBindingController} 实例。
@@ -173,6 +180,7 @@ public class AgentToolBindingController {
     @Transactional(rollbackFor = Exception.class)
     @PostMapping("/{agentId}/tools")
     public WebResponse<Void> bind(@PathVariable @NotBlank String agentId, @RequestBody AgentToolBindingDto dto) {
+        assertAgentConfigurationMutable(agentId);
         if (dto == null || (agentToolService.getById(dto.getToolId()) == null && toolRegistry.getTool(dto.getToolId()) == null)) {
             return WebResponse.Error(404, I18nUtils.getMessage("agent.tool.not.found"), null);
         }
@@ -205,6 +213,14 @@ public class AgentToolBindingController {
         return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
     }
 
+    private void assertAgentConfigurationMutable(String agentId) {
+        if (agentDefinitionService == null || evaluationPolicyService == null) return;
+        AgentDefinition agent = agentDefinitionService.getById(agentId);
+        if (agent == null || agent.getStatus() == null || agent.getStatus() != 1) return;
+        EvaluationPolicy policy = evaluationPolicyService.getOne(Wrappers.lambdaQuery(EvaluationPolicy.class).eq(EvaluationPolicy::getTargetType, "AGENT").eq(EvaluationPolicy::getTargetId, agentId).eq(EvaluationPolicy::getDeleted, false), false);
+        if (policy != null && Boolean.TRUE.equals(policy.getRequired())) throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.configuration.locked"));
+    }
+
     private boolean matchesText(String value, String keyword) {
         return keyword == null || keyword.trim().isEmpty()
                 || (value != null && value.toLowerCase().contains(keyword.trim().toLowerCase()));
@@ -221,6 +237,7 @@ public class AgentToolBindingController {
     @Transactional(rollbackFor = Exception.class)
     @DeleteMapping("/{agentId}/tools/{toolId}")
     public WebResponse<Void> unbind(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String toolId) {
+        assertAgentConfigurationMutable(agentId);
         boolean removed = agentToolBindingService.remove(
                 Wrappers.lambdaUpdate(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)

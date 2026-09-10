@@ -154,6 +154,25 @@ public class DeepAgentRunService {
                 null, null, registerCallback, externalRunId);
     }
 
+    /** Starts an isolated evaluation run with a caller-frozen tool set. */
+    public String startEvaluationRun(AgentDefinition agent, String userId, String conversationId, String task,
+                                     String externalRunId, List<AgentTool> tools, String systemPrompt) {
+        return startEvaluationRun(agent, userId, conversationId, task, externalRunId, tools, systemPrompt,
+                Collections.emptySet(), Collections.emptyList());
+    }
+
+    /** Sends only retrieval material resolved from the immutable evaluation snapshot. */
+    public String startEvaluationRun(AgentDefinition agent, String userId, String conversationId, String task,
+                                     String externalRunId, List<AgentTool> tools, String systemPrompt,
+                                     Set<String> knowledgeBaseIds, List<Map<String, Object>> retrievalSources) {
+        SkillRuntimeContext context=new SkillRuntimeContext();
+        context.setTools(tools==null?Collections.emptyList():tools);
+        context.setKnowledgeBaseIds(knowledgeBaseIds == null ? Collections.emptySet() : new LinkedHashSet<>(knowledgeBaseIds));
+        context.setSystemPrompt(systemPrompt==null?agent.getSystemPrompt():systemPrompt);
+        Map<String,Object> evaluationSnapshot=new LinkedHashMap<>();evaluationSnapshot.put("evaluation",true);evaluationSnapshot.put("evaluationFrozenTools",context.getTools());evaluationSnapshot.put("knowledgeBaseIds",context.getKnowledgeBaseIds());context.setSnapshot(JSON.toJSONString(evaluationSnapshot));
+        return startRunInternal(agent,userId,conversationId,task,null,null,retrievalSources,context,null,externalRunId);
+    }
+
     /**
      * 使用调用方已解析的 Skill 上下文创建 Deep 运行，避免在此处重新扩大工具范围。
      */
@@ -206,44 +225,51 @@ public class DeepAgentRunService {
                                     String task, String attachmentContent, String attachments,
                                     List<Map<String, Object>> sources, SkillRuntimeContext skillContext,
                                     Consumer<String> registerCallback, String externalRunId) {
-        AgentConversation conversation = agentConversationService.getById(conversationId);
-        initializeConversationTitle(conversation, task);
-        AgentSession session = agentSessionService == null ? null
+        boolean evaluationRun = isEvaluationRun(skillContext);
+        // Evaluation runs are isolated from business conversations, session memory and task queues.
+        AgentConversation conversation = evaluationRun ? null : agentConversationService.getById(conversationId);
+        if (!evaluationRun) initializeConversationTitle(conversation, task);
+        AgentSession session = evaluationRun || agentSessionService == null ? null
                 : agentSessionService.getOrCreate(conversationId, userId, agent.getId());
-        String sessionId = session == null ? conversationId : session.getId();
-        TaskRoute route = resolveTaskRoute(sessionId, task);
-        AgentTask taskRecord = route.reuseTask || agentTaskService == null ? route.activeTask
-                : agentTaskService.create(sessionId, userId, agent.getId(), task);
+        String sessionId = evaluationRun ? null : (session == null ? conversationId : session.getId());
+        TaskRoute route = evaluationRun ? TaskRoute.NEW_TASK : resolveTaskRoute(sessionId, task);
+        AgentTask taskRecord = evaluationRun ? null : (route.reuseTask || agentTaskService == null ? route.activeTask
+                : agentTaskService.create(sessionId, userId, agent.getId(), task));
         // Read durable history before saving this request's user message so that
         // the current task is supplied only once to the Deep Agent.
-        List<Map<String, String>> conversationMemory = buildConversationMemory(conversationId, sessionId, userId);
+        List<Map<String, String>> conversationMemory = evaluationRun ? new ArrayList<>()
+                : buildConversationMemory(conversationId, sessionId, userId);
         if (route.reuseTask && taskRecord != null) {
             // 延续同一任务：注入任务身份提示，避免 Deep Agent 当作全新任务重新开始而丢失目标上下文。
             conversationMemory.add(continuationContextHint(taskRecord));
         }
 
-        AgentMessage userMsg = new AgentMessage();
-        userMsg.setConversationId(conversationId);
-        userMsg.setRole("user");
-        userMsg.setContent(task);
-        userMsg.setMessageType("chat");
-        userMsg.setAttachmentContent(attachmentContent);
-        userMsg.setAttachments(attachments);
-        agentMessageService.save(userMsg);
+        AgentMessage userMsg = null;
+        if (!evaluationRun) {
+            userMsg = new AgentMessage();
+            userMsg.setConversationId(conversationId);
+            userMsg.setRole("user");
+            userMsg.setContent(task);
+            userMsg.setMessageType("chat");
+            userMsg.setAttachmentContent(attachmentContent);
+            userMsg.setAttachments(attachments);
+            agentMessageService.save(userMsg);
+        }
 
         AgentRun run = new AgentRun();
         run.setApplicationId(agent.getApplicationId());
         run.setAgentDefinitionId(agent.getId());
         run.setUserId(userId);
-        run.setConversationId(conversationId);
+        run.setConversationId(evaluationRun ? null : conversationId);
         run.setSessionId(sessionId);
         run.setTaskId(taskRecord == null ? null : taskRecord.getId());
         run.setAttemptNo(taskRecord == null ? 1 : nextAttemptNo(taskRecord.getId()));
-        run.setMessageId(userMsg.getId());
+        run.setMessageId(userMsg == null ? null : userMsg.getId());
         // Replaced with the outbound Deep Agent request snapshot before dispatch.
         run.setInputContent(task);
         run.setStatus(STATUS_QUEUED);
         run.setExecutionMode("DEEP");
+        run.setRunOrigin(isEvaluationRun(skillContext) ? "EVALUATION" : "BUSINESS");
         run.setModel(agent.getModel());
         run.setSkillSnapshot(snapshotWithToolApprovalPolicy(skillContext, conversation));
         if (StringUtils.isNotBlank(externalRunId)) {
@@ -256,8 +282,8 @@ public class DeepAgentRunService {
             agentRunService.updateById(run);
         }
         String runId = run.getId();
-        if (runtimeEmailCredentialStore != null) runtimeEmailCredentialStore.bindPending(runId, conversationId, userId);
-        boolean dispatchImmediately = taskRecord == null || agentSessionService == null || route.reuseTask
+        if (!evaluationRun && runtimeEmailCredentialStore != null) runtimeEmailCredentialStore.bindPending(runId, conversationId, userId);
+        boolean dispatchImmediately = evaluationRun || taskRecord == null || agentSessionService == null || route.reuseTask
                 || agentSessionService.claimTask(sessionId, taskRecord.getId());
         if (taskRecord != null) {
             agentTaskService.updateStatus(taskRecord.getId(), dispatchImmediately ? "RUNNING" : "QUEUED", runId,
@@ -320,7 +346,7 @@ public class DeepAgentRunService {
             request.put("delegation_token", delegationToken);
             if (!emailCredentialTokens.isEmpty()) request.put("email_credential_tokens", emailCredentialTokens);
             // 计划先行：生成初始计划后等待用户确认再执行（Codex/Claude 风格）。
-            request.put("plan_approval_required", true);
+            request.put("plan_approval_required", !isEvaluationRun(skillContext));
             if (agent.getMaxToolRounds() != null) {
                 request.put("max_steps", agent.getMaxToolRounds());
             }
@@ -380,6 +406,8 @@ public class DeepAgentRunService {
         }
         return result;
     }
+
+    private boolean isEvaluationRun(SkillRuntimeContext context) { try { return context != null && com.alibaba.fastjson2.JSON.parseObject(context.getSnapshot()).getBooleanValue("evaluation"); } catch (RuntimeException ignored) { return false; } }
 
     /**
      * 新增ConfirmedPreferences。

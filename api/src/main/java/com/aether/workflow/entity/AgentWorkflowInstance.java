@@ -12,6 +12,9 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_instance")
 public class AgentWorkflowInstance extends BaseEntity {
+    private String runOrigin;
+    private String evaluationResultId;
+    private String evaluationSnapshotId;
     private String tenantId;
     /** 统一 Execution 账本中的根节点 ID。 */
     private String executionId;

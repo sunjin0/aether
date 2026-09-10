@@ -3,6 +3,10 @@ package com.aether.agent.controller;
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.agent.entity.AgentKnowledgeBaseBinding;
 import com.aether.agent.service.AgentKnowledgeBaseBindingService;
+import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.entity.AgentDefinition;
+import com.aether.evaluation.entity.EvaluationPolicy;
+import com.aether.evaluation.service.EvaluationPolicyService;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.agent.vo.AgentKnowledgeBaseBindingVo;
 import com.aether.agent.dto.AgentControllerRequests.KnowledgeBindingCreate;
@@ -39,6 +43,8 @@ public class AgentKnowledgeBaseBindingController {
 
     private final AgentKnowledgeBaseBindingService bindingService;
     private final KnowledgeBaseService knowledgeBaseService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false) private AgentDefinitionService agentDefinitionService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false) private EvaluationPolicyService evaluationPolicyService;
 
     /**
      * 创建 {@code AgentKnowledgeBaseBindingController} 实例。
@@ -101,6 +107,7 @@ public class AgentKnowledgeBaseBindingController {
         if (StringUtils.isBlank(vo.getAgentDefinitionId()) || StringUtils.isBlank(vo.getKnowledgeBaseId())) {
             throw new ServerException(400, I18nUtils.getMessage("agent.knowledge.binding.required"));
         }
+        assertAgentConfigurationMutable(vo.getAgentDefinitionId());
         validateKnowledgeBase(vo.getKnowledgeBaseId());
         boolean exists = bindingService.count(Wrappers.lambdaQuery(AgentKnowledgeBaseBinding.class)
                 .eq(AgentKnowledgeBaseBinding::getAgentDefinitionId, vo.getAgentDefinitionId())
@@ -125,6 +132,9 @@ public class AgentKnowledgeBaseBindingController {
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
     public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody Status vo) {
+        AgentKnowledgeBaseBinding existing = bindingService.getById(id);
+        if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.knowledge.binding.not-found"));
+        assertAgentConfigurationMutable(existing.getAgentDefinitionId());
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setId(id);
         binding.setStatus(vo.getStatus());
@@ -139,6 +149,9 @@ public class AgentKnowledgeBaseBindingController {
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
+        AgentKnowledgeBaseBinding existing = bindingService.getById(id);
+        if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.knowledge.binding.not-found"));
+        assertAgentConfigurationMutable(existing.getAgentDefinitionId());
         boolean removed = bindingService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.knowledge-binding.delete.success") : I18nUtils.getMessage("agent.knowledge-binding.delete.fail"));
     }
@@ -151,5 +164,13 @@ public class AgentKnowledgeBaseBindingController {
         if (kb == null || Boolean.TRUE.equals(kb.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.knowledge.base.not.found"));
         }
+    }
+
+    private void assertAgentConfigurationMutable(String agentId) {
+        if (agentDefinitionService == null || evaluationPolicyService == null) return;
+        AgentDefinition agent = agentDefinitionService.getById(agentId);
+        if (agent == null || agent.getStatus() == null || agent.getStatus() != 1) return;
+        EvaluationPolicy policy = evaluationPolicyService.getOne(Wrappers.lambdaQuery(EvaluationPolicy.class).eq(EvaluationPolicy::getTargetType, "AGENT").eq(EvaluationPolicy::getTargetId, agentId).eq(EvaluationPolicy::getDeleted, false), false);
+        if (policy != null && Boolean.TRUE.equals(policy.getRequired())) throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.configuration.locked"));
     }
 }

@@ -12,6 +12,9 @@ import lombok.experimental.Accessors;
 @EqualsAndHashCode(callSuper = true)
 @TableName("aether_execution")
 public class Execution extends BaseEntity {
+    private String runOrigin;
+    private String evaluationResultId;
+    private String evaluationSnapshotId;
     /** Tenant boundary captured when the execution is created. */
     private String tenantId;
     private String executionType;

@@ -8,6 +8,11 @@ import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.service.AgentSkillService;
+import com.aether.agent.service.AgentDefinitionService;
+import com.aether.agent.entity.AgentDefinition;
+import com.aether.evaluation.entity.EvaluationPolicy;
+import com.aether.evaluation.service.EvaluationPolicyService;
+import com.aether.exception.ServerException;
 import com.aether.agent.skill.vo.AgentDefinitionSkillBindingVo;
 import com.aether.agent.skill.vo.AgentSkillVo;
 import com.aether.entity.WebResponse;
@@ -35,6 +40,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/agent/definition")
 public class AgentDefinitionSkillBindingController {
     private final AgentSkillService skillService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false) private AgentDefinitionService agentDefinitionService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false) private EvaluationPolicyService evaluationPolicyService;
 
     /**
      * 创建 {@code AgentDefinitionSkillBindingController} 实例。
@@ -111,6 +118,7 @@ public class AgentDefinitionSkillBindingController {
     @PostMapping("/{agentId}/skills")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<String> install(@PathVariable @NotBlank String agentId, @RequestBody AgentSkillInstallDto dto) {
+        assertAgentConfigurationMutable(agentId);
         return WebResponse.OK(I18nUtils.getMessage("skill.installation.create.success"), skillService.install(agentId, dto));
     }
 
@@ -121,6 +129,7 @@ public class AgentDefinitionSkillBindingController {
     @PutMapping("/{agentId}/skills/{bindingId}")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<Void> update(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String bindingId, @RequestBody AgentSkillBindingUpdateDto dto) {
+        assertAgentConfigurationMutable(agentId);
         skillService.updateBinding(agentId, bindingId, dto);
         return WebResponse.OK(I18nUtils.getMessage("skill.installation.update.success"));
     }
@@ -132,7 +141,16 @@ public class AgentDefinitionSkillBindingController {
     @DeleteMapping("/{agentId}/skills/{bindingId}")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<Void> delete(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String bindingId) {
+        assertAgentConfigurationMutable(agentId);
         skillService.removeBinding(agentId, bindingId);
         return WebResponse.OK(I18nUtils.getMessage("skill.installation.delete.success"));
+    }
+
+    private void assertAgentConfigurationMutable(String agentId) {
+        if (agentDefinitionService == null || evaluationPolicyService == null) return;
+        AgentDefinition agent = agentDefinitionService.getById(agentId);
+        if (agent == null || agent.getStatus() == null || agent.getStatus() != 1) return;
+        EvaluationPolicy policy = evaluationPolicyService.getOne(Wrappers.lambdaQuery(EvaluationPolicy.class).eq(EvaluationPolicy::getTargetType, "AGENT").eq(EvaluationPolicy::getTargetId, agentId).eq(EvaluationPolicy::getDeleted, false), false);
+        if (policy != null && Boolean.TRUE.equals(policy.getRequired())) throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.configuration.locked"));
     }
 }

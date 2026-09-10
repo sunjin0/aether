@@ -149,10 +149,8 @@ public class AgentWorkflowController {
         addNodeType(result, "end", "结束节点");
         addNodeType(result, "agent", "Agent 节点");
         addNodeType(result, "tool", "工具节点");
-        addNodeType(result, "human", "人工录入节点");
-        addNodeType(result, "approval", "审批节点");
+        addNodeType(result, "interaction", "交互节点");
         addNodeType(result, "rule", "规则节点");
-        addNodeType(result, "transform", "数据转换节点");
         addNodeType(result, "http", "HTTP 调用节点");
         addNodeType(result, "notification", "通知节点");
         addNodeType(result, "subflow", "子流程节点");
@@ -242,7 +240,7 @@ public class AgentWorkflowController {
     public WebResponse<Integer> publish(@PathVariable String id) {
         AgentWorkflow workflow = required(id);
         if (evaluationPolicyService != null && !evaluationPolicyService.allowedToPublish("WORKFLOW", id))
-            throw new ServerException(409, "工作流未通过配置的评测门禁");
+            throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.publish.denied"));
         String applicationId = requireActiveApplication(workflow.getApplicationId());
         WorkflowDefinitionValidator.validate(workflow.getNodes(), workflow.getEdges());
         WorkflowDefinitionValidator.validateVariables(workflow.getNodes(), workflow.getEdges(), workflow.getInputSchema());
@@ -894,10 +892,10 @@ public class AgentWorkflowController {
                 if (tool == null || Boolean.TRUE.equals(tool.getDeleted()) || !Integer.valueOf(1).equals(tool.getStatus()) || !tenantMatches(tool.getTenantId()))
                     throw new ServerException(422, I18nUtils.getMessage("workflow.node.mcp-tool.unavailable"));
             }
-            if ("approval".equals(type) && StringUtils.isNotBlank(node.getString("approverServiceAccountId"))) {
+            if ("interaction".equals(type) && "approval".equals(node.getString("mode")) && StringUtils.isNotBlank(node.getString("approverServiceAccountId"))) {
                 ServiceAccount approver = serviceAccountService.getById(node.getString("approverServiceAccountId"));
                 if (approver == null || Boolean.TRUE.equals(approver.getDeleted()) || !Boolean.TRUE.equals(approver.getEnabled()))
-                    throw new ServerException(422, "审批节点绑定的服务账号不存在或已停用");
+                    throw new ServerException(422, "审批交互节点绑定的服务账号不存在或已停用");
                 if (!StringUtils.equals(applicationId, normalizedApplicationId(approver.getApplicationId())) || !tenantMatches(approver.getTenantId()))
                     throw new ServerException(422, "工作流与审批服务账号必须绑定到同一业务空间");
             }
