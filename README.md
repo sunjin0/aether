@@ -40,19 +40,36 @@ mvn -pl biz -am test
 生产环境主要变量见 `.env.example`：`DB_URL`、`REDIS_HOST`、`MINIO_*`、`AETHER_DEEP_AGENT_*` 与
 `AETHER_MCP_DELEGATION_SECRET`。普通聊天默认关闭查询重写，避免在主模型调用前增加一次同步模型请求。
 
-## 一键 Docker 部署
+## Docker 部署
 
-`docker-compose.all.yml` 会部署 PostgreSQL、Redis、MinIO、Admin、Dashboard、Deep Agent 与 MCP。业务服务源码由 BuildKit 从 Git
-仓库拉取；私有仓库需提供只读 GitHub Token。
+仓库提供两个 Compose 文件：
+
+| 文件 | 用途 |
+|---|---|
+| `docker-compose.yml` | 仅 Admin 与 Front，接入已存在的外部网络与基础设施 |
+| `docker-compose.prod.yml` | 生产全栈：PostgreSQL、Redis、Admin、Front、Dashboard、Deep Agent、MCP 与 Sandbox |
+| `docker-compose.acceptance.yml` | 发布前验收：四个应用服务从本地工作区构建，覆盖未推送的改动 |
+
+生产全栈部署（对象存储默认使用阿里云 OSS，内置 MinIO 为 `--profile minio` 兜底）：
 
 ```powershell
-Copy-Item .env.all.example .env.all
-# 编辑 .env.all，至少设置 GIT_AUTH_TOKEN 及生产环境密钥
-docker compose --env-file .env.all -f docker-compose.all.yml -p aether up -d --build
+Copy-Item .env.prod.example .env.prod
+# 编辑 .env.prod：OSS 凭据、数据库与 Redis 密码、SMTP、Deep Agent 与 MCP 委派密钥
+./scripts/fetch-sources.sh                                              # 用部署机 git 凭据检出四个仓库
+docker compose --env-file .env.prod -f docker-compose.prod.yml config   # 校验，缺失密钥在此报错
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
-默认宿主机端口均为非默认值：PostgreSQL `15432`、Redis `16379`、MinIO `19000/19001`、Admin `18080`、Dashboard `18001`、Deep
-Agent `18010`、MCP `18000`。容器内部仍通过服务名和标准端口互联。
+业务服务源码由 `scripts/fetch-sources.sh` 用部署机已配置的 git 凭据检出到 `.sources/`，Compose 再从本地目录构建；
+发布前应把 `AETHER_ADMIN_GIT_REF` 等固定到 tag 或提交 SHA，脚本会打印每个仓库实际使用的提交 SHA。
+
+不直接使用 Compose 的 Git 构建上下文，是因为 BuildKit 的 git 源由构建器自行 clone，**不读取宿主机 git 配置**
+（`credential.helper`、`~/.git-credentials`、`~/.netrc`、SSH 私钥均不生效），私有仓库拉不下来；先检出再本地构建
+可以让凭据留在它本来生效的地方，也无需额外维护访问令牌。
+
+默认宿主机端口为 Admin `8080`、Front `8081`、Dashboard `8001`、MCP `8000`、Deep Agent `8010`、MinIO API `9000`，
+全部仅绑定 `127.0.0.1`，由同宿主的外部网关反代并终止 TLS；PostgreSQL 与 Redis 不发布宿主端口。容器内部始终通过服务名
+和标准端口互联。生产加固细节见[运维手册](docs/agent-platform/09-运维手册/README.md)。
 
 ## 关联项目
 

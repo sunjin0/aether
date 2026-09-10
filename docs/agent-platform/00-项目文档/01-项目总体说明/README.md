@@ -111,26 +111,33 @@ Java 通过 Flyway 执行 PostgreSQL 数据库迁移。生产部署时应使用�
 
 ## 7. 部署
 
-Java 项目根目录的 `docker-compose.all.yml` 提供完整部署，包含四个业务服务和三个基础服务。业务镜像从 Git
-构建上下文拉取源码；私有仓库需设置只读 `GIT_AUTH_TOKEN`。
+Java 项目根目录的 `docker-compose.prod.yml` 提供生产全栈部署，包含 Dashboard、Admin、Front、MCP、Deep Agent 与
+Sandbox，以及 PostgreSQL、Redis 两个基础服务（对象存储默认使用阿里云 OSS，内置 MinIO 为 `--profile minio` 兜底）。
+四个应用的源码由 `scripts/fetch-sources.sh` 用部署机的 git 凭据检出到 `AETHER_SOURCE_ROOT`
+（默认 `.sources/`），Compose 只从该本地目录构建。不使用 BuildKit 的 Git 构建上下文：它不读取宿主机的
+git 配置（credential helper、`~/.netrc`、SSH 私钥），私有仓库拉不下来。发布前应把 `AETHER_ADMIN_GIT_REF`
+等固定到 tag 或提交 SHA。
 
 ```powershell
-Copy-Item .env.all.example .env.all
-# 编辑 .env.all：Git Token、数据库密码、MinIO 密钥、Deep Agent 和 MCP 委派密钥
-docker compose --env-file .env.all -f docker-compose.all.yml -p aether up -d --build
+Copy-Item .env.prod.example .env.prod
+# 编辑 .env.prod：OSS 凭据、数据库与 Redis 密码、SMTP 及 Deep Agent/MCP 委派密钥
+./scripts/fetch-sources.sh                                              # 检出四个源码仓库并打印提交 SHA
+docker compose --env-file .env.prod -f docker-compose.prod.yml config   # 校验，缺失密钥在此报错
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
-默认宿主机端口：
+默认宿主机端口（全部仅绑定 `127.0.0.1`，由外部网关反代并终止 TLS）：
 
-| 服务                  |            端口 |
-|---------------------|--------------:|
-| Dashboard           |         18001 |
-| Admin               |         18080 |
-| MCP                 |         18000 |
-| Deep Agent          |         18010 |
-| PostgreSQL          |         15432 |
-| Redis               |         16379 |
-| MinIO API / Console | 19000 / 19001 |
+| 服务                |         端口 |
+|-------------------|-----------:|
+| Dashboard         |       8001 |
+| Admin             |       8080 |
+| Front             |       8081 |
+| MCP               |       8000 |
+| Deep Agent        |       8010 |
+| MinIO API         |       9000 |
+| PostgreSQL        | 不发布宿主端口 |
+| Redis             | 不发布宿主端口 |
 
 容器内部应始终使用服务名和标准端口通信，避免将宿主机端口写入服务间配置。
 
@@ -148,12 +155,14 @@ docker compose --env-file .env.all -f docker-compose.all.yml -p aether up -d --b
 
 ### Docker 健康检查
 
-Admin 容器使用 `/v2/api-docs` 进行健康检查。项目采用 Springfox 2.x，因此不应在未完成兼容改造前直接添加 Actuator 端点作为健康检查。
+Admin 容器使用 `/actuator/health` 进行健康检查（`application.yml` 暴露 `health,info`，`show-details: never`，返回成功但不泄露组件详情）。
+
+> 早期文档曾要求使用 `/v2/api-docs` 并称「不应直接使用 Actuator」，此为错误记载：prod profile 下 `knife4j.enable: false`，Springfox 不会 bootstrap，该路径实际返回 404。
 
 ### 常用检查
 
 ```powershell
-docker compose -f docker-compose.all.yml -p aether ps
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
 docker logs --tail 300 aether-admin
 docker logs --tail 300 aether-deep-agent
 ```

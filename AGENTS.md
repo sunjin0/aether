@@ -19,11 +19,13 @@ docker compose up -d --remove-orphans admin
 docker compose ps admin
 ```
 
-`admin/Dockerfile` uses Maven/Temurin 17 and produces `admin.jar`. Expected endpoint: `http://localhost:8080`. `docker-compose.yml` builds admin only; `docker-compose.all.yml` is the optional full stack.
+`admin/Dockerfile` uses Maven/Temurin 17 and produces `admin.jar`. Expected endpoint: `http://localhost:8080`. `docker-compose.yml` builds admin/front against external infrastructure; `docker-compose.prod.yml` is the production full stack; `docker-compose.acceptance.yml` builds the four application services from local working trees for pre-release acceptance.
+
+`docker-compose.prod.yml` takes the four application sources from local directories under `AETHER_SOURCE_ROOT` (default `.sources/`), prepared by `scripts/fetch-sources.sh` with the deploy host's git credentials. Do not change those build contexts back to BuildKit Git contexts: BuildKit's git source ignores host git configuration (credential helpers, `~/.netrc`, SSH keys), so private repositories cannot be fetched that way.
 
 ## Configuration
 
-Profile configuration is under `api/src/main/resources/application-*.yml`; environment templates are `.env.example` and `.env.all.example`. Never commit real secrets. Do not add Secret Provider/Vault/Kubernetes, OIDC/SAML/SCIM, OTel/OTLP, Prometheus/Grafana, or retired catalog settings.
+Profile configuration is under `api/src/main/resources/application-*.yml`; environment templates are `.env.example` and `.env.prod.example`. Never commit real secrets. Do not add Secret Provider/Vault/Kubernetes, OIDC/SAML/SCIM, OTel/OTLP, Prometheus/Grafana, or retired catalog settings.
 
 ## Persistence
 

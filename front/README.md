@@ -23,7 +23,7 @@ ${FRONT_PORT:-8081}:8080
 FRONT_PORT=18082 docker compose up -d front
 ```
 
-容器名和网络别名均为 `aether-front`。全量部署文件 `docker-compose.all.yml` 也包含 `front` 服务。
+容器名和网络别名均为 `aether-front`。生产全栈文件 `docker-compose.prod.yml` 也包含 `front` 服务。
 
 ## 鉴权
 

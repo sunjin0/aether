@@ -36,10 +36,19 @@ mvn -pl admin -am -DskipTests install
 mvn -pl admin org.springframework.boot:spring-boot-maven-plugin:2.7.18:run -Dspring-boot.run.profiles=dev
 ```
 
-## 全栈一键部署（PostgreSQL、Redis、MinIO、Admin、Dashboard、Deep Agent、MCP）
+## 全栈生产部署（PostgreSQL、Redis、Admin、Front、Dashboard、Deep Agent、MCP、Sandbox）
+
+对象存储默认使用阿里云 OSS；内置 MinIO 为 `--profile minio` 兜底。
 
 ```sh
-Copy-Item .env.all.example .env.all
-# 编辑 .env.all，至少设置 GIT_AUTH_TOKEN 及生产密钥
-docker compose --env-file .env.all -f docker-compose.all.yml -p aether up -d --build
+Copy-Item .env.prod.example .env.prod
+# 编辑 .env.prod，填写全部 replace-with-* 占位值
+docker compose --env-file .env.prod -f docker-compose.prod.yml config   # 校验，缺失密钥在此报错
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+```
+
+发布前验收（从本地工作区构建，覆盖未推送的改动）：
+
+```sh
+docker compose -f docker-compose.acceptance.yml up -d
 ```
