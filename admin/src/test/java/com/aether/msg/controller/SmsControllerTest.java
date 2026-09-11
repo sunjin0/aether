@@ -2,8 +2,6 @@ package com.aether.msg.controller;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.context.annotation.Import;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -11,8 +9,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * 验证Sms控制器的行为。
  */
 @SpringBootTest
-@TestPropertySource(properties = "springfox.documentation.enabled=false")
-@Import(com.aether.SpringfoxCompatibilityTestConfiguration.class)
 class SmsControllerTest {
 
     /**
