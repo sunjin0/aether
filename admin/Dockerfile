@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM maven:3.9-eclipse-temurin-17 AS builder
 WORKDIR /build
+COPY .mvn/settings.xml /etc/maven/settings.xml
 COPY pom.xml ./
 COPY common/pom.xml common/
 COPY api/pom.xml api/
@@ -10,8 +11,7 @@ COPY admin/pom.xml admin/
 COPY front/pom.xml front/
 # 依赖只由 POM 决定：代码变更时复用该镜像层和 BuildKit 的 Maven 缓存。
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -pl admin -am -DskipTests dependency:go-offline
-
+    mvn -B -s /etc/maven/settings.xml -pl admin -am -DskipTests dependency:go-offline
 # 依赖缓存预热完成后再复制源码，避免普通代码改动导致重新下载依赖。
 COPY common/ common/
 COPY api/ api/
@@ -20,8 +20,7 @@ COPY biz/ biz/
 COPY admin/ admin/
 COPY front/ front/
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B clean package -pl admin -am -Dmaven.test.skip=true
-
+    mvn -B -s /etc/maven/settings.xml clean package -pl admin -am -Dmaven.test.skip=true
 FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 # curl 仅供运行时健康检查使用。放在复制业务 Jar 之前，并缓存 apt 索引与软件包：
