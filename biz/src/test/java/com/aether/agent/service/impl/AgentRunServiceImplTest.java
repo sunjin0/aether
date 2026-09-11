@@ -1,7 +1,6 @@
 package com.aether.agent.service.impl;
 
 import com.aether.agent.entity.AgentRun;
-import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.mapper.AgentRunMapper;
 import com.aether.agent.service.AgentRunContextMetricService;
 import com.aether.agent.vo.AgentRunStatisticsVo;
@@ -57,10 +56,6 @@ class AgentRunServiceImplTest {
         success.setId("run-1");
         failed.setId("run-2");
         timeout.setId("run-3");
-        AgentRunContextMetric first = metric(30, 70);
-        AgentRunContextMetric second = metric(10, 0);
-        AgentRunContextMetric unobserved = metric(null, null);
-        when(contextMetricService.list(any())).thenReturn(Arrays.asList(first, second, unobserved));
 
         AgentRunStatisticsVo result = service.statistics("agent-1", 1000L, 2000L);
 
@@ -72,11 +67,12 @@ class AgentRunServiceImplTest {
         assertEquals(11L, result.getTotalPromptTokens());
         assertEquals(24L, result.getTotalCompletionTokens());
         assertEquals(35L, result.getTotalTokens());
-        assertEquals(40L, result.getTotalCachedPromptTokens());
-        assertEquals(2L, result.getCacheObservedCallCount());
-        assertEquals(1L, result.getCacheUnobservedCallCount());
+        // V178 退役 agent_run_context_metric 后，统计不再聚合历史上下文指标，缓存类字段恒为零值。
+        assertEquals(0L, result.getTotalCachedPromptTokens());
+        assertEquals(0L, result.getCacheObservedCallCount());
+        assertEquals(0L, result.getCacheUnobservedCallCount());
         assertEquals(0L, result.getCacheZeroHitCallCount());
-        assertEquals(36.36D, result.getPromptCacheHitRate());
+        assertEquals(0D, result.getPromptCacheHitRate());
         assertEquals(200L, result.getAvgLatencyMs());
         assertEquals(2.0 / 3.0, result.getErrorRate());
     }
@@ -93,12 +89,5 @@ class AgentRunServiceImplTest {
         run.setTotalTokens(totalTokens);
         run.setLatencyMs(latencyMs);
         return run;
-    }
-
-    private AgentRunContextMetric metric(Integer cachedPromptTokens, Integer uncachedPromptTokens) {
-        AgentRunContextMetric metric = new AgentRunContextMetric();
-        metric.setCachedPromptTokens(cachedPromptTokens);
-        metric.setUncachedPromptTokens(uncachedPromptTokens);
-        return metric;
     }
 }

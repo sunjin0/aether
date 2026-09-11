@@ -194,6 +194,9 @@ public class ContextMetricService {
 
     /**
      * 基于最近一次指定类型的初步指标，写入不可变最终指标。
+     *
+     * <p>V178 退役 agent_run_context_metric 后本方法保留为兼容空实现：既不回查历史快照，也不落库，
+     * 恒返回 null。调用方不应依赖其返回值。</p>
      */
     public AgentRunContextMetric recordFinalForLatestPreliminary(String runId, String callType,
                                                                  Integer providerPromptTokens,

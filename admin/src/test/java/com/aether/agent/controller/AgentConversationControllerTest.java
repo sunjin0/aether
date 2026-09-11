@@ -51,7 +51,9 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -128,10 +130,11 @@ class AgentConversationControllerTest {
     }
 
     /**
-     * 消息列表会为助手消息聚合最终上下文容量指标。
+     * V178 退役 agent_run_context_metric 后，消息列表不再附带上下文容量指标；
+     * 助手消息仍应正常聚合 runId 与工具调用日志。
      */
     @Test
-    void messagesIncludeFinalContextMetricForAssistantRun() {
+    void messagesDoNotAttachRetiredContextMetricForAssistantRun() {
         AgentConversation conversation = new AgentConversation();
         conversation.setId("conversation-1");
         conversation.setUserId("user-1");
@@ -154,29 +157,12 @@ class AgentConversationControllerTest {
         when(runService.list(any(Wrapper.class))).thenReturn(Collections.singletonList(run));
         when(toolCallLogService.list(any(Wrapper.class))).thenReturn(Collections.emptyList());
 
-        AgentRunContextMetric metric = new AgentRunContextMetric();
-        metric.setModelCallId("call-1");
-        metric.setRunId("run-1");
-        metric.setMetricPhase("FINAL");
-        metric.setContextWindowTokens(10000);
-        metric.setOutputReserveTokens(1000);
-        metric.setSafetyReserveTokens(500);
-        metric.setInputBudgetTokens(8500);
-        metric.setEstimatedPromptTokens(1000);
-        metric.setPromptTokens(1200);
-        metric.setToolDefinitionTokens(100);
-        metric.setSystemTokens(100);
-        metric.setCurrentMessageTokens(50);
-        when(runContextMetricService.list(any(Wrapper.class))).thenReturn(Collections.singletonList(metric));
-
         WebResponse<List<AgentMessageVo>> response = controller.messages("conversation-1", 1L, 20L);
 
         AgentMessageVo item = response.getData().get(0);
         assertEquals("run-1", item.getRunId());
-        assertEquals("call-1", item.getContextMetric().getModelCallId());
-        assertEquals(14.12D, item.getContextMetric().getOccupancyPercent());
-        assertEquals(100, item.getContextMetric().getToolDefinitionTokens());
-        assertEquals(100, item.getContextMetric().getFramingTokens());
+        assertNull(item.getContextMetric());
+        assertTrue(item.getToolCallLogs().isEmpty());
     }
 
     /**

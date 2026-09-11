@@ -333,20 +333,25 @@ class WorkflowDefinitionValidatorTest {
 
     @Test
     void rejectsOutputMappingsOnNonProducingNodeTypes() {
-        // delay 与 join 不产出变量，携带 outputs 应在发布时拒绝
+        // delay 不产出变量，携带 outputs 应在发布时拒绝
         String delayNodes = "[{\"id\":\"start\",\"type\":\"start\"},"
                 + "{\"id\":\"pause\",\"type\":\"delay\",\"delayMillis\":1000,"
                 + "\"outputs\":[{\"target\":\"x\",\"source\":\"$output\"}]},"
                 + "{\"id\":\"end\",\"type\":\"end\"}]";
         String chain = "[{\"source\":\"start\",\"target\":\"pause\"},{\"source\":\"pause\",\"target\":\"end\"}]";
         assertThrows(ServerException.class, () -> WorkflowDefinitionValidator.validateVariables(delayNodes, chain, "[]"));
+    }
 
+    @Test
+    void acceptsOutputMappingsOnJoinNode() {
+        // join 属于产出型节点：汇聚节点需要把各并行分支分别写入的变量组装为结构化结果，
+        // 其 outputs 因此合法（见 WorkflowDefinitionValidator 的 PRODUCING_TYPES 与 joinBranchOutput 分支）。
         String joinNodes = "[{\"id\":\"start\",\"type\":\"start\"},"
                 + "{\"id\":\"gate\",\"type\":\"join\",\"joinMode\":\"ALL_SUCCESS\","
                 + "\"outputs\":[{\"target\":\"x\",\"source\":\"$output\"}]},"
                 + "{\"id\":\"end\",\"type\":\"end\"}]";
         String joinChain = "[{\"source\":\"start\",\"target\":\"gate\"},{\"source\":\"gate\",\"target\":\"end\"}]";
-        assertThrows(ServerException.class, () -> WorkflowDefinitionValidator.validateVariables(joinNodes, joinChain, "[]"));
+        assertDoesNotThrow(() -> WorkflowDefinitionValidator.validateVariables(joinNodes, joinChain, "[]"));
     }
 
     @Test

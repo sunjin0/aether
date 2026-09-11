@@ -1,5 +1,6 @@
 package com.aether.evaluation.controller;
 
+import com.aether.evaluation.service.EvaluationDataDeletionService;
 import com.aether.evaluation.service.EvaluationEvaluatorService;
 import com.aether.evaluation.service.EvaluationEvaluatorVersionService;
 import com.aether.evaluation.service.EvaluationDatasetService;
@@ -21,7 +22,8 @@ class EvaluationEvaluatorControllerTest {
     @Test
     void jsonPathRuleOnlyAcceptsTheRestrictedPathGrammar() {
         EvaluationEvaluatorController controller = new EvaluationEvaluatorController(
-                mock(EvaluationEvaluatorService.class), mock(EvaluationEvaluatorVersionService.class));
+                mock(EvaluationEvaluatorService.class), mock(EvaluationEvaluatorVersionService.class),
+                mock(EvaluationDataDeletionService.class));
 
         assertTrue((Boolean) ReflectionTestUtils.invokeMethod(controller, "validConfig", "RULE",
                 "{\"operator\":\"JSON_PATH_EQUALS\",\"jsonPath\":\"$.data.items[0].status\"}"));
@@ -32,7 +34,8 @@ class EvaluationEvaluatorControllerTest {
     @Test
     void jsonSchemaRuleAcceptsTheStructuredSchemaStoredByTheUi() {
         EvaluationEvaluatorController controller = new EvaluationEvaluatorController(
-                mock(EvaluationEvaluatorService.class), mock(EvaluationEvaluatorVersionService.class));
+                mock(EvaluationEvaluatorService.class), mock(EvaluationEvaluatorVersionService.class),
+                mock(EvaluationDataDeletionService.class));
 
         assertTrue((Boolean) ReflectionTestUtils.invokeMethod(controller, "validConfig", "RULE",
                 "{\"operator\":\"JSON_SCHEMA\",\"schema\":{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}}}}"));
@@ -45,7 +48,7 @@ class EvaluationEvaluatorControllerTest {
         EvaluationDatasetController controller = new EvaluationDatasetController(
                 mock(EvaluationDatasetService.class), mock(EvaluationCaseService.class),
                 mock(EvaluationDatasetVersionService.class), mock(EvaluationCaseVersionService.class),
-                mock(EvaluationEvaluatorVersionService.class));
+                mock(EvaluationEvaluatorVersionService.class), mock(EvaluationDataDeletionService.class));
         EvaluationCase toolCase = new EvaluationCase();
         toolCase.setAssertionsJson("[{\"type\":\"TOOL_CALLED\",\"target\":\"tool-1\"}]");
         assertTrue(ReflectionTestUtils.invokeMethod(controller, "validateAssertions", "AGENT", List.of(toolCase)) == null);

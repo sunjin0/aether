@@ -1,16 +1,12 @@
 package com.aether.agent.service.impl;
 
-import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.vo.AgentContextOperationsMetricsVo;
 import org.junit.jupiter.api.Test;
 
-import java.util.Arrays;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.spy;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 验证上下文运营指标聚合。
@@ -18,67 +14,46 @@ import static org.mockito.Mockito.spy;
 class AgentRunContextMetricServiceImplTest {
 
     /**
-     * 聚合上下文压力、压缩状态和裁剪信号。
+     * V178 退役 agent_run_context_metric 后，该端点不再聚合历史快照，
+     * 只回显查询下界，其余字段保持稳定的空值（见实现中的兼容性说明）。
      */
     @Test
-    void operationsMetricsAggregatesPressureCompressionAndTrimming() {
-        AgentRunContextMetricServiceImpl service = spy(new AgentRunContextMetricServiceImpl());
-        doReturn(Arrays.asList(
-                metric("ANSWER", "FINAL", "NOT_NEEDED", 900, 1000, 2, 0, 600, 300, 66.67D),
-                metric("DEEP_STEP", "FINAL", "NOT_NEEDED", 500, 1000, 0, 3, 100, 400, 20D),
-                metric("COMPRESSION", "FINAL", "SYNC_COMPLETED", 120, 1000, 0, 4),
-                metric("COMPRESSION", "FINAL", "FAILED_FALLBACK", 100, 1000, 0, 0),
-                metric(null, "PRELIMINARY", null, 700, 1000, 1, 0)
-        )).when(service).list(any());
+    void operationsMetricsReturnsStableEmptyResponseAfterV178() {
+        AgentRunContextMetricServiceImpl service = new AgentRunContextMetricServiceImpl();
 
         AgentContextOperationsMetricsVo result = service.operationsMetrics(123L);
 
         assertEquals(Long.valueOf(123L), result.getSinceCreatedAt());
-        assertEquals(Long.valueOf(5L), result.getTotalMetricCount());
-        assertEquals(Long.valueOf(2L), result.getCompletedRequestMetricCount());
-        assertEquals(70D, result.getAverageOccupancyPercent());
-        assertEquals(Long.valueOf(2L), result.getCacheObservedMetricCount());
-        assertEquals(43.34D, result.getAveragePromptCacheHitRate());
-        assertEquals(Long.valueOf(700L), result.getTotalCachedPromptTokens());
-        assertEquals(Long.valueOf(700L), result.getTotalUncachedPromptTokens());
-        assertEquals(Long.valueOf(1L), result.getHighPressureMetricCount());
-        assertEquals(Long.valueOf(2L), result.getCompressionMetricCount());
-        assertEquals(Long.valueOf(1L), result.getCompressionCompletedCount());
-        assertEquals(Long.valueOf(1L), result.getCompressionFailedFallbackCount());
-        assertEquals(Long.valueOf(2L), result.getTrimmedMetricCount());
-        assertEquals(Long.valueOf(3L), result.getTrimmedMessageCount());
-        assertEquals(Long.valueOf(2L), result.getCompressedMetricCount());
-        assertEquals(Long.valueOf(7L), result.getCompressedMessageCount());
-        assertEquals(Long.valueOf(2L), result.getByCallType().get("ANSWER"));
-        assertEquals(Long.valueOf(1L), result.getByCallType().get("DEEP_STEP"));
-        assertEquals(Long.valueOf(2L), result.getByCallType().get("COMPRESSION"));
-        assertEquals(Long.valueOf(1L), result.getByCompressionStatus().get("UNKNOWN"));
+        assertEquals(Long.valueOf(0L), result.getTotalMetricCount());
+        assertEquals(Long.valueOf(0L), result.getCompletedRequestMetricCount());
+        assertEquals(0D, result.getAverageOccupancyPercent());
+        assertEquals(Long.valueOf(0L), result.getCacheObservedMetricCount());
+        assertEquals(0D, result.getAveragePromptCacheHitRate());
+        assertEquals(Long.valueOf(0L), result.getTotalCachedPromptTokens());
+        assertEquals(Long.valueOf(0L), result.getTotalUncachedPromptTokens());
+        assertEquals(Long.valueOf(0L), result.getHighPressureMetricCount());
+        assertEquals(Long.valueOf(0L), result.getCompressionMetricCount());
+        assertEquals(Long.valueOf(0L), result.getCompressionCompletedCount());
+        assertEquals(Long.valueOf(0L), result.getCompressionFailedFallbackCount());
+        assertEquals(Long.valueOf(0L), result.getTrimmedMetricCount());
+        assertEquals(Long.valueOf(0L), result.getTrimmedMessageCount());
+        assertEquals(Long.valueOf(0L), result.getCompressedMetricCount());
+        assertEquals(Long.valueOf(0L), result.getCompressedMessageCount());
+        assertTrue(result.getByCallType().isEmpty());
+        assertTrue(result.getByCompressionStatus().isEmpty());
         assertFalse(result.getLatencyAvailable());
     }
 
-    private AgentRunContextMetric metric(String callType, String phase, String compressionStatus,
-                                         Integer promptTokens, Integer budget,
-                                         Integer trimmed, Integer compressed) {
-        return metric(callType, phase, compressionStatus, promptTokens, budget, trimmed, compressed,
-                null, null, null);
-    }
+    /**
+     * 查询下界为空时同样原样回显，不抛异常。
+     */
+    @Test
+    void operationsMetricsEchoesNullLowerBound() {
+        AgentRunContextMetricServiceImpl service = new AgentRunContextMetricServiceImpl();
 
-    private AgentRunContextMetric metric(String callType, String phase, String compressionStatus,
-                                         Integer promptTokens, Integer budget,
-                                         Integer trimmed, Integer compressed,
-                                         Integer cachedPromptTokens, Integer uncachedPromptTokens,
-                                         Double promptCacheHitRate) {
-        AgentRunContextMetric metric = new AgentRunContextMetric();
-        metric.setCallType(callType);
-        metric.setMetricPhase(phase);
-        metric.setCompressionStatus(compressionStatus);
-        metric.setPromptTokens(promptTokens);
-        metric.setInputBudgetTokens(budget);
-        metric.setTrimmedMessageCount(trimmed);
-        metric.setCompressedMessageCount(compressed);
-        metric.setCachedPromptTokens(cachedPromptTokens);
-        metric.setUncachedPromptTokens(uncachedPromptTokens);
-        metric.setPromptCacheHitRate(promptCacheHitRate);
-        return metric;
+        AgentContextOperationsMetricsVo result = service.operationsMetrics(null);
+
+        assertNull(result.getSinceCreatedAt());
+        assertEquals(Long.valueOf(0L), result.getTotalMetricCount());
     }
 }

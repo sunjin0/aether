@@ -8,20 +8,17 @@ import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelChatResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class ContextMetricServiceTest {
@@ -62,9 +59,8 @@ class ContextMetricServiceTest {
         assertEquals(preliminary.getModelCallId(), finalMetric.getSourceModelCallId());
         assertNotEquals(preliminary.getModelCallId(), finalMetric.getModelCallId());
         assertEquals(Integer.valueOf(321), finalMetric.getPromptTokens());
-        ArgumentCaptor<AgentRunContextMetric> saved = ArgumentCaptor.forClass(AgentRunContextMetric.class);
-        verify(metricStore, org.mockito.Mockito.times(2)).save(saved.capture());
-        assertEquals("PRELIMINARY", saved.getAllValues().get(0).getMetricPhase());
+        // V178 退役了 agent_run_context_metric：指标只保留内存态供本次请求使用，不再落库。
+        verifyNoInteractions(metricStore);
     }
 
     @Test
@@ -88,7 +84,7 @@ class ContextMetricServiceTest {
         assertEquals(Integer.valueOf(750), finalMetric.getCachedPromptTokens());
         assertEquals(Integer.valueOf(250), finalMetric.getUncachedPromptTokens());
         assertEquals(75D, finalMetric.getPromptCacheHitRate());
-        verify(metricStore).save(finalMetric);
+        verifyNoInteractions(metricStore);
     }
 
     @Test
@@ -179,25 +175,15 @@ class ContextMetricServiceTest {
     }
 
     @Test
-    void recordsFinalFromLatestPreliminaryWithoutMutatingIt() {
+    void recordFinalForLatestPreliminaryIsRetiredNoOpAfterV178() {
         ContextMetricService service = new ContextMetricService(metricStore);
-        AgentRunContextMetric preliminary = new AgentRunContextMetric();
-        preliminary.setModelCallId("call-pre");
-        preliminary.setRunId("run-deep");
-        preliminary.setCallType("DEEP_STEP");
-        preliminary.setAttemptNo(2);
-        preliminary.setMetricPhase("PRELIMINARY");
-        preliminary.setCompressionStatus("NOT_NEEDED");
-        preliminary.setCompressedMessageCount(0);
-        when(metricStore.list(any())).thenReturn(Collections.singletonList(preliminary));
 
+        // V178 退役观测表后该方法保留为兼容空实现：既不回查历史快照，也不落库。
+        // 唯一生产调用方 DeepAgentRunService 丢弃返回值，故空返回不影响运行。
         AgentRunContextMetric finalMetric = service.recordFinalForLatestPreliminary(
                 "run-deep", "DEEP_STEP", 456, "NOT_NEEDED");
 
-        assertEquals("FINAL", finalMetric.getMetricPhase());
-        assertEquals("call-pre", finalMetric.getSourceModelCallId());
-        assertNotEquals("call-pre", finalMetric.getModelCallId());
-        assertEquals(Integer.valueOf(456), finalMetric.getPromptTokens());
-        verify(metricStore).save(finalMetric);
+        assertNull(finalMetric);
+        verifyNoInteractions(metricStore);
     }
 }
