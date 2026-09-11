@@ -2,10 +2,8 @@ package com.aether.agent.skill.service;
 
 import com.aether.agent.dto.AgentChatDto;
 import com.aether.agent.entity.AgentDefinition;
-import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.entity.ModelProvider;
-import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.service.CapabilityIndexService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
@@ -18,6 +16,7 @@ import com.aether.agent.skill.service.impl.AgentSkillResourceServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillToolBindingServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
+import com.aether.agent.tools.AgentToolLiveness;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
@@ -56,7 +55,7 @@ public class SkillContextService {
     private final AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService;
     private final AgentSkillResourceServiceImpl resourceService;
     private final AgentToolCatalog toolCatalog;
-    private final AgentMcpServerService mcpServerService;
+    private final AgentToolLiveness toolLiveness;
     private final ObjectStorageService objectStorageService;
     private final String resourceBucket;
     private final SkillRouterService skillRouterService;
@@ -68,13 +67,13 @@ public class SkillContextService {
 public SkillContextService(AgentSkillService skillService, AgentSkillVersionServiceImpl versionService,
                                AgentSkillToolBindingServiceImpl toolBindingService, AgentSkillKnowledgeBindingServiceImpl knowledgeBindingService,
                                AgentSkillResourceServiceImpl resourceService,
-                               AgentToolCatalog toolCatalog, AgentMcpServerService mcpServerService,
+                               AgentToolCatalog toolCatalog, AgentToolLiveness toolLiveness,
                                ObjectStorageService objectStorageService,
                                @Value("${skill.storage.bucket:${STORAGE_SKILL_BUCKET:${OSS_BUCKET:${MINIO_SKILL_BUCKET:aether-skill}}}}") String resourceBucket,
                                SkillRouterService skillRouterService, CapabilityIndexService capabilityIndexService) {
         this.skillService = skillService; this.versionService = versionService; this.toolBindingService = toolBindingService;
         this.knowledgeBindingService = knowledgeBindingService;
-        this.resourceService = resourceService; this.toolCatalog = toolCatalog; this.mcpServerService = mcpServerService;
+        this.resourceService = resourceService; this.toolCatalog = toolCatalog; this.toolLiveness = toolLiveness;
         this.objectStorageService = objectStorageService; this.resourceBucket = resourceBucket;
         this.skillRouterService = skillRouterService;
         this.capabilityIndexService = capabilityIndexService;
@@ -101,24 +100,25 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
             context.setSystemMessages(systemMessages(agent.getSystemPrompt(),
                     capabilityIndexService.buildIndex(agent.getId(), installations)));
             context.setSystemPrompt(joinSystemMessages(context.getSystemMessages()));
-            List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
-            context.setTools(boundTools);
+            // 绑定表只表达授权，MCP 服务可能已停用或删除，下发前必须按当前状态过滤。
+            List<AgentTool> tools = toolLiveness.filterLive(toolCatalog.getBoundTools(agent.getId()));
+            context.setTools(tools);
             context.setKnowledgeBaseIds(null);
             Map<String, Object> snapshot = new LinkedHashMap<>();
             snapshot.put("installed", false);
-            snapshot.put("toolIds", boundTools.stream().map(AgentTool::getId).collect(Collectors.toList()));
+            snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
             context.setSnapshot(JSON.toJSONString(snapshot));
             return context;
         }
         SkillRouteDecision route = skillRouterService == null ? new SkillRouteDecision() : skillRouterService.route(agent, provider, routingQuery, installations);
         if (!route.isMatched()) {
             if (dto != null && dto.getSkillInputs() != null && !dto.getSkillInputs().isEmpty()) throw new ServerException(422, I18nUtils.getMessage("skill.context.no-active-skill"));
-            List<AgentTool> boundTools = toolCatalog.getBoundTools(agent.getId());
+            List<AgentTool> tools = toolLiveness.filterLive(toolCatalog.getBoundTools(agent.getId()));
             context.setSystemMessages(systemMessages(agent.getSystemPrompt(),
                     capabilityIndexService.buildIndex(agent.getId(), allInstallations)));
             context.setSystemPrompt(joinSystemMessages(context.getSystemMessages()));
-            context.setTools(boundTools); context.setKnowledgeBaseIds(null);
-            Map<String, Object> snapshot = new LinkedHashMap<>(); snapshot.put("routing", route); snapshot.put("toolIds", boundTools.stream().map(AgentTool::getId).collect(Collectors.toList()));
+            context.setTools(tools); context.setKnowledgeBaseIds(null);
+            Map<String, Object> snapshot = new LinkedHashMap<>(); snapshot.put("routing", route); snapshot.put("toolIds", tools.stream().map(AgentTool::getId).collect(Collectors.toList()));
             context.setSnapshot(JSON.toJSONString(snapshot)); return context;
         }
         installations = installations.stream().filter(item -> route.getSkillVersionId().equals(item.getSkillVersionId())).collect(Collectors.toList());
@@ -142,7 +142,7 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
             Set<String> toolIds = declarations.stream().map(AgentSkillToolBinding::getToolId).collect(Collectors.toCollection(LinkedHashSet::new));
             for (AgentSkillToolBinding declaration : declarations) {
                 AgentTool tool = boundTools.stream().filter(item -> declaration.getToolId().equals(item.getId())).findFirst().orElse(null);
-                if (Boolean.TRUE.equals(declaration.getRequired()) && (!boundToolIds.contains(declaration.getToolId()) || !isLiveMcpTool(tool))) throw new ServerException(422, I18nUtils.getMessage("skill.context.required-tool.unavailable", new Object[]{declaration.getToolId()}));
+                if (Boolean.TRUE.equals(declaration.getRequired()) && (!boundToolIds.contains(declaration.getToolId()) || !toolLiveness.isLive(tool))) throw new ServerException(422, I18nUtils.getMessage("skill.context.required-tool.unavailable", new Object[]{declaration.getToolId()}));
                 if (Boolean.TRUE.equals(declaration.getRequired())) requiredToolIds.add(declaration.getToolId());
             }
             declaredToolIds = merge(declaredToolIds, toolIds);
@@ -173,9 +173,10 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
         // selected, only its separately declared dependencies receive full schemas.
         final Set<String> selectedToolIds = declaredToolIds == null
                 ? Collections.<String>emptySet() : declaredToolIds;
-        List<AgentTool> tools = boundTools.stream()
+        // 过滤掉 MCP 服务已停用/删除的工具；内置工具（ask_user 等）没有 MCP 服务，仍须保留。
+        List<AgentTool> tools = toolLiveness.filterLive(boundTools.stream()
                 .filter(item -> selectedToolIds.contains(item.getId()))
-                .filter(this::isLiveMcpTool).collect(Collectors.toList());
+                .collect(Collectors.toList()));
         if (tools.stream().anyMatch(tool -> "generate_artifact".equals(tool.getMcpToolName()))) {
             skillPrompt.append("\n\n[Artifact Generation]\nUse generate_artifact for file output. Provide title, content and format only; never select a Skill, script or template. This Skill's instructions above are the applicable document specification.");
         }
@@ -294,15 +295,6 @@ private String staticPromptCacheKey(AgentSkill skill, AgentSkillVersion version,
             // malformed JSON as an instruction to the model.
             return false;
         }
-    }
-
-    /**
- * 判断是否为LiveMcpTool。
- */
-private boolean isLiveMcpTool(AgentTool tool) {
-        if (tool == null || !Integer.valueOf(1).equals(tool.getStatus()) || Boolean.TRUE.equals(tool.getDeleted()) || StringUtils.isBlank(tool.getMcpToolName()) || StringUtils.isBlank(tool.getMcpServerId())) return false;
-        AgentMcpServer server = mcpServerService.getById(tool.getMcpServerId());
-        return server != null && !Boolean.TRUE.equals(server.getDeleted()) && Integer.valueOf(1).equals(server.getStatus());
     }
 
     /**

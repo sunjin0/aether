@@ -17,6 +17,7 @@ import com.aether.agent.skill.service.impl.AgentSkillResourceServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillToolBindingServiceImpl;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
+import com.aether.agent.tools.AgentToolLiveness;
 import com.aether.storage.service.ObjectStorageService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +55,8 @@ class SkillContextServiceTest {
     private final ObjectStorageService objectStorageService = mock(ObjectStorageService.class);
     private final SkillRouterService skillRouterService = mock(SkillRouterService.class);
     private final CapabilityIndexService capabilityIndexService = mock(CapabilityIndexService.class);
-    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, resourceService, toolCatalog, mcpServerService, objectStorageService, "aether-skill", skillRouterService, capabilityIndexService);
+    private final AgentToolLiveness toolLiveness = new AgentToolLiveness(mcpServerService);
+    private final SkillContextService service = new SkillContextService(skillService, versionService, toolBindingService, knowledgeBindingService, resourceService, toolCatalog, toolLiveness, objectStorageService, "aether-skill", skillRouterService, capabilityIndexService);
 
     /**
      * 处理configureMcpServer。
@@ -67,6 +69,15 @@ class SkillContextServiceTest {
         server.setStatus(1);
         server.setDeleted(false);
         when(mcpServerService.getById("mcp1")).thenReturn(server);
+        // 批量过滤按 id 取服务；这里回落到 getById 的桩，行为与逐条查询一致。
+        when(mcpServerService.listByIds(ArgumentMatchers.anyCollection())).thenAnswer(invocation -> {
+            java.util.List<AgentMcpServer> servers = new java.util.ArrayList<>();
+            for (Object id : invocation.<java.util.Collection<?>>getArgument(0)) {
+                AgentMcpServer found = mcpServerService.getById(String.valueOf(id));
+                if (found != null) servers.add(found);
+            }
+            return servers;
+        });
         when(skillRouterService.route(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenAnswer(invocation -> {
             java.util.List<AgentDefinitionSkillBinding> bindings = invocation.getArgument(3);
             SkillRouteDecision decision = new SkillRouteDecision();
@@ -347,6 +358,65 @@ class SkillContextServiceTest {
     }
 
     /**
+     * 回归：MCP 服务已停用的工具不得下发，即使绑定行仍然存在。
+     */
+    @Test
+    void dropsToolsWhoseMcpServerIsDisabled() {
+        AgentDefinition agent = agent("a1", "base");
+        when(skillService.listBindings("a1")).thenReturn(Collections.emptyList());
+        AgentMcpServer disabled = new AgentMcpServer();
+        disabled.setId("mcp2");
+        disabled.setStatus(0);
+        disabled.setDeleted(false);
+        when(mcpServerService.getById("mcp2")).thenReturn(disabled);
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Arrays.asList(
+                tool("t1", "Tool A", 1), toolOnServer("t2", "Tool B", "mcp2")));
+
+        SkillRuntimeContext context = service.resolve(agent, new AgentChatDto());
+
+        assertEquals(1, context.getTools().size());
+        assertEquals("t1", context.getTools().get(0).getId());
+        assertTrue(context.getSnapshot().contains("\"toolIds\":[\"t1\"]"));
+    }
+
+    /**
+     * 回归：内置工具没有 MCP 服务，不得被当成"服务缺失"裁掉——否则模型看不到它的入参结构。
+     */
+    @Test
+    void keepsInProcessToolsWithoutMcpServer() {
+        AgentDefinition agent = agent("a1", "base");
+        when(skillService.listBindings("a1")).thenReturn(Collections.emptyList());
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Arrays.asList(
+                inProcessTool("ask_user", "ask_user"), tool("t1", "Tool A", 1)));
+
+        SkillRuntimeContext context = service.resolve(agent, new AgentChatDto());
+
+        assertEquals(2, context.getTools().size());
+        assertTrue(context.getTools().stream().anyMatch(t -> "ask_user".equals(t.getId())));
+    }
+
+    /**
+     * 回归：Skill 命中时内置交互工具仍应在作用域内。它的执行按名称走注册表、不经过 MCP 审批，
+     * 但模型必须先看到它才会调用，故不能因缺少 mcpServerId 而被收敛掉。
+     */
+    @Test
+    void keepsDeclaredInProcessToolWhenSkillIsRouted() {
+        AgentDefinition agent = agent("a1", "p");
+        when(skillService.listBindings("a1")).thenReturn(Collections.singletonList(binding("a1", "s1", "v1", 1, 1)));
+        when(skillService.getById("s1")).thenReturn(skill("s1", "s1c", "S1", 1));
+        when(versionService.getById("v1")).thenReturn(version("v1", "s1", 1, 1));
+        when(toolBindingService.list(any())).thenReturn(Collections.singletonList(toolBinding("v1", "ask_user", false, 0)));
+        when(knowledgeBindingService.list(any())).thenReturn(Collections.emptyList());
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Collections.singletonList(inProcessTool("ask_user", "ask_user")));
+
+        SkillRuntimeContext context = service.resolve(agent, new AgentChatDto());
+
+        assertTrue(context.isInstalled());
+        assertEquals(1, context.getTools().size());
+        assertEquals("ask_user", context.getTools().get(0).getId());
+    }
+
+    /**
      * 处理sha256。
      */
     private String sha256(byte[] value) throws Exception {
@@ -437,6 +507,28 @@ class SkillContextServiceTest {
         tool.setDeleted(false);
         tool.setMcpServerId("mcp1");
         tool.setMcpToolName("tool_" + id);
+        return tool;
+    }
+
+    /**
+     * 处理toolOnServer：绑定到指定 MCP 服务的工具。
+     */
+    private AgentTool toolOnServer(String id, String name, String serverId) {
+        AgentTool tool = tool(id, name, 1);
+        tool.setMcpServerId(serverId);
+        return tool;
+    }
+
+    /**
+     * 与 ToolRegistry 内置工具一致：无 mcpServerId / mcpToolName，进程内执行。
+     */
+    private AgentTool inProcessTool(String id, String name) {
+        AgentTool tool = new AgentTool();
+        tool.setId(id);
+        tool.setCode(name);
+        tool.setName(name);
+        tool.setType("internal");
+        tool.setStatus(1);
         return tool;
     }
 }

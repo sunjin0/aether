@@ -1,13 +1,17 @@
 package com.aether.agent.service;
 
+import com.aether.agent.entity.AgentMcpServer;
 import com.aether.agent.entity.AgentTool;
+import com.aether.agent.service.AgentMcpServerService;
 import com.aether.agent.skill.entity.AgentDefinitionSkillBinding;
 import com.aether.agent.skill.entity.AgentSkill;
 import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.service.AgentSkillService;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
+import com.aether.agent.tools.AgentToolLiveness;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -27,7 +31,9 @@ class CapabilityIndexServiceTest {
     private final AgentToolCatalog toolCatalog = mock(AgentToolCatalog.class);
     private final AgentSkillService skillService = mock(AgentSkillService.class);
     private final AgentSkillVersionServiceImpl versionService = mock(AgentSkillVersionServiceImpl.class);
-    private final CapabilityIndexService service = new CapabilityIndexService(toolCatalog, skillService, versionService);
+    private final AgentMcpServerService mcpServerService = mock(AgentMcpServerService.class);
+    private final AgentToolLiveness toolLiveness = new AgentToolLiveness(mcpServerService);
+    private final CapabilityIndexService service = new CapabilityIndexService(toolCatalog, skillService, versionService, toolLiveness);
 
     /**
      * 处理returnsEmptyWhenNothingAvailable。
@@ -137,12 +143,57 @@ class CapabilityIndexServiceTest {
         assertFalse(index.contains("tool-499"));
     }
 
+    /**
+     * 回归：MCP 服务已停用的工具不应出现在常驻能力索引里——索引与"可用条件：MCP 服务启用"
+     * 的措辞必须一致，否则模型会据索引认定一个实际调用必然失败的能力。
+     */
+    @Test
+    void omitsToolsWhoseMcpServerIsDisabled() {
+        when(mcpServerService.getById("mcp-on")).thenReturn(server("mcp-on", 1));
+        when(mcpServerService.getById("mcp-off")).thenReturn(server("mcp-off", 0));
+        // 批量过滤按 id 取服务；这里回落到 getById 的桩，行为与逐条查询一致。
+        when(mcpServerService.listByIds(ArgumentMatchers.anyCollection())).thenAnswer(invocation -> {
+            List<AgentMcpServer> found = new java.util.ArrayList<>();
+            for (Object id : invocation.<java.util.Collection<?>>getArgument(0)) {
+                AgentMcpServer server = mcpServerService.getById(String.valueOf(id));
+                if (server != null) found.add(server);
+            }
+            return found;
+        });
+        when(toolCatalog.getBoundTools("a1")).thenReturn(Arrays.asList(
+                toolOnServer("t1", "http", "HTTP 请求工具", "mcp-on"),
+                toolOnServer("t2", "dead", "已停用的工具", "mcp-off")));
+
+        String index = service.buildIndex("a1", Collections.emptyList());
+
+        assertTrue(index.contains("- tool http: HTTP 请求工具"));
+        assertFalse(index.contains("dead"));
+        assertFalse(index.contains("已停用的工具"));
+    }
+
+    private AgentMcpServer server(String id, int status) {
+        AgentMcpServer server = new AgentMcpServer();
+        server.setId(id);
+        server.setStatus(status);
+        server.setDeleted(false);
+        return server;
+    }
+
+    private AgentTool toolOnServer(String id, String name, String description, String serverId) {
+        AgentTool tool = tool(id, name, description);
+        tool.setMcpServerId(serverId);
+        return tool;
+    }
+
+    /** 与 AgentToolCatalog.getBoundTools 的产出对齐：启用、未删除。无 mcpServerId 即内置工具。 */
     private AgentTool tool(String id, String name, String description) {
         AgentTool tool = new AgentTool();
         tool.setId(id);
         tool.setName(name);
         tool.setDescription(description);
         tool.setMcpToolName(name);
+        tool.setStatus(1);
+        tool.setDeleted(false);
         return tool;
     }
 

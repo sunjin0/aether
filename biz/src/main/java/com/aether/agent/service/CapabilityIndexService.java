@@ -7,6 +7,7 @@ import com.aether.agent.skill.entity.AgentSkillVersion;
 import com.aether.agent.skill.service.AgentSkillService;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
+import com.aether.agent.tools.AgentToolLiveness;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
@@ -30,15 +31,17 @@ public class CapabilityIndexService {
     private final AgentToolCatalog toolCatalog;
     private final AgentSkillService skillService;
     private final AgentSkillVersionServiceImpl versionService;
+    private final AgentToolLiveness toolLiveness;
 
     /**
      * 创建 {@code CapabilityIndexService} 实例。
      */
     public CapabilityIndexService(AgentToolCatalog toolCatalog, AgentSkillService skillService,
-                                  AgentSkillVersionServiceImpl versionService) {
+                                  AgentSkillVersionServiceImpl versionService, AgentToolLiveness toolLiveness) {
         this.toolCatalog = toolCatalog;
         this.skillService = skillService;
         this.versionService = versionService;
+        this.toolLiveness = toolLiveness;
     }
 
     /**
@@ -46,7 +49,9 @@ public class CapabilityIndexService {
      */
     public String buildIndex(String agentId, List<AgentDefinitionSkillBinding> installations) {
         StringBuilder out = new StringBuilder();
-        appendToolLines(out, toolCatalog.getBoundTools(agentId));
+        // 索引常驻系统提示，只应宣告当前确实可调用的工具：绑定行仍在但 MCP 服务已停用/删除的
+        // 工具在此处列出，会让模型以为具备该能力，调用后必然失败。
+        appendToolLines(out, toolLiveness.filterLive(toolCatalog.getBoundTools(agentId)));
         appendSkillLines(out, installations);
         if (out.length() == 0) return "";
         String body = out.toString().trim();
