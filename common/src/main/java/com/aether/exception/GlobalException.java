@@ -2,8 +2,10 @@ package com.aether.exception;
 
 import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.aether.entity.WebResponse;
+import com.aether.i18n.I18nUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.http.HttpStatus;
@@ -68,6 +70,13 @@ public class GlobalException {
         if (e instanceof TokenExpiredException) {
             log.error("token过期，类型：{}", e.getClass().getName());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(WebResponse.Error(401, sanitize(e.getMessage()), null));
+        }
+        // 请求体无法绑定到接口形参是调用方的错误，不是服务端故障。此前统一落入 500，
+        // 会把契约不一致这类问题伪装成“系统内部错误”，掩盖真实原因。
+        if (e instanceof HttpMessageNotReadableException) {
+            log.error("请求体解析失败，类型：{}", e.getClass().getName());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(WebResponse.Error(400, I18nUtils.getMessage("system.request.body.invalid", null, "请求体格式错误，无法解析"), null));
         }
 
         log.error("其他异常，类型：{}", e.getClass().getName());
