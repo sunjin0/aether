@@ -1,0 +1,70 @@
+# 发布模式叠加文件。必须与 docker-compose.prod.yml 组合使用，不要单独 up：
+#
+#   docker compose --env-file .env.prod --env-file .env.release \
+#     -f docker-compose.prod.yml -f docker-compose.release.yml build
+#
+# 它只做两件事：
+#   1. 把 8 个构建上下文从源码目录（.sources/*）改指向 CI 上传的暂存目录（release/<tag>/*）；
+#   2. 把镜像 tag 从可变的 :prod 换成不可变的 release-<tag>。
+#
+# 不声明顶层 name:，沿用 base 的 aether-prod，否则卷与网络会被搬到新项目名下、数据看着像丢了。
+#
+# 基础设施三服务（postgres/redis/minio）不在本文件中出现，保持 base 的镜像与数据卷不变。
+# 源码构建路径（docker-compose.prod.yml + scripts/fetch-sources.sh）保持原样，作为离线灾备回退。
+#
+# 暂存区契约（服务器 $DEPLOY_DIR/release/<tag>/ 下，由 CI 上传）：
+#   admin/       admin.jar  deploy/admin.Dockerfile
+#   front/       front.jar  deploy/front.Dockerfile
+#   dashboard/   dist/  nginx/default.conf.template  deploy/dashboard.Dockerfile
+#   deep-agent/  Dockerfile  pyproject.toml  uv.lock  README.md  src/
+#   mcp/         Dockerfile  pyproject.toml  uv.lock  README.md  src/
+#                sandbox-runner/  sandbox-runtime/
+#
+# Python 侧（deep-agent / mcp / sandbox-*）刻意复用仓库原有 Dockerfile 不改：
+# 它们的 apt 依赖（tesseract/poppler/libgl 等）复制一份出来就是长期同步负担，
+# 而传源码与传 wheel 只差几 MB。Java/Node 相反——服务器跑一遍 Maven 要下几百 MB 依赖、
+# 跑一遍 max build 要几分钟，传构建产物收益巨大。
+services:
+  admin:
+    # 用 ${VAR:?} 而不是 ${VAR:-} 兜底：变量缺失必须立刻报错，
+    # 不能静默回落成上一次的 tag 造成"发布了却没换版本"。
+    image: aether-admin:release-${AETHER_RELEASE_TAG:?}
+    build:
+      context: ./release/${AETHER_RELEASE_TAG:?}/admin
+      dockerfile: deploy/admin.Dockerfile
+  front:
+    image: aether-front:release-${AETHER_RELEASE_TAG:?}
+    build:
+      context: ./release/${AETHER_RELEASE_TAG:?}/front
+      dockerfile: deploy/front.Dockerfile
+  dashboard:
+    image: aether-dashboard:release-${AETHER_RELEASE_TAG:?}
+    build:
+      context: ./release/${AETHER_RELEASE_TAG:?}/dashboard
+      dockerfile: deploy/dashboard.Dockerfile
+  deep-agent:
+    image: aether-deep-agent:release-${AETHER_RELEASE_TAG:?}
+    build:
+      context: ./release/${AETHER_RELEASE_TAG:?}/deep-agent
+      dockerfile: Dockerfile
+  mcp:
+    image: aether-mcp:release-${AETHER_RELEASE_TAG:?}
+    build:
+      context: ./release/${AETHER_RELEASE_TAG:?}/mcp
+      dockerfile: Dockerfile
+  sandbox-runner:
+    image: aether-sandbox-runner:release-${AETHER_RELEASE_TAG:?}
+    build:
+      # 三者同仓同 tag，共用 mcp/ 一个上下文，只靠 dockerfile 路径区分。
+      context: ./release/${AETHER_RELEASE_TAG:?}/mcp
+      dockerfile: sandbox-runner/Dockerfile
+  sandbox-runtime-python:
+    image: aether-sandbox-python:release-${AETHER_RELEASE_TAG:?}
+    build:
+      context: ./release/${AETHER_RELEASE_TAG:?}/mcp
+      dockerfile: sandbox-runtime/python.Dockerfile
+  sandbox-runtime-node:
+    image: aether-sandbox-node:release-${AETHER_RELEASE_TAG:?}
+    build:
+      context: ./release/${AETHER_RELEASE_TAG:?}/mcp
+      dockerfile: sandbox-runtime/node.Dockerfile

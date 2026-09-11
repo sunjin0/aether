@@ -16,12 +16,27 @@ Admin/Front 启动时自动执行迁移；相关配置见 `admin/src/main/resour
 
 ### 本地初始化（PostgreSQL 16 + pgvector）
 
+> 仓库**不再提供**本地基础设施编排：`docker-compose.postgresql.yml` 与 `deploy/docker-compose.infrastructure.yml`
+> 均已下线（后者见 `d134156 chore(deploy): 下线被生产编排取代的旧 Compose 与失效门禁脚本`）。
+> 本机需自备 PostgreSQL（pgvector 镜像）与 Redis，按 `api/src/main/resources/application-dev.yml`
+> 的默认值监听 `localhost:5432/aether`（`sunjin`）与 `127.0.0.1:6379`，或改用 `DB_URL` /
+> `DB_USERNAME` / `DB_PASSWORD` 环境变量指向已有实例。
+
 ```powershell
-docker compose -f docker-compose.postgresql.yml up -d
-docker compose -f docker-compose.postgresql.yml exec postgres pg_isready -U aether -d aether
+# 自备实例就绪后：
+docker exec <postgres容器> pg_isready -U sunjin -d aether   # 或直接 psql 验证
 mvn -pl admin -am -DskipTests install
 mvn -pl admin org.springframework.boot:spring-boot-maven-plugin:2.7.18:run -Dspring-boot.run.profiles=dev
 ```
+
+> **Springfox 兼容性已由主源码统一处理。** Springfox 2.10.5 与 Spring Boot 2.7 的 handler mapping
+> 不兼容：Spring MVC 5.3 会注册基于 `PathPatternRequestCondition` 的映射，而 Springfox 只认
+> `PatternsRequestCondition`，`documentationPluginsBootstrapper` 启动时对前者调用 `getPatterns()`
+> 抛 NPE，上下文取消、进程退出。`common/src/main/java/com/aether/config/SpringfoxCompatibilityConfig.java`
+> 在 `knife4j.enable=true` 时注册一个 BeanPostProcessor，把带 pattern parser 的 handler mapping
+> 从 Springfox 的视图里剔除（只影响接口文档的路径匹配，不影响业务路由）。条件不成立时该配置根本不注册，
+> 因此 prod profile 的 bean 集合与改动前完全一致。`spring.mvc.pathmatch.matching-strategy=ant_path_matcher`
+> 治不了它（已实测：用命令行参数强制指定同样崩溃）。测试侧不再需要任何补丁。
 
 ### 向量基础结构
 
@@ -91,8 +106,9 @@ Admin 容器健康检查使用 `/actuator/health`（`admin/src/main/resources/ap
 
 ## 生产部署（docker-compose.prod.yml）
 
-仓库共三个 Compose 文件：`docker-compose.yml`（仅 Admin/Front，接入外部基础设施）、`docker-compose.prod.yml`
-（生产全栈，见下）、`docker-compose.acceptance.yml`（发布前验收，从本地工作区构建）。
+仓库共四个 Compose 文件：`docker-compose.yml`（仅 Admin/Front，接入外部基础设施）、`docker-compose.prod.yml`
+（生产全栈，见下）、`docker-compose.release.yml`（发布叠加文件，见「发布与回滚」）、
+`docker-compose.acceptance.yml`（发布前验收，从本地工作区构建）。
 
 `docker-compose.prod.yml` 相对通用编排的主要加固：
 
@@ -123,6 +139,47 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
 
 ### 发布与回滚
 
+常态走**打 tag 自动发布**；`fetch-sources.sh` 的源码构建保留为离线灾备回退。
+
+#### 打 tag 自动发布（常态路径）
+
+四个仓库各有一份 `.github/workflows/release.yml`，触发条件都是推送 `v*` tag。**四个仓必须打同一个版本号**（如都打 `v0.1.0`）。
+
+```
+打 tag v0.1.0
+  ├─ aether         测试 → mvn package → rsync admin.jar / front.jar ─┐
+  ├─ dashboard      tsc + jest → npm run build → rsync dist/          │→ 部署机暂存区
+  ├─ deep-agent     pytest → rsync 构建输入                            │   $DEPLOY_PATH/release/<tag>/
+  └─ mcp            pytest → rsync 构建输入 ──────────────────────────┘
+                    随后 aether 的 workflow 继续：compose build && up -d --wait
+```
+
+- **只有 aether 的 tag 会部署**（整套 compose 在它那里）。其余三仓只上传产物；三仓全绿后再给 aether 打 tag，否则 aether 的预检会点名缺少哪个组件目录并中止，此时线上容器尚未被动。
+- 不走镜像仓库：Actions 只构建**产物**并经 SSH 传输（约 280 MB/次），镜像在部署机上构建，架构天然匹配宿主。
+- 发布记录写在 `release/<tag>/admin/release-manifest.txt`（tag、commit、构建时间、本次携带的迁移版本区间），部署日志会打印。
+- **测试门禁无例外**：aether 的 525 个用例与 dashboard 的 32 套件 / 98 用例全部是阻断式门禁，没有排除清单。aether 的三个 `@SpringBootTest` 上下文测试（`AdminApplicationTests` / `SmsControllerTest` / `FrontApplicationTests`）由 workflow 的 `services:` 提供 pgvector/pg16 与 redis:7 满足依赖；它们会对空库执行全部迁移，等于每次发布都顺带验证「迁移能否从零应用」。三者均不携带任何 Springfox 补丁，dev profile 的上下文靠主源码的 `SpringfoxCompatibilityConfig` 才能起来——所以这道门禁同时守着「应用能在 dev profile 下启动」。
+- **回滚 = 改 `.env.release` 里的 tag 再 `up -d`**，秒级、无需重传（该 tag 的镜像仍在部署机上，tag 形如 `release-<版本>`，不覆盖）：
+
+  ```sh
+  cd "$DEPLOY_PATH"
+  printf 'AETHER_RELEASE_TAG=%s\n' v0.0.9 > .env.release
+  docker compose --env-file .env.prod --env-file .env.release \
+    -f docker-compose.prod.yml -f docker-compose.release.yml up -d --no-build
+  ```
+
+需要在**四个仓库各配一份**的 Secrets / Variables：
+
+| 名称 | 类型 | 说明 |
+|---|---|---|
+| `DEPLOY_SSH_KEY` | Secret | 部署专用 ed25519 私钥（`ssh-keygen -t ed25519 -C aether-ci-deploy`），不要复用个人密钥 |
+| `DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_PORT`、`DEPLOY_PATH` | Variables | 部署机地址、SSH 用户、SSH 端口、部署目录（含 `docker-compose.prod.yml` 与 `.env.prod`） |
+
+公钥追加到部署用户的 `~/.ssh/authorized_keys`；`docker-compose.release.yml` 由 aether 的 workflow 随发布同步到 `DEPLOY_PATH`。推、拉都不需要 registry 凭据。
+
+**首次发布是破坏性的**：现有容器跑的是 `aether-admin:prod` 等本地 tag，首次会把 8 个容器全部换成新 tag 的镜像。在维护窗口内做，先记录当前镜像 ID 作为回退目标。
+
+#### 灾备：源码构建（fetch-sources.sh）
+
 - 源码由 `scripts/fetch-sources.sh` 检出到 `AETHER_SOURCE_ROOT`（默认 `.sources/`），Compose 从该目录构建；发布前把 `AETHER_ADMIN_GIT_REF` 等固定到 tag 或提交 SHA，不要长期停留在 `master`，否则无法复现与回滚。脚本会打印每个仓库实际检出的提交 SHA，应记入发布记录。
 - **私有仓库凭据走宿主机 git 配置**。不用 BuildKit 的 Git 构建上下文：其 git 源由构建器自行 clone，不读取宿主机的 `credential.helper`、`~/.git-credentials`、`~/.netrc` 与 SSH 私钥，私有仓库必然拉不下来。改为先由脚本用宿主机凭据检出、再让 Compose 从本地目录构建，既不需要额外令牌，也让凭据回到本来生效的位置。部署前可用 `git ls-remote <仓库地址>` 确认宿主机的 git 能直接拉取。
 - `fetch-sources.sh` 默认对每个仓库执行 `git clean -ffdx`，会删除未跟踪文件以保证构建上下文与提交严格一致；`AETHER_SOURCE_ROOT` 下的目录由该脚本专用，不要存放其他内容。加 `--no-clean` 可跳过。
@@ -148,6 +205,10 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
 - `common/src/main/java/com/aether/utils/TokenUtils.java` 硬编码 JWT HMAC 密钥，无环境变量占位，持有源码即可伪造访问令牌。
 - `api/src/main/resources/application-prod.yml` 明文提交 SMTP 账号与授权码（dev/test 同样），该凭据已进入 Git 历史，**应予轮换**。
 - `api/src/main/resources/application-test.yml` 位于 main resources，会被打进生产 jar。
+- `api/src/main/resources/application.yml` 被各应用自己的同名文件遮蔽：Spring Boot 解析
+  `classpath:/application.yml` 只取第一个命中，即 `admin`/`front` 的 `target/classes` 那份。
+  该文件里的 `spring.mvc`、`aether.workflow.*`、`aether.reliability.*` 等配置因此不生效
+  （各应用已把需要的那部分抄进自己的 `application.yml`）。**此条为推断，尚未实证**，排期时请先验证。
 
 ---
 

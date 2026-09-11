@@ -1,0 +1,234 @@
+name: release
+
+# 只接 tag：打 v* 标签即「测试 → 打包 → 上传 → 部署」。
+# 刻意不接 push/PR —— 本仓库当前只要发布这一条路径，以后要加门禁再单独加 ci.yml。
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 全程不需要 registry 凭据：产物经 SSH 直传部署机，镜像在部署机上构建。
+permissions:
+  contents: read
+
+# 同一时间只允许一个发布在跑。两个 tag 并发会同时改部署机的 compose 状态与 .env.release，
+# 可能产生混合版本容器。cancel-in-progress 保持 false：已开始的发布宁可跑完，也不半途中断。
+concurrency:
+  group: aether-release
+  cancel-in-progress: false
+
+env:
+  # 迁移文件所在目录；三个 profile 都指向它（api/src/main/resources/application*.yml）。
+  MIGRATION_DIR: api/src/main/resources/db/migration/postgresql
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    # 三个 @SpringBootTest 上下文测试会真实启动整个 Spring 上下文，Druid 数据源在启动时即建立连接
+    # （application-dev.yml 的 initial-size: 10），数据库不在线就会「Failed to load ApplicationContext」。
+    # dev profile 默认连 localhost:5432/aether（sunjin/192837）与 127.0.0.1:6379——
+    # 与下面两个 service 容器对齐，因此不需要给测试传任何额外配置。
+    # postgres 选 pgvector 镜像：V1__init.sql 会执行 CREATE EXTENSION vector，且与生产同版本。
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: aether
+          POSTGRES_USER: sunjin
+          POSTGRES_PASSWORD: "192837"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sunjin -d aether"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # AGENTS.md 要求「已应用的迁移不可修改，只能新增前向 V*__*.sql」。
+      # 这里是那条规则的机器执行臂：纯静态检查，不连数据库、秒级完成。
+      # 不启用 FlywayMigrationSmokeTest —— 它硬断言迁移版本等于 "8"，而现有迁移最大版本远大于此，启用即必红。
+      - name: 校验迁移命名与版本号唯一性
+        run: |
+          set -euo pipefail
+          bad="$(find "$MIGRATION_DIR" -maxdepth 1 -type f -printf '%f\n' \
+                 | grep -vE '^V[0-9]+__[-A-Za-z0-9_]+\.sql$' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::以下迁移文件名不合法（应形如 V<数字>__<描述>.sql）："
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+          dupes="$(find "$MIGRATION_DIR" -maxdepth 1 -type f -printf '%f\n' \
+                   | sed -nE 's/^V([0-9]+)__.*/\1/p' | sort -n | uniq -d)"
+          if [ -n "$dupes" ]; then
+            echo "::error::迁移版本号重复：$(echo $dupes | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "✓ 迁移命名与版本号唯一性通过（共 $(find "$MIGRATION_DIR" -maxdepth 1 -type f | wc -l) 个文件）"
+
+      # 一条命令同时完成门禁与打包：测试不过就拿不到 jar，不存在「测试挂了但仍产出产物」的窗口。
+      # 无任何排除清单，525 个用例全跑。admin 的 2 个 skipped 来自 FlywayMigrationSmokeTest
+      # 自身的设计（见上一步说明），不是被跳过的门禁。
+      # 附带收益：admin 的上下文测试会对这个空库执行全部迁移，等于每次发布都顺带验证
+      # 「所有迁移能否从零应用到 pgvector/pg16」。
+      - name: 测试门禁与打包
+        run: |
+          set -euo pipefail
+          # 不传 -s .mvn/settings.xml：那份配置把 central 镜像到阿里云，适合国内服务器构建，
+          # 而 GitHub runner 在境外，直连 Maven Central 更快。
+          mvn -B -ntp package
+
+      - name: 整理发布暂存区
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          STAGE="stage/release/${TAG}"
+          mkdir -p "${STAGE}/admin/deploy" "${STAGE}/front/deploy"
+
+          # jar 名带版本号，而 deploy/*.Dockerfile 里 COPY 的是固定名 admin.jar / front.jar，
+          # 这里做归一化。断言恰好一个，避免将来多出 sources/javadoc jar 时静默取错。
+          for c in admin front; do
+            mapfile -t jars < <(find "${c}/target" -maxdepth 1 -name "${c}-*.jar" -type f)
+            if [ "${#jars[@]}" -ne 1 ]; then
+              echo "::error::期望 ${c}/target 下恰好 1 个 ${c}-*.jar，实际 ${#jars[@]} 个"
+              printf '%s\n' "${jars[@]}"
+              exit 1
+            fi
+            cp "${jars[0]}" "${STAGE}/${c}/${c}.jar"
+            cp "deploy/${c}.Dockerfile" "${STAGE}/${c}/deploy/"
+            echo "${c}: $(basename "${jars[0]}") -> ${c}.jar ($(du -h "${jars[0]}" | cut -f1))"
+          done
+
+          # 部署记录：随 admin 产物一起上传，部署日志里 cat 出来。
+          # 数据库迁移是前向不可回滚的，回退镜像并不能回退 schema —— 所以本次带了哪些迁移必须可见。
+          first="$(find "$MIGRATION_DIR" -maxdepth 1 -type f -printf '%f\n' | sed -nE 's/^V([0-9]+)__.*/\1/p' | sort -n | head -1)"
+          last="$(find "$MIGRATION_DIR" -maxdepth 1 -type f -printf '%f\n' | sed -nE 's/^V([0-9]+)__.*/\1/p' | sort -n | tail -1)"
+          {
+            echo "tag=${TAG}"
+            echo "commit=${GITHUB_SHA}"
+            echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "migrations=V${first}..V${last}（共 $(find "$MIGRATION_DIR" -maxdepth 1 -type f | wc -l) 个，仅新增）"
+          } > "${STAGE}/admin/release-manifest.txt"
+          echo "--- release-manifest.txt ---"
+          cat "${STAGE}/admin/release-manifest.txt"
+
+      # 用 ed25519 专用部署密钥，不要复用个人密钥。公钥需追加到部署用户的 ~/.ssh/authorized_keys。
+      - name: 配置 SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_HOST:?未配置仓库变量 DEPLOY_HOST}"
+          : "${DEPLOY_USER:?未配置仓库变量 DEPLOY_USER}"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # 首次连接的 TOFU。要更强的话，改用一个 DEPLOY_KNOWN_HOSTS secret 固定主机指纹，
+          # 眼下先接受 ssh-keyscan 的信任模型。
+          ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" 'echo ssh-ok'
+
+      # 逐个组件 rsync，绝不对 release/<tag>/ 整个目录用 --delete：
+      # 其余三个组件由各自仓库的 workflow 上传，整体 --delete 会把它们删掉。
+      - name: 上传产物
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          RSYNC_SSH="ssh -p ${DEPLOY_PORT:-22} -o BatchMode=yes"
+          DEST="${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/release/${TAG}"
+          for c in admin front; do
+            rsync -az --delete -e "$RSYNC_SSH" "stage/release/${TAG}/${c}/" "${DEST}/${c}/"
+            echo "已上传 ${c}"
+          done
+          # 叠加文件也是仓库的产物：随发布一起同步，保证服务器上的版本与这个 tag 一致。
+          rsync -az -e "$RSYNC_SSH" docker-compose.release.yml \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/docker-compose.release.yml"
+          echo "已上传 docker-compose.release.yml"
+
+      - name: 部署
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "DEPLOY_PATH='${DEPLOY_PATH}' IMAGE_TAG='${GITHUB_REF_NAME}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "${DEPLOY_PATH:?}"
+          echo "── 本次发布记录 ──────────────────────────────"
+          printf 'AETHER_RELEASE_TAG=%s\n' "${IMAGE_TAG:?}" > .env.release
+          COMPOSE="docker compose --env-file .env.prod --env-file .env.release -f docker-compose.prod.yml -f docker-compose.release.yml"
+
+          # 预检：在任何容器被动之前失败，并点名缺哪个组件（通常是对应仓库还没打同一个 tag）。
+          missing=0
+          for c in admin front dashboard deep-agent mcp; do
+            if [ ! -d "release/${IMAGE_TAG}/$c" ]; then
+              echo "::error::缺产物 release/${IMAGE_TAG}/$c —— 对应仓库是否已打 ${IMAGE_TAG} 并发布成功？" >&2
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          cat "release/${IMAGE_TAG}/admin/release-manifest.txt" 2>/dev/null || echo "（无 release-manifest.txt）"
+
+          # 全部镜像构建完成后才动容器，这是防「部分部署」的主防线；任一构建失败即中止，线上未变。
+          $COMPOSE build
+
+          if $COMPOSE up -d --remove-orphans --wait --wait-timeout 300; then
+            echo "✓ 全部服务已通过健康检查"
+          else
+            # --wait 与 sandbox-runtime-* 的交互在首跑前无法离线验证：那两个服务是
+            # command: ["true"] 的一次性容器（只为把镜像构建出来），mcp 靠
+            # service_completed_successfully 等它们。此处的兜底仍以 admin 探活为准，不会放过真实故障。
+            echo "⚠ --wait 未通过，退化为 up -d + 轮询 admin 健康检查" >&2
+            $COMPOSE up -d --remove-orphans
+            ok=0
+            for i in $(seq 1 60); do
+              if curl -fsS "http://$($COMPOSE port admin 8080 | head -n1)/actuator/health" >/dev/null 2>&1; then
+                ok=1; break
+              fi
+              sleep 5
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "::error::admin 健康检查在 300s 内未通过" >&2
+              $COMPOSE ps
+              exit 1
+            fi
+            echo "✓ admin 已探活通过（用了 --wait 退路）"
+          fi
+
+          $COMPOSE ps
+          echo "── 活跃镜像 ──────────────────────────────────"
+          docker ps --filter "name=aether-" --format '{{.Names}}\t{{.Image}}\t{{.Status}}'
+          echo "回滚方式：改 .env.release 里的 tag 为上一个可用版本，再执行同一条 up -d。"
+          REMOTE

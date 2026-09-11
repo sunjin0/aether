@@ -9,5 +9,10 @@
 .env.sandbox-pilot
 .env
 .env.prod
+# 发布 tag 清单，由 release workflow 在部署目录写入（只含 AETHER_RELEASE_TAG，不含密钥）。
+.env.release
 # fetch-sources.sh 的默认检出目录；内含另外三个仓库的 clone，不能提交。
 /.sources/
+# CI 上传的发布暂存区；本地演练部署时会落在仓库根目录，同样不能提交。
+/release/
+/.claude/
