@@ -23,8 +23,9 @@ import java.util.stream.Collectors;
  * 按当前 query 召回相关工具，裁剪无关工具定义以节省模型上下文。
  *
  * <p>内置交互工具（ask_user 等）、Skill required 工具与 generate_artifact 始终保留；
- * 其余工具按关键字匹配（名称/编码/MCP 工具名）与 query embedding 语义召回合并输出，
- * 未匹配的工具不会携带给模型。embedding 未配置时关键字通道仍然生效。</p>
+ * 其余工具按关键字匹配（名称/编码/MCP 工具名）与 query embedding 语义召回排序，
+ * 不足 topK 的部分按候选原顺序补齐。仅当非常驻候选超过 topK 时才真正丢弃工具。
+ * embedding 未配置时关键字通道仍然生效。</p>
  */
 @Service
 public class ToolRouterService {
@@ -56,44 +57,38 @@ public class ToolRouterService {
     /**
      * 从候选工具中选出应携带给模型的子集。
      *
+     * <p>只有非常驻候选超过 topK 时才裁剪；命中只决定顺序，不决定去留——否则一次偶然的
+     * 关键字命中就会把其余已绑定工具挤出本轮工具集，而系统提示的能力目录仍然列着它们。</p>
+     *
      * @param candidates       当前 Agent 可用工具（绑定或 Skill 收敛后）
      * @param protectedToolIds 必须常驻的工具 id（内置交互、Skill required、generate_artifact）
      * @param query            当前用户问题；为空时不裁剪
-     * @return 匹配到的工具与常驻工具子集；无命中时仅返回常驻工具
+     * @return 常驻工具 + 至多 topK 个非常驻工具；候选不超上限时即全部候选
      */
     public List<AgentTool> route(List<AgentTool> candidates, Set<String> protectedToolIds, String query) {
         if (candidates == null || candidates.isEmpty() || StringUtils.isBlank(query)) {
             return candidates;
         }
         String embeddingModelId = routingConfigService.embeddingModelId();
+        int topK = Math.max(1, routingConfigService.topK());
         List<AgentTool> routable = new ArrayList<>();
         for (AgentTool tool : candidates) {
             if (tool == null || tool.getId() == null) continue;
             if (isProtected(tool, protectedToolIds)) continue;
             routable.add(tool);
         }
-        if (routable.isEmpty()) {
+        // 候选不超过召回上限时，裁剪省不下上下文，却会让已声明的能力从本轮工具集中消失。
+        if (routable.size() <= topK) {
             return candidates;
         }
-        String cacheKey = cacheKey(query, routable, embeddingModelId);
+        String cacheKey = cacheKey(query, routable, embeddingModelId, topK);
         CachedRoute cached = routeCache.get(cacheKey);
         if (cached != null && cached.expiresAt > System.currentTimeMillis()) {
             return merge(candidates, protectedToolIds, cached.toolIds);
         }
-        List<String> selected = select(query, routable, embeddingModelId);
-        // The permanent capability catalog may lead the model to an otherwise relevant
-        // tool whose name was not present in the user wording.  A no-hit route therefore
-        // falls back to the available definitions for this turn instead of making a
-        // declared capability impossible to invoke.
-        if (selected == null) {
-            log.debug("工具路由无命中，回退完整定义: candidates={}", candidates.size());
-            return candidates;
-        }
-        List<String> selectedIds = selected == null ? Collections.<String>emptyList() : selected;
+        List<String> selectedIds = select(query, routable, embeddingModelId, topK);
         evictRouteCache();
-        if (!selectedIds.isEmpty()) {
-            routeCache.put(cacheKey, new CachedRoute(selectedIds, System.currentTimeMillis() + ROUTE_CACHE_TTL_MS));
-        }
+        routeCache.put(cacheKey, new CachedRoute(selectedIds, System.currentTimeMillis() + ROUTE_CACHE_TTL_MS));
         return merge(candidates, protectedToolIds, selectedIds);
     }
     private boolean isProtected(AgentTool tool, Set<String> protectedToolIds) {
@@ -104,37 +99,38 @@ public class ToolRouterService {
     }
 
     /**
-     * 关键字命中 + 向量召回合并；无任何命中时返回 null 表示回退全量。
+     * 关键字命中与向量召回按优先级排在前，其余按候选原顺序补齐到 topK。
+     *
+     * <p>返回集合只受 topK 约束，不会再因“命中为空”而整体退化为忽略 query 的兜底；
+     * 调用方保证候选数已超过 topK，故补齐后恰为 topK 个。</p>
      */
-    private List<String> select(String query, List<AgentTool> routable, String embeddingModelId) {
+    private List<String> select(String query, List<AgentTool> routable, String embeddingModelId, int topK) {
         LinkedHashSet<String> selected = new LinkedHashSet<>();
         String lowerQuery = query.toLowerCase();
-        for (AgentTool tool : routable)
+        for (AgentTool tool : routable) {
+            if (selected.size() >= topK) break;
             if (matchesKeyword(lowerQuery, tool)) selected.add(tool.getId());
-        if (StringUtils.isNotBlank(embeddingModelId)) {
+        }
+        if (StringUtils.isNotBlank(embeddingModelId) && selected.size() < topK) {
             try {
                 ModelProvider provider = modelCatalogService.resolveProvider(embeddingModelId, "EMBEDDING");
                 String vector = embeddingService.toVectorLiteral(embeddingService.embed(provider, query));
                 List<String> toolIds = routable.stream().map(AgentTool::getId).collect(Collectors.toList());
-                int topK = Math.max(1, routingConfigService.topK());
                 List<AgentToolRoutingIndex> hits = indexMapper.findSimilar(toolIds, vector, Math.min(topK, routable.size()));
-                for (AgentToolRoutingIndex hit : hits)
-                    if (hit.getVectorScore() != null && hit.getVectorScore() >= MIN_VECTOR_SCORE && selected.size() < topK) selected.add(hit.getToolId());
+                for (AgentToolRoutingIndex hit : hits) {
+                    if (selected.size() >= topK) break;
+                    if (hit.getVectorScore() != null && hit.getVectorScore() >= MIN_VECTOR_SCORE) selected.add(hit.getToolId());
+                }
             } catch (Exception e) {
                 log.debug("工具路由向量召回失败: {}", e.toString());
             }
         }
-        if (!selected.isEmpty()) {
-            return new ArrayList<>(selected);
+        // 补齐：命中只决定顺序，不决定去留。
+        for (AgentTool tool : routable) {
+            if (selected.size() >= topK) break;
+            selected.add(tool.getId());
         }
-        // 无命中时仍需提供可用工具，但全量暴露会挤占模型上下文并增加误调用概率。
-        // 因此保留确定性的有限兜底集合；受保护工具由调用方合并，不受此处影响。
-        int fallbackSize = Math.min(Math.max(1, routingConfigService.topK()), routable.size());
-        List<String> fallback = new ArrayList<>();
-        for (int i = 0; i < fallbackSize; i++) {
-            fallback.add(routable.get(i).getId());
-        }
-        return fallback;
+        return new ArrayList<>(selected);
     }
 
     /**
@@ -166,10 +162,10 @@ public class ToolRouterService {
         return result;
     }
 
-    private String cacheKey(String query, List<AgentTool> routable, String embeddingModelId) {
+    private String cacheKey(String query, List<AgentTool> routable, String embeddingModelId, int topK) {
         String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
         String ids = routable.stream().map(AgentTool::getId).sorted().collect(Collectors.joining(","));
-        return tenantId + '|' + embeddingModelId + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + ids;
+        return tenantId + '|' + embeddingModelId + '|' + topK + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + ids;
     }
 
     private void evictRouteCache() {
