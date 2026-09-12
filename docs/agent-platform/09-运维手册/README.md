@@ -132,6 +132,9 @@ mvn -pl admin org.springframework.boot:spring-boot-maven-plugin:2.7.18:run -Dspr
 > docker compose --env-file .env.prod -f docker-compose.prod.yml config | grep -A2 'postgres:' | grep image
 > # 必须是 pgvector/pgvector:pg18；若仍是 pg16 说明 .env.prod 覆盖了默认值
 > ```
+>
+> 走发布流程时这条已由 workflow 的预检自动断言（不符即中止，见「打 tag 自动发布」的预检门禁）；
+> 手工升级仍要自己先确认。
 
 **两处都改对之后，失败形态才是响亮的**：`postgres-data` 卷里是 PG16 集群，其数据就在卷根，
 而 pg18 的 entrypoint 会扫描 `/var/lib/postgresql`、`/var/lib/postgresql/data`、
@@ -305,6 +308,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
 
 - **只有 aether 的 tag 会部署**（整套 compose 在它那里）。其余三仓只上传产物；三仓全绿后再给 aether 打 tag，否则 aether 的预检会点名缺少哪个组件目录并中止，此时线上容器尚未被动。
 - 不走镜像仓库：Actions 只构建**产物**并经 SSH 传输（约 280 MB/次），镜像在部署机上构建，架构天然匹配宿主。
+- **预检里有一道 PostgreSQL 镜像的硬门禁**：workflow 会渲染 `config` 并断言 `postgres` 的镜像串含 `pg18`，不符即中止（容器尚未被动）。加它是因为「挂载点已是 PG18 布局、`.env.prod` 却还写 pg16」会静默起一个空库（详见「PG 16 → 18 迁移」），而 Compose 的 `--env-file` 优先于 compose 里的默认值，光改默认值拦不住部署机上的旧变量。要放行就得先把部署机的 `.env.prod` 改对——即这道门禁顺带保证 PG16→18 的迁移不会漏做。
 - 发布记录写在 `release/<tag>/admin/release-manifest.txt`（tag、commit、构建时间、本次携带的迁移版本区间），部署日志会打印。
 - **测试门禁无例外**：aether 的 525 个用例与 dashboard 的 32 套件 / 98 用例全部是阻断式门禁，没有排除清单。aether 的三个 `@SpringBootTest` 上下文测试（`AdminApplicationTests` / `SmsControllerTest` / `FrontApplicationTests`）由 workflow 的 `services:` 提供 pgvector/pg18 与 redis:7 满足依赖；它们会对空库执行全部迁移，等于每次发布都顺带验证「迁移能否从零应用」。三者均不携带任何 Springfox 补丁，dev profile 的上下文靠主源码的 `SpringfoxCompatibilityConfig` 才能起来——所以这道门禁同时守着「应用能在 dev profile 下启动」。
 - **回滚 = 改 `.env.release` 里的 tag 再 `up -d`**，秒级、无需重传（该 tag 的镜像仍在部署机上，tag 形如 `release-<版本>`，不覆盖）：
@@ -358,17 +362,6 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
   `classpath:/application.yml` 只取第一个命中，即 `admin`/`front` 的 `target/classes` 那份。
   该文件里的 `spring.mvc`、`aether.workflow.*`、`aether.reliability.*` 等配置因此不生效
   （各应用已把需要的那部分抄进自己的 `application.yml`）。**此条为推断，尚未实证**，排期时请先验证。
-- **`ConversationSummaryServiceTest#deletionDuringGenerationPreventsSummaryFromBeingWrittenBack` 是
-  偶发失败的**，而它属于发布门禁里的阻断用例，意味着发布可能随机中断。2026-09-12 全量跑
-  `mvn -B -ntp test` 时命中一次（`Wanted at most 0 times but was 1`），单独重跑该类 4 次全绿。
-  根因在 `ConversationSummaryService`：失效判定用毫秒时间戳比较——
-  `refreshStartedAt` 在 `refreshAsync` 入口取 `System.currentTimeMillis()`，`evict()` 同样取一次，
-  而 `isInvalidatedSince` 判的是 `invalidatedAt > refreshStartedAt`（**严格大于**）。
-  两者落在同一毫秒时该次失效对刷新不可见，于是会话已删除、摘要仍被写回（第 265 行附近）。
-  Windows 的时钟粒度较粗（约 15ms 一跳），比 Linux runner 更容易撞上。
-  **修法不是简单把 `>` 改成 `>=`**：更稳妥的是改用单调递增的世代号（每次 evict 自增）替代
-  墙上时钟比较。这是生产并发语义的改动，须单独提一条并补测试。
-
 ---
 
 ## 数据保留与脱敏
