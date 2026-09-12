@@ -16,3 +16,10 @@
 # CI 上传的发布暂存区；本地演练部署时会落在仓库根目录，同样不能提交。
 /release/
 /.claude/
+
+# Tag deployment secrets and generated state
+/deploy/.env
+/deploy/.env.*
+!/deploy/.env.example
+/.releases/
+/stage/

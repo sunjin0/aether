@@ -8,24 +8,13 @@ Observability/OTel, Secret Provider, enterprise identity integration, and tenant
 
 ## Build and publish
 
-Use JDK 17. There is no Maven wrapper.
-
-```sh
-mvn clean package
-mvn -pl admin -am -DskipTests compile
-mvn -pl admin -am test
-docker compose build --pull=false admin
-docker compose up -d --remove-orphans admin
-docker compose ps admin
-```
-
-`admin/Dockerfile` uses Maven/Temurin 17 and produces `admin.jar`. Expected endpoint: `http://localhost:8080`. `docker-compose.yml` builds admin/front against external infrastructure; `docker-compose.prod.yml` is the production full stack; `docker-compose.acceptance.yml` builds the four application services from local working trees for pre-release acceptance.
-
-`docker-compose.prod.yml` takes the four application sources from local directories under `AETHER_SOURCE_ROOT` (default `.sources/`), prepared by `scripts/fetch-sources.sh` with the deploy host's git credentials. Do not change those build contexts back to BuildKit Git contexts: BuildKit's git source ignores host git configuration (credential helpers, `~/.netrc`, SSH keys), so private repositories cannot be fetched that way.
+Use JDK 17. There is no Maven wrapper. Build/test with mvn -pl admin -am test or mvn package.
+Only a pushed v* tag publishes this project through .github/workflows/release.yml. All deployment files are in deploy/: compose.yml, runtime Dockerfiles, release.sh, .env.example and README.md. Do not reintroduce root Compose files, source-fetch publishing or alternate deployment pipelines.
+Admin/Front are built in CI; only their tagged artifacts are uploaded. PostgreSQL/Redis and the shared network belong to this project; other applications publish from their own repositories. Existing database containers are not recreated by ordinary tag releases. Preserve aether-prod resource names and never use down or --remove-orphans in a project release.
 
 ## Configuration
 
-Profile configuration is under `api/src/main/resources/application-*.yml`; environment templates are `.env.example` and `.env.prod.example`. Never commit real secrets. Do not add Secret Provider/Vault/Kubernetes, OIDC/SAML/SCIM, OTel/OTLP, Prometheus/Grafana, or retired catalog settings.
+Profile configuration is under `api/src/main/resources/application-*.yml`; the production environment template is deploy/.env.example. Never commit real secrets. Do not add Secret Provider/Vault/Kubernetes, OIDC/SAML/SCIM, OTel/OTLP, Prometheus/Grafana, or retired catalog settings.
 
 ## Persistence
 

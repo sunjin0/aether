@@ -4,26 +4,8 @@
 
 ## 部署
 
-本地 compose 已包含独立 `front` 服务：
-
-```sh
-docker compose build front
-docker compose up -d front
-```
-
-默认端口映射为：
-
-```yaml
-${FRONT_PORT:-8081}:8080
-```
-
-如果宿主机 `8081` 被占用，可以覆盖端口：
-
-```sh
-FRONT_PORT=18082 docker compose up -d front
-```
-
-容器名和网络别名均为 `aether-front`。生产全栈文件 `docker-compose.prod.yml` 也包含 `front` 服务。
+Front 随 aether 仓库的 v* tag 一起发布，Admin 健康后再更新 Front。配置与流程见 [deploy/README.md](../deploy/README.md)。
+默认宿主端口为 8081，可在部署机 deploy/.env 设置 FRONT_PORT；容器名与网络别名均为 aether-front。
 
 ## 鉴权
 

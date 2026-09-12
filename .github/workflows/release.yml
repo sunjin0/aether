@@ -1,6 +1,6 @@
 name: release
 
-# 只接 tag：打 v* 标签即「测试 → 打包 → 上传 → 部署」。
+# 只接 v* tag：测试通过后上传，并独立部署本项目服务。
 # 刻意不接 push/PR —— 本仓库当前只要发布这一条路径，以后要加门禁再单独加 ci.yml。
 on:
   push:
@@ -11,8 +11,8 @@ on:
 permissions:
   contents: read
 
-# 同一时间只允许一个发布在跑。两个 tag 并发会同时改部署机的 compose 状态与 .env.release，
-# 可能产生混合版本容器。cancel-in-progress 保持 false：已开始的发布宁可跑完，也不半途中断。
+# 同仓发布排队，避免两个版本同时更新 Admin/Front；跨仓部署另由服务器 flock 串行执行。
+# cancel-in-progress 保持 false，避免发布中途被新 tag 取消。
 concurrency:
   group: aether-release
   cancel-in-progress: false
@@ -31,7 +31,7 @@ jobs:
     # dev profile 默认连 localhost:5432/aether（sunjin/192837）与 127.0.0.1:6379——
     # 与下面两个 service 容器对齐，因此不需要给测试传任何额外配置。
     # postgres 选 pgvector 镜像：V1__init.sql 会执行 CREATE EXTENSION vector，且与生产同版本。
-    # 这里与 docker-compose.prod.yml / .env.prod.example 必须写同一个镜像串：迁移是在本 job 的空库上
+    # 这里与 deploy/compose.yml / deploy/.env.example 必须写同一个镜像串：迁移是在本 job 的空库上
     # 从零应用的，镜像一旦不同，「CI 绿而生产红」正是要消除的那类分歧。
     services:
       postgres:
@@ -122,6 +122,11 @@ jobs:
             echo "${c}: $(basename "${jars[0]}") -> ${c}.jar ($(du -h "${jars[0]}" | cut -f1))"
           done
 
+          cp deploy/release.sh deploy/compose.yml deploy/.env.example deploy/README.md "${STAGE}/admin/deploy/"
+          for c in admin front; do
+            cp deploy/.dockerignore "${STAGE}/${c}/.dockerignore"
+          done
+
           # 部署记录：随 admin 产物一起上传，部署日志里 cat 出来。
           # 数据库迁移是前向不可回滚的，回退镜像并不能回退 schema —— 所以本次带了哪些迁移必须可见。
           first="$(find "$MIGRATION_DIR" -maxdepth 1 -type f -printf '%f\n' | sed -nE 's/^V([0-9]+)__.*/\1/p' | sort -n | head -1)"
@@ -165,18 +170,19 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
+          [[ "$TAG" =~ ^v[A-Za-z0-9_.-]+$ ]] || exit 1
+          : "${DEPLOY_PATH:?未配置仓库变量 DEPLOY_PATH}"
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9_./-]+$ ]] || { echo "DEPLOY_PATH must be an absolute path without spaces"; exit 1; }
+          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "mkdir -p '${DEPLOY_PATH}/release/${TAG}'"
           RSYNC_SSH="ssh -p ${DEPLOY_PORT:-22} -o BatchMode=yes"
           DEST="${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/release/${TAG}"
           for c in admin front; do
             rsync -az --delete -e "$RSYNC_SSH" "stage/release/${TAG}/${c}/" "${DEST}/${c}/"
             echo "已上传 ${c}"
           done
-          # 叠加文件也是仓库的产物：随发布一起同步，保证服务器上的版本与这个 tag 一致。
-          rsync -az -e "$RSYNC_SSH" docker-compose.release.yml \
-            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/docker-compose.release.yml"
-          echo "已上传 docker-compose.release.yml"
 
-      - name: 部署
+      - name: 独立部署 aether
         env:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
@@ -184,75 +190,8 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
         run: |
           set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          [[ "$TAG" =~ ^v[A-Za-z0-9_.-]+$ ]] || exit 1
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9_./-]+$ ]] || exit 1
           ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "DEPLOY_PATH='${DEPLOY_PATH}' IMAGE_TAG='${GITHUB_REF_NAME}' bash -s" <<'REMOTE'
-          set -euo pipefail
-          cd "${DEPLOY_PATH:?}"
-          echo "── 本次发布记录 ──────────────────────────────"
-          printf 'AETHER_RELEASE_TAG=%s\n' "${IMAGE_TAG:?}" > .env.release
-          COMPOSE="docker compose --env-file .env.prod --env-file .env.release -f docker-compose.prod.yml -f docker-compose.release.yml"
-
-          # 预检：在任何容器被动之前失败，并点名缺哪个组件（通常是对应仓库还没打同一个 tag）。
-          missing=0
-          for c in admin front dashboard deep-agent mcp; do
-            if [ ! -d "release/${IMAGE_TAG}/$c" ]; then
-              echo "::error::缺产物 release/${IMAGE_TAG}/$c —— 对应仓库是否已打 ${IMAGE_TAG} 并发布成功？" >&2
-              missing=1
-            fi
-          done
-          [ "$missing" -eq 0 ] || exit 1
-          cat "release/${IMAGE_TAG}/admin/release-manifest.txt" 2>/dev/null || echo "（无 release-manifest.txt）"
-
-          # 预检：PostgreSQL 镜像必须与 compose 里的挂载点配套——这条挡的是本项目最危险的一种失败，
-          # 且它是静默的。compose 已把数据卷挂到 /var/lib/postgresql（PG18 的 PGDATA 是
-          # <挂载点>/18/docker）；若部署机 .env.prod 里仍留着 POSTGRES_IMAGE=pgvector/pgvector:pg16，
-          # pg16 的 PGDATA 仍是 /var/lib/postgresql/data，该路径落在卷内一个不存在的子目录上，
-          # entrypoint 会把空目录当全新实例 initdb 出一个空集群：容器 healthy、日志正常打出
-          # ready to accept connections、迁移照跑，只有数据是空的（2026-09-12 实测）。
-          # 注意 Compose 的 --env-file 优先于 compose 里的默认值，所以默认值改了也拦不住旧变量。
-          pg_image="$($COMPOSE config | sed -n '/^  postgres:/,/^  [a-z]/p' | sed -n 's/^ *image: *//p' | head -1)"
-          if [ -z "$pg_image" ]; then
-            echo "::error::读不出 postgres 镜像（compose config 失败或输出格式变化），已中止。请在部署机手工执行同一条 config 排查。" >&2
-            exit 1
-          fi
-          case "$pg_image" in
-            *pg18*)
-              echo "✓ postgres 镜像：${pg_image}"
-              ;;
-            *)
-              echo "::error::postgres 镜像渲染为 '${pg_image}'，期望 pg18。部署机 .env.prod 里的 POSTGRES_IMAGE 覆盖了 compose 默认值：请先改为 pgvector/pgvector:pg18，并按运维手册「PG 16 → 18 迁移」完成数据迁移再发布。" >&2
-              exit 1
-              ;;
-          esac
-
-          # 全部镜像构建完成后才动容器，这是防「部分部署」的主防线；任一构建失败即中止，线上未变。
-          $COMPOSE build
-
-          if $COMPOSE up -d --remove-orphans --wait --wait-timeout 300; then
-            echo "✓ 全部服务已通过健康检查"
-          else
-            # --wait 与 sandbox-runtime-* 的交互在首跑前无法离线验证：那两个服务是
-            # command: ["true"] 的一次性容器（只为把镜像构建出来），mcp 靠
-            # service_completed_successfully 等它们。此处的兜底仍以 admin 探活为准，不会放过真实故障。
-            echo "⚠ --wait 未通过，退化为 up -d + 轮询 admin 健康检查" >&2
-            $COMPOSE up -d --remove-orphans
-            ok=0
-            for i in $(seq 1 60); do
-              if curl -fsS "http://$($COMPOSE port admin 8080 | head -n1)/actuator/health" >/dev/null 2>&1; then
-                ok=1; break
-              fi
-              sleep 5
-            done
-            if [ "$ok" -ne 1 ]; then
-              echo "::error::admin 健康检查在 300s 内未通过" >&2
-              $COMPOSE ps
-              exit 1
-            fi
-            echo "✓ admin 已探活通过（用了 --wait 退路）"
-          fi
-
-          $COMPOSE ps
-          echo "── 活跃镜像 ──────────────────────────────────"
-          docker ps --filter "name=aether-" --format '{{.Names}}\t{{.Image}}\t{{.Status}}'
-          echo "回滚方式：改 .env.release 里的 tag 为上一个可用版本，再执行同一条 up -d。"
-          REMOTE
+            "bash '${DEPLOY_PATH}/release/${TAG}/admin/deploy/release.sh' 'aether' '${TAG}' '${DEPLOY_PATH}'"

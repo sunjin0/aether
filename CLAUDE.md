@@ -108,17 +108,7 @@ qodana scan --linter jetbrains/qodana-jvm:2025.1
 
 ### Docker / CI
 
-`Jenkinsfile` builds only the `admin` module, then builds `admin/Dockerfile`:
-
-```sh
-mvn clean package -pl admin -am
-docker build -t admin-service:latest admin/
-docker run -d --name admin-container -p 8080:8080 admin-service:latest
-```
-
-Caveats: `admin/Dockerfile` copies `admin/target/admin-*.jar`, exposes port `8080`, and runs `java -jar admin.jar`. The
-container maps host `8080` to container `8080`, matching `admin/src/main/resources/application.yml` (
-`server.port: 8080`); verify the intended container port before relying on CI/deploy behavior.
+Only v* tags trigger deployment through .github/workflows/release.yml. All deployment files and environment templates live in deploy/; see deploy/README.md. Do not restore root Compose files, Jenkins deployment or source-checkout publishing.
 
 ## Runtime configuration
 

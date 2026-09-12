@@ -1,0 +1,262 @@
+# Tag 发布专用；release.sh 设置产物目录和镜像版本。禁止 down 或 --remove-orphans。
+name: aether-prod
+services:
+  postgres:
+    image: '${POSTGRES_IMAGE:-pgvector/pgvector:pg18}'
+    container_name: aether-postgres
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: '5'
+    environment:
+      POSTGRES_DB: '${POSTGRES_DB:-aether}'
+      POSTGRES_USER: '${POSTGRES_USER:-aether}'
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}'
+    volumes:
+      - 'postgres-data:/var/lib/postgresql'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+    mem_limit: '${POSTGRES_MEM_LIMIT:-2g}'
+    mem_reservation: '${POSTGRES_MEM_RESERVATION:-1g}'
+    networks:
+      - aether-services
+  redis:
+    image: '${REDIS_IMAGE:-redis:7-alpine}'
+    container_name: aether-redis
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: '5'
+    command:
+      - redis-server
+      - '--appendonly'
+      - 'yes'
+      - '--requirepass'
+      - '${REDIS_PASSWORD:?set REDIS_PASSWORD}'
+    environment:
+      REDIS_PASSWORD: '${REDIS_PASSWORD:?set REDIS_PASSWORD}'
+    volumes:
+      - 'redis-data:/data'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
+    mem_limit: '${REDIS_MEM_LIMIT:-768m}'
+    mem_reservation: '${REDIS_MEM_RESERVATION:-256m}'
+    networks:
+      - aether-services
+  minio:
+    profiles:
+      - minio
+    image: '${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}'
+    container_name: aether-minio
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: '5'
+    command: 'server /data --console-address ":9001"'
+    ports:
+      - '${BIND_ADDR:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000'
+    environment:
+      MINIO_ROOT_USER: '${MINIO_ROOT_USER:-}'
+      MINIO_ROOT_PASSWORD: '${MINIO_ROOT_PASSWORD:-}'
+    volumes:
+      - 'minio-data:/data'
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - '-f'
+        - 'http://127.0.0.1:9000/minio/health/live'
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+    mem_limit: '${MINIO_MEM_LIMIT:-1g}'
+    mem_reservation: '${MINIO_MEM_RESERVATION:-512m}'
+    networks:
+      - aether-services
+  admin:
+    image: 'aether-admin:release-${AETHER_RELEASE_TAG:?}'
+    build:
+      context: '${AETHER_RELEASE_ROOT:?}/admin'
+      dockerfile: deploy/admin.Dockerfile
+    container_name: aether-admin
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: '5'
+    security_opt:
+      - 'no-new-privileges:true'
+    stop_grace_period: 40s
+    tmpfs:
+      - '/tmp:rw,noexec,nosuid,size=64m'
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - '-f'
+        - 'http://localhost:8080/actuator/health'
+      interval: 30s
+      timeout: 3s
+      start_period: 60s
+      retries: 3
+    mem_limit: '${ADMIN_MEM_LIMIT:-1g}'
+    mem_reservation: '${ADMIN_MEM_RESERVATION:-768m}'
+    ports:
+      - '${BIND_ADDR:-127.0.0.1}:${ADMIN_PORT:-8080}:8080'
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_SHUTDOWN_TIMEOUT: '${SERVER_SHUTDOWN_TIMEOUT:-30s}'
+      DB_URL: '${DB_URL:-jdbc:postgresql://postgres:5432/aether}'
+      DB_USERNAME: '${DB_USERNAME:-aether}'
+      DB_PASSWORD: '${DB_PASSWORD:?set DB_PASSWORD}'
+      SPRING_REDIS_HOST: '${REDIS_HOST:-redis}'
+      SPRING_REDIS_PORT: '6379'
+      SPRING_REDIS_PASSWORD: '${REDIS_PASSWORD:?set REDIS_PASSWORD}'
+      STORAGE_PROVIDER: '${STORAGE_PROVIDER:-oss}'
+      OSS_ENDPOINT: '${OSS_ENDPOINT:?set OSS_ENDPOINT}'
+      OSS_PUBLIC_ENDPOINT: '${OSS_PUBLIC_ENDPOINT:-}'
+      OSS_ACCESS_KEY_ID: '${OSS_ACCESS_KEY_ID:?set OSS_ACCESS_KEY_ID}'
+      OSS_ACCESS_KEY_SECRET: '${OSS_ACCESS_KEY_SECRET:?set OSS_ACCESS_KEY_SECRET}'
+      OSS_BUCKET: '${OSS_BUCKET:?set OSS_BUCKET}'
+      STORAGE_FILE_BUCKET: '${STORAGE_FILE_BUCKET:-${OSS_BUCKET}}'
+      STORAGE_KNOWLEDGE_BUCKET: '${STORAGE_KNOWLEDGE_BUCKET:-${OSS_BUCKET}}'
+      STORAGE_SKILL_BUCKET: '${STORAGE_SKILL_BUCKET:-${OSS_BUCKET}}'
+      STORAGE_ARTIFACT_BUCKET: '${STORAGE_ARTIFACT_BUCKET:-${OSS_BUCKET}}'
+      MINIO_ENDPOINT: '${MINIO_ENDPOINT:-http://minio:9000}'
+      MINIO_PUBLIC_ENDPOINT: '${MINIO_PUBLIC_ENDPOINT:-}'
+      MINIO_ACCESS_KEY: '${MINIO_ACCESS_KEY:-}'
+      MINIO_SECRET_KEY: '${MINIO_SECRET_KEY:-}'
+      SPRING_DATASOURCE_DRUID_STATVIEWSERVLET_ENABLED: 'false'
+      SPRING_DATASOURCE_DRUID_WEBSTATFILTER_ENABLED: 'false'
+      SPRING_MAIL_HOST: '${SMTP_HOST:?set SMTP_HOST}'
+      SPRING_MAIL_PORT: '${SMTP_PORT:-465}'
+      SPRING_MAIL_USERNAME: '${SMTP_USERNAME:?set SMTP_USERNAME}'
+      SPRING_MAIL_PASSWORD: '${SMTP_PASSWORD:?set SMTP_PASSWORD}'
+      AGENT_AUDIT_ENCRYPTION_KEY: '${AGENT_AUDIT_ENCRYPTION_KEY:?set AGENT_AUDIT_ENCRYPTION_KEY}'
+      AETHER_DEEP_AGENT_BASE_URL: '${AETHER_DEEP_AGENT_BASE_URL:-http://aether-deep-agent:8010}'
+      AETHER_DEEP_AGENT_SHARED_SECRET: '${AETHER_DEEP_AGENT_SHARED_SECRET:?set AETHER_DEEP_AGENT_SHARED_SECRET}'
+      AETHER_DEEP_AGENT_KEY_ID: '${AETHER_DEEP_AGENT_KEY_ID:-deep-agent-v1}'
+      AETHER_DEEP_AGENT_RUN_TIMEOUT_SECONDS: '${AETHER_DEEP_AGENT_RUN_TIMEOUT_SECONDS:-600}'
+      AETHER_MCP_DELEGATION_SECRET: '${AETHER_MCP_DELEGATION_SECRET:?set AETHER_MCP_DELEGATION_SECRET}'
+      AETHER_MCP_CREDENTIAL_SECRET: '${AETHER_MCP_CREDENTIAL_SECRET:?set AETHER_MCP_CREDENTIAL_SECRET}'
+      ANYDOC_SERVICE_URL: '${ANYDOC_SERVICE_URL:-http://aether-mcp:8000}'
+      AETHER_SANDBOX_RUNNER_TOKEN: '${AETHER_SANDBOX_RUNNER_TOKEN:?set AETHER_SANDBOX_RUNNER_TOKEN}'
+      AETHER_SERVICE_ACCOUNT_ACCESS_TOKEN_SECONDS: '${AETHER_SERVICE_ACCOUNT_ACCESS_TOKEN_SECONDS:-900}'
+      AETHER_WORKFLOW_CALLBACK_ENABLED: '${AETHER_WORKFLOW_CALLBACK_ENABLED:-false}'
+      AETHER_WORKFLOW_CALLBACK_ALLOWED_HOSTS: '${AETHER_WORKFLOW_CALLBACK_ALLOWED_HOSTS:-}'
+      AETHER_WORKFLOW_CALLBACK_SIGNING_SECRET: '${AETHER_WORKFLOW_CALLBACK_SIGNING_SECRET:-}'
+      AETHER_WORKFLOW_HTTP_ALLOWED_HOSTS: '${AETHER_WORKFLOW_HTTP_ALLOWED_HOSTS:-}'
+    networks:
+      aether-services:
+        aliases:
+          - aether-admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  front:
+    image: 'aether-front:release-${AETHER_RELEASE_TAG:?}'
+    build:
+      context: '${AETHER_RELEASE_ROOT:?}/front'
+      dockerfile: deploy/front.Dockerfile
+    container_name: aether-front
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: '5'
+    security_opt:
+      - 'no-new-privileges:true'
+    stop_grace_period: 40s
+    tmpfs:
+      - '/tmp:rw,noexec,nosuid,size=64m'
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - '-f'
+        - 'http://localhost:8080/actuator/health'
+      interval: 30s
+      timeout: 3s
+      start_period: 60s
+      retries: 3
+    mem_limit: '${FRONT_MEM_LIMIT:-1g}'
+    mem_reservation: '${FRONT_MEM_RESERVATION:-768m}'
+    ports:
+      - '${BIND_ADDR:-127.0.0.1}:${FRONT_PORT:-8081}:8080'
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_SHUTDOWN_TIMEOUT: '${SERVER_SHUTDOWN_TIMEOUT:-30s}'
+      DB_URL: '${DB_URL:-jdbc:postgresql://postgres:5432/aether}'
+      DB_USERNAME: '${DB_USERNAME:-aether}'
+      DB_PASSWORD: '${DB_PASSWORD:?set DB_PASSWORD}'
+      SPRING_REDIS_HOST: '${REDIS_HOST:-redis}'
+      SPRING_REDIS_PORT: '6379'
+      SPRING_REDIS_PASSWORD: '${REDIS_PASSWORD:?set REDIS_PASSWORD}'
+      STORAGE_PROVIDER: '${STORAGE_PROVIDER:-oss}'
+      OSS_ENDPOINT: '${OSS_ENDPOINT:?set OSS_ENDPOINT}'
+      OSS_PUBLIC_ENDPOINT: '${OSS_PUBLIC_ENDPOINT:-}'
+      OSS_ACCESS_KEY_ID: '${OSS_ACCESS_KEY_ID:?set OSS_ACCESS_KEY_ID}'
+      OSS_ACCESS_KEY_SECRET: '${OSS_ACCESS_KEY_SECRET:?set OSS_ACCESS_KEY_SECRET}'
+      OSS_BUCKET: '${OSS_BUCKET:?set OSS_BUCKET}'
+      STORAGE_FILE_BUCKET: '${STORAGE_FILE_BUCKET:-${OSS_BUCKET}}'
+      STORAGE_KNOWLEDGE_BUCKET: '${STORAGE_KNOWLEDGE_BUCKET:-${OSS_BUCKET}}'
+      STORAGE_SKILL_BUCKET: '${STORAGE_SKILL_BUCKET:-${OSS_BUCKET}}'
+      STORAGE_ARTIFACT_BUCKET: '${STORAGE_ARTIFACT_BUCKET:-${OSS_BUCKET}}'
+      MINIO_ENDPOINT: '${MINIO_ENDPOINT:-http://minio:9000}'
+      MINIO_PUBLIC_ENDPOINT: '${MINIO_PUBLIC_ENDPOINT:-}'
+      MINIO_ACCESS_KEY: '${MINIO_ACCESS_KEY:-}'
+      MINIO_SECRET_KEY: '${MINIO_SECRET_KEY:-}'
+      SPRING_DATASOURCE_DRUID_STATVIEWSERVLET_ENABLED: 'false'
+      SPRING_DATASOURCE_DRUID_WEBSTATFILTER_ENABLED: 'false'
+      SPRING_MAIL_HOST: '${SMTP_HOST:?set SMTP_HOST}'
+      SPRING_MAIL_PORT: '${SMTP_PORT:-465}'
+      SPRING_MAIL_USERNAME: '${SMTP_USERNAME:?set SMTP_USERNAME}'
+      SPRING_MAIL_PASSWORD: '${SMTP_PASSWORD:?set SMTP_PASSWORD}'
+      AETHER_DEEP_AGENT_BASE_URL: '${AETHER_DEEP_AGENT_BASE_URL:-http://aether-deep-agent:8010}'
+      AETHER_DEEP_AGENT_SHARED_SECRET: '${AETHER_DEEP_AGENT_SHARED_SECRET:?set AETHER_DEEP_AGENT_SHARED_SECRET}'
+      AETHER_MCP_DELEGATION_SECRET: '${AETHER_MCP_DELEGATION_SECRET:?set AETHER_MCP_DELEGATION_SECRET}'
+      AETHER_MCP_CREDENTIAL_SECRET: '${AETHER_MCP_CREDENTIAL_SECRET:?set AETHER_MCP_CREDENTIAL_SECRET}'
+    networks:
+      aether-services:
+        aliases:
+          - aether-front
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      admin:
+        condition: service_healthy
+networks:
+  aether-services:
+    name: '${AETHER_SHARED_NETWORK:-aether-prod-services}'
+volumes:
+  postgres-data:
+    name: aether-prod_postgres-data
+  redis-data:
+    name: aether-prod_redis-data
+  minio-data:
+    name: aether-prod_minio-data
