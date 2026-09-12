@@ -203,6 +203,28 @@ jobs:
           [ "$missing" -eq 0 ] || exit 1
           cat "release/${IMAGE_TAG}/admin/release-manifest.txt" 2>/dev/null || echo "（无 release-manifest.txt）"
 
+          # 预检：PostgreSQL 镜像必须与 compose 里的挂载点配套——这条挡的是本项目最危险的一种失败，
+          # 且它是静默的。compose 已把数据卷挂到 /var/lib/postgresql（PG18 的 PGDATA 是
+          # <挂载点>/18/docker）；若部署机 .env.prod 里仍留着 POSTGRES_IMAGE=pgvector/pgvector:pg16，
+          # pg16 的 PGDATA 仍是 /var/lib/postgresql/data，该路径落在卷内一个不存在的子目录上，
+          # entrypoint 会把空目录当全新实例 initdb 出一个空集群：容器 healthy、日志正常打出
+          # ready to accept connections、迁移照跑，只有数据是空的（2026-09-12 实测）。
+          # 注意 Compose 的 --env-file 优先于 compose 里的默认值，所以默认值改了也拦不住旧变量。
+          pg_image="$($COMPOSE config | sed -n '/^  postgres:/,/^  [a-z]/p' | sed -n 's/^ *image: *//p' | head -1)"
+          if [ -z "$pg_image" ]; then
+            echo "::error::读不出 postgres 镜像（compose config 失败或输出格式变化），已中止。请在部署机手工执行同一条 config 排查。" >&2
+            exit 1
+          fi
+          case "$pg_image" in
+            *pg18*)
+              echo "✓ postgres 镜像：${pg_image}"
+              ;;
+            *)
+              echo "::error::postgres 镜像渲染为 '${pg_image}'，期望 pg18。部署机 .env.prod 里的 POSTGRES_IMAGE 覆盖了 compose 默认值：请先改为 pgvector/pgvector:pg18，并按运维手册「PG 16 → 18 迁移」完成数据迁移再发布。" >&2
+              exit 1
+              ;;
+          esac
+
           # 全部镜像构建完成后才动容器，这是防「部分部署」的主防线；任一构建失败即中止，线上未变。
           $COMPOSE build
 
