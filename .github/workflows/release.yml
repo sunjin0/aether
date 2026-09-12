@@ -69,12 +69,11 @@ jobs:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
-          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT || '/opt/aether-server' }}
         run: |
           set -euo pipefail
           TAG="$GITHUB_REF_NAME"
-          : "${DEPLOY_ROOT:?未配置 DEPLOY_ROOT}"
-          [[ "$TAG" =~ ^v[A-Za-z0-9_.-]+$ && "$DEPLOY_ROOT" =~ ^/[A-Za-z0-9_./-]+$ ]]
+          [[ "$TAG" =~ ^v[A-Za-z0-9_.-]+$ ]]
           RELEASE_ID="$(date -u +%Y%m%dT%H%M%SZ)-$TAG"
           DEPLOY_PATH="$DEPLOY_ROOT/aether"
           ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH/releases/$RELEASE_ID'"
