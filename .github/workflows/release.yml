@@ -85,15 +85,27 @@ jobs:
           RELEASE_ID="$(date -u +%Y%m%dT%H%M%SZ)-$TAG"
           DEPLOY_PATH="$DEPLOY_ROOT/aether"
           ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH/releases/$RELEASE_ID'"
-          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" "bash -s -- '$DEPLOY_PATH/releases' '$DEPLOY_PATH/.releases/aether.previous'" <<'EOF'
+          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" "bash -s -- '$DEPLOY_PATH/releases' '$DEPLOY_PATH/.releases/aether.previous' '$DEPLOY_PATH/.releases/aether.current' aether-admin aether-front" <<'EOF'
           set -euo pipefail
-          releases_dir="$1"; previous_state="$2"
+          releases_dir="$1"; previous_state="$2"; current_state="$3"
           previous_release="$(sed -n 's/^release_id=//p' "$previous_state" 2>/dev/null || true)"
           if [[ -n "$previous_release" ]]; then
             find "$releases_dir" -type f -name images.tar ! -path "$releases_dir/$previous_release/*" -delete
           else
             mapfile -t archives < <(find "$releases_dir" -type f -name images.tar -printf '%T@ %p\n' | sort -nr | tail -n +2 | cut -d' ' -f2-)
             if ((${#archives[@]})); then rm -f -- "${archives[@]}"; fi
+          fi
+          if [[ -f "$current_state" ]]; then
+            current_tag="$(sed -n 's/^tag=//p' "$current_state")"
+            previous_tag="$(sed -n 's/^tag=//p' "$previous_state" 2>/dev/null || true)"
+            if [[ "$current_tag" =~ ^v[A-Za-z0-9_.-]+$ ]]; then
+              for repository in "${@:4}"; do
+                while IFS= read -r reference; do
+                  tag="${reference#*:release-}"
+                  if [[ "$tag" != "$current_tag" && "$tag" != "$previous_tag" ]]; then docker image rm "$reference" || true; fi
+                done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' "$repository" | grep -E "^${repository}:release-" || true)
+              done
+            fi
           fi
           EOF
           RSYNC_SSH="ssh -p ${DEPLOY_PORT:-22} -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120"
