@@ -1,30 +1,61 @@
 # Agent 平台 — 运维手册
 
-> 更新日期：2026-08-04
+> 更新日期：2026-09-12
 
 ---
 
 ## 数据库与 Flyway 迁移
 
-建表与数据迁移全部由 Flyway 管理，迁移脚本位于 `api/src/main/resources/db/migration/postgresql/`（V1__init.sql ~ V37）：
+建表与数据迁移全部由 Flyway 管理，迁移脚本位于 `api/src/main/resources/db/migration/postgresql/`
+（共 **209 个文件，V1 ~ V212**，版本号有 3 处空缺——退役迁移整段删除后不会回填）：
 
 - `V1__init.sql`：完整初始化（建表 + 种子数据 + 公共索引 + pgvector）。
-- `V2`~`V37`：增量变更（会话摘要字段、Deep Agent、混合检索、检索评测、服务账号、工作流运行时、触发器、菜单/权限种子及评测可靠性增强）。
+- `V2` 之后为增量变更（会话摘要字段、Deep Agent、混合检索、检索评测、服务账号、工作流运行时、
+  触发器、菜单/权限种子、评测可靠性增强，以及 `V178` 主动下线租户与可观测性表等）。
 
 Admin/Front 启动时自动执行迁移；相关配置见 `admin/src/main/resources/application.yml` 的 `spring.flyway`
 块（locations、baseline-on-migrate、validate-on-migrate）。
 
-### 本地初始化（PostgreSQL 16 + pgvector）
+### 本地初始化（PostgreSQL + pgvector）
 
 > 仓库**不再提供**本地基础设施编排：`docker-compose.postgresql.yml` 与 `deploy/docker-compose.infrastructure.yml`
 > 均已下线（后者见 `d134156 chore(deploy): 下线被生产编排取代的旧 Compose 与失效门禁脚本`）。
 > 本机需自备 PostgreSQL（pgvector 镜像）与 Redis，按 `api/src/main/resources/application-dev.yml`
-> 的默认值监听 `localhost:5432/aether`（`sunjin`）与 `127.0.0.1:6379`，或改用 `DB_URL` /
+> 的默认值监听 `localhost:5432/aether`（`sunjin` / `192837`）与 `127.0.0.1:6379`，或改用 `DB_URL` /
 > `DB_USERNAME` / `DB_PASSWORD` 环境变量指向已有实例。
 
+从零重建这套实例的最小形态：
+
+```sh
+docker run -d --name aether-postgres --restart always \
+  -e POSTGRES_DB=aether -e POSTGRES_USER=sunjin -e POSTGRES_PASSWORD=192837 \
+  -p 5432:5432 -v pgvector_data:/var/lib/postgresql/data \
+  pgvector/pgvector:pg16
+
+docker run -d --name aether-redis --restart always -p 6379:6379 redis:7-alpine
+```
+
+两个容易踩的坑：
+
+- **必须是 `--restart always`，不能是 `unless-stopped`。** 本机这套容器原先用的是
+  `unless-stopped`：Docker Desktop 重启时（本机 2026-09-11 就发生过一次，进程启动时间与容器
+  `FinishedAt` 只差 4 秒）它会发送 SIGTERM，Postgres 干净退出（ExitCode 0），而
+  `unless-stopped` 对「daemon 停止前已处于停止态」的容器不再拉起——于是容器静静躺平，
+  下一次 `mvn test` 以 `Connection to localhost:5432 refused` 收场，看起来像代码挂了。
+  `always` 不受停止态影响，daemon 一起来就拉。
+- **`POSTGRES_USER` / `POSTGRES_PASSWORD` 只在数据目录为空时生效。** 卷里已有集群时它们被忽略，
+  实际角色以当初初始化时为准。本机容器的环境变量是 `aether` / `aether_dev`，但真正可用的是
+  `sunjin` / `192837`（`application-dev.yml` 的默认值）——排查连不上时别被 env 误导。
+
+> 遗留标签：这两个容器带有 `com.docker.compose.project=aether-infrastructure` 标签，
+> 所以 `docker compose ls` 仍会列出该项目，尽管 `deploy/docker-compose.infrastructure.yml`
+> 已于 `d134156` 删除。这只是历史标签、不影响运行，**但别对它执行
+> `docker compose -p aether-infrastructure down -v`**——那会连 `pgvector_data` 卷一起删掉。
+> 没有重建容器去清标签，是因为重建有丢开发数据的风险，收益仅是列表干净。
+
 ```powershell
-# 自备实例就绪后：
-docker exec <postgres容器> pg_isready -U sunjin -d aether   # 或直接 psql 验证
+# 实例就绪后：
+docker exec aether-postgres pg_isready -U sunjin -d aether
 mvn -pl admin -am -DskipTests install
 mvn -pl admin org.springframework.boot:spring-boot-maven-plugin:2.7.18:run -Dspring-boot.run.profiles=dev
 ```
@@ -205,6 +236,12 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
 - `common/src/main/java/com/aether/utils/TokenUtils.java` 硬编码 JWT HMAC 密钥，无环境变量占位，持有源码即可伪造访问令牌。
 - `api/src/main/resources/application-prod.yml` 明文提交 SMTP 账号与授权码（dev/test 同样），该凭据已进入 Git 历史，**应予轮换**。
 - `api/src/main/resources/application-test.yml` 位于 main resources，会被打进生产 jar。
+- **本地开发库是 PostgreSQL 18，而 CI 与生产是 16。** 已核实：本机 `aether-postgres` 跑
+  `pgvector/pgvector:0.8.2-pg18-trixie`（`select version()` 返回 18.4），而
+  `.github/workflows/release.yml` 与 `docker-compose.prod.yml` 都固定 `pgvector/pgvector:pg16`。
+  209 个迁移因此在 18 上验证、在 16 上执行——哪天用到 18 才有的语法，本地与 CI 都会绿而生产会红。
+  对齐方式是按上面「本地初始化」重建容器（`pg16` 镜像），未执行是因为现有卷里有开发数据，
+  重建有丢数据的风险，且收益只是消除一处分歧。
 - `api/src/main/resources/application.yml` 被各应用自己的同名文件遮蔽：Spring Boot 解析
   `classpath:/application.yml` 只取第一个命中，即 `admin`/`front` 的 `target/classes` 那份。
   该文件里的 `spring.mvc`、`aether.workflow.*`、`aether.reliability.*` 等配置因此不生效
