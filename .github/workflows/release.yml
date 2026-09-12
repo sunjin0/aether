@@ -55,8 +55,8 @@ jobs:
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
-          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
         run: |
           set -euo pipefail
           : "${DEPLOY_HOST:?未配置 DEPLOY_HOST}"; : "${DEPLOY_USER:?未配置 DEPLOY_USER}"
@@ -67,8 +67,8 @@ jobs:
       - name: 上传并部署
         env:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
-          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
           DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
         run: |
           set -euo pipefail
@@ -81,5 +81,3 @@ jobs:
           RSYNC_SSH="ssh -p ${DEPLOY_PORT:-22} -o BatchMode=yes"
           for c in admin front; do rsync -az --delete -e "$RSYNC_SSH" "stage/release/$TAG/$c/" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/releases/$RELEASE_ID/$c/"; done
           ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" "bash '$DEPLOY_PATH/releases/$RELEASE_ID/admin/deploy/release.sh' aether '$TAG' '$DEPLOY_PATH' '$RELEASE_ID'"
-
-
