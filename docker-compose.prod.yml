@@ -37,8 +37,11 @@ x-logging: &default-logging
 services:
   # PostgreSQL 必须使用 pgvector 镜像：V1 迁移会执行 CREATE EXTENSION vector，
   # knowledge_document_chunk.embedding 为 vector(1536)。
+  #
+  # 与 .github/workflows/release.yml 的 services.postgres 保持同一个镜像串：迁移在 CI 的空库上
+  # 从零应用，镜像不同就会出现「CI 绿而生产红」。升级 PGDATA 布局的注意事项见 volumes 处的注释。
   postgres:
-    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg18}
     container_name: aether-postgres
     restart: unless-stopped
     logging: *default-logging
@@ -47,8 +50,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-aether}
       POSTGRES_USER: ${POSTGRES_USER:-aether}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    # PG18 起 PGDATA 由 /var/lib/postgresql/data 改为 <挂载点>/18/docker，官方给出的办法是挂到
+    # 上层目录 /var/lib/postgresql（单挂载点，不额外单独挂 data）。
+    #
+    # 【升级必读】现存 postgres-data 卷里是 PG16 集群，其数据就在卷根。直接换镜像并改挂载点后，
+    # entrypoint 会扫到 /var/lib/postgresql/PG_VERSION=16，判定为旧数据目录并 exit 1 ——
+    # 容器反复重启、不会静默用错数据，但也绝不会自行升级。须按运维手册「PG 16 → 18 迁移」
+    # 一节先备份、清空卷、再恢复。PG18 不能就地读取 PG16 的数据目录，pg_upgrade 也不适用。
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s

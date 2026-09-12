@@ -1,7 +1,7 @@
 # Aether 数据库设计
 
 > 数据源：`api/src/main/resources/db/migration/postgresql/V1__init.sql` ~ `V38`（Flyway）
-> 数据库：PostgreSQL 16 + pgvector；更新日期：2026-08-07
+> 数据库：PostgreSQL 18 + pgvector；更新日期：2026-08-07
 
 ---
 

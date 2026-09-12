@@ -31,9 +31,11 @@ jobs:
     # dev profile 默认连 localhost:5432/aether（sunjin/192837）与 127.0.0.1:6379——
     # 与下面两个 service 容器对齐，因此不需要给测试传任何额外配置。
     # postgres 选 pgvector 镜像：V1__init.sql 会执行 CREATE EXTENSION vector，且与生产同版本。
+    # 这里与 docker-compose.prod.yml / .env.prod.example 必须写同一个镜像串：迁移是在本 job 的空库上
+    # 从零应用的，镜像一旦不同，「CI 绿而生产红」正是要消除的那类分歧。
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_DB: aether
           POSTGRES_USER: sunjin
@@ -91,7 +93,7 @@ jobs:
       # 无任何排除清单，525 个用例全跑。admin 的 2 个 skipped 来自 FlywayMigrationSmokeTest
       # 自身的设计（见上一步说明），不是被跳过的门禁。
       # 附带收益：admin 的上下文测试会对这个空库执行全部迁移，等于每次发布都顺带验证
-      # 「所有迁移能否从零应用到 pgvector/pg16」。
+      # 「所有迁移能否从零应用到 pgvector/pg18」。
       - name: 测试门禁与打包
         run: |
           set -euo pipefail

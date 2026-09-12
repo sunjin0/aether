@@ -29,14 +29,23 @@ Admin/Front 启动时自动执行迁移；相关配置见 `admin/src/main/resour
 ```sh
 docker run -d --name aether-postgres --restart always \
   -e POSTGRES_DB=aether -e POSTGRES_USER=sunjin -e POSTGRES_PASSWORD=192837 \
-  -p 5432:5432 -v pgvector_data:/var/lib/postgresql/data \
-  pgvector/pgvector:pg16
+  -p 5432:5432 -v pgvector_data:/var/lib/postgresql \
+  pgvector/pgvector:pg18
 
-docker run -d --name aether-redis --restart always -p 6379:6379 redis:7-alpine
+docker run -d --name aether-redis --restart always -p 6379:6379 \
+  -v aether_redis-data:/data redis:7-alpine
 ```
 
-两个容易踩的坑：
+镜像串与 `.github/workflows/release.yml`、`docker-compose.prod.yml`、`.env.prod.example` 四处
+**必须完全一致**：三个 `@SpringBootTest` 上下文测试会对 CI 的空库执行全部迁移，镜像不同就等于
+「迁移在 A 上验证、在 B 上执行」，正是要消除的那类分歧。
 
+四个容易踩的坑：
+
+- **必须要挂到 `/var/lib/postgresql`，不能挂 `/var/lib/postgresql/data`。** PG18 起 `PGDATA`
+  改为 `<挂载点>/18/docker`，官方据此要求挂上层目录。若仍挂 `.../data`，数据会落到该路径下的
+  容器层（不在 `pgvector_data` 卷里），`docker rm` 一次就丢库。挂对了之后实际数据在
+  `pgvector_data/18/docker`。
 - **必须是 `--restart always`，不能是 `unless-stopped`。** 本机这套容器原先用的是
   `unless-stopped`：Docker Desktop 重启时（本机 2026-09-11 就发生过一次，进程启动时间与容器
   `FinishedAt` 只差 4 秒）它会发送 SIGTERM，Postgres 干净退出（ExitCode 0），而
@@ -44,14 +53,35 @@ docker run -d --name aether-redis --restart always -p 6379:6379 redis:7-alpine
   下一次 `mvn test` 以 `Connection to localhost:5432 refused` 收场，看起来像代码挂了。
   `always` 不受停止态影响，daemon 一起来就拉。
 - **`POSTGRES_USER` / `POSTGRES_PASSWORD` 只在数据目录为空时生效。** 卷里已有集群时它们被忽略，
-  实际角色以当初初始化时为准。本机容器的环境变量是 `aether` / `aether_dev`，但真正可用的是
-  `sunjin` / `192837`（`application-dev.yml` 的默认值）——排查连不上时别被 env 误导。
+  实际可用角色以当初初始化时为准，与 `docker inspect` 出来的 env 无关。（这两个容器的 env 曾被
+  设成 `aether` / `aether_dev` 而实际角色是 `sunjin` / `192837`，2026-09-12 重建时已让 env
+  与实际一致，但这条规则本身不变。）排查连不上时以
+  `docker exec aether-postgres psql -U sunjin -d aether -tAc 'select current_user'` 为准。
+- **本机容器的镜像是 `0.8.2-pg18-trixie`，不是上面的 `pg18`。** 区别在基底发行版：前者是
+  Debian trixie（glibc 2.41），后者是 bookworm（glibc 2.36）。本机这套数据目录是用 trixie
+  那版初始化的，换成 `pg18` 后每次连库都会告警
+  `database "aether" has a collation version mismatch`（2.41 → 2.36），文本索引的排序需要
+  `REINDEX DATABASE aether` 重建后才可信。因此**已有数据的本机实例保持 trixie 镜像**；
+  按上面 snippet 从零建（空卷）则用 `pg18` 没有这个问题。两者同为 PG18，
+  仅仅补丁版本与 pgvector 小版本不同（18.4/0.8.2 对 18.6/0.8.6），不影响迁移可用性。
 
-> 遗留标签：这两个容器带有 `com.docker.compose.project=aether-infrastructure` 标签，
-> 所以 `docker compose ls` 仍会列出该项目，尽管 `deploy/docker-compose.infrastructure.yml`
-> 已于 `d134156` 删除。这只是历史标签、不影响运行，**但别对它执行
-> `docker compose -p aether-infrastructure down -v`**——那会连 `pgvector_data` 卷一起删掉。
-> 没有重建容器去清标签，是因为重建有丢开发数据的风险，收益仅是列表干净。
+> **容器名与 compose 项目**：本机这三个容器已于 2026-09-12 重建，不再带
+> `com.docker.compose.project=aether-infrastructure` 标签，`docker compose ls` 里不会再出现
+> 那个幽灵项目（`deploy/docker-compose.infrastructure.yml` 早在 `d134156` 删除）。
+> `aether-minio` 容器一并移除了（prod 用阿里云 OSS，本地栈不需要它）。卷 `aether_minio-data`
+> **保留未删**（无人引用，属孤儿卷）：里面可能有验收栈留下的对象数据，删不删都不影响本机开发，
+> 确认无用后再自行 `docker volume rm aether_minio-data`。
+>
+> 卷归属容易混：`docker-compose.acceptance.yml` 没有写 `name:`，项目名取目录名 `aether`，
+> 所以它的卷是 `aether_postgres-data` / `aether_redis-data` / `aether_minio-data`。
+> 其中：
+>
+> - `aether_postgres-data` **是验收栈专属，别当开发库用**——里面是 PG16 集群（卷根有
+>   `PG_VERSION=16`）。验收栈已升 PG18，下次 `up` 前必须先删掉该卷重新初始化，否则 postgres
+>   容器会因「检测到旧数据目录」直接退出。开发库在 `pgvector_data`，不受影响。
+> - `aether_redis-data` 由**开发容器与验收栈共用**（两处都挂它）。Redis 只存会话、权限、
+>   限流与分布式锁，compose 本身也写明「丢失时允许冷启动重建」，共用无害；
+>   要彻底隔离就给开发容器另起一个卷名。
 
 ```powershell
 # 实例就绪后：
@@ -80,6 +110,79 @@ mvn -pl admin org.springframework.boot:spring-boot-maven-plugin:2.7.18:run -Dspr
 - 维护窗口内对旧库做完整备份，通过 pgloader 导入数据到空库后再启动应用（Flyway baseline）。
 - 保留旧库备份至少 14 天；切换失败时恢复旧配置指向旧库。
 - `FLYWAY_ENABLED=false` 可关闭自动迁移（仅限完全受控的部署）。
+
+#### PG 16 → 18 迁移（不是改一行镜像就能完成）
+
+`POSTGRES_IMAGE` 从 `pgvector/pgvector:pg16` 改为 `pgvector/pgvector:pg18`、挂载点从
+`/var/lib/postgresql/data` 改为 `/var/lib/postgresql`（PG18 起 `PGDATA` 变成
+`<挂载点>/18/docker`，官方要求挂上层目录）。**PG18 无法就地读取 PG16 的数据目录，
+`pg_upgrade` 也不适用**（版本不同、且容器里没有旧二进制），只能逻辑备份 + 恢复。
+
+**失败形态是响亮的，不会静默读错数据**：`postgres-data` 卷里是 PG16 集群，其数据就在卷根，
+而 pg18 的 entrypoint 会扫描 `/var/lib/postgresql`、`/var/lib/postgresql/data`、
+`/var/lib/postgresql/*/docker` 找 `PG_VERSION`，命中后调用 `docker_error_old_databases`
+并 `exit 1`。表现为容器反复重启（`docker logs aether-postgres` 会明确打印检测到旧数据目录），
+应用侧则是连不上库。所以**别指望「改完起不来」是配置写错了**，它就是迁移没做。
+
+维护窗口内的步骤：
+
+```sh
+cd "$DEPLOY_PATH"
+mkdir -p backup
+set -a; . ./.env.prod; set +a
+COMPOSE="docker compose --env-file .env.prod -f docker-compose.prod.yml"
+
+# 1) 先停掉旧服务，保证数据目录不会被两个进程同时打开
+$COMPOSE stop postgres
+
+# 2) 用【旧】镜像 + 同一个卷起临时容器做逻辑备份。镜像的 entrypoint 会自己把服务拉起来，
+#    所以 pg_dumpall 要在容器内跑、不能当一次性命令用。
+#    卷名带项目前缀：aether-prod_postgres-data；不发布端口，避免与任何东西冲突。
+docker run -d --name pg16-dump \
+  -v aether-prod_postgres-data:/var/lib/postgresql/data \
+  pgvector/pgvector:pg16
+for i in $(seq 1 30); do docker exec pg16-dump pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1 && break; sleep 2; done
+docker exec pg16-dump pg_dumpall -U "$POSTGRES_USER" -d "$POSTGRES_DB" > "backup/aether-$(date +%F).sql"
+docker rm -f pg16-dump
+# 必须校验：非空、含 CREATE TABLE、以 PostgreSQL database dump complete 结尾
+wc -c "backup/aether-"*.sql && tail -3 "backup/aether-"*.sql
+
+# 3) 把旧卷整卷拷一份留档（比删除更稳，随时可退回）；不要 rm
+docker volume create aether-prod-postgres-data-pg16
+docker run --rm -v aether-prod_postgres-data:/from -v aether-prod-postgres-data-pg16:/to \
+  alpine cp -a /from/. /to/
+
+# 4) 清空原卷（保留卷名，compose 与卷映射都不用改）
+$COMPOSE down
+docker run --rm -v aether-prod_postgres-data:/v alpine sh -c 'rm -rf /v/* /v/.[!.]*'
+
+# 5) 确认 .env.prod 的 POSTGRES_IMAGE 已是 pg18（挂载点已在 compose 里改好），起空库
+grep '^POSTGRES_IMAGE=' .env.prod
+$COMPOSE up -d postgres
+$COMPOSE ps postgres                                            # healthy
+
+# 6) 恢复数据（POSTGRES_USER/PASSWORD 此时才真正生效——空卷初始化）
+docker exec -i aether-postgres psql -U "$POSTGRES_USER" -d postgres < "backup/aether-"*.sql
+
+# 7) 起应用；admin 会跑 Flyway（此时应为「无待应用迁移」，因为 flyway_schema_history 已随备份恢复）
+$COMPOSE up -d --wait
+docker exec aether-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -tAc "select count(*) from flyway_schema_history"             # 应为 209
+docker exec aether-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -tAc "select extversion from pg_extension where extname='vector'"
+```
+
+> `pg_dumpall -U "$POSTGRES_USER"` 走容器内 unix socket，官方镜像的本地连接默认为 `trust`，
+> 不需要密码；`set -a` 载入 `.env.prod` 是为了拿到正确的角色名与库名。
+
+回退：把 `aether-prod-postgres-data-pg16` 拷回 `aether-prod_postgres-data`、
+`POSTGRES_IMAGE` 改回 `pg16`、挂载点改回 `/var/lib/postgresql/data` 后 `up -d`。
+**备份转储文件至少留存 14 天**，它与旧卷是两道独立保险。
+
+> 恢复完成后核对一次向量扩展：`select extversion from pg_extension where extname='vector'`。
+> 数据来自 PG16 时该值以镜像默认版本为准（本仓库固定的 `pg18` 镜像为 0.8.6），
+> 只要 ≥ 备份中记录的值即可；pgvector 只支持前向升级，若需升级用
+> `ALTER EXTENSION vector UPDATE`。
 
 ---
 
@@ -188,7 +291,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
 - **只有 aether 的 tag 会部署**（整套 compose 在它那里）。其余三仓只上传产物；三仓全绿后再给 aether 打 tag，否则 aether 的预检会点名缺少哪个组件目录并中止，此时线上容器尚未被动。
 - 不走镜像仓库：Actions 只构建**产物**并经 SSH 传输（约 280 MB/次），镜像在部署机上构建，架构天然匹配宿主。
 - 发布记录写在 `release/<tag>/admin/release-manifest.txt`（tag、commit、构建时间、本次携带的迁移版本区间），部署日志会打印。
-- **测试门禁无例外**：aether 的 525 个用例与 dashboard 的 32 套件 / 98 用例全部是阻断式门禁，没有排除清单。aether 的三个 `@SpringBootTest` 上下文测试（`AdminApplicationTests` / `SmsControllerTest` / `FrontApplicationTests`）由 workflow 的 `services:` 提供 pgvector/pg16 与 redis:7 满足依赖；它们会对空库执行全部迁移，等于每次发布都顺带验证「迁移能否从零应用」。三者均不携带任何 Springfox 补丁，dev profile 的上下文靠主源码的 `SpringfoxCompatibilityConfig` 才能起来——所以这道门禁同时守着「应用能在 dev profile 下启动」。
+- **测试门禁无例外**：aether 的 525 个用例与 dashboard 的 32 套件 / 98 用例全部是阻断式门禁，没有排除清单。aether 的三个 `@SpringBootTest` 上下文测试（`AdminApplicationTests` / `SmsControllerTest` / `FrontApplicationTests`）由 workflow 的 `services:` 提供 pgvector/pg18 与 redis:7 满足依赖；它们会对空库执行全部迁移，等于每次发布都顺带验证「迁移能否从零应用」。三者均不携带任何 Springfox 补丁，dev profile 的上下文靠主源码的 `SpringfoxCompatibilityConfig` 才能起来——所以这道门禁同时守着「应用能在 dev profile 下启动」。
 - **回滚 = 改 `.env.release` 里的 tag 再 `up -d`**，秒级、无需重传（该 tag 的镜像仍在部署机上，tag 形如 `release-<版本>`，不覆盖）：
 
   ```sh
@@ -220,7 +323,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
 ### 生产注意事项
 
 - **`SPRING_PROFILES_ACTIVE=prod` 是承重配置**：三个 `application.yml` 默认 profile 均为 `dev`，而 dev profile 硬编码 `localhost` 连接地址，容器内必然失败。
-- PostgreSQL 必须使用 pgvector 镜像（`V1__init.sql` 会执行 `CREATE EXTENSION vector`），当前固定为 `pgvector/pgvector:pg16`。
+- PostgreSQL 必须使用 pgvector 镜像（`V1__init.sql` 会执行 `CREATE EXTENSION vector`），当前固定为 `pgvector/pgvector:pg18`。从 16 升级见上文「PG 16 → 18 迁移」，不是改一行即可。
 - `sandbox-runner` 是全栈中唯一挂载 `/var/run/docker.sock` 的服务，应部署在专用宿主机上，不得与其他服务共享该 Socket。
 - **对象存储默认使用阿里云 OSS**（`STORAGE_PROVIDER=oss`）。各业务共用 `OSS_BUCKET` 这一个 bucket，通过对象键前缀隔离；如需分桶，用 `STORAGE_FILE_BUCKET` / `STORAGE_KNOWLEDGE_BUCKET` / `STORAGE_SKILL_BUCKET` / `STORAGE_ARTIFACT_BUCKET` 覆盖（优先级高于 `OSS_BUCKET`）。建议使用仅授权该 bucket 的 RAM 子账号而非主账号 AK。
 - OSS bucket 由服务启动时自动创建，无需手工初始化。`OSS_PUBLIC_ENDPOINT` 仅在绑定了自定义域名时才需填写，否则留空。
@@ -236,12 +339,6 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
 - `common/src/main/java/com/aether/utils/TokenUtils.java` 硬编码 JWT HMAC 密钥，无环境变量占位，持有源码即可伪造访问令牌。
 - `api/src/main/resources/application-prod.yml` 明文提交 SMTP 账号与授权码（dev/test 同样），该凭据已进入 Git 历史，**应予轮换**。
 - `api/src/main/resources/application-test.yml` 位于 main resources，会被打进生产 jar。
-- **本地开发库是 PostgreSQL 18，而 CI 与生产是 16。** 已核实：本机 `aether-postgres` 跑
-  `pgvector/pgvector:0.8.2-pg18-trixie`（`select version()` 返回 18.4），而
-  `.github/workflows/release.yml` 与 `docker-compose.prod.yml` 都固定 `pgvector/pgvector:pg16`。
-  209 个迁移因此在 18 上验证、在 16 上执行——哪天用到 18 才有的语法，本地与 CI 都会绿而生产会红。
-  对齐方式是按上面「本地初始化」重建容器（`pg16` 镜像），未执行是因为现有卷里有开发数据，
-  重建有丢数据的风险，且收益只是消除一处分歧。
 - `api/src/main/resources/application.yml` 被各应用自己的同名文件遮蔽：Spring Boot 解析
   `classpath:/application.yml` 只取第一个命中，即 `admin`/`front` 的 `target/classes` 那份。
   该文件里的 `spring.mvc`、`aether.workflow.*`、`aether.reliability.*` 等配置因此不生效

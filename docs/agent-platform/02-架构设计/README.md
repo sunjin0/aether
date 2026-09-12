@@ -222,7 +222,7 @@ Read 要求权限映射中存在该 path；Write 要求映射值为 `true`。完
 
 ### 2.4 知识库向量检索
 
-- **数据库**：PostgreSQL 16 + pgvector
+- **数据库**：PostgreSQL 18 + pgvector
 - **扩展**：`CREATE EXTENSION vector`
 - **分块表**：`knowledge_document_chunk`
 - **向量字段**：`embedding vector(1536)`

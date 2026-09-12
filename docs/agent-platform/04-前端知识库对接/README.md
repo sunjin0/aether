@@ -11,7 +11,7 @@
 
 ### 数据库
 
-- PostgreSQL 16 + pgvector
+- PostgreSQL 18 + pgvector
 - 文件存储：私有 MinIO
 
 ### 功能模块
