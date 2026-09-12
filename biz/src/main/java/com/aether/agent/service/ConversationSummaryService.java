@@ -1078,10 +1078,19 @@ public class ConversationSummaryService {
 
     /**
      * 判断刷新开始后是否发生过摘要失效。
+     *
+     * <p>两侧都用 {@link System#currentTimeMillis()}，而比较取「大于等于」：同一毫秒内
+     * 既可能是 evict 先于本次刷新开始，也可能是刷新开始后才 evict，这个粒度上无法区分。
+     * 用严格大于会把「同一毫秒的失效」判成未失效，于是会话已删除、摘要仍被写回。
+     * 取等号即把这种歧义一律当作已失效——多跳过一次刷新的代价只是延迟重建摘要，
+     * 而下一次刷新会重新写入；反过来写回已删除会话的摘要则是脏数据。</p>
+     *
+     * <p>这也决定了本方法不能改用本地单调计数：失效标记要经 Redis 跨实例可见，
+     * 墙上时钟是唯一可用的全局序，粒度不足只能靠比较方向兜底。</p>
      */
     private boolean isInvalidatedSince(String conversationId, long refreshStartedAt) {
         Long invalidatedAt = invalidatedConversations.get(conversationId);
-        if (invalidatedAt != null && invalidatedAt > refreshStartedAt) {
+        if (invalidatedAt != null && invalidatedAt >= refreshStartedAt) {
             return true;
         }
         try {
@@ -1089,7 +1098,7 @@ public class ConversationSummaryService {
             if (value == null) {
                 return false;
             }
-            return Long.parseLong(value.toString()) > refreshStartedAt;
+            return Long.parseLong(value.toString()) >= refreshStartedAt;
         } catch (NumberFormatException e) {
             return true;
         } catch (Exception e) {

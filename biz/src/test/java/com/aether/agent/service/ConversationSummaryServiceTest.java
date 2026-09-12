@@ -826,6 +826,56 @@ class ConversationSummaryServiceTest {
     }
 
     /**
+     * 同一毫秒内的失效必须判定为已失效。
+     *
+     * <p>{@code refreshAsync} 在入口取一次 {@code System.currentTimeMillis()} 作为刷新起点，
+     * {@code evict} 也取一次作为失效时刻，两者落在同一毫秒时先后无法区分。若比较取严格大于，
+     * 这种失效会被判成「未失效」，于是会话已删除、摘要仍被写回——正是上面那个用例偶发失败的原因
+     * （跑全量时命中过一次，单独重跑四次全绿）。</p>
+     *
+     * <p>这里不复现那场比赛：把失效时刻原样喂回判定函数，直接钉住比较方向，
+     * 结果与线程调度无关。</p>
+     */
+    @Test
+    void invalidationInSameMillisecondCountsAsInvalidated() {
+        ArgumentCaptor<Object> marker = ArgumentCaptor.forClass(Object.class);
+
+        service.evict("conversation-1");
+
+        verify(valueOperations).set(
+                eq("agent:summary:invalidated:v3:conversation-1"), marker.capture(),
+                eq(24L), eq(TimeUnit.HOURS));
+        long invalidatedAt = Long.parseLong(String.valueOf(marker.getValue()));
+
+        Object invalidated = ReflectionTestUtils.invokeMethod(
+                service, "isInvalidatedSince", "conversation-1", invalidatedAt);
+
+        assertTrue(Boolean.TRUE.equals(invalidated),
+                "失效时刻与刷新起点相同时应判定为已失效，否则删除会话后摘要仍会被写回");
+    }
+
+    /**
+     * 失效时刻早于刷新起点时不算失效，正常的摘要刷新不受影响。
+     */
+    @Test
+    void invalidationBeforeRefreshStartDoesNotBlockWritingBack() {
+        ArgumentCaptor<Object> marker = ArgumentCaptor.forClass(Object.class);
+
+        service.evict("conversation-1");
+
+        verify(valueOperations).set(
+                eq("agent:summary:invalidated:v3:conversation-1"), marker.capture(),
+                eq(24L), eq(TimeUnit.HOURS));
+        long invalidatedAt = Long.parseLong(String.valueOf(marker.getValue()));
+
+        Object invalidated = ReflectionTestUtils.invokeMethod(
+                service, "isInvalidatedSince", "conversation-1", invalidatedAt + 1);
+
+        assertFalse(Boolean.TRUE.equals(invalidated),
+                "失效发生在刷新开始之前，不应阻断这次刷新");
+    }
+
+    /**
      * 失效后的新刷新可以重建摘要。
      */
     @Test
