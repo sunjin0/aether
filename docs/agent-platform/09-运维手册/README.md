@@ -343,6 +343,16 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
   `classpath:/application.yml` 只取第一个命中，即 `admin`/`front` 的 `target/classes` 那份。
   该文件里的 `spring.mvc`、`aether.workflow.*`、`aether.reliability.*` 等配置因此不生效
   （各应用已把需要的那部分抄进自己的 `application.yml`）。**此条为推断，尚未实证**，排期时请先验证。
+- **`ConversationSummaryServiceTest#deletionDuringGenerationPreventsSummaryFromBeingWrittenBack` 是
+  偶发失败的**，而它属于发布门禁里的阻断用例，意味着发布可能随机中断。2026-09-12 全量跑
+  `mvn -B -ntp test` 时命中一次（`Wanted at most 0 times but was 1`），单独重跑该类 4 次全绿。
+  根因在 `ConversationSummaryService`：失效判定用毫秒时间戳比较——
+  `refreshStartedAt` 在 `refreshAsync` 入口取 `System.currentTimeMillis()`，`evict()` 同样取一次，
+  而 `isInvalidatedSince` 判的是 `invalidatedAt > refreshStartedAt`（**严格大于**）。
+  两者落在同一毫秒时该次失效对刷新不可见，于是会话已删除、摘要仍被写回（第 265 行附近）。
+  Windows 的时钟粒度较粗（约 15ms 一跳），比 Linux runner 更容易撞上。
+  **修法不是简单把 `>` 改成 `>=`**：更稳妥的是改用单调递增的世代号（每次 evict 自增）替代
+  墙上时钟比较。这是生产并发语义的改动，须单独提一条并补测试。
 
 ---
 
