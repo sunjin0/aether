@@ -205,7 +205,7 @@ public class ConversationSummaryService {
             return;
         }
         final List<AgentMessage> snapshot = new ArrayList<AgentMessage>(messages);
-        final long refreshStartedAt = System.currentTimeMillis();
+        final long refreshStartedAt = nextRefreshStartedAt(conversationId);
         executor.execute(() -> {
             String lockToken = null;
             try {
@@ -1105,6 +1105,23 @@ public class ConversationSummaryService {
             log.warn("读取会话摘要失效标记失败: conversationId={}", conversationId, e);
             return false;
         }
+    }
+
+    /**
+     * 为新刷新分配失效标记之后的起点。
+     *
+     * <p>刷新与淘汰都使用毫秒时间戳。若淘汰完成后立刻请求新刷新，两者可能落在同一毫秒；
+     * 直接用当前时间会把这个新刷新误判为淘汰前已启动的任务。进程内的失效标记提供了明确的
+     * happens-before 关系，因此将刷新起点推进一毫秒。淘汰前已经启动的任务不受影响，仍会被
+     * {@link #isInvalidatedSince(String, long)} 拦截。</p>
+     */
+    private long nextRefreshStartedAt(String conversationId) {
+        long now = System.currentTimeMillis();
+        Long invalidatedAt = invalidatedConversations.get(conversationId);
+        if (invalidatedAt == null || invalidatedAt >= Long.MAX_VALUE) {
+            return now;
+        }
+        return Math.max(now, invalidatedAt + 1);
     }
 
     /**
