@@ -118,7 +118,22 @@ mvn -pl admin org.springframework.boot:spring-boot-maven-plugin:2.7.18:run -Dspr
 `<挂载点>/18/docker`，官方要求挂上层目录）。**PG18 无法就地读取 PG16 的数据目录，
 `pg_upgrade` 也不适用**（版本不同、且容器里没有旧二进制），只能逻辑备份 + 恢复。
 
-**失败形态是响亮的，不会静默读错数据**：`postgres-data` 卷里是 PG16 集群，其数据就在卷根，
+> ⚠️ **两处必须同时改。只改挂载点、忘了改部署机 `.env.prod` 里的 `POSTGRES_IMAGE`，
+> 结果是静默起一个空库——这是本次改动最危险的一种失败。**
+> 已实测（2026-09-12，pg16 镜像 + 新挂载点 + 卷根放着 PG16 集群的卷）：pg16 镜像会
+> 在 `<卷>/data` 上 `initdb` 出一个全新空集群，容器状态 `running`、日志正常打出
+> `database system is ready to accept connections`，而真实集群原封不动躺在卷根。
+> 应用照常启动、admin 照常跑完 209 个迁移——**表面全绿，数据却是空的**。原因是
+> pg16 镜像的 `PGDATA` 仍是 `/var/lib/postgresql/data`，改挂载点只是让这个路径落到
+> 卷内一个不存在的子目录上，entrypoint 见其为空便当作全新实例初始化。
+> 所以升级前的第一步是先确认镜像渲染结果，别只看 compose 文件：
+>
+> ```sh
+> docker compose --env-file .env.prod -f docker-compose.prod.yml config | grep -A2 'postgres:' | grep image
+> # 必须是 pgvector/pgvector:pg18；若仍是 pg16 说明 .env.prod 覆盖了默认值
+> ```
+
+**两处都改对之后，失败形态才是响亮的**：`postgres-data` 卷里是 PG16 集群，其数据就在卷根，
 而 pg18 的 entrypoint 会扫描 `/var/lib/postgresql`、`/var/lib/postgresql/data`、
 `/var/lib/postgresql/*/docker` 找 `PG_VERSION`，命中后调用 `docker_error_old_databases`
 并 `exit 1`。表现为容器反复重启（`docker logs aether-postgres` 会明确打印检测到旧数据目录），
@@ -323,7 +338,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml ps       # 全部
 ### 生产注意事项
 
 - **`SPRING_PROFILES_ACTIVE=prod` 是承重配置**：三个 `application.yml` 默认 profile 均为 `dev`，而 dev profile 硬编码 `localhost` 连接地址，容器内必然失败。
-- PostgreSQL 必须使用 pgvector 镜像（`V1__init.sql` 会执行 `CREATE EXTENSION vector`），当前固定为 `pgvector/pgvector:pg18`。从 16 升级见上文「PG 16 → 18 迁移」，不是改一行即可。
+- PostgreSQL 必须使用 pgvector 镜像（`V1__init.sql` 会执行 `CREATE EXTENSION vector`），当前固定为 `pgvector/pgvector:pg18`。从 16 升级见上文「PG 16 → 18 迁移」——**镜像与挂载点必须同时改**，只改其一（尤其漏改部署机 `.env.prod` 里的 `POSTGRES_IMAGE`）会静默起一个空库，`ps` 与日志全都正常。
 - `sandbox-runner` 是全栈中唯一挂载 `/var/run/docker.sock` 的服务，应部署在专用宿主机上，不得与其他服务共享该 Socket。
 - **对象存储默认使用阿里云 OSS**（`STORAGE_PROVIDER=oss`）。各业务共用 `OSS_BUCKET` 这一个 bucket，通过对象键前缀隔离；如需分桶，用 `STORAGE_FILE_BUCKET` / `STORAGE_KNOWLEDGE_BUCKET` / `STORAGE_SKILL_BUCKET` / `STORAGE_ARTIFACT_BUCKET` 覆盖（优先级高于 `OSS_BUCKET`）。建议使用仅授权该 bucket 的 RAM 子账号而非主账号 AK。
 - OSS bucket 由服务启动时自动创建，无需手工初始化。`OSS_PUBLIC_ENDPOINT` 仅在绑定了自定义域名时才需填写，否则留空。
