@@ -6,7 +6,9 @@ WORKDIR /app
 # 业务 jar 变更导致镜像层失效时，无需重新下载 apt 依赖。
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update \
+    (sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null \
+      || sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list) \
+    && apt-get update \
     && apt-get install -y --no-install-recommends curl
 COPY front.jar front.jar
 EXPOSE 8080

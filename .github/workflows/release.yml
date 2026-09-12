@@ -63,7 +63,7 @@ jobs:
           mkdir -p ~/.ssh; chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519; chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" 'echo ssh-ok'
+          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" 'echo ssh-ok'
       - name: 上传并部署
         env:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
@@ -76,7 +76,7 @@ jobs:
           [[ "$TAG" =~ ^v[A-Za-z0-9_.-]+$ ]]
           RELEASE_ID="$(date -u +%Y%m%dT%H%M%SZ)-$TAG"
           DEPLOY_PATH="$DEPLOY_ROOT/aether"
-          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH/releases/$RELEASE_ID'"
-          RSYNC_SSH="ssh -p ${DEPLOY_PORT:-22} -o BatchMode=yes"
+          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH/releases/$RELEASE_ID'"
+          RSYNC_SSH="ssh -p ${DEPLOY_PORT:-22} -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120"
           for c in admin front; do rsync -az --delete -e "$RSYNC_SSH" "stage/release/$TAG/$c/" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/releases/$RELEASE_ID/$c/"; done
-          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" "bash '$DEPLOY_PATH/releases/$RELEASE_ID/admin/deploy/release.sh' aether '$TAG' '$DEPLOY_PATH' '$RELEASE_ID'"
+          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" "bash '$DEPLOY_PATH/releases/$RELEASE_ID/admin/deploy/release.sh' aether '$TAG' '$DEPLOY_PATH' '$RELEASE_ID'"
