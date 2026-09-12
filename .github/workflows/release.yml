@@ -51,6 +51,13 @@ jobs:
             cp deploy/.dockerignore "$STAGE/$c/.dockerignore"
           done
           cp deploy/release.sh deploy/compose.yml deploy/README.md "$STAGE/admin/deploy/"
+      - name: 构建镜像包
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"; STAGE="stage/release/$TAG"
+          docker build -f "$STAGE/admin/deploy/admin.Dockerfile" -t "aether-admin:release-$TAG" "$STAGE/admin"
+          docker build -f "$STAGE/front/deploy/front.Dockerfile" -t "aether-front:release-$TAG" "$STAGE/front"
+          docker save -o "$STAGE/images.tar" "aether-admin:release-$TAG" "aether-front:release-$TAG"
       - name: 配置 SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -79,4 +86,6 @@ jobs:
           ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH/releases/$RELEASE_ID'"
           RSYNC_SSH="ssh -p ${DEPLOY_PORT:-22} -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120"
           for c in admin front; do rsync -az --delete -e "$RSYNC_SSH" "stage/release/$TAG/$c/" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/releases/$RELEASE_ID/$c/"; done
-          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" "bash '$DEPLOY_PATH/releases/$RELEASE_ID/admin/deploy/release.sh' aether '$TAG' '$DEPLOY_PATH' '$RELEASE_ID'"
+          rsync -az -e "$RSYNC_SSH" "stage/release/$TAG/images.tar" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/releases/$RELEASE_ID/images.tar"
+          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" "docker load -i '$DEPLOY_PATH/releases/$RELEASE_ID/images.tar'"
+          ssh -p "${DEPLOY_PORT:-22}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$DEPLOY_USER@$DEPLOY_HOST" "AETHER_PREBUILT_IMAGES=true bash '$DEPLOY_PATH/releases/$RELEASE_ID/admin/deploy/release.sh' aether '$TAG' '$DEPLOY_PATH' '$RELEASE_ID'"

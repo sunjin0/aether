@@ -31,7 +31,14 @@ export AETHER_RELEASE_ROOT="$release_root"
 export COMPOSE_IGNORE_ORPHANS=true
 compose=(docker compose --env-file "$env_file" -f "$overlay")
 "${compose[@]}" config --quiet
-"${compose[@]}" --profile build build "${services[@]}"
+if [[ "${AETHER_PREBUILT_IMAGES:-false}" == true ]]; then
+  for service in "${services[@]}"; do
+    image=$("${compose[@]}" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"][sys.argv[1]]["image"])' "$service")
+    docker image inspect "$image" >/dev/null
+  done
+else
+  "${compose[@]}" --profile build build "${services[@]}"
+fi
 if [[ "$component" == aether ]]; then
   pg_image=$("${compose[@]}" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["postgres"]["image"])')
   [[ "$pg_image" == *pg18* ]] || { echo "Expected pg18; migrate database before publishing" >&2; exit 1; }
@@ -56,4 +63,3 @@ mv "$state.tmp" "$state"
 "${compose[@]}" ps "${running[@]}"
 echo "Released $component: $release_id"
 echo "Rollback: source .releases/$component.previous && bash \"releases/\$release_id/$artifact/deploy/release.sh\" $component \"\$tag\" \"$PWD\" \"\$release_id\""
-
