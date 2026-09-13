@@ -4,6 +4,7 @@ import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.model.ModelChatRequest;
 import com.aether.agent.model.ModelChatMessage;
 import com.aether.agent.model.ModelInputFile;
+import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
@@ -47,6 +48,31 @@ public class QwenOpenAICompatibleAdapter extends OpenAIChatAdapter {
     @Override
     public boolean supports(String providerType) {
         return "qwen-compatible".equalsIgnoreCase(providerType);
+    }
+
+    /**
+     * DashScope validates every historical tool call before streaming a new
+     * response. Its OpenAI-compatible endpoint requires function.arguments to
+     * be a JSON object encoded as a string; unlike some compatible providers,
+     * it rejects an object value, an empty string, and incomplete fragments.
+     */
+    @Override
+    protected JSONArray normalizeToolCalls(JSONArray toolCalls) {
+        JSONArray normalized = super.normalizeToolCalls(toolCalls);
+        for (int i = 0; i < normalized.size(); i++) {
+            JSONObject toolCall = normalized.getJSONObject(i);
+            if (toolCall == null) continue;
+            JSONObject function = toolCall.getJSONObject("function");
+            if (function == null) continue;
+            Object arguments = function.get("arguments");
+            try {
+                Object parsed = arguments instanceof String ? JSON.parse((String) arguments) : arguments;
+                function.put("arguments", parsed instanceof JSONObject ? JSON.toJSONString(parsed) : "{}");
+            } catch (Exception ignored) {
+                function.put("arguments", "{}");
+            }
+        }
+        return normalized;
     }
 
 

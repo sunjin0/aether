@@ -121,6 +121,21 @@ class ModelProviderAdapterTest {
     }
 
     @Test
+    void qwenAdapterSerializesHistoricalToolArgumentsAsJsonObjectString() {
+        QwenOpenAICompatibleAdapter adapter = new QwenOpenAICompatibleAdapter();
+        ModelChatRequest request = request("qwen-compatible", "qwen-plus");
+        ModelChatMessage assistant = new ModelChatMessage("assistant", "");
+        assistant.setToolCalls("[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":{\"q\":\"weather\"}}},"
+                + "{\"id\":\"call_2\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{not-json\"}}]");
+        request.setMessages(Arrays.asList(request.getMessages().get(0), request.getMessages().get(1), assistant));
+
+        JSONArray toolCalls = adapter.body(request, true).getJSONArray("messages").getJSONObject(2).getJSONArray("tool_calls");
+
+        assertEquals("{\"q\":\"weather\"}", toolCalls.getJSONObject(0).getJSONObject("function").getString("arguments"));
+        assertEquals("{}", toolCalls.getJSONObject(1).getJSONObject("function").getString("arguments"));
+    }
+
+    @Test
     void qwen3AdapterExplicitlyDisablesThinkingWhenChatThinkingIsOff() {
         QwenOpenAICompatibleAdapter adapter = new QwenOpenAICompatibleAdapter();
         ModelChatRequest request = request("qwen-compatible", "qwen3.8-max");

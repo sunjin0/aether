@@ -152,6 +152,9 @@ public class ChatRunOrchestrator {
     /** 仅持有同一随机令牌的调用方可以释放锁，避免租约过期后的误删。 */
     private void releaseDistributedLock(String lockKey, String token) {
         if (redisConnectionFactory == null || token == null) return;
+        // SSE 客户端断开会中断工作线程。Lettuce 会因此取消同步命令，导致
+        // 删除锁只能等待租约到期；临时清除中断状态以完成释放，再完整恢复它。
+        boolean interrupted = Thread.interrupted();
         try {
             Long released = executeLockScript(RELEASE_LOCK, LOCK_PREFIX + lockKey, token);
             if (!Long.valueOf(1L).equals(released)) {
@@ -161,6 +164,8 @@ public class ChatRunOrchestrator {
             // Redis 短暂中断不应让业务线程带着未释放锁结束；下一次请求
             // 可依赖租约恢复，同时记录 key 便于排查。
             log.warn("会话锁释放失败，将等待租约自动过期: key={}", LOCK_PREFIX + lockKey, e);
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
         }
     }
 
