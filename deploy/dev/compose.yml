@@ -30,7 +30,8 @@ networks:
 
 volumes:
   postgres-data:
-    name: aether-local-debug-postgres-data
+    external: true
+    name: '${LOCAL_POSTGRES_VOLUME:-pgvector_data}'
   redis-data:
     name: aether-local-debug-redis-data
   minio-data:

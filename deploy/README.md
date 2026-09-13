@@ -47,7 +47,7 @@ bash "releases/$release_id/admin/deploy/release.sh" aether "$tag" "$PWD" "$relea
 
 ## 本地 Docker 调试
 
-本地调试不连接服务器。它会打包 Admin 和 Front，构建本地镜像，并启动隔离的 PostgreSQL、Redis、Admin 和 Front；容器、网络和数据卷均使用 `aether-local-*` 名称，不会复用生产资源。
+本地调试不连接服务器。它会打包 Admin 和 Front，构建本地镜像，并启动 PostgreSQL、Redis、Admin 和 Front；PostgreSQL 复用已有的 `pgvector_data` 数据卷，Redis、MinIO、容器和网络使用 `aether-local-*` 名称。
 
 在 Linux、macOS、WSL 或 Git Bash 中执行：
 
@@ -57,4 +57,4 @@ cp deploy/.env.example deploy/dev/.env.local
 bash deploy/dev/local-debug.sh
 ```
 
-默认访问地址为 Admin `http://127.0.0.1:18080`、Front `http://127.0.0.1:18081`。可通过 `LOCAL_ADMIN_PORT`、`LOCAL_FRONT_PORT`、`LOCAL_POSTGRES_PORT`、`LOCAL_REDIS_PORT` 或 `AETHER_LOCAL_RELEASE_TAG` 覆盖端口和本地镜像标签。
+默认访问地址为 Admin `http://127.0.0.1:18080`、Front `http://127.0.0.1:18081`。可通过 `LOCAL_POSTGRES_VOLUME`、`LOCAL_ADMIN_PORT`、`LOCAL_FRONT_PORT`、`LOCAL_POSTGRES_PORT`、`LOCAL_REDIS_PORT` 或 `AETHER_LOCAL_RELEASE_TAG` 覆盖数据卷、端口和本地镜像标签。
