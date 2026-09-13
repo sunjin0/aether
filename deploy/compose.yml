@@ -2,7 +2,7 @@
 name: aether-prod
 services:
   postgres:
-    image: '${POSTGRES_IMAGE:-pgvector/pgvector:pg18}'
+    image: '${POSTGRES_IMAGE:-pgvector/pgvector:pg16}'
     container_name: aether-postgres
     restart: unless-stopped
     logging:

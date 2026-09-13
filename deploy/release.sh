@@ -41,7 +41,7 @@ else
 fi
 if [[ "$component" == aether ]]; then
   pg_image=$("${compose[@]}" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["postgres"]["image"])')
-  [[ "$pg_image" == *pg18* ]] || { echo "Expected pg18; migrate database before publishing" >&2; exit 1; }
+  [[ "$pg_image" == *pg16* ]] || { echo "Expected pg16 for the existing production data volume" >&2; exit 1; }
   "${compose[@]}" up -d --no-deps --no-recreate --wait --wait-timeout 300 postgres redis
   if "${compose[@]}" config --services | grep -qx minio; then
     "${compose[@]}" up -d --no-deps --no-recreate --wait --wait-timeout 300 minio
