@@ -52,9 +52,9 @@ bash "releases/$release_id/admin/deploy/release.sh" aether "$tag" "$PWD" "$relea
 在 Linux、macOS、WSL 或 Git Bash 中执行：
 
 ```bash
-cp deploy/.env.example deploy/.env.local
-# 编辑 deploy/.env.local，填入本地调试所需的密钥与对象存储配置
-bash deploy/local-debug.sh
+cp deploy/.env.example deploy/dev/.env.local
+# 编辑 deploy/dev/.env.local，填入本地调试所需的密钥与对象存储配置
+bash deploy/dev/local-debug.sh
 ```
 
 默认访问地址为 Admin `http://127.0.0.1:18080`、Front `http://127.0.0.1:18081`。可通过 `LOCAL_ADMIN_PORT`、`LOCAL_FRONT_PORT`、`LOCAL_POSTGRES_PORT`、`LOCAL_REDIS_PORT` 或 `AETHER_LOCAL_RELEASE_TAG` 覆盖端口和本地镜像标签。

@@ -44,3 +44,7 @@ Backend status, enum, and error-code fields must expose stable machine-readable 
 ## Git commit convention
 
 Use Conventional Commits: `<type>(<scope>): <中文提交描述>`. 类型使用 `feat`、`fix`、`refactor`、`perf`、`docs`、`test`、`build`、`ci` 或 `chore`；scope 使用 `admin`、`api`、`biz`、`db`、`dashboard` 等。提交描述必须使用中文，简洁说明实际变更；提交正文必须说明修改了哪些内容、影响范围、数据库迁移或配置变化，以及必要的验证结果。提交保持单一目的，不混入无关修改。提交前检查 `git diff`，排除密钥和生成文件，并执行相关构建/测试。
+
+## Local Docker debug
+
+Local Docker debug configuration and commands belong in deploy/dev/. Keep production release configuration in deploy/ and do not mix local .env.local, local Compose overrides, container names, networks, or volumes into the production release path. Each repository owns its own local build-and-run command and tag release workflow.

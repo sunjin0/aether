@@ -3,16 +3,16 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-env_file="${AETHER_LOCAL_ENV_FILE:-$repo_root/deploy/.env.local}"
+env_file="${AETHER_LOCAL_ENV_FILE:-$repo_root/deploy/dev/.env.local}"
 release_tag="${AETHER_LOCAL_RELEASE_TAG:-local}"
 release_id="$(date -u +%Y%m%dT%H%M%SZ)-$release_tag"
 release_root="$repo_root/.local-debug/releases/$release_id"
-compose=(docker compose --env-file "$env_file" -f "$repo_root/deploy/compose.yml" -f "$repo_root/deploy/compose.local-debug.yml")
+compose=(docker compose --env-file "$env_file" -f "$repo_root/deploy/compose.yml" -f "$repo_root/deploy/dev/compose.yml")
 
 [[ "$release_tag" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "Invalid local release tag: $release_tag" >&2; exit 1; }
 test -f "$env_file" || {
   echo "Missing local environment file: $env_file" >&2
-  echo "Create it with: cp deploy/.env.example deploy/.env.local" >&2
+  echo "Create it with: cp deploy/.env.example deploy/dev/.env.local" >&2
   exit 1
 }
 
