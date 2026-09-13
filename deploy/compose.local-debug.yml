@@ -1,0 +1,37 @@
+# 本地调试覆盖层：与生产部署使用不同的容器、网络、卷和宿主机端口。
+name: aether-local-debug
+
+services:
+  postgres:
+    container_name: aether-local-postgres
+    ports:
+      - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_POSTGRES_PORT:-15432}:5432'
+  redis:
+    container_name: aether-local-redis
+    ports:
+      - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_REDIS_PORT:-16379}:6379'
+  minio:
+    container_name: aether-local-minio
+    ports:
+      - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_MINIO_API_PORT:-19000}:9000'
+      - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_MINIO_CONSOLE_PORT:-19001}:9001'
+  admin:
+    container_name: aether-local-admin
+    ports:
+      - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_ADMIN_PORT:-18080}:8080'
+  front:
+    container_name: aether-local-front
+    ports:
+      - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_FRONT_PORT:-18081}:8080'
+
+networks:
+  aether-services:
+    name: aether-local-debug-services
+
+volumes:
+  postgres-data:
+    name: aether-local-debug-postgres-data
+  redis-data:
+    name: aether-local-debug-redis-data
+  minio-data:
+    name: aether-local-debug-minio-data

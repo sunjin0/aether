@@ -44,3 +44,17 @@ bash "releases/$release_id/admin/deploy/release.sh" aether "$tag" "$PWD" "$relea
 ```
 
 数据库迁移为前向迁移，镜像回滚不会回退 schema。
+
+## 本地 Docker 调试
+
+本地调试不连接服务器。它会打包 Admin 和 Front，构建本地镜像，并启动隔离的 PostgreSQL、Redis、Admin 和 Front；容器、网络和数据卷均使用 `aether-local-*` 名称，不会复用生产资源。
+
+在 Linux、macOS、WSL 或 Git Bash 中执行：
+
+```bash
+cp deploy/.env.example deploy/.env.local
+# 编辑 deploy/.env.local，填入本地调试所需的密钥与对象存储配置
+bash deploy/local-debug.sh
+```
+
+默认访问地址为 Admin `http://127.0.0.1:18080`、Front `http://127.0.0.1:18081`。可通过 `LOCAL_ADMIN_PORT`、`LOCAL_FRONT_PORT`、`LOCAL_POSTGRES_PORT`、`LOCAL_REDIS_PORT` 或 `AETHER_LOCAL_RELEASE_TAG` 覆盖端口和本地镜像标签。
