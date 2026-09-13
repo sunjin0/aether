@@ -31,6 +31,35 @@ export AETHER_RELEASE_ROOT="$release_root"
 export COMPOSE_IGNORE_ORPHANS=true
 compose=(docker compose --env-file "$env_file" -f "$overlay")
 "${compose[@]}" config --quiet
+
+# PostgreSQL、Redis 和 MinIO 是 Aether 的共享运行资源。已有容器可能由较早的
+# 发布版本创建，未必带有当前 Compose 的标签；此时交给 Compose 会尝试创建同名
+# 容器并失败。发布时只启动、等待已有容器，缺失时才由当前发布创建。
+ensure_shared_service() {
+  local service="$1"
+  local container="$2"
+  local status
+
+  if docker container inspect "$container" >/dev/null 2>&1; then
+    if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" != "true" ]]; then
+      docker start "$container" >/dev/null
+    fi
+
+    for _ in {1..150}; do
+      status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{if .State.Running}}running{{else}}stopped{{end}}{{end}}' "$container")"
+      case "$status" in
+        healthy|running) return 0 ;;
+        unhealthy|exited|dead) echo "Shared container $container is $status" >&2; return 1 ;;
+      esac
+      sleep 2
+    done
+    echo "Timed out waiting for shared container $container" >&2
+    return 1
+  fi
+
+  "${compose[@]}" up -d --no-deps --no-recreate --wait --wait-timeout 300 "$service"
+}
+
 if [[ "${AETHER_PREBUILT_IMAGES:-false}" == true ]]; then
   for service in "${services[@]}"; do
     image=$("${compose[@]}" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"][sys.argv[1]]["image"])' "$service")
@@ -42,9 +71,10 @@ fi
 if [[ "$component" == aether ]]; then
   pg_image=$("${compose[@]}" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["postgres"]["image"])')
   [[ "$pg_image" == *pg16* ]] || { echo "Expected pg16 for the existing production data volume" >&2; exit 1; }
-  "${compose[@]}" up -d --no-deps --no-recreate --wait --wait-timeout 300 postgres redis
+  ensure_shared_service postgres aether-postgres
+  ensure_shared_service redis aether-redis
   if "${compose[@]}" config --services | grep -qx minio; then
-    "${compose[@]}" up -d --no-deps --no-recreate --wait --wait-timeout 300 minio
+    ensure_shared_service minio aether-minio
   fi
 fi
 if [[ "$component" == aether ]]; then
