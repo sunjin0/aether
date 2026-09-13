@@ -325,7 +325,7 @@ public class KnowledgeDocumentController {
     }
 
     /**
-     * Ensures UTF-8 response metadata for text formats, including old stored objects on preview.
+     * Ensures UTF-8 object metadata for text formats when uploading a document.
      */
     private String storageContentType(String fileName, String fallback) {
         String lower = StringUtils.lowerCase(StringUtils.defaultString(fileName));
@@ -344,8 +344,7 @@ public class KnowledgeDocumentController {
         if (StringUtils.isBlank(document.getStorageObjectKey()))
             throw new ServerException(404, I18nUtils.getMessage("knowledge.document.source-file.not-found"));
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.preview-url.ready"), objectStorageService.presignedGetUrl(
-                document.getStorageBucket(), document.getStorageObjectKey(), 600,
-                storageContentType(document.getOriginalFileName(), document.getMimeType())));
+                document.getStorageBucket(), document.getStorageObjectKey(), 600));
     }
 
     /**
@@ -393,8 +392,7 @@ public class KnowledgeDocumentController {
             throw new ServerException(404, I18nUtils.getMessage("knowledge.document.source-file.not-found"));
         }
         return WebResponse.OK(I18nUtils.getMessage("knowledge.document.preview-url.ready"), objectStorageService.presignedGetUrl(
-                StringUtils.defaultIfBlank(version.getStorageBucket(), document.getStorageBucket()), objectKey, 600,
-                storageContentType(document.getOriginalFileName(), document.getMimeType())));
+                StringUtils.defaultIfBlank(version.getStorageBucket(), document.getStorageBucket()), objectKey, 600));
     }
 
 

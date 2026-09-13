@@ -19,7 +19,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.util.Collections;
 
 /**
  * 基于 MinIO 的私有对象存储服务实现。
@@ -82,20 +81,9 @@ public class MinioObjectStorageService implements ObjectStorageService {
      * 仅生成 GET 类型的临时签名 URL，知识库预览当前使用 600 秒。
      */
     public String presignedGetUrl(String bucket, String objectKey, int expirySeconds) {
-        return presignedGetUrl(bucket, objectKey, expirySeconds, null);
-    }
-
-    /**
-     * 生成指定对象的临时下载地址；可指定响应内容类型。
-     */
-    @Override
-    public String presignedGetUrl(String bucket, String objectKey, int expirySeconds, String responseContentType) {
         try {
             GetPresignedObjectUrlArgs.Builder builder = GetPresignedObjectUrlArgs.builder()
                     .method(Method.GET).bucket(bucket).object(objectKey).expiry(expirySeconds);
-            if (!blank(responseContentType)) {
-                builder.extraQueryParams(Collections.singletonMap("response-content-type", responseContentType));
-            }
             return client(blank(publicEndpoint) ? endpoint : publicEndpoint)
                     .getPresignedObjectUrl(builder.build());
         } catch (Exception e) {

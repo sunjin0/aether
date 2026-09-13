@@ -11,7 +11,6 @@ import com.aliyun.oss.OSSException;
 import com.aliyun.oss.model.GeneratePresignedUrlRequest;
 import com.aliyun.oss.model.OSSObject;
 import com.aliyun.oss.model.ObjectMetadata;
-import com.aliyun.oss.model.ResponseHeaderOverrides;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -71,21 +70,11 @@ public class AliyunOssObjectStorageService implements ObjectStorageService {
 
     @Override
     public String presignedGetUrl(String bucket, String objectKey, int expirySeconds) {
-        return presignedGetUrl(bucket, objectKey, expirySeconds, null);
-    }
-
-    @Override
-    public String presignedGetUrl(String bucket, String objectKey, int expirySeconds, String responseContentType) {
         OSS client = client(!blank(publicEndpoint));
         try {
             ensureBucketExists(client, bucket);
             GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucket, objectKey, HttpMethod.GET);
             request.setExpiration(new Date(System.currentTimeMillis() + expirySeconds * 1000L));
-            if (!blank(responseContentType)) {
-                ResponseHeaderOverrides headers = new ResponseHeaderOverrides();
-                headers.setContentType(responseContentType);
-                request.setResponseHeaders(headers);
-            }
             URL url = client.generatePresignedUrl(request);
             return url.toString();
         } catch (Exception e) {

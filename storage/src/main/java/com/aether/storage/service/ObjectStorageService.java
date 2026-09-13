@@ -23,12 +23,6 @@ public interface ObjectStorageService {
     String presignedGetUrl(String bucket, String objectKey, int expirySeconds);
 
     /**
-     * Generates a temporary GET URL with an optional response content-type override.
-     * Useful for legacy text objects that were uploaded without a charset.
-     */
-    String presignedGetUrl(String bucket, String objectKey, int expirySeconds, String responseContentType);
-
-    /**
      * 读取对象的全部字节；仅供后端解析器使用。
      */
     byte[] getObject(String bucket, String objectKey);
