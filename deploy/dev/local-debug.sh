@@ -2,12 +2,13 @@
 # 在本机打包并启动隔离的 Aether Docker 调试环境，不连接部署服务器。
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 env_file="${AETHER_LOCAL_ENV_FILE:-$repo_root/deploy/dev/.env.local}"
 release_tag="${AETHER_LOCAL_RELEASE_TAG:-local}"
 release_id="$(date -u +%Y%m%dT%H%M%SZ)-$release_tag"
 release_root="$repo_root/.local-debug/releases/$release_id"
 compose=(docker compose --env-file "$env_file" -f "$repo_root/deploy/compose.yml" -f "$repo_root/deploy/dev/compose.yml")
+maven_cmd=("${MAVEN_CMD:-mvn}")
 
 [[ "$release_tag" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "Invalid local release tag: $release_tag" >&2; exit 1; }
 test -f "$env_file" || {
@@ -29,7 +30,7 @@ stage_component() {
 
 cd "$repo_root"
 echo "Packaging Admin and Front..."
-mvn -B -ntp -pl admin,front -am -DskipTests package
+"${maven_cmd[@]}" -B -ntp -pl admin,front -am -DskipTests package
 
 stage_component admin
 stage_component front
