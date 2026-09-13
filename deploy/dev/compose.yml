@@ -4,24 +4,24 @@ name: aether-local-debug
 services:
   postgres:
     container_name: aether-local-postgres
-    ports:
+    ports: !override
       - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_POSTGRES_PORT:-15432}:5432'
   redis:
     container_name: aether-local-redis
-    ports:
+    ports: !override
       - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_REDIS_PORT:-16379}:6379'
   minio:
     container_name: aether-local-minio
-    ports:
+    ports: !override
       - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_MINIO_API_PORT:-19000}:9000'
       - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_MINIO_CONSOLE_PORT:-19001}:9001'
   admin:
     container_name: aether-local-admin
-    ports:
+    ports: !override
       - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_ADMIN_PORT:-18080}:8080'
   front:
     container_name: aether-local-front
-    ports:
+    ports: !override
       - '${LOCAL_BIND_ADDR:-127.0.0.1}:${LOCAL_FRONT_PORT:-18081}:8080'
 
 networks:
