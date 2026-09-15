@@ -111,20 +111,17 @@ Java 通过 Flyway 执行 PostgreSQL 数据库迁移。生产部署时应使用�
 
 ## 7. 部署
 
-Java 项目根目录的 `docker-compose.prod.yml` 提供生产全栈部署，包含 Dashboard、Admin、Front、MCP、Deep Agent 与
-Sandbox，以及 PostgreSQL、Redis 两个基础服务（对象存储默认使用阿里云 OSS，内置 MinIO 为 `--profile minio` 兜底）。
-四个应用的源码由 `scripts/fetch-sources.sh` 用部署机的 git 凭据检出到 `AETHER_SOURCE_ROOT`
-（默认 `.sources/`），Compose 只从该本地目录构建。不使用 BuildKit 的 Git 构建上下文：它不读取宿主机的
-git 配置（credential helper、`~/.netrc`、SSH 私钥），私有仓库拉不下来。发布前应把 `AETHER_ADMIN_GIT_REF`
-等固定到 tag 或提交 SHA。
+四个仓库各自维护 `deploy/compose.yml`，统一使用项目名 `aether-prod` 和外部网络 `aether-prod-services`，并共享服务器上的
+同一个 `/opt/aether-server/.env`。Aether 仓负责 Admin、Front，以及 PostgreSQL、Redis 两个基础服务（对象存储默认使用
+阿里云 OSS，内置 MinIO 为 `--profile minio` 兜底）；Dashboard、MCP、Deep Agent 三个仓各自发布自己的服务。
+推送 `v*` 标签触发对应仓库的 `.github/workflows/release.yml`：先测试构建，再上传发布产物，并以 `--no-deps`
+只更新本项目服务，不会执行 `down` 或 `--remove-orphans`。
 
-```powershell
-Copy-Item .env.prod.example .env.prod
-# 编辑 .env.prod：OSS 凭据、数据库与 Redis 密码、SMTP 及 Deep Agent/MCP 委派密钥
-./scripts/fetch-sources.sh                                              # 检出四个源码仓库并打印提交 SHA
-docker compose --env-file .env.prod -f docker-compose.prod.yml config   # 校验，缺失密钥在此报错
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
-```
+首次部署、发布与回滚的完整步骤见 Aether 仓的 `deploy/README.md` 与 `deploy/OPERATIONS.md`。
+
+本地调试沿用同一套分层方式：项目名 `aether-local-debug`、网络 `aether-local-debug-services`，
+由 Aether 仓的 `deploy/dev/local-debug.sh` 起基础栈，三个卫星仓各自执行
+`bash deploy/dev/local-build.sh && bash deploy/dev/local-up.sh`；Aether 仓的调试脚本也可按需代拉起它们。
 
 默认宿主机端口（全部仅绑定 `127.0.0.1`，由外部网关反代并终止 TLS）：
 
@@ -162,10 +159,13 @@ Admin 容器使用 `/actuator/health` 进行健康检查（`application.yml` 暴
 ### 常用检查
 
 ```powershell
-docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+docker ps --filter label=com.docker.compose.project=aether-prod
 docker logs --tail 300 aether-admin
 docker logs --tail 300 aether-deep-agent
 ```
+
+容器名不带项目名前缀（`aether-admin`、`aether-deep-agent` 等）。各仓的 `deploy/release.sh` 会打印本项目的服务状态，
+需要按项目维度查看时在对应仓目录下执行 `docker compose --env-file /opt/aether-server/.env -f deploy/compose.yml ps`。
 
 ## 9. 开发规范
 

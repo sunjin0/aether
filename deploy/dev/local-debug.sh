@@ -47,3 +47,28 @@ export AETHER_RELEASE_ROOT="$release_root"
 
 echo "Local Admin: http://127.0.0.1:${LOCAL_ADMIN_PORT:-18080}"
 echo "Local Front: http://127.0.0.1:${LOCAL_FRONT_PORT:-18081}"
+
+# 只读取单个键，不 source 环境文件，避免把文件里的密钥导入本进程再被子进程继承。
+read_env_value() {
+  sed -n "s/^$1=//p" "$env_file" | tail -1
+}
+
+# 卫星仓各自构建、各自启动，这里只负责按需拉起。目录缺失或未配置时跳过，不视为错误，
+# 因此只跑后端时行为与以前完全一致。镜像标签由各仓自己的 AETHER_LOCAL_RELEASE_TAG 决定。
+start_satellite() {
+  local label="$1" dir="${2:-}"
+  if [[ -z "$dir" ]]; then
+    echo "Skipping $label: AETHER_LOCAL_*_DIR is not configured"
+    return 0
+  fi
+  if [[ ! -f "$dir/deploy/dev/local-up.sh" ]]; then
+    echo "Skipping $label: $dir has no deploy/dev/local-up.sh" >&2
+    return 0
+  fi
+  echo "Starting $label ($dir)..."
+  ( cd "$dir" && bash deploy/dev/local-up.sh )
+}
+
+start_satellite "Dashboard" "$(read_env_value AETHER_LOCAL_DASHBOARD_DIR)"
+start_satellite "MCP" "$(read_env_value AETHER_LOCAL_MCP_DIR)"
+start_satellite "Deep Agent" "$(read_env_value AETHER_LOCAL_DEEP_AGENT_DIR)"

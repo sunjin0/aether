@@ -58,3 +58,43 @@ bash deploy/dev/local-debug.sh
 ```
 
 默认访问地址为 Admin `http://127.0.0.1:18080`、Front `http://127.0.0.1:18081`。可通过 `LOCAL_POSTGRES_VOLUME`、`LOCAL_ADMIN_PORT`、`LOCAL_FRONT_PORT`、`LOCAL_POSTGRES_PORT`、`LOCAL_REDIS_PORT` 或 `AETHER_LOCAL_RELEASE_TAG` 覆盖数据卷、端口和本地镜像标签。
+
+### 与卫星仓共用一套调试分组
+
+Dashboard、MCP、Deep Agent 三个仓各自维护 `deploy/dev/compose.yml` 覆盖层，项目名统一为 `aether-local-debug`，因此全部容器在 Docker Desktop 里归入同一分组。网络 `aether-local-debug-services` 由本仓的调试栈创建，卫星仓只加入不创建，所以**必须先起本仓再起卫星仓**。
+
+各仓自己构建、自己启动：
+
+```bash
+cd <aether-dashboard>
+bash deploy/dev/local-build.sh && bash deploy/dev/local-up.sh
+```
+
+本仓的 `deploy/dev/local-debug.sh` 也会按需代拉起卫星仓：在 `deploy/dev/.env.local` 里配置目录即可，留空或目录不存在则跳过（此时行为与只跑后端完全一致）。
+
+```bash
+AETHER_LOCAL_DASHBOARD_DIR=C:/path/to/aether-dashboard
+AETHER_LOCAL_MCP_DIR=C:/path/to/aether-mcp-server
+AETHER_LOCAL_DEEP_AGENT_DIR=C:/path/to/aether-deep-agent-service
+```
+
+脚本只负责启动、不负责构建，卫星仓镜像仍需各自的 `local-build.sh` 先构建好；两边镜像标签也相互独立，各仓默认都是 `dev-local`。
+
+| 服务 | 地址 |
+| --- | --- |
+| Admin | `http://127.0.0.1:18080` |
+| Front | `http://127.0.0.1:18081` |
+| Dashboard | `http://127.0.0.1:18082` |
+| MCP | `http://127.0.0.1:18000` |
+| Deep Agent | `http://127.0.0.1:18010` |
+| PostgreSQL | `127.0.0.1:15432` |
+| Redis | `127.0.0.1:16379` |
+
+### 同一项目名下的注意事项
+
+分组是按 `com.docker.compose.project` 归类的，所以四个仓的 Compose 文件共享 `aether-local-debug` 这一个项目名。由此带来两点必须知道的行为：
+
+- 每个仓只声明自己的服务，于是 Compose 会把**别的仓的容器当成孤儿**并打印 `Found orphan containers (...)` 警告。这是正常现象，可以忽略。**绝对不要加 `--remove-orphans`**——它会把其他仓的容器一并删掉。
+- `docker compose -p aether-local-debug down` 在哪个仓里执行，就只会移除该仓的容器，不会一次清空整个分组。要停掉全部，需要四个仓各执行一次。
+
+本仓的 `local-debug.sh` 与三个卫星仓的 `local-up.sh` 都不带 `--remove-orphans`。
