@@ -157,9 +157,14 @@ public class AgentConversationController {
     @PostMapping("/list")
     public WebResponse<List<AgentConversationVo>> list(@RequestBody ConversationList vo) {
         Page<AgentConversation> page = new Page<>(vo.getCurrent(), vo.getPageSize());
+        // 工作流节点会话只在会话管理页可见，对话调试的会话列表默认排除。
+        boolean includeWorkflow = Boolean.TRUE.equals(vo.getIncludeWorkflow())
+                || AgentConversation.SOURCE_WORKFLOW.equals(vo.getSource());
         Wrapper<AgentConversation> wrapper = Wrappers.lambdaQuery(AgentConversation.class)
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentConversation::getAgentDefinitionId, vo.getAgentDefinitionId())
                 .eq(vo.getStatus() != null, AgentConversation::getStatus, vo.getStatus())
+                .eq(StringUtils.isNotBlank(vo.getSource()), AgentConversation::getSource, vo.getSource())
+                .ne(!includeWorkflow, AgentConversation::getSource, AgentConversation.SOURCE_WORKFLOW)
                 .eq(AgentConversation::getDeleted, false)
                 .and(query -> query.eq(AgentConversation::getUserId, currentUserId())
                         .or().likeRight(AgentConversation::getUserId, SERVICE_ACCOUNT_PRINCIPAL_PREFIX))

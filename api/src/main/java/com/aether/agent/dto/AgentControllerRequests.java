@@ -20,6 +20,10 @@ public final class AgentControllerRequests {
     @Data @ApiModel("状态更新请求") public static class Status { @ApiModelProperty("状态") private Integer status; }
     @Data @ApiModel("会话列表请求") public static class ConversationList {
         private Long current; private Long pageSize; private String agentDefinitionId; private Integer status;
+        /** 精确来源过滤：CONSOLE、EXTERNAL 或 WORKFLOW。 */
+        private String source;
+        /** 会话管理页需要工作流节点会话；对话调试列表保持默认排除。 */
+        private Boolean includeWorkflow;
     }
     @Data @ApiModel("工具审批策略请求") public static class ToolApprovalPolicy { private String toolApprovalPolicy; }
     @Data @ApiModel("智能体运行列表请求") public static class RunList {

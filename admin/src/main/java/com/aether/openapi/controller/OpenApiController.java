@@ -338,6 +338,7 @@ public class OpenApiController {
         AgentConversation conversation = new AgentConversation();
         conversation.setApplicationId(applicationId()); conversation.setAgentDefinitionId(agent.getId());
         conversation.setUserId(CurrentUser.getUser().get("userId")); conversation.setTitle("开放 API 调用");
+        conversation.setSource(AgentConversation.SOURCE_EXTERNAL);
         conversation.setMessageCount(0); conversation.setStatus(0); conversation.setToolApprovalPolicy("never");
         conversation.setProductProfileId(product.getId()); conversation.setProductVersionNo(product.getVersionNo());
         conversation.setProductSnapshotId(product.getPublishedSnapshotId()); conversation.setServiceAccountId(serviceAccountId());

@@ -1156,6 +1156,8 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         if (StringUtils.isBlank(dto.getConversationId())) {
             AgentConversation conversation = new AgentConversation();
             conversation.setApplicationId(agent.getApplicationId());
+            conversation.setSource(dto.getOpenApi() != null && dto.getOpenApi()
+                    ? AgentConversation.SOURCE_EXTERNAL : AgentConversation.SOURCE_CONSOLE);
             conversation.setUserId(userId);
             conversation.setAgentDefinitionId(agent.getId());
             conversation.setTitle(buildConversationTitle(dto.getMessage()));

@@ -989,6 +989,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         AgentConversation conversation = new AgentConversation();
         conversation.setApplicationId(agent.getApplicationId()); conversation.setUserId(instance.getUserId());
         conversation.setAgentDefinitionId(agent.getId()); conversation.setTitle("工作流节点 " + node.getNodeId());
+        // 节点会话由工作流创建，来源必须区别于控制台会话，避免出现在对话调试的会话列表里。
+        conversation.setSource(AgentConversation.SOURCE_WORKFLOW);
         // 节点专属会话必须处于进行中状态，智能体服务完成调用后才能关闭或归档。
         conversation.setMessageCount(0); conversation.setStatus(0); conversation.setToolApprovalPolicy("ask");
         agentConversationService.save(conversation);

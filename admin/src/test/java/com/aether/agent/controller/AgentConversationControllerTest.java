@@ -1,6 +1,7 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.entity.AgentConversation;
+import com.aether.agent.dto.AgentControllerRequests;
 import com.aether.agent.dto.SessionMemoryCorrectionDto;
 import com.aether.agent.dto.AgentControllerRequests.ToolApprovalPolicy;
 import com.aether.agent.service.AgentDefinitionService;
@@ -51,12 +52,14 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.lenient;
@@ -335,6 +338,48 @@ class AgentConversationControllerTest {
         assertEquals("memory-2", response.getData().getId());
         verify(sessionMemoryService, never()).correctMemory(anyString(), anyString(), anyString(), anyString(), any());
         verify(valueOperations).get(anyString());
+    }
+
+    /**
+     * 工作流节点的会话只在会话管理页可见，对话调试的会话列表默认排除。
+     */
+    @Test
+    void listExcludesWorkflowConversationsUnlessRequested() {
+        stubEmptyConversationPage();
+
+        controller.list(listQuery(null, null));
+        String defaultSql = capturedListSql();
+        assertTrue(defaultSql.contains("source <>"), "默认列表必须排除工作流节点会话，实际条件：" + defaultSql);
+
+        controller.list(listQuery(true, null));
+        assertFalse(capturedListSql().contains("source <>"));
+
+        controller.list(listQuery(null, AgentConversation.SOURCE_WORKFLOW));
+        assertTrue(capturedListSql().contains("source ="));
+    }
+
+    private AgentControllerRequests.ConversationList listQuery(Boolean includeWorkflow, String source) {
+        AgentControllerRequests.ConversationList query = new AgentControllerRequests.ConversationList();
+        query.setCurrent(1L);
+        query.setPageSize(20L);
+        query.setIncludeWorkflow(includeWorkflow);
+        query.setSource(source);
+        return query;
+    }
+
+    private void stubEmptyConversationPage() {
+        Page<AgentConversation> page = new Page<AgentConversation>(1, 20);
+        page.setRecords(Collections.emptyList());
+        page.setTotal(0);
+        when(conversationService.page(any(Page.class), any(Wrapper.class))).thenReturn(page);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String capturedListSql() {
+        ArgumentCaptor<Wrapper<AgentConversation>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(conversationService).page(any(Page.class), captor.capture());
+        clearInvocations(conversationService);
+        return captor.getValue().getSqlSegment();
     }
 
     /**

@@ -18,8 +18,16 @@ import lombok.experimental.Accessors;
 @ApiModel(value = "AgentConversation对象", description = "会话")
 public class AgentConversation extends BaseEntity {
 
+    public static final String SOURCE_CONSOLE = "CONSOLE";
+    public static final String SOURCE_EXTERNAL = "EXTERNAL";
+    /** 工作流 Agent 节点持有的节点专属会话，不参与对话调试的会话列表。 */
+    public static final String SOURCE_WORKFLOW = "WORKFLOW";
+
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
+
+    @ApiModelProperty(value = "会话来源：CONSOLE-控制台、EXTERNAL-外部接口、WORKFLOW-工作流节点")
+    private String source;
 
     @ApiModelProperty(value = "用户ID")
     private String userId;

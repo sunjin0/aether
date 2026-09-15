@@ -746,6 +746,7 @@ public class AgentChatController {
                         conversation = existingConversation;
                     } else {
                         conversation = new AgentConversation();
+                        conversation.setSource(AgentConversation.SOURCE_CONSOLE);
                         conversation.setUserId(userId);
                         conversation.setAgentDefinitionId(agent.getId());
                         conversation.setStatus(0);
