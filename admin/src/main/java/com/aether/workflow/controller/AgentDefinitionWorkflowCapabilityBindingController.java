@@ -103,6 +103,7 @@ public class AgentDefinitionWorkflowCapabilityBindingController {
     public WebResponse<Void> bind(@PathVariable @NotBlank String agentId, @RequestBody AgentWorkflowCapabilityBindingRequest request) {
         AgentDefinition agent = requireAgent(agentId);
         assertMutable(agentId);
+        assertWorkflowCapabilityBindable(agent);
         AgentWorkflowCapability capability = request == null ? null : capabilityService.getById(request.getCapabilityId());
         if (capability == null || !StringUtils.equals(capability.getApplicationId(), agent.getApplicationId()) || !Boolean.TRUE.equals(capability.getEnabled()))
             throw new ServerException(404, I18nUtils.getMessage("agent.workflow.capability.not-found"));
@@ -155,6 +156,15 @@ public class AgentDefinitionWorkflowCapabilityBindingController {
                 || StringUtils.defaultString(item.getCapabilityCode()).toLowerCase().contains(key)
                 || StringUtils.defaultString(item.getDescription()).toLowerCase().contains(key);
     }
+    /**
+     * Deep 智能体的运行时不接入工作流，因此不允许新建绑定。
+     * 解绑与停用不受限制：存量绑定仍需保留清理手段。
+     */
+    private void assertWorkflowCapabilityBindable(AgentDefinition agent) {
+        if ("DEEP".equalsIgnoreCase(StringUtils.trim(agent.getExecutionMode())))
+            throw new ServerException(409, I18nUtils.getMessage("agent.workflow.capability.binding.deep.unsupported"));
+    }
+
     private void assertMutable(String agentId) {
         if (evaluationPolicyService == null) return;
         EvaluationPolicy policy = evaluationPolicyService.getOne(Wrappers.lambdaQuery(EvaluationPolicy.class)
