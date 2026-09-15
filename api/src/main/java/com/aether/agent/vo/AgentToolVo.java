@@ -51,6 +51,9 @@ public class AgentToolVo extends BaseEntity {
     @ApiModelProperty(value = "MCP input schema JSON")
     private String mcpInputSchema;
 
+    @ApiModelProperty(value = "是否常驻携带到模型工具列表")
+    private Boolean resident;
+
     @ApiModelProperty(value = "超时时间（毫秒）")
     private Integer timeoutMs;
 

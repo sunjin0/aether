@@ -14,6 +14,11 @@ public interface AgentTaskEventService extends IService<AgentTaskEvent> {
      */
     void record(String taskId, String runId, String eventType, String summary);
 
+    /** 记录可恢复的结构化事件；data 应已完成敏感字段过滤。 */
+    default void record(String taskId, String runId, String eventType, String summary, String data) {
+        record(taskId, runId, eventType, summary);
+    }
+
     /**
      * 查询按任务Id。
      */

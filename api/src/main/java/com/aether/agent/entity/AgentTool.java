@@ -47,6 +47,18 @@ public class AgentTool extends BaseEntity {
     @TableField(exist = false)
     private String parametersSchema;
 
+    /** 工作流能力工具的后端绑定标识，不持久化到 agent_tool。 */
+    @TableField(exist = false)
+    private String workflowCapabilityId;
+
+    /** 工作流能力绑定的已发布版本，不持久化到 agent_tool。 */
+    @TableField(exist = false)
+    private String workflowVersionId;
+
+    /** 工作流能力工具动作：START、OBSERVE、STOP 等。 */
+    @TableField(exist = false)
+    private String workflowToolAction;
+
     @ApiModelProperty(value = "MCP服务ID")
     private String mcpServerId;
 
@@ -55,6 +67,9 @@ public class AgentTool extends BaseEntity {
 
     @ApiModelProperty(value = "MCP input schema JSON")
     private String mcpInputSchema;
+
+    @ApiModelProperty(value = "是否常驻携带到模型工具列表；仅 MCP 工具配置生效")
+    private Boolean resident;
 
     @ApiModelProperty(value = "超时时间（毫秒），默认30000")
     private Integer timeoutMs;

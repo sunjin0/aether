@@ -23,6 +23,8 @@ public class SkillRuntimeContext {
      * Skill 声明为 required 的工具 id，路由时必须常驻保留。
      */
     private Set<String> requiredToolIds = Collections.emptySet();
+    /** Skill 声明的全部工具（包含 optional 声明），作为本轮工具路由的常驻集合。 */
+    private Set<String> routingToolIds = Collections.emptySet();
     private String snapshot;
     private boolean installed;
 

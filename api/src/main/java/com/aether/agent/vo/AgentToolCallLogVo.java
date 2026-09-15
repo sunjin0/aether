@@ -66,6 +66,15 @@ public class AgentToolCallLogVo extends BaseEntity {
     @ApiModelProperty(value = "错误信息")
     private String errorMsg;
 
+    private String workflowInvocationId;
+    private String workflowAction;
+    private String currentNodeType;
+    private Long expectedStateVersion;
+    private Long actualStateVersion;
+    private String workflowErrorCode;
+    private Boolean workflowRetryable;
+    private String userConfirmationId;
+
     @ApiModelProperty(value = "Start created time")
     private Long startTime;
 

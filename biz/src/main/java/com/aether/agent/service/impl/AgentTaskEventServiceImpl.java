@@ -21,12 +21,18 @@ public class AgentTaskEventServiceImpl extends ServiceImpl<AgentTaskEventMapper,
      */
     @Override
     public void record(String taskId, String runId, String eventType, String summary) {
+        record(taskId, runId, eventType, summary, null);
+    }
+
+    @Override
+    public void record(String taskId, String runId, String eventType, String summary, String data) {
         if (StringUtils.isBlank(taskId)) return;
         AgentTaskEvent event = new AgentTaskEvent();
         event.setTaskId(taskId);
         event.setRunId(runId);
         event.setEventType(eventType);
         event.setSummary(StringUtils.abbreviate(StringUtils.defaultString(summary), 1000));
+        event.setData(StringUtils.abbreviate(data, 65536));
         event.setOccurredAt(System.currentTimeMillis());
         save(event);
     }

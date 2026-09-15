@@ -810,6 +810,11 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
 
             if (!"RUNNING".equals(instance.getStatus())) return;
 
+            // 节点执行过程中可能通过独立恢复链路写回实例变量（例如 MCP 工具节点
+            // 在 resumeMcpApproval 中会重新读取并持久化变量）。刷新本地上下文，
+            // 确保紧接着执行的下游节点可以看到上游刚产出的变量。
+            variables = variables(instance);
+
             // 节点完成，找下一个节点
             if ("parallel".equals(history.getNodeType()) && "COMPLETED".equals(history.getStatus())) {
                 JSONObject parallelDefinition = nodeMap.get(nodeId);
@@ -1253,6 +1258,9 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
         } else {
             config.put("questions", definition.getJSONArray("questions"));
         }
+        String agentInputPolicy = StringUtils.defaultIfBlank(definition.getString("agentInputPolicy"), definition.getString("inputPolicy"));
+        if (StringUtils.isNotBlank(agentInputPolicy)) config.put("agentInputPolicy", agentInputPolicy);
+        if (definition.containsKey("agentInputSchema")) config.put("agentInputSchema", definition.get("agentInputSchema"));
         // 重试失败节点后会重新进入交互。此时不能继续携带上一次失败的错误，
         // 否则实例虽已处于 WAITING_USER，详情页仍会显示“执行失败”。
         node.setStatus("WAITING_USER");

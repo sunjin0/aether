@@ -200,6 +200,8 @@ class SkillContextServiceTest {
         assertTrue(context.getTools().stream().anyMatch(t -> "t1".equals(t.getId())));
         assertTrue(context.getTools().stream().anyMatch(t -> "tNotBound".equals(t.getId())));
         assertTrue(context.getTools().stream().noneMatch(t -> "tUndeclared".equals(t.getId())));
+        assertTrue(context.getRoutingToolIds().contains("t1"));
+        assertTrue(context.getRoutingToolIds().contains("tNotBound"));
         assertTrue(context.getKnowledgeBaseIds().contains("kb1"));
         assertTrue(context.getSystemPrompt().contains("[Installed Skill]"));
         assertTrue(context.getSystemPrompt().contains("[Tool execution constraints]"));

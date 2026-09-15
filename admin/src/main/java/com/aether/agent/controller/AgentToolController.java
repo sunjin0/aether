@@ -511,6 +511,9 @@ public class AgentToolController {
         if (tool.getTimeoutMs() == null) {
             tool.setTimeoutMs(DEFAULT_TOOL_TIMEOUT_MS);
         }
+        if (tool.getResident() == null) {
+            tool.setResident(Boolean.FALSE);
+        }
     }
 
     /**

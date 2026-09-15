@@ -120,6 +120,12 @@ public static void validate(String nodesText, String edgesText) {
                 if ("approval".equals(mode) && StringUtils.isNotBlank(node.getString("approvalMode"))
                         && !"ANY".equals(node.getString("approvalMode")))
                     throw new ServerException(422, "当前审批交互节点仅支持 ANY 审批模式");
+                String agentInputPolicy = StringUtils.defaultIfBlank(node.getString("agentInputPolicy"), node.getString("inputPolicy"));
+                if (StringUtils.isNotBlank(agentInputPolicy)
+                        && !Arrays.asList("HUMAN_REQUIRED", "AGENT_INPUT_ALLOWED", "AGENT_PROPOSAL").contains(agentInputPolicy))
+                    throw new ServerException(422, I18nUtils.getMessage("workflow.definition.agent-input-policy.invalid"));
+                if ("AGENT_INPUT_ALLOWED".equals(agentInputPolicy) && "approval".equals(mode))
+                    throw new ServerException(422, I18nUtils.getMessage("workflow.definition.agent-input-policy.approval.denied"));
             }
         }
         for (JSONObject node : nodeMap.values()) {

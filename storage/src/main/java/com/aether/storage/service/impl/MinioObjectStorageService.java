@@ -23,12 +23,12 @@ import java.io.InputStream;
 /**
  * 基于 MinIO 的私有对象存储服务实现。
  */
-@Service
-@ConditionalOnProperty(name = "storage.provider", havingValue = "minio")
 /**
  * MinIO 私有对象存储实现。
  * 配置键：storage.minio.endpoint、access-key、secret-key；未配置时仅在实际存储操作时抛出异常，避免阻塞应用启动。
  */
+@Service
+@ConditionalOnProperty(name = "storage.provider", havingValue = "minio")
 public class MinioObjectStorageService implements ObjectStorageService {
     private final String endpoint, publicEndpoint, accessKey, secretKey;
 

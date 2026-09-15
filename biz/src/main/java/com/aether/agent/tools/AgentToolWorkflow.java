@@ -26,6 +26,7 @@ import com.aether.agent.tools.ToolCallParser.ToolCall;
 import com.aether.agent.tools.core.Tool;
 import com.aether.agent.tools.core.ToolRegistry;
 import com.aether.agent.tools.entity.ToolResult;
+import com.aether.workflow.service.AgentWorkflowInvocationService;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -35,7 +36,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -61,7 +64,6 @@ import javax.annotation.PreDestroy;
  */
 @Component
 public class AgentToolWorkflow {
-    private static final int MAX_TOOL_SCHEMA_CHARS = 16000;
     private static final Logger log = LoggerFactory.getLogger(AgentToolWorkflow.class);
     private static final String MCP_APPROVAL_TYPE = "mcp_tool_approval";
     private static final String TOOL_APPROVAL_GRANT_KEY_PREFIX = "agent:tool-approval:";
@@ -96,6 +98,9 @@ public class AgentToolWorkflow {
 
     @Autowired(required = false)
     private UserService userService;
+    /** 工作流 MCP 授权由聊天交互卡片确定性提交，避免再次交给模型猜动作。 */
+    @Autowired(required = false)
+    private ObjectProvider<AgentWorkflowInvocationService> workflowInvocationServiceProvider;
 
     /**
      * 创建 {@code AgentToolWorkflow} 实例。
@@ -140,26 +145,31 @@ public class AgentToolWorkflow {
     }
 
     /**
-     * 返回请求模型时可公开的工具定义。仅显式绑定或被 Skill 声明的工具可用，
-     * 其余工具按关键字匹配与 query 向量召回 Top-K 裁剪以节省上下文，未匹配的工具不携带；
-     * query 为空时不裁剪。
+     * 返回请求模型时可公开的工具定义。
+     *
+     * 常驻工具（requiredToolIds、工作流生命周期工具及平台级常驻工具）始终携带；
+     * 其余工具仍按用户问题进行关键字/向量路由。路由只负责区分“常驻”和“问题匹配”两类，
+     * 不再额外按 schema 字符数截断已选工具，避免工作流工具因字符预算被误裁剪。
+     * query 和 requiredToolIds 参数保留既有调用契约。
      */
     public List<AgentTool> getRequestTools(List<AgentTool> scopedTools, String query, Set<String> requiredToolIds) {
         List<AgentTool> candidates = new ArrayList<>(scopedTools == null
                 ? java.util.Collections.<AgentTool>emptyList() : scopedTools);
         Set<String> protectedToolIds = new java.util.HashSet<>(requiredToolIds == null
                 ? java.util.Collections.<String>emptySet() : requiredToolIds);
+        // 工作流生命周期工具是固定协议，不能因为用户问题与工具名不相似而被路由裁剪；
+        // 否则后续 observe/stop/审批动作不会出现在本轮模型请求的 tools 中。
+        for (AgentTool candidate : candidates) {
+            if (isWorkflowTool(candidate) && StringUtils.isNotBlank(candidate.getId())) {
+                protectedToolIds.add(candidate.getId());
+            }
+        }
         List<AgentTool> routed = toolRouterService.route(candidates, protectedToolIds, query);
         List<AgentTool> tools = new ArrayList<>();
-        int schemaChars = 0;
         for (AgentTool tool : routed) {
-            int size = StringUtils.length(tool.getName()) + StringUtils.length(tool.getDescription())
-                    + StringUtils.length(tool.getParametersSchema()) + StringUtils.length(tool.getMcpInputSchema());
-            if (!tools.isEmpty() && schemaChars + size > MAX_TOOL_SCHEMA_CHARS) {
-                continue;
+            if (tool != null) {
+                tools.add(toModelVisibleTool(tool));
             }
-            tools.add(toModelVisibleTool(tool));
-            schemaChars += size;
         }
         tools.sort(Comparator.comparing(AgentTool::getId, Comparator.nullsLast(String::compareTo)));
         return tools;
@@ -271,7 +281,7 @@ public class AgentToolWorkflow {
 
             ToolExecutionResult result;
             try {
-                result = executeMcpTool(tool, call.getArguments(), runId, userId, agent.getId());
+                result = executeMcpTool(tool, call.getArguments(), runId, userId, agent.getId(), call.getId(), null);
             } catch (Exception e) {
                 result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED);
                 result.setRequestMethod("MCP tools/call");
@@ -391,12 +401,12 @@ public class AgentToolWorkflow {
         ToolExecutionResult result;
         try {
             checkCancelled(cancellationToken);
-            if (!allowedByResourcePolicy(tool, call.getName(), agentId, userId)) {
+            if (!isWorkflowTool(tool) && !allowedByResourcePolicy(tool, call.getName(), agentId, userId)) {
                 result = ToolExecutionResult.failure("资源策略拒绝执行该工具", STATUS_SECURITY_BLOCK);
                 result.setToolCallId(call.getId());
                 return result;
             }
-            result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId, null, cancellationToken);
+            result = executeMcpTool(tool, call.getArguments(), runId, userId, agentId, call.getId(), cancellationToken);
         } catch (CancellationException e) {
             throw e;
         } catch (Exception e) {
@@ -529,12 +539,79 @@ public class AgentToolWorkflow {
     }
 
     /**
+     * 工作流观察结果进入 MCP 授权节点时创建聊天交互卡片。
+     * 用户的 once/allow_10m/reject 后续由 executeApprovedMcpTool 直接提交，
+     * 不再经过 LLM 将授权文本猜测成 PROVIDE_AGENT_INPUT。
+     */
+    public AgentMessage createWorkflowApproval(String conversationId, ModelChatResponse response,
+                                               List<ToolExecutionResult> results, AgentDefinition agent,
+                                               String runId) {
+        if (response == null || results == null || results.isEmpty() || agent == null) return null;
+        List<ToolCall> calls = parseCalls(response);
+        for (int i = 0; i < calls.size() && i < results.size(); i++) {
+            ToolExecutionResult result = results.get(i);
+            if (result == null || !result.isSuccess() || StringUtils.isBlank(result.getContent())) continue;
+            JSONObject observation;
+            try { observation = JSONObject.parseObject(result.getContent()); }
+            catch (Exception ignored) { continue; }
+            JSONObject nextAction = observation == null ? null : observation.getJSONObject("nextAction");
+            if (nextAction == null || !"RESOLVE_MCP_APPROVAL".equals(nextAction.getString("type"))) continue;
+            String invocationId = observation.getString("invocationId");
+            Long stateVersion = observation.getLong("stateVersion");
+            if (StringUtils.isBlank(invocationId) || stateVersion == null) continue;
+            ToolCall call = calls.get(i);
+            JSONObject config = new JSONObject();
+            config.put("type", "group");
+            config.put("layout", "confirm");
+            config.put("question", "请确认工作流中的 MCP 工具调用");
+            config.put("questions", buildApprovalQuestions("工作流请求执行 MCP 工具，请核对调用详情后确认。"));
+            config.put("approvalType", "workflow_mcp_approval");
+            config.put("runId", runId);
+            config.put("invocationId", invocationId);
+            config.put("stateVersion", stateVersion);
+            long expiresAt = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(10);
+            config.put("expiresAt", expiresAt);
+            if (StringUtils.isNotBlank(nextAction.getString("nodeId"))) config.put("nodeId", nextAction.getString("nodeId"));
+            config.put("toolCallId", call.getId());
+            config.put("toolName", call.getName());
+            config.put("modelContent", response.getContent());
+            config.put("modelReasoningContent", response.getReasoningContent());
+            config.put("modelToolCalls", response.getToolCalls());
+            if (StringUtils.isNotBlank(nextAction.getString("toolName"))) config.put("mcpToolName", nextAction.getString("toolName"));
+            if (StringUtils.isNotBlank(nextAction.getString("question"))) config.put("mcpQuestion", nextAction.getString("question"));
+            JSONObject answerArguments = new JSONObject();
+            answerArguments.put("invocationId", invocationId);
+            answerArguments.put("action", "RESOLVE_MCP_APPROVAL");
+            answerArguments.put("expectedStateVersion", stateVersion);
+            config.put("arguments", answerArguments);
+
+            AgentMessage message = new AgentMessage();
+            message.setConversationId(conversationId);
+            message.setRole("assistant");
+            message.setMessageType("interaction");
+            message.setInteractionType("group");
+            message.setInteractionStatus("pending");
+            message.setExpiresAt(expiresAt);
+            message.setContent(config.getString("question"));
+            message.setQuestionConfig(config.toJSONString());
+            messageService.save(message);
+            linkWorkflowApprovalAudit(runId, call, message.getId());
+            return message;
+        }
+        return null;
+    }
+
+    /**
      * 在用户确认后执行 MCP 工具，并将执行结果重新包装为模型可识别的 tool call。
      */
     public ApprovalExecution executeApprovedMcpTool(AgentMessage question, Map<String, Object> answer,
                                                     AgentDefinition agent, String userId) {
         JSONObject config = JSONObject.parseObject(question.getQuestionConfig());
-        if (!MCP_APPROVAL_TYPE.equals(config.getString("approvalType"))) {
+        String approvalType = config.getString("approvalType");
+        if ("workflow_mcp_approval".equals(approvalType)) {
+            return executeApprovedWorkflowMcpTool(question, answer, config, agent, userId);
+        }
+        if (!MCP_APPROVAL_TYPE.equals(approvalType)) {
             return null;
         }
         String decision = resolveApprovalDecision(answer);
@@ -566,6 +643,35 @@ public class AgentToolWorkflow {
         }
         updateApprovalAudit(config.getString("auditLogId"), result, confirmed);
         return new ApprovalExecution(runId, buildToolCallResponse(config, toolCallId, toolName, arguments), result);
+    }
+
+    private ApprovalExecution executeApprovedWorkflowMcpTool(AgentMessage question, Map<String, Object> answer,
+                                                             JSONObject config, AgentDefinition agent, String userId) {
+        String decision = resolveApprovalDecision(answer);
+        String invocationId = config.getString("invocationId");
+        Long stateVersion = config.getLong("stateVersion");
+        String toolCallId = config.getString("toolCallId");
+        String toolName = config.getString("toolName");
+        ToolExecutionResult result;
+        AgentWorkflowInvocationService workflowInvocationService = workflowInvocationServiceProvider == null
+                ? null : workflowInvocationServiceProvider.getIfAvailable();
+        if (workflowInvocationService == null || StringUtils.isBlank(invocationId) || stateVersion == null) {
+            result = ToolExecutionResult.failure("工作流授权上下文不可用，请重新观察工作流", STATUS_FAILED);
+        } else {
+            try {
+                AgentWorkflowInvocationService.AgentWorkflowInvocationResult accepted =
+                        workflowInvocationService.resolveMcpApproval(invocationId, decision, stateVersion,
+                                userId, agent.getId());
+                result = ToolExecutionResult.success(JSON.toJSONString(accepted), JSON.toJSONString(accepted),
+                        200, 0);
+            } catch (Exception e) {
+                result = ToolExecutionResult.failure(e.getMessage(), STATUS_FAILED);
+            }
+        }
+        result.setToolCallId(toolCallId);
+        return new ApprovalExecution(config.getString("runId"),
+                buildToolCallResponse(config, toolCallId, toolName, config.getJSONObject("arguments") == null
+                        ? new HashMap<String, Object>() : config.getJSONObject("arguments").toJavaObject(Map.class)), result);
     }
 
     /**
@@ -634,7 +740,8 @@ public class AgentToolWorkflow {
                 context.setTrustedContext(run.getTrustedContext());
             }
         }
-        return executorFactory.getExecutor("mcp").execute(context);
+        String executorType = isWorkflowTool(tool) ? "workflow" : "mcp";
+        return executorFactory.getExecutor(executorType).execute(context);
     }
 
     /** 工具执行前的资源策略检查；未配置策略时保持向后兼容（默认允许）。 */
@@ -785,6 +892,7 @@ public class AgentToolWorkflow {
      * The run snapshot wins over mutable session settings. Legacy runs default to ask.
      */
     private boolean shouldRequestApproval(String runId, AgentTool tool, ToolCall call, String userId, String agentId) {
+        if (isWorkflowTool(tool)) return false;
         String policy = APPROVAL_ASK;
         com.aether.agent.entity.AgentRun run = agentRunService.getById(runId);
         if (!isEmailTool(tool) && hasActiveGrant(userId, agentId, tool.getId(), run == null ? null : run.getConversationId())) return false;
@@ -872,6 +980,7 @@ public class AgentToolWorkflow {
         log.setLatencyMs(result.getLatencyMs());
         log.setStatus(result.getStatus());
         log.setErrorMsg(truncate(result.getErrorMsg(), 1024));
+        populateWorkflowAudit(log, tool, call, result);
         toolCallLogService.save(log);
         if (executionService != null) {
             String parentId = run == null ? null : run.getExecutionId();
@@ -895,6 +1004,57 @@ public class AgentToolWorkflow {
             }
         }
         return log;
+    }
+
+    private void populateWorkflowAudit(AgentToolCallLog log, AgentTool tool, ToolCall call,
+                                       ToolExecutionResult result) {
+        if (!isWorkflowTool(tool)) return;
+        Map<String, Object> arguments = call.getArguments() == null
+                ? java.util.Collections.<String, Object>emptyMap() : call.getArguments();
+        log.setWorkflowInvocationId(stringValue(arguments.get("invocationId")));
+        log.setWorkflowAction(tool.getWorkflowToolAction());
+        log.setExpectedStateVersion(longValue(arguments.get("expectedStateVersion")));
+        if (StringUtils.isBlank(result.getContent())) return;
+        try {
+            JSONObject payload = JSONObject.parseObject(result.getContent());
+            if (payload == null) return;
+            log.setActualStateVersion(payload.getLong("stateVersion"));
+            log.setCurrentNodeType(payload.getString("currentNodeType"));
+            log.setWorkflowErrorCode(payload.getString("errorCode"));
+            log.setWorkflowRetryable(payload.getBoolean("retryable"));
+            if (StringUtils.isBlank(log.getWorkflowInvocationId()))
+                log.setWorkflowInvocationId(payload.getString("invocationId"));
+            if (log.getActualStateVersion() == null) log.setActualStateVersion(payload.getLong("latestStateVersion"));
+        } catch (Exception ignored) {
+            // 非 JSON 的 MCP/工作流响应不应阻断原有审计写入。
+        }
+    }
+
+    private void linkWorkflowApprovalAudit(String runId, ToolCall call, String confirmationId) {
+        if (StringUtils.isBlank(runId) || call == null || StringUtils.isBlank(confirmationId)) return;
+        AgentToolCallLog audit = toolCallLogService.getOne(Wrappers.lambdaQuery(AgentToolCallLog.class)
+                .eq(AgentToolCallLog::getRunId, runId)
+                .eq(AgentToolCallLog::getToolCallId, call.getId())
+                .orderByDesc(AgentToolCallLog::getCreatedAt)
+                .last("LIMIT 1"));
+        if (audit == null) return;
+        AgentToolCallLog update = new AgentToolCallLog();
+        update.setId(audit.getId());
+        update.setUserConfirmationId(confirmationId);
+        toolCallLogService.updateById(update);
+    }
+
+    private String stringValue(Object value) { return value == null ? null : String.valueOf(value); }
+
+    private Long longValue(Object value) {
+        if (value == null) return null;
+        try { return Long.valueOf(String.valueOf(value)); }
+        catch (NumberFormatException ignored) { return null; }
+    }
+
+    private boolean isWorkflowTool(AgentTool tool) {
+        return tool != null && ("workflow".equalsIgnoreCase(tool.getType())
+                || "workflow".equalsIgnoreCase(tool.getToolType()));
     }
 
     private String executionStatus(Integer status) {

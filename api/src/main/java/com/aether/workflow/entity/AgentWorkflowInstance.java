@@ -49,6 +49,10 @@ public class AgentWorkflowInstance extends BaseEntity {
     private String status;
     private String variables;
     private String currentNodeId;
+    /** Agent invocation optimistic concurrency version. */
+    private Long stateVersion;
+    /** Agent invocation association, if this instance was started by an Agent capability. */
+    private String invocationId;
     private String errorMessage;
     private Long startedAt;
     private Long completedAt;

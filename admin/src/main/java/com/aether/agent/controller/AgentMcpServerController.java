@@ -256,6 +256,7 @@ public class AgentMcpServerController {
             tool.setMcpInputSchema(definition.getInputSchema());
             tool.setTimeoutMs(server.getTimeoutMs());
             tool.setStatus(1);
+            tool.setResident(Boolean.FALSE);
             agentToolService.save(tool);
             imported.add(tool);
         }

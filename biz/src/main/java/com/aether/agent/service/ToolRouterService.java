@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 /**
  * 按当前 query 召回相关工具，裁剪无关工具定义以节省模型上下文。
  *
- * <p>内置交互工具（ask_user 等）、Skill required 工具与 generate_artifact 始终保留；
+ * <p>内置交互工具（ask_user 等）、Skill 声明工具、统一工作流工具与 generate_artifact 始终保留；
  * 其余工具按关键字匹配（名称/编码/MCP 工具名）与 query embedding 语义召回排序，
  * 不足 topK 的部分按候选原顺序补齐。仅当非常驻候选超过 topK 时才真正丢弃工具。
  * embedding 未配置时关键字通道仍然生效。</p>
@@ -61,7 +61,7 @@ public class ToolRouterService {
      * 关键字命中就会把其余已绑定工具挤出本轮工具集，而系统提示的能力目录仍然列着它们。</p>
      *
      * @param candidates       当前 Agent 可用工具（绑定或 Skill 收敛后）
-     * @param protectedToolIds 必须常驻的工具 id（内置交互、Skill required、generate_artifact）
+     * @param protectedToolIds 必须常驻的工具 id（内置交互、Skill 声明工具、generate_artifact）
      * @param query            当前用户问题；为空时不裁剪
      * @return 常驻工具 + 至多 topK 个非常驻工具；候选不超上限时即全部候选
      */
@@ -95,7 +95,12 @@ public class ToolRouterService {
         if (protectedToolIds != null && tool.getId() != null && protectedToolIds.contains(tool.getId())) {
             return true;
         }
-        return ARTIFACT_TOOL.equals(tool.getMcpToolName()) || EMAIL_TOOL.equals(tool.getMcpToolName());
+        // 工作流生命周期工具是统一协议，必须始终可见，不能因用户问题与工具名不相似而丢失。
+        return ARTIFACT_TOOL.equals(tool.getMcpToolName()) || EMAIL_TOOL.equals(tool.getMcpToolName())
+                || "internal".equalsIgnoreCase(tool.getType())
+                || "workflow".equalsIgnoreCase(tool.getType())
+                || "workflow".equalsIgnoreCase(tool.getToolType())
+                || Boolean.TRUE.equals(tool.getResident());
     }
 
     /**

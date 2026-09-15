@@ -71,4 +71,14 @@ public class AgentToolCallLog extends BaseEntity {
 
     @ApiModelProperty(value = "错误信息")
     private String errorMsg;
+
+    /** 工作流调用审计字段。 */
+    private String workflowInvocationId;
+    private String workflowAction;
+    private String currentNodeType;
+    private Long expectedStateVersion;
+    private Long actualStateVersion;
+    private String workflowErrorCode;
+    private Boolean workflowRetryable;
+    private String userConfirmationId;
 }

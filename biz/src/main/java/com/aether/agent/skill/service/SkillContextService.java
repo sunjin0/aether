@@ -171,8 +171,16 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
         // Agent 绑定是授权上限；命中 Skill 后，Skill 的独立知识库声明进一步收窄本轮检索范围。
         // The permanent capability catalog lists every Agent-bound tool. Once a Skill is
         // selected, only its separately declared dependencies receive full schemas.
+        // 工作流生命周期工具不是 Skill 的普通依赖，必须在每轮模型请求中保持可见；
+        // 否则命中某个 Skill 后，工具裁剪会把 workflow_start/observe 等动作误删。
         final Set<String> selectedToolIds = declaredToolIds == null
-                ? Collections.<String>emptySet() : declaredToolIds;
+                ? new LinkedHashSet<>() : new LinkedHashSet<>(declaredToolIds);
+        for (AgentTool boundTool : boundTools) {
+            if (boundTool != null && ("workflow".equalsIgnoreCase(boundTool.getType())
+                    || "workflow".equalsIgnoreCase(boundTool.getToolType()))) {
+                selectedToolIds.add(boundTool.getId());
+            }
+        }
         // 过滤掉 MCP 服务已停用/删除的工具；内置工具（ask_user 等）没有 MCP 服务，仍须保留。
         List<AgentTool> tools = toolLiveness.filterLive(boundTools.stream()
                 .filter(item -> selectedToolIds.contains(item.getId()))
@@ -198,6 +206,7 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
         context.setInstalled(true); context.setSystemPrompt(joinSystemMessages(context.getSystemMessages()));
         context.setTools(tools);
         context.setKnowledgeBaseIds(declaredKnowledgeBaseIds == null ? Collections.<String>emptySet() : declaredKnowledgeBaseIds);
+        context.setRoutingToolIds(selectedToolIds);
         context.setRequiredToolIds(requiredToolIds); context.setSnapshot(JSON.toJSONString(snapshot));
         return context;
     }

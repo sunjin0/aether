@@ -310,7 +310,7 @@ public class DeepAgentRunService {
             }
             List<AgentTool> resolvedTools = skillContext == null ? toolCatalog.getBoundTools(agent.getId()) : skillContext.getTools();
             List<AgentTool> routedTools = toolRouterService.route(resolvedTools,
-                    skillContext == null ? java.util.Collections.<String>emptySet() : skillContext.getRequiredToolIds(), task);
+                    skillContext == null ? java.util.Collections.<String>emptySet() : skillContext.getRoutingToolIds(), task);
             List<String> allowedTools = routedTools.stream()
                     .filter(t -> t.getMcpToolName() != null)
                     .filter(t -> !"send_email".equals(t.getMcpToolName()) || Boolean.TRUE.equals(agent.getSmtpEnabled()))

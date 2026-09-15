@@ -10,6 +10,11 @@ import com.aether.agent.skill.service.AgentSkillService;
 import com.aether.agent.skill.service.impl.AgentSkillVersionServiceImpl;
 import com.aether.agent.tools.AgentToolCatalog;
 import com.aether.agent.tools.AgentToolLiveness;
+import com.aether.agent.entity.AgentDefinition;
+import com.aether.workflow.entity.AgentWorkflowCapability;
+import com.aether.workflow.service.AgentWorkflowCapabilityService;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 
@@ -33,6 +38,8 @@ class CapabilityIndexServiceTest {
     private final AgentSkillVersionServiceImpl versionService = mock(AgentSkillVersionServiceImpl.class);
     private final AgentMcpServerService mcpServerService = mock(AgentMcpServerService.class);
     private final AgentToolLiveness toolLiveness = new AgentToolLiveness(mcpServerService);
+    private final AgentDefinitionService agentDefinitionService = mock(AgentDefinitionService.class);
+    private final AgentWorkflowCapabilityService workflowCapabilityService = mock(AgentWorkflowCapabilityService.class);
     private final CapabilityIndexService service = new CapabilityIndexService(toolCatalog, skillService, versionService, toolLiveness);
 
     /**
@@ -55,10 +62,11 @@ class CapabilityIndexServiceTest {
 
         String index = service.buildIndex("a1", Collections.emptyList());
 
-        assertTrue(index.startsWith("\n\n[可用能力 / Available capabilities]\n"));
-        assertTrue(index.contains("- tool http: HTTP 请求工具"));
-        assertTrue(index.contains("- tool file: 文件读写"));
-        assertFalse(index.contains("skill"));
+        JSONObject catalog = catalog(index);
+        assertEquals(2, catalog.getJSONObject("categories").getJSONArray("tools").size());
+        assertEquals("http", catalog.getJSONObject("categories").getJSONArray("tools").getJSONObject(0).getString("name"));
+        assertEquals("HTTP 请求工具", catalog.getJSONObject("categories").getJSONArray("tools").getJSONObject(0).getString("description"));
+        assertEquals(0, catalog.getJSONObject("categories").getJSONArray("skills").size());
     }
 
     /**
@@ -72,9 +80,9 @@ class CapabilityIndexServiceTest {
 
         String index = service.buildIndex("a1", Collections.emptyList());
 
-        assertTrue(index.contains("- tool http: HTTP 请求工具"));
-        assertTrue(index.contains("generate_artifact"));
-        assertTrue(index.contains("文件生成"));
+        JSONObject catalog = catalog(index);
+        assertEquals(2, catalog.getJSONObject("categories").getJSONArray("tools").size());
+        assertEquals("generate_artifact", catalog.getJSONObject("categories").getJSONArray("tools").getJSONObject(1).getString("name"));
     }
 
     /**
@@ -88,7 +96,9 @@ class CapabilityIndexServiceTest {
 
         String index = service.buildIndex("a1", Collections.singletonList(binding("a1", "s1", "v1")));
 
-        assertTrue(index.contains("- skill 发票处理: 处理发票录入与审核"));
+        JSONObject catalog = catalog(index);
+        assertEquals("发票处理", catalog.getJSONObject("categories").getJSONArray("skills").getJSONObject(0).getString("name"));
+        assertEquals("处理发票录入与审核", catalog.getJSONObject("categories").getJSONArray("skills").getJSONObject(0).getString("description"));
     }
 
     /**
@@ -119,10 +129,10 @@ class CapabilityIndexServiceTest {
 
         String index = service.buildIndex("a1", Collections.emptyList());
 
-        String line = index.substring(index.indexOf("- tool http: "));
-        assertTrue(line.contains("…"));
-        assertFalse(line.contains("\n"));
-        assertTrue(line.length() <= 220);
+        JSONObject catalog = catalog(index);
+        String description = catalog.getJSONObject("categories").getJSONArray("tools").getJSONObject(0).getString("description");
+        assertTrue(description.contains("…"));
+        assertTrue(description.length() <= 103);
     }
 
     /**
@@ -166,9 +176,45 @@ class CapabilityIndexServiceTest {
 
         String index = service.buildIndex("a1", Collections.emptyList());
 
-        assertTrue(index.contains("- tool http: HTTP 请求工具"));
+        assertTrue(index.contains("\"name\":\"http\""));
         assertFalse(index.contains("dead"));
         assertFalse(index.contains("已停用的工具"));
+    }
+
+    @Test
+    void includesStructuredWorkflowInputAndOutputSchemas() {
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("a1");
+        agent.setApplicationId("app-1");
+        AgentWorkflowCapability capability = new AgentWorkflowCapability();
+        capability.setId("wf-1");
+        capability.setCapabilityCode("contract_approval");
+        capability.setDisplayName("合同审批");
+        capability.setDescription("推进合同审批");
+        capability.setAllowedActions("[\"START\",\"OBSERVE\"]");
+        capability.setInputSchema("{\"type\":\"object\",\"properties\":{\"contractId\":{\"type\":\"string\"}}}");
+        capability.setOutputSchema("{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}}}");
+        when(toolCatalog.getBoundTools("a1")).thenReturn(null);
+        when(agentDefinitionService.getById("a1")).thenReturn(agent);
+        when(workflowCapabilityService.listEnabledForAgent("a1", "app-1"))
+                .thenReturn(Collections.singletonList(capability));
+
+        String index = new CapabilityIndexService(toolCatalog, skillService, versionService, toolLiveness,
+                agentDefinitionService, workflowCapabilityService).buildIndex("a1", Collections.emptyList());
+
+        JSONObject workflow = catalog(index).getJSONObject("categories").getJSONArray("workflows").getJSONObject(0);
+        assertEquals("string", workflow.getJSONObject("inputSchema").getJSONObject("properties")
+                .getJSONObject("contractId").getString("type"));
+        assertEquals("string", workflow.getJSONObject("outputSchema").getJSONObject("properties")
+                .getJSONObject("status").getString("type"));
+        assertEquals("OBSERVE", workflow.getJSONArray("actionContracts").getJSONObject(1).getString("action"));
+        assertTrue(workflow.getJSONArray("actionContracts").getJSONObject(1).getJSONArray("required")
+                .contains("invocationId"));
+    }
+
+    private JSONObject catalog(String index) {
+        int start = index.indexOf('{');
+        return JSON.parseObject(index.substring(start));
     }
 
     private AgentMcpServer server(String id, int status) {

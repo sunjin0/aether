@@ -162,6 +162,23 @@ class ToolRouterServiceTest {
         assertTrue(idsOf(routed).contains("ga"));
     }
 
+    @Test
+    void keepsConfiguredResidentAndInternalToolsBeyondTopK() {
+        when(routingConfigService.embeddingModelId()).thenReturn(null);
+        when(routingConfigService.topK()).thenReturn(1);
+        ToolRouterService service = new ToolRouterService(indexMapper, embeddingService, modelCatalogService, routingConfigService);
+        AgentTool resident = named("resident");
+        resident.setResident(Boolean.TRUE);
+        AgentTool internal = named("ask_user");
+        internal.setType("internal");
+        List<AgentTool> routed = service.route(Arrays.asList(named("t1"), named("t2"), resident, internal),
+                Collections.<String>emptySet(), "unrelated");
+
+        assertEquals(3, routed.size());
+        assertTrue(idsOf(routed).contains("resident"));
+        assertTrue(idsOf(routed).contains("ask_user"));
+    }
+
     /**
      * 低于阈值的向量命中不参与排序，仍按兜底顺序取候选。
      */
