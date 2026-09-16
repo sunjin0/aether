@@ -31,9 +31,22 @@ public class WorkflowOutputResolver {
 
     /** 使用 Capability 的更窄输出契约进一步限制发布版本输出。 */
     public Map<String, Object> resolve(AgentWorkflowInstance instance, String capabilitySchema) {
+        // 先挡掉没有变量的实例，避免为它白查一次版本。
+        if (instance == null || StringUtils.isBlank(instance.getVariables()))
+            return new LinkedHashMap<String, Object>();
+        return resolve(instance, versionService.getById(instance.getWorkflowVersionId()), capabilitySchema);
+    }
+
+    /**
+     * 用调用方已批量取好的版本解析。
+     *
+     * <p>清单类读路径一次要装配几十行，逐行 {@code getById} 会把查询次数绑到行数上；
+     * 版本本来就是按 id 批量取的，这里接住那份结果即可。
+     */
+    public Map<String, Object> resolve(AgentWorkflowInstance instance, AgentWorkflowVersion version,
+                                       String capabilitySchema) {
         Map<String, Object> outputs = new LinkedHashMap<String, Object>();
         if (instance == null || StringUtils.isBlank(instance.getVariables())) return outputs;
-        AgentWorkflowVersion version = versionService.getById(instance.getWorkflowVersionId());
         if (version == null || StringUtils.isBlank(version.getOutputSchema())) return outputs;
         try {
             JSONObject variables = JSONObject.parseObject(instance.getVariables());

@@ -24,6 +24,7 @@ import com.aether.workflow.service.AgentWorkflowInvocationCommandService;
 import com.aether.workflow.service.AgentWorkflowNodeInstanceService;
 import com.aether.workflow.service.AgentWorkflowService;
 import com.aether.workflow.service.AgentWorkflowVersionService;
+import com.aether.workflow.runtime.AgentWorkflowNextActionResolver;
 import com.aether.workflow.runtime.WorkflowOutputResolver;
 import com.aether.workflow.vo.AgentWorkflowInstanceVo;
 import com.aether.workflow.vo.AgentWorkflowInvocationObservation;
@@ -59,6 +60,7 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
     private final AgentWorkflowExternalInvocationService externalInvocationService;
     private final AgentWorkflowEventReceiptService eventReceiptService;
     private final AgentWorkflowInvocationCommandService commandService;
+    private final AgentWorkflowNextActionResolver nextActionResolver;
 
     public AgentWorkflowInvocationServiceImpl(AgentWorkflowCapabilityService capabilityService,
                                               AgentDefinitionWorkflowCapabilityBindingService capabilityBindingService,
@@ -71,7 +73,8 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
                                               AgentWorkflowInvocationRecordService invocationStore,
                                               AgentWorkflowExternalInvocationService externalInvocationService,
                                               AgentWorkflowEventReceiptService eventReceiptService,
-                                              AgentWorkflowInvocationCommandService commandService) {
+                                              AgentWorkflowInvocationCommandService commandService,
+                                              AgentWorkflowNextActionResolver nextActionResolver) {
         this.capabilityService = capabilityService;
         this.capabilityBindingService = capabilityBindingService;
         this.workflowService = workflowService;
@@ -84,6 +87,7 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
         this.externalInvocationService = externalInvocationService;
         this.eventReceiptService = eventReceiptService;
         this.commandService = commandService;
+        this.nextActionResolver = nextActionResolver;
     }
 
     @Override
@@ -184,15 +188,15 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
         result.setStatus(snapshot.getStatus());
         result.setStateVersion(snapshot.getStateVersion() == null ? 0L : snapshot.getStateVersion());
         result.setCurrentNodeId(snapshot.getCurrentNodeId());
-        com.aether.workflow.entity.AgentWorkflowNodeInstance current = currentNode(snapshot);
+        com.aether.workflow.entity.AgentWorkflowNodeInstance current = nextActionResolver.currentNode(snapshot);
         if (current != null) {
             result.setCurrentNodeType(current.getNodeType());
-            result.setCurrentNodeName(nodeName(snapshot.getVersionNodes(), current.getNodeId()));
+            result.setCurrentNodeName(nextActionResolver.nodeName(snapshot, current.getNodeId()));
         }
         result.setOutput(outputResolver.resolve(snapshot, capability.getOutputSchema()));
         result.setResultCode(resultCode(snapshot.getStatus()));
-        result.setNextAction(nextAction(invocation.getCapabilityId(), snapshot));
-        if (isTerminal(snapshot.getStatus())) {
+        result.setNextAction(nextActionResolver.resolve(capability, snapshot));
+        if (nextActionResolver.isTerminal(snapshot.getStatus())) {
             // Preserve the workflow's stable terminal code (including TIMED_OUT)
             // instead of collapsing every non-success outcome into FAILED.
             invocation.setStatus(snapshot.getStatus());
@@ -219,7 +223,7 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
         requireAgent(capability, agentDefinitionId);
         requireAction(capability, ACTION_STOP);
         AgentWorkflowInstance instance = lockedInstance(invocation);
-        boolean alreadyTerminal = isTerminal(instance.getStatus());
+        boolean alreadyTerminal = nextActionResolver.isTerminal(instance.getStatus());
         if (!alreadyTerminal) {
             ensureExpectedState(instance, expectedStateVersion);
             executionService.terminate(instance.getId(), userId);
@@ -252,7 +256,8 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
             throw failure(409, "agent.workflow.invocation.input.state.invalid");
         AgentWorkflowNodeInstance node = currentNode(instance);
         JSONObject definition = currentDefinition(instance, node);
-        if (node == null || definition == null || !"interaction".equals(node.getNodeType()) || !agentInputAllowed(definition))
+        if (node == null || definition == null || !"interaction".equals(node.getNodeType())
+                || !nextActionResolver.agentInputAllowed(definition))
             throw failure(403, "agent.workflow.invocation.input.not-enabled");
         Map<String, Object> safeInput = validateAgentInput(capability, definition, input);
         AgentWorkflowInteractionDto answer = new AgentWorkflowInteractionDto();
@@ -288,7 +293,7 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
         AgentWorkflowNodeInstance node = currentNode(instance);
         JSONObject config = node == null || StringUtils.isBlank(node.getInteractionConfig())
                 ? new JSONObject() : JSONObject.parseObject(node.getInteractionConfig());
-        if (!isMcpToolApprovalConfig(config))
+        if (!nextActionResolver.isMcpToolApprovalConfig(config))
             throw failure(409, "agent.workflow.invocation.mcp-approval.node.invalid");
         Map<String, Object> answer = new LinkedHashMap<>();
         answer.put("decision", normalizedDecision);
@@ -422,19 +427,6 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
             }
         } catch (Exception ignored) { }
         return null;
-    }
-
-    private boolean agentInputAllowed(JSONObject definition) {
-        if (definition == null || "approval".equals(definition.getString("mode"))) return false;
-        if (definition.getBooleanValue("agentInputAllowed")) return true;
-        String policy = StringUtils.defaultIfBlank(definition.getString("agentInputPolicy"),
-                definition.getString("inputPolicy"));
-        return "AGENT_INPUT_ALLOWED".equalsIgnoreCase(policy);
-    }
-
-    private boolean isMcpToolApprovalConfig(JSONObject config) {
-        return config != null && ("mcp_tool_approval".equals(config.getString("approvalType"))
-                || "mcp_tool_approval".equals(config.getString("type")));
     }
 
     private boolean isMcpApprovalDecision(String decision) {
@@ -573,131 +565,9 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
         catch (Exception ignored) { return false; }
     }
 
-    private AgentWorkflowNodeInstance currentNode(AgentWorkflowInstanceVo snapshot) {
-        if (snapshot.getNodes() == null || StringUtils.isBlank(snapshot.getCurrentNodeId())) return null;
-        for (AgentWorkflowNodeInstance node : snapshot.getNodes())
-            if (snapshot.getCurrentNodeId().equals(node.getNodeId())) return node;
-        return null;
-    }
-
-    private String nodeName(String nodesJson, String nodeId) {
-        try {
-            for (Object item : JSONArray.parseArray(nodesJson)) {
-                JSONObject node = (JSONObject) item;
-                if (StringUtils.equals(nodeId, node.getString("id"))) return node.getString("name");
-            }
-        } catch (Exception ignored) { }
-        return null;
-    }
-
-    private Map<String, Object> nextAction(String capabilityId, AgentWorkflowInstanceVo snapshot) {
-        Map<String, Object> action = new LinkedHashMap<>();
-        String status = snapshot.getStatus();
-        AgentWorkflowCapability capability = capabilityService.getById(capabilityId);
-        AgentWorkflowNodeInstance node = currentNode(snapshot);
-        JSONObject definition = node == null ? null : definition(snapshot, node.getNodeId());
-        if ("WAITING_USER".equals(status) && hasAction(capability, "RESOLVE_MCP_APPROVAL")
-                && isMcpToolApprovalConfig(node == null || StringUtils.isBlank(node.getInteractionConfig())
-                ? null : JSONObject.parseObject(node.getInteractionConfig()))) {
-            action.put("type", "RESOLVE_MCP_APPROVAL");
-            action.put("required", java.util.Arrays.asList("invocationId", "expectedStateVersion", "decision"));
-            action.put("authorizationRequired", true);
-            action.put("decisions", java.util.Arrays.asList("once", "allow_10m", "reject"));
-            JSONObject config = JSONObject.parseObject(node.getInteractionConfig());
-            if (node != null && StringUtils.isNotBlank(node.getNodeId())) action.put("nodeId", node.getNodeId());
-            if (StringUtils.isNotBlank(config.getString("toolName"))) action.put("toolName", config.getString("toolName"));
-            if (StringUtils.isNotBlank(config.getString("question"))) action.put("question", config.getString("question"));
-        } else if ("WAITING_USER".equals(status) && hasAction(capability, "PROVIDE_AGENT_INPUT")
-                && agentInputAllowed(definition)) {
-            action.put("type", "PROVIDE_AGENT_INPUT");
-            action.put("required", java.util.Arrays.asList("invocationId", "expectedStateVersion", "input"));
-            if (node != null && StringUtils.isNotBlank(node.getNodeId())) action.put("nodeId", node.getNodeId());
-            action.put("schema", agentInputSchema(definition));
-        } else if ("WAITING_USER".equals(status)) action.put("type", "WAITING_HUMAN");
-        else if ("WAITING_EVENT".equals(status) && hasAction(capability, "SIGNAL_EVENT")) {
-            action.put("type", "SIGNAL_EVENT");
-            action.put("required", java.util.Arrays.asList("invocationId", "expectedStateVersion", "eventType", "eventId"));
-            if (node != null && StringUtils.isNotBlank(node.getInteractionConfig())) {
-                JSONObject config = JSONObject.parseObject(node.getInteractionConfig());
-                action.put("eventType", config.getString("eventType"));
-                action.put("correlationKey", config.getString("correlationKey"));
-            }
-        } else if ("FAILED".equals(status) && hasAction(capability, "RETRY_NODE")) {
-            if (hasUnknownExternalResult(snapshot.getId())) {
-                action.put("type", "WAIT_HUMAN");
-                action.put("reason", "EXTERNAL_RESULT_UNKNOWN");
-                action.put("retryable", false);
-            } else {
-                action.put("type", "RETRY_NODE");
-                action.put("required", java.util.Arrays.asList("invocationId", "expectedStateVersion", "nodeId"));
-                action.put("nodeId", snapshot.getCurrentNodeId());
-            }
-        }
-        else if (isTerminal(status)) action.put("type", "NONE");
-        else {
-            action.put("type", ACTION_OBSERVE);
-            action.put("required", java.util.Collections.singletonList("invocationId"));
-        }
-        return action;
-    }
-
-    private boolean hasUnknownExternalResult(String instanceId) {
-        if (externalInvocationService == null || StringUtils.isBlank(instanceId)) return false;
-        try {
-            return externalInvocationService.listByInstanceId(instanceId).stream()
-                    .anyMatch(item -> "UNKNOWN".equals(item.getStatus()));
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private boolean hasAction(String capabilityId, String action) {
-        return hasAction(capabilityService.getById(capabilityId), action);
-    }
-
-    private boolean hasAction(AgentWorkflowCapability capability, String action) {
-        return capability != null && jsonArrayContains(capability.getAllowedActions(), action);
-    }
-
-    private JSONObject definition(AgentWorkflowInstanceVo snapshot, String nodeId) {
-        if (snapshot == null || StringUtils.isBlank(snapshot.getVersionNodes())) return null;
-        try {
-            for (Object item : JSONArray.parseArray(snapshot.getVersionNodes())) {
-                JSONObject value = item instanceof JSONObject ? (JSONObject) item : null;
-                if (value != null && StringUtils.equals(nodeId, value.getString("id"))) return value;
-            }
-        } catch (Exception ignored) { }
-        return null;
-    }
-
-    private Map<String, Object> agentInputSchema(JSONObject definition) {
-        Map<String, Object> schema = new LinkedHashMap<>();
-        if (definition == null) return schema;
-        Object raw = definition.get("agentInputSchema");
-        if (raw == null) raw = definition.get("inputSchema");
-        if (raw instanceof JSONObject) {
-            JSONObject object = (JSONObject) raw;
-            schema.putAll(object);
-        } else if (raw != null) {
-            try { schema.put("fields", JSONArray.parseArray(String.valueOf(raw))); }
-            catch (Exception ignored) { }
-        }
-        if (schema.isEmpty() && definition.getJSONArray("questions") != null)
-            schema.put("fields", definition.getJSONArray("questions"));
-        return schema;
-    }
-
-    private boolean isTerminal(String status) {
-        return "COMPLETED".equals(status) || "FAILED".equals(status) || "TERMINATED".equals(status) || "TIMED_OUT".equals(status);
-    }
-
+    /** 与任务清单同源，避免同一个实例在两个读路径上给出不同结论。 */
     private String resultCode(String status) {
-        if ("COMPLETED".equals(status)) return "WORKFLOW_COMPLETED";
-        if ("FAILED".equals(status)) return "WORKFLOW_FAILED";
-        if ("TERMINATED".equals(status)) return "WORKFLOW_TERMINATED";
-        if ("TIMED_OUT".equals(status)) return "WORKFLOW_TIMED_OUT";
-        if ("WAITING_USER".equals(status)) return "WORKFLOW_WAITING_HUMAN";
-        return "WORKFLOW_RUNNING";
+        return AgentWorkflowNextActionResolver.resultCode(status);
     }
 
     private AgentWorkflowInvocationResult result(AgentWorkflowInvocation invocation, String code) {

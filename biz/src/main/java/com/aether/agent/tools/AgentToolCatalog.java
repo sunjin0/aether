@@ -33,8 +33,13 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class AgentToolCatalog {
     private static final Logger log = LoggerFactory.getLogger(AgentToolCatalog.class);
-    /** 固定工作流工具协议；版本号用于淘汰旧的“每个能力一套工具”缓存。 */
-    private static final String CACHE_KEY_PREFIX = "agent:tools:v4:";
+    /**
+     * 固定工作流工具协议；版本号用于淘汰旧的缓存。
+     *
+     * <p>{@code workflowCacheMatches} 只校验「有没有能力绑定」，不校验 schema，所以改动
+     * 任何工具的参数或描述都必须提这个版本号，否则最多 10 分钟不生效。
+     */
+    private static final String CACHE_KEY_PREFIX = "agent:tools:v7:";
     private static final long CACHE_TTL_MINUTES = 10;
 
     private final AgentToolService agentToolService;
@@ -171,6 +176,33 @@ public class AgentToolCatalog {
                         property("nodeId", "string", "失败节点 ID"),
                         property("reason", "string", "重试原因")),
                 "仅在工作流明确允许且外部结果不为 UNKNOWN 时重试失败节点。"));
+        JSONObject state = property("state", "string",
+                "粗粒度状态筛选，按工作流实例的真实状态判定（不是调用行的状态）：running 只看未结束，"
+                        + "finished 只看已结束（含跑完但未被观察过的），all 等价于不传；"
+                        + "与 includeCompleted 同时传时以 state 为准");
+        ((JSONObject) state.get("schema")).put("enum",
+                new JSONArray().fluentAdd("running").fluentAdd("finished").fluentAdd("all"));
+        tools.add(unifiedWorkflowTool("LIST", "workflow_list",
+                actionSchema(new String[0],
+                        property("invocationId", "string", "精确查询某一条工作流调用 ID"),
+                        state,
+                        property("createdAfter", "string",
+                                "创建时间下界（闭区间）。筛的是调用创建时间，不是工作流开始/完成时间；"
+                                        + "接受 ISO-8601（须带 Z 或偏移，如 2026-09-15T10:00:00Z）或 13 位毫秒时间戳"),
+                        property("createdBefore", "string", "创建时间上界（闭区间），格式同 createdAfter"),
+                        property("capabilityCode", "string", "只查该已绑定能力下的调用"),
+                        property("includeCompleted", "boolean",
+                                "仅在不带查询参数时生效：是否包含最近已结束的调用及其结果，默认 true；"
+                                        + "只想看正在处理的传 false"),
+                        property("includeOutput", "boolean",
+                                "是否内联已结束调用的结果，默认跟随 includeCompleted"),
+                        property("current", "integer", "页码，从 1 开始，默认 1"),
+                        property("pageSize", "integer", "每页条数，默认 20，上限 50")),
+                "列出本 Agent 为当前用户启动的工作流调用：默认「正在处理的在前，最近已结束的在后」并内联结果"
+                        + "（超长会截断）。用于重新接管已启动但丢失 invocationId 的工作流，以及取回已结束调用的结果。"
+                        + "传入 invocationId、state、createdAfter、createdBefore、capabilityCode 中任一即切换为"
+                        + "参数化查询：按创建时间倒序翻页，total 是匹配总数、returned 是本页条数，"
+                        + "truncated 表示本页已被填满、后面可能还有更多。"));
     }
 
     private AgentTool unifiedWorkflowTool(String action, String name, String schema, String description) {

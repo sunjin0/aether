@@ -6,10 +6,15 @@ import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.service.AgentRunService;
 import com.aether.i18n.I18nUtils;
+import com.aether.utils.TimeUtils;
 import com.aether.workflow.service.AgentWorkflowInvocationService;
 import com.aether.workflow.service.AgentWorkflowCapabilityService;
+import com.aether.workflow.service.AgentWorkflowTaskQueryService;
+import com.aether.workflow.dto.AgentWorkflowTaskListOptions;
 import com.aether.workflow.entity.AgentWorkflowCapability;
 import com.aether.workflow.vo.AgentWorkflowInvocationObservation;
+import com.aether.workflow.vo.AgentWorkflowTaskPage;
+import com.aether.workflow.vo.AgentWorkflowTaskVo;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import org.apache.commons.lang3.StringUtils;
@@ -17,27 +22,51 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** 执行 Agent 绑定的工作流能力工具。 */
 @Component
 public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecutor {
+    /** 清单要进模型上下文，必须自带上限。 */
+    private static final int LIST_LIMIT = 20;
+    /** 单字段截断上限，与 ToolResultContextCompressor.isLargeTextField 取同一个值。 */
+    private static final int FIELD_MAX_CHARS = 1200;
+    /**
+     * 整个清单载荷的字符预算。
+     *
+     * <p>必须整体低于 {@code ToolResultContextCompressor.MAX_CONTEXT_CHARS}（6000）：一旦超过，
+     * 压缩器会按自己的规则重压一遍 —— 数组只留 10 项、超长字段改截 800 —— 于是模型看到的
+     * 形状与我们返回的完全不同。留 400 字符余量给信封。
+     */
+    private static final int LIST_PAYLOAD_MAX_CHARS = 5600;
+
     private final AgentWorkflowInvocationService invocationService;
     private final AgentRunService agentRunService;
     private final AgentWorkflowCapabilityService capabilityService;
+    private final AgentWorkflowTaskQueryService taskQueryService;
 
     @Autowired
     public WorkflowToolExecutor(@Lazy AgentWorkflowInvocationService invocationService, AgentRunService agentRunService,
-                                @Lazy AgentWorkflowCapabilityService capabilityService) {
+                                @Lazy AgentWorkflowCapabilityService capabilityService,
+                                @Lazy AgentWorkflowTaskQueryService taskQueryService) {
         this.invocationService = invocationService;
         this.agentRunService = agentRunService;
         this.capabilityService = capabilityService;
+        this.taskQueryService = taskQueryService;
+    }
+
+    /** Compatibility constructor for direct unit tests and legacy embedders. */
+    public WorkflowToolExecutor(@Lazy AgentWorkflowInvocationService invocationService, AgentRunService agentRunService,
+                                @Lazy AgentWorkflowCapabilityService capabilityService) {
+        this(invocationService, agentRunService, capabilityService, null);
     }
 
     /** Compatibility constructor for direct unit tests and legacy embedders. */
     public WorkflowToolExecutor(@Lazy AgentWorkflowInvocationService invocationService, AgentRunService agentRunService) {
-        this(invocationService, agentRunService, null);
+        this(invocationService, agentRunService, null, null);
     }
 
     @Override
@@ -75,6 +104,10 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
                         capabilityId, operationKey, arguments, context.getAgentDefinitionId(),
                         context.getRunId(), taskId, context.getIdempotencyKey(), context.getUserId(), context.getApplicationId());
                 return success(JSON.toJSONString(result), started, requestArguments);
+            }
+            // 清单查询不带 invocationId；必须放在下面那句必填校验之前。
+            if ("LIST".equalsIgnoreCase(action)) {
+                return list(context, started, requestArguments);
             }
             String invocationId = string(arguments.get("invocationId"));
             if (StringUtils.isBlank(invocationId)) {
@@ -134,6 +167,203 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
             return structuredFailure(e, requestedAction(failedArguments, tool),
                     string(failedArguments.get("invocationId")), longValue(failedArguments.get("expectedStateVersion")), context, failedArguments);
         }
+    }
+
+    /**
+     * 本 Agent 为当前用户启动的工作流调用：正在处理的在前，最近已结束的在后。
+     *
+     * <p>返回结构刻意对齐 {@code workflow_observe}，模型无需学习新形状：先算状态、再提交动作。
+     * 空清单是有效答案而非错误 —— 模型据此可以停止等待。
+     *
+     * <p>已结束的调用默认也列出来：它们从清单里消失后，模型会把「已经做完了」读成
+     * 「不存在了」，进而向用户编造失败结论。
+     *
+     * <p>带筛选参数时改走参数化查询，见 {@link #applyQueryArguments}。
+     */
+    private ToolExecutionResult list(ToolExecutionContext context, long started,
+                                     Map<String, Object> requestArguments) {
+        AgentWorkflowTaskListOptions options = new AgentWorkflowTaskListOptions();
+        options.setInFlightLimit(LIST_LIMIT);
+        options.setIncludeTerminal(includeCompleted(context));
+        // 精选视图下「是否含已结束」同时决定要不要解析结果；拆出 includeOutput 后这里降级成默认值。
+        options.setWithResult(options.isIncludeTerminal());
+        try {
+            applyQueryArguments(context, options);
+        } catch (IllegalArgumentException e) {
+            return structuredFailure(e, "LIST", null, null, context, requestArguments);
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        List<Map<String, Object>> invocations = new ArrayList<>();
+        long total = 0;
+        boolean truncated = false;
+        if (taskQueryService != null) {
+            AgentWorkflowTaskPage page = taskQueryService.listInFlight(context.getAgentDefinitionId(),
+                    context.getUserId(), options);
+            for (AgentWorkflowTaskVo task : page.getTasks()) invocations.add(invocationView(task));
+            total = page.getTotal();
+            truncated = page.isTruncated();
+        }
+        boolean outputOmitted = false;
+        if (JSON.toJSONString(invocations).length() > LIST_PAYLOAD_MAX_CHARS) {
+            // 字段级截断之后仍然超预算（多条大结果叠加），就整体放弃内联结果，
+            // 只留结果码与指引 —— 让压缩器插手会把返回形状整个换掉。
+            for (Map<String, Object> item : invocations)
+                if (item.remove("output") != null) item.remove("outputTruncated");
+            outputOmitted = true;
+        }
+        payload.put("invocations", invocations);
+        payload.put("returned", invocations.size());
+        payload.put("total", total);
+        payload.put("truncated", truncated);
+        if (outputOmitted || anyOutputTruncated(invocations)) {
+            if (outputOmitted) payload.put("outputOmitted", true);
+            // 措辞刻意不承诺 observe 能拿到全文：它自己的载荷超长时同样会被压缩器
+            // 按首尾硬切，插在 JSON 中间 —— 那时模型拿到的是残缺的 JSON。
+            payload.put("hint", outputOmitted
+                    ? "结果过大，已整体省略内联输出；需要时用 workflow_observe 看单个调用"
+                    + "（它自身超长时同样会被压缩）。"
+                    : "结果已按字段截断（单字段上限 " + FIELD_MAX_CHARS + " 字符）；"
+                    + "workflow_observe 能看到更多，但它自身超长时同样会被压缩。");
+        }
+        return success(JSON.toJSONString(payload), started, requestArguments);
+    }
+
+    /**
+     * 把模型给的筛选参数搬进取数选项。
+     *
+     * <p>时间参数名刻意叫 {@code createdAfter}/{@code createdBefore} 而不是 {@code startTime}/{@code endTime}：
+     * 筛的是 {@code createdAt} 这一列，不是工作流的 {@code startedAt}/{@code completedAt}。名字若含糊，
+     * 模型问「上周完成的」会发 {@code endTime}，于是我们静默返回一批创建于上周、但至今还在跑的行 ——
+     * 不报错、只是答错。工具声明的 schema 带 {@code additionalProperties: false}，参数名就是硬契约，
+     * 只能靠名字和 description 消歧。
+     *
+     * <p>解析失败只抛 {@link IllegalArgumentException}，由 {@link #list} 转成 422 结构化结果。
+     * 若放任它冒泡到 {@link #execute} 的兜底分支，模型会收到 500 + {@code WORKFLOW_ACTION_FAILED}，
+     * 把「参数写错了」误判成「服务端坏了」，然后原样重试。
+     */
+    private void applyQueryArguments(ToolExecutionContext context, AgentWorkflowTaskListOptions options) {
+        Map<String, Object> arguments = context == null || context.getArguments() == null
+                ? java.util.Collections.<String, Object>emptyMap() : context.getArguments();
+        options.setInvocationId(blankToNull(string(arguments.get("invocationId"))));
+        // state 只在查询模式下才被取数逻辑读到，所以这里不必和 includeCompleted 互斥；
+        // 两者同时传时 state 赢，是因为它把整条路径换成了 SQL 查询。
+        options.setState(blankToNull(string(arguments.get("state"))));
+        options.setCreatedAfter(parseTime(arguments.get("createdAfter"), "createdAfter"));
+        options.setCreatedBefore(parseTime(arguments.get("createdBefore"), "createdBefore"));
+        options.setCurrent(intValue(arguments.get("current")));
+        options.setPageSize(intValue(arguments.get("pageSize")));
+        String capabilityCode = blankToNull(string(arguments.get("capabilityCode")));
+        if (capabilityCode != null) options.setCapabilityId(resolveCapabilityIdByCode(context, capabilityCode));
+        Object includeOutput = arguments.get("includeOutput");
+        // 不传时保留上游算出的默认值（= includeCompleted），显式传才覆盖。
+        if (includeOutput != null) options.setWithResult(!"false".equalsIgnoreCase(String.valueOf(includeOutput)));
+    }
+
+    /**
+     * 时间参数双收：ISO-8601（须带 {@code Z} 或偏移）与 ≥12 位的 epoch 毫秒串。
+     *
+     * <p>解析不了必须报错，不能当「没传」放过去 —— 静默忽略会让模型拿到一份没筛过的清单，
+     * 却笃定自己问的是「上周的调用」，随后基于错误事实编出结论。
+     */
+    private Long parseTime(Object value, String field) {
+        String text = blankToNull(string(value));
+        if (text == null) return null;
+        Long parsed = TimeUtils.parseEpochMillis(text);
+        if (parsed == null) {
+            throw new IllegalArgumentException("Invalid workflow_list argument: " + field
+                    + " must be ISO-8601 with offset (2026-09-15T10:00:00Z) or epoch millis, but was: " + text);
+        }
+        return parsed;
+    }
+
+    /** 页码类参数；解析不了按「没传」处理，越界由 service 统一 clamp。 */
+    private Integer intValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number) return ((Number) value).intValue();
+        try { return Integer.valueOf(String.valueOf(value).trim()); }
+        catch (NumberFormatException ignored) { return null; }
+    }
+
+    /**
+     * 把模型给的 {@code capabilityCode} 解析成本 Agent 已绑定能力的主键。
+     *
+     * <p>刻意不校验 {@code allowedActions}：这里只是把清单缩小到某个能力，不是请求执行动作，
+     * 能否 START 由 {@link #resolveStartCapabilityId} 单独把关。
+     */
+    private String resolveCapabilityIdByCode(ToolExecutionContext context, String capabilityCode) {
+        if (capabilityService != null) {
+            List<AgentWorkflowCapability> capabilities = capabilityService.listEnabledForAgent(
+                    context.getAgentDefinitionId(), context.getApplicationId());
+            if (capabilities != null) {
+                for (AgentWorkflowCapability capability : capabilities) {
+                    if (StringUtils.equals(capabilityCode, capability.getCapabilityCode())) {
+                        return capability.getId();
+                    }
+                }
+            }
+        }
+        // 措辞与 resolveStartCapabilityId 保持一致，好让 structuredFailure 映射到同一个错误码。
+        throw new IllegalArgumentException("Workflow capability is not bound to agent: " + capabilityCode);
+    }
+
+    private boolean anyOutputTruncated(List<Map<String, Object>> invocations) {
+        for (Map<String, Object> item : invocations)
+            if (Boolean.TRUE.equals(item.get("outputTruncated"))) return true;
+        return false;
+    }
+
+    /** 清单里已结束的调用是否连结果一起内联。默认开，显式传 false 可关掉。 */
+    private boolean includeCompleted(ToolExecutionContext context) {
+        Object value = context == null || context.getArguments() == null
+                ? null : context.getArguments().get("includeCompleted");
+        return !"false".equalsIgnoreCase(String.valueOf(value));
+    }
+
+    private Map<String, Object> invocationView(AgentWorkflowTaskVo task) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("invocationId", task.getInvocationId());
+        item.put("instanceId", task.getInstanceId());
+        item.put("workflowId", task.getWorkflowId());
+        item.put("workflowName", task.getWorkflowName());
+        item.put("capabilityCode", task.getCapabilityCode());
+        item.put("status", task.getStatus());
+        item.put("stateVersion", task.getStateVersion());
+        item.put("currentNodeId", task.getCurrentNodeId());
+        item.put("currentNodeType", task.getCurrentNodeType());
+        item.put("currentNodeName", task.getCurrentNodeName());
+        item.put("nextAction", task.getNextAction());
+        // 时间是清单里唯一无法从其它字段推出来的信息，给 ISO-8601 而不是裸毫秒：
+        // 模型拿着毫秒既算不出「多久之前」，也没法直接跟 createdAfter/createdBefore 比对。
+        item.put("startedAt", TimeUtils.formatIsoMillis(task.getStartedAt()));
+        item.put("completedAt", TimeUtils.formatIsoMillis(task.getCompletedAt()));
+        if (StringUtils.isNotBlank(task.getResultCode())) item.put("resultCode", task.getResultCode());
+        appendOutput(item, task.getOutput());
+        return item;
+    }
+
+    /**
+     * 把业务结果裁到字段预算内再内联。
+     *
+     * <p>截断做在 agent 工具这一层而不是共用的 VO：截断是「模型上下文预算」的关切，
+     * 聊天页读的是同一条数据，不该被模型的预算连累。
+     *
+     * <p>只裁字符串字段；结构化字段原样留着，超预算由 {@link #list} 的整体兜底处理。
+     */
+    private void appendOutput(Map<String, Object> item, Map<String, Object> output) {
+        if (output == null || output.isEmpty()) return;
+        Map<String, Object> capped = new LinkedHashMap<>();
+        boolean cut = false;
+        for (Map.Entry<String, Object> entry : output.entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof String && ((String) value).length() > FIELD_MAX_CHARS) {
+                value = ((String) value).substring(0, FIELD_MAX_CHARS) + "…";
+                cut = true;
+            }
+            capped.put(entry.getKey(), value);
+        }
+        item.put("output", capped);
+        if (cut) item.put("outputTruncated", true);
     }
 
     private String resolveStartCapabilityId(ToolExecutionContext context, Map<String, Object> arguments,
@@ -208,6 +438,11 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
             code = "WORKFLOW_CAPABILITY_NOT_BOUND";
         } else if (message.contains("Unsupported workflow invocation action")) {
             code = "WORKFLOW_ACTION_UNSUPPORTED";
+        } else if (message.contains("Invalid workflow_list argument")) {
+            // 422 而不是 500：这是模型自己把参数写错了。报 500 会让它以为服务端故障，
+            // 于是原样重试同一个坏参数；retryable 保持 false，逼它改参数。
+            code = "WORKFLOW_LIST_INVALID_ARGUMENT";
+            httpStatus = 422;
         }
         JSONObject payload = new JSONObject();
         payload.put("success", false);
@@ -255,6 +490,9 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
 
 
     private String string(Object value) { return value == null ? null : String.valueOf(value); }
+
+    /** 模型会发 {@code ""}；空串必须等同「没传」，否则 {@code isQueryRequested()} 会被一个空串切进查询模式。 */
+    private String blankToNull(String value) { return StringUtils.isBlank(value) ? null : value.trim(); }
 
     private Long longValue(Object value) {
         if (value == null) return null;
