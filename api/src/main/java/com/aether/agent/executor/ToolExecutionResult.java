@@ -9,6 +9,14 @@ import lombok.Data;
 public class ToolExecutionResult {
 
     /**
+     * 被执行器的安全策略拒绝。
+     *
+     * <p>与普通失败的差别在于「不该重试」：失败原因是「不允许做」而不是「参数写错了」，
+     * 照着参数 schema 改只会让模型反复撞同一堵墙。
+     */
+    public static final int STATUS_SECURITY_BLOCK = 3;
+
+    /**
      * 是否成功
      */
     private boolean success;

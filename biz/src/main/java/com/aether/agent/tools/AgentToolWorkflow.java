@@ -73,7 +73,7 @@ public class AgentToolWorkflow {
     private static final String APPROVAL_NEVER = "never";
     private static final int STATUS_SUCCESS = 0;
     private static final int STATUS_FAILED = 1;
-    private static final int STATUS_SECURITY_BLOCK = 3;
+    private static final int STATUS_SECURITY_BLOCK = ToolExecutionResult.STATUS_SECURITY_BLOCK;
     private static final int STATUS_PENDING_APPROVAL = 4;
     private static final int MAX_PARALLEL_READ_ONLY_CALLS = 4;
 
@@ -101,6 +101,9 @@ public class AgentToolWorkflow {
     /** 工作流 MCP 授权由聊天交互卡片确定性提交，避免再次交给模型猜动作。 */
     @Autowired(required = false)
     private ObjectProvider<AgentWorkflowInvocationService> workflowInvocationServiceProvider;
+    /** 挡住「工作流正在用的工具被模型在对话里重复直接调用」；缺失时这道护栏不启用。 */
+    @Autowired(required = false)
+    private AgentWorkflowToolConflictGuard toolConflictGuard;
 
     /**
      * 创建 {@code AgentToolWorkflow} 实例。
@@ -403,6 +406,15 @@ public class AgentToolWorkflow {
             checkCancelled(cancellationToken);
             if (!isWorkflowTool(tool) && !allowedByResourcePolicy(tool, call.getName(), agentId, userId)) {
                 result = ToolExecutionResult.failure("资源策略拒绝执行该工具", STATUS_SECURITY_BLOCK);
+                result.setToolCallId(call.getId());
+                return result;
+            }
+            // 该工具正被本用户自己启动的工作流占用时挡回去。工作流自己的执行走
+            // executeWorkflowApprovedMcpTool，不经过这里，所以不会误伤。
+            String conflict = toolConflictGuard == null
+                    ? null : toolConflictGuard.describeConflict(tool, agentId, userId);
+            if (conflict != null) {
+                result = ToolExecutionResult.failure(conflict, STATUS_SECURITY_BLOCK);
                 result.setToolCallId(call.getId());
                 return result;
             }
@@ -905,10 +917,15 @@ public class AgentToolWorkflow {
         if (APPROVAL_NEVER.equals(policy)) {
             return false;
         }
-        if (APPROVAL_RISKY.equals(policy)) {
-            return "high".equals(riskAnalyzer.analyze(tool, call.getArguments()).getLevel());
+        if (APPROVAL_RISKY.equals(policy)
+                && !"high".equals(riskAnalyzer.analyze(tool, call.getArguments()).getLevel())) {
+            return false;
         }
-        return true;
+        // 走到这里才会真弹确认框。确认框在 executeMcpCalls 之前生成，所以被工作流占用的
+        // 工具必须在这一步就挡住 —— 否则用户仍会看到一张注定执行不了的卡片。
+        // 放在最后也顺带省掉了 never/risky-低风险 这类本来就不弹框场景的占用检测查询。
+        return toolConflictGuard == null
+                || toolConflictGuard.describeConflict(tool, agentId, userId) == null;
     }
 
     /**

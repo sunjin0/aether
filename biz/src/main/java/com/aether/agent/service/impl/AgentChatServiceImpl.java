@@ -1969,14 +1969,24 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
 
     /**
      * 构建Tool重试Instruction。
+     *
+     * <p>被安全策略挡下的调用不能套用「改参数重试」那套话术：它失败的原因是「不允许做」，
+     * 不是「参数写错了」，照着改只会让模型反复撞同一堵墙。这类结果里已经写清了替代动作，
+     * 直接照做即可。
      */
-    private String buildToolRetryInstruction(String toolName, ToolExecutionResult result) {
+    String buildToolRetryInstruction(String toolName, ToolExecutionResult result) {
         String error = StringUtils.defaultIfBlank(result.getErrorMsg(), result.getContent());
         if (StringUtils.isBlank(error)) {
             error = "工具执行失败";
         }
         error = truncate(error, 2048);
         String name = StringUtils.defaultIfBlank(toolName, "当前工具");
+        if (Integer.valueOf(ToolExecutionResult.STATUS_SECURITY_BLOCK).equals(result.getStatus())) {
+            return "工具 " + name + " 被安全策略拒绝执行，不得重试。\n"
+                    + "拒绝原因：" + error + "\n"
+                    + "不要重复调用该工具，也不要改用别的方式绕过；失败原因里已给出下一步该做什么，"
+                    + "请照其执行；必要时向用户说明情况。";
+        }
         return "工具 " + name + " 执行失败。\n"
                 + "失败原因：" + error + "\n"
                 + "请根据该工具的参数 schema 和用户原始请求修正 arguments，并重新调用该工具。"

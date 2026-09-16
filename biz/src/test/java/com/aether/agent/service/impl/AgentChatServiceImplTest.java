@@ -12,6 +12,7 @@ import com.aether.agent.model.ModelClientFactory;
 import com.aether.agent.model.ModelStreamCallback;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.service.AgentStreamCallback;
+import com.aether.agent.executor.ToolExecutionResult;
 import com.aether.agent.executor.ToolExecutorFactory;
 import com.aether.agent.tools.core.ToolRegistry;
 import com.aether.agent.tools.AskUserTool;
@@ -64,6 +65,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
@@ -1008,6 +1010,32 @@ class AgentChatServiceImplTest {
         response.setReasoningTokens(0);
         response.setRawResponse("{\"choices\":[{\"message\":{\"content\":\"\",\"reasoning_content\":\"\",\"tool_calls\":[]},\"finish_reason\":\"stop\"}]}");
         return response;
+    }
+
+    @Test
+    void aSecurityBlockedToolIsNotToldToRetry() {
+        ToolExecutionResult result = ToolExecutionResult.failure(
+                "工具 process_document 正由你的工作流调用 inv-1 执行，请勿重复直接调用。", 3);
+        result.setStatus(3);
+
+        String instruction = service.buildToolRetryInstruction("process_document", result);
+
+        // 失败原因是「不允许做」而不是「参数写错了」，套用「改参数重试」只会让模型反复撞墙。
+        assertTrue(instruction.contains("不得重试"), instruction);
+        assertFalse(instruction.contains("重新调用该工具"), instruction);
+        // 替代动作写在失败原因里，必须原样递到模型手上。
+        assertTrue(instruction.contains("inv-1"), instruction);
+    }
+
+    @Test
+    void anOrdinaryFailureStillAsksForAFixedRetry() {
+        ToolExecutionResult result = ToolExecutionResult.failure("缺少必填参数 ticketId", 1);
+        result.setStatus(1);
+
+        String instruction = service.buildToolRetryInstruction("create_ticket", result);
+
+        assertTrue(instruction.contains("重新调用该工具"), instruction);
+        assertTrue(instruction.contains("ticketId"), instruction);
     }
 
     /**
