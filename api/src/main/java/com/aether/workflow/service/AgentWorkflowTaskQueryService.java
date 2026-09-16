@@ -40,6 +40,15 @@ public interface AgentWorkflowTaskQueryService {
                                              int current, int pageSize);
 
     /**
+     * 带筛选项的会话清单。页码、开关与状态筛选走 {@link AgentWorkflowTaskListOptions}。
+     *
+     * <p>传了 {@code state} 就按工作流实例的终态真值筛，{@code includeTerminal} 被忽略；
+     * 只有不带 {@code state} 时才回落到上面那个签名的旧语义。
+     */
+    AgentWorkflowTaskPage listByConversation(String conversationId, String runId,
+                                             AgentWorkflowTaskListOptions options);
+
+    /**
      * 正有工作流在某个工具节点上执行该工具时返回占用者，否则 null。
      *
      * <p>这是「模型直接调用 MCP 工具」那条热路径上的判断，必须便宜：绝大多数 agent 名下

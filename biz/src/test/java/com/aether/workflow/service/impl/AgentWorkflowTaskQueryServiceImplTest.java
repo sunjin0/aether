@@ -195,6 +195,116 @@ class AgentWorkflowTaskQueryServiceImplTest {
     }
 
     @Test
+    void conversationStateFinishedMatchesAPhantomRowWhoseInvocationStillSaysRunning() {
+        Fixture fixture = new Fixture();
+        fixture.run("run-1");
+        // invocation 还停在 RUNNING，实例早已终态 —— 照 invocation.status 过滤会精确漏掉这一行。
+        fixture.candidates(invocation("inv-1", "instance-1", "cap-1", "RUNNING"));
+        fixture.instances(instance("instance-1", "COMPLETED"));
+        fixture.count(1L);
+
+        AgentWorkflowTaskPage page = fixture.service.listByConversation("conv-1", null,
+                conversationOptions("finished"));
+
+        assertEquals(1, page.getTasks().size());
+        assertEquals("COMPLETED", page.getTasks().get(0).getStatus());
+        assertTrue(fixture.countSql().contains("SELECT id FROM agent_workflow_instance"), fixture.countSql());
+        // 子查询是裸 SQL，绕过了 @TableLogic 的自动追加，漏掉 deleted = false 会把已删除的实例也算进来。
+        assertTrue(fixture.countSql().contains("deleted = false"), fixture.countSql());
+    }
+
+    @Test
+    void conversationStateRunningExplicitlySparesRowsThatHaveNoInstance() {
+        Fixture fixture = new Fixture();
+        fixture.run("run-1");
+        fixture.candidates(invocation("inv-1", null, "cap-1", "RUNNING"));
+        fixture.count(1L);
+
+        AgentWorkflowTaskPage page = fixture.service.listByConversation("conv-1", null,
+                conversationOptions("running"));
+
+        assertEquals(1, page.getTasks().size());
+        // NULL NOT IN (...) 求值为 NULL 会整行丢掉，没有实例 ID 的行必须显式放行。
+        assertTrue(fixture.countSql().contains("workflow_instance_id IS NULL"), fixture.countSql());
+    }
+
+    @Test
+    void conversationStateAllBeatsTheLegacyIncludeTerminalFlag() {
+        Fixture fixture = new Fixture();
+        fixture.run("run-1");
+        fixture.candidates();
+        fixture.count(0L);
+
+        fixture.service.listByConversation("conv-1", null, conversationOptions("all"));
+
+        // 传了 state 就完全接管 includeTerminal。若 'all' 退化成"没传"，界面上选「全部」会在
+        // 默认的 includeTerminal=false 下变成「只看未结束」，两个开关各说一半。
+        String sql = fixture.countSql();
+        assertFalse(sql.contains("workflow_instance_id"), sql);
+        assertFalse(sql.contains("NOT IN"), sql);
+    }
+
+    @Test
+    void conversationWithoutStateKeepsTheLegacyExcludeTerminalBehaviour() {
+        Fixture fixture = new Fixture();
+        fixture.run("run-1");
+        fixture.candidates();
+        fixture.count(0L);
+        AgentWorkflowTaskListOptions options = new AgentWorkflowTaskListOptions();
+        options.setIncludeTerminal(false);
+
+        fixture.service.listByConversation("conv-1", null, options);
+
+        // 不带 state 才回落到旧语义，dashboard 之外的老调用方行为不变。
+        assertTrue(fixture.countSql().contains("status NOT IN"), fixture.countSql());
+    }
+
+    @Test
+    void conversationPagingOrdersByCreatedAtWithTheIdAsATiebreaker() {
+        Fixture fixture = new Fixture();
+        fixture.run("run-1");
+        fixture.candidates();
+        fixture.count(0L);
+
+        fixture.service.listByConversation("conv-1", null, conversationOptions("all"));
+
+        // created_at 只到毫秒，同毫秒的行在 LIMIT/OFFSET 下翻页会重复或漏行。
+        assertTrue(fixture.pagedSql().contains("ORDER BY created_at DESC,id DESC"), fixture.pagedSql());
+    }
+
+    @Test
+    void theConversationCountQueryCarriesNoOrderingOrPaging() {
+        Fixture fixture = new Fixture();
+        fixture.run("run-1");
+        fixture.candidates();
+        AgentWorkflowTaskListOptions options = conversationOptions("all");
+        options.setCurrent(2);
+
+        fixture.service.listByConversation("conv-1", null, options);
+
+        // 共用一个已带 LIMIT/OFFSET 的 wrapper 时，PostgreSQL 的聚合行会被 OFFSET 跳过而返回 0 行。
+        String count = fixture.countSql();
+        assertFalse(count.toUpperCase().contains("ORDER BY"), count);
+        assertFalse(count.toUpperCase().contains("LIMIT"), count);
+        assertTrue(fixture.pagedSql().contains("LIMIT 20 OFFSET 20"), fixture.pagedSql());
+    }
+
+    @Test
+    void aNonPositiveConversationPageSizeStillReturnsAnEmptyPage() {
+        Fixture fixture = new Fixture();
+        fixture.run("run-1");
+        AgentWorkflowTaskListOptions options = conversationOptions("all");
+        options.setPageSize(0);
+
+        AgentWorkflowTaskPage page = fixture.service.listByConversation("conv-1", null, options);
+
+        // 旧签名对非正页码返回空页；别让 clamp 把它悄悄变成「返回 1 条」。
+        assertTrue(page.getTasks().isEmpty());
+        verify(fixture.invocationStore, never()).count(any());
+        verify(fixture.invocationStore, never()).list(any());
+    }
+
+    @Test
     void aCompletedInvocationIsListedWithItsResultAndResultCode() {
         Fixture fixture = new Fixture();
         fixture.candidates(invocation("inv-1", "instance-1", "cap-1", "COMPLETED"));
@@ -552,6 +662,21 @@ class AgentWorkflowTaskQueryServiceImplTest {
         assertFalse(allOptions.isQueryRequested());
     }
 
+    /**
+     * 聊天页那次请求对应的选项：状态由 {@code state} 说了算。
+     *
+     * <p>刻意把 {@code includeTerminal} 设成接口不传它时的旧默认 false —— 这样「state 接管」的
+     * 断言才有意义：若实现让 includeTerminal 掺和进来，结果会退回「只看未结束」。
+     */
+    private static AgentWorkflowTaskListOptions conversationOptions(String state) {
+        AgentWorkflowTaskListOptions options = new AgentWorkflowTaskListOptions();
+        options.setState(state);
+        options.setIncludeTerminal(false);
+        options.setCurrent(1);
+        options.setPageSize(20);
+        return options;
+    }
+
     private static class Fixture {
         final AgentWorkflowInvocationRecordService invocationStore =
                 mock(AgentWorkflowInvocationRecordService.class);
@@ -579,6 +704,13 @@ class AgentWorkflowTaskQueryServiceImplTest {
 
         void candidates(AgentWorkflowInvocation... rows) {
             when(invocationStore.list(any())).thenReturn(Arrays.asList(rows));
+        }
+
+        /** 会话名下的运行行；会话作用域按它们圈定。不给就是「这个 runId 不属于本会话」。 */
+        void run(String id) {
+            AgentRun run = new AgentRun();
+            run.setId(id);
+            when(runService.list(any())).thenReturn(Collections.singletonList(run));
         }
 
         /** Mockito 对 {@code long} 的默认返回值就是 0，这里的意义是「把它写成显式的」。 */

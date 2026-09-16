@@ -9,6 +9,7 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
 import com.aether.permission.Permission;
+import com.aether.workflow.dto.AgentWorkflowTaskListOptions;
 import com.aether.workflow.dto.AgentWorkflowTaskListRequest;
 import com.aether.workflow.service.AgentWorkflowTaskQueryService;
 import com.aether.workflow.vo.AgentWorkflowTaskPage;
@@ -55,6 +56,8 @@ public class AgentChatWorkflowController {
 
     /**
      * 会话的工作流任务列表。默认只返回尚未结束的任务，供聊天页在流式过程中展示。
+     *
+     * <p>传 {@code state} 可以切成「全部 / 进行中 / 已结束」三档，此时它接管 {@code includeTerminal}。
      */
     @ApiOperation("查询会话的工作流任务")
     @PostMapping("/{conversationId}/workflow-tasks")
@@ -68,15 +71,35 @@ public class AgentChatWorkflowController {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
         AgentWorkflowTaskListRequest request = query == null ? new AgentWorkflowTaskListRequest() : query;
+        requireStateAllowed(request.getState());
         long current = request.getCurrent() == null ? 1L : request.getCurrent();
         long pageSize = request.getPageSize() == null ? DEFAULT_PAGE_SIZE : request.getPageSize();
         if (current < 1L || pageSize < 1L || pageSize > MAX_PAGE_SIZE) {
             throw new ServerException(422, I18nUtils.getMessage("agent.workflow.tasks.page.size.invalid"));
         }
         if (StringUtils.isNotBlank(request.getRunId())) requireRunInConversation(request.getRunId(), conversationId);
-        AgentWorkflowTaskPage page = taskQueryService.listByConversation(conversationId, request.getRunId(),
-                Boolean.TRUE.equals(request.getIncludeTerminal()), (int) current, (int) pageSize);
+        AgentWorkflowTaskListOptions options = new AgentWorkflowTaskListOptions();
+        options.setState(request.getState());
+        // 必须显式赋值：options 的默认是「带上已结束的」，而本接口不传时沿用旧语义「只看未结束的」。
+        options.setIncludeTerminal(Boolean.TRUE.equals(request.getIncludeTerminal()));
+        options.setCurrent((int) Math.min(current, Integer.MAX_VALUE));
+        options.setPageSize((int) pageSize);
+        AgentWorkflowTaskPage page = taskQueryService.listByConversation(conversationId, request.getRunId(), options);
         return WebResponse.Page(page.getTasks(), page.getTotal());
+    }
+
+    /**
+     * 状态筛选取值白名单。
+     *
+     * <p>刻意比 service 严：{@code applyStateFilter} 对未知取值是「静默不筛」，那对界面传错值来说
+     * 等于悄悄返回全部，用户会以为筛选生效了。
+     */
+    private void requireStateAllowed(String state) {
+        if (StringUtils.isBlank(state)) return;
+        String normalized = state.trim().toLowerCase();
+        if (!"running".equals(normalized) && !"finished".equals(normalized) && !"all".equals(normalized)) {
+            throw new ServerException(422, I18nUtils.getMessage("agent.workflow.tasks.state.invalid"));
+        }
     }
 
     /**

@@ -345,18 +345,42 @@ public class AgentWorkflowTaskQueryServiceImpl implements AgentWorkflowTaskQuery
     @Override
     public AgentWorkflowTaskPage listByConversation(String conversationId, String runId, boolean includeTerminal,
                                                     int current, int pageSize) {
+        AgentWorkflowTaskListOptions options = new AgentWorkflowTaskListOptions();
+        options.setIncludeTerminal(includeTerminal);
+        options.setCurrent(current);
+        options.setPageSize(pageSize);
+        return listByConversation(conversationId, runId, options);
+    }
+
+    /**
+     * 会话清单的取数。翻页交给 SQL，展示投影仍由 {@link #collect(List, boolean)} 按实例真值装配。
+     *
+     * <p>与参数化查询那条路的差别只有作用域 —— 这里按会话下的运行圈定，而不是 agent + principal；
+     * 状态筛选、页码 clamp 与排序兜底全部复用同一套实现。
+     */
+    @Override
+    public AgentWorkflowTaskPage listByConversation(String conversationId, String runId,
+                                                    AgentWorkflowTaskListOptions options) {
         AgentWorkflowTaskPage page = new AgentWorkflowTaskPage();
-        if (StringUtils.isBlank(conversationId) || pageSize <= 0) return page;
+        AgentWorkflowTaskListOptions effective = options == null ? new AgentWorkflowTaskListOptions() : options;
+        if (StringUtils.isBlank(conversationId)) return page;
+        // 非正页码返回空页是旧签名的语义，别让它被 clamp 成 1 条。
+        if (effective.getPageSize() != null && effective.getPageSize() <= 0) return page;
+        int pageSize = clampPageSize(effective.getPageSize());
+        long offset = offsetOf(effective.getCurrent(), pageSize);
+
         List<String> runIds = runIds(conversationId, runId);
         if (runIds.isEmpty()) return page;
 
-        page.setTotal(invocationStore.count(conversationScope(runIds, includeTerminal)));
-        int offset = Math.max(0, (Math.max(1, current) - 1) * pageSize);
-        List<AgentWorkflowInvocation> rows = invocationStore.list(
-                conversationScope(runIds, includeTerminal)
+        page.setTotal(invocationStore.count(conversationScope(runIds, effective)));
+        List<AgentWorkflowInvocation> rows = nullSafe(invocationStore.list(
+                conversationScope(runIds, effective)
                         .orderByDesc(AgentWorkflowInvocation::getCreatedAt)
-                        .last("LIMIT " + pageSize + " OFFSET " + offset));
-        page.setTasks(collect(rows));
+                        // created_at 是毫秒，同毫秒的行在 LIMIT/OFFSET 下翻页会重复或漏掉，用主键兜底。
+                        // 别再往 .last() 里塞 ORDER BY：两处都发会生成两个 ORDER BY。
+                        .orderByDesc(AgentWorkflowInvocation::getId)
+                        .last("LIMIT " + pageSize + " OFFSET " + offset)));
+        page.setTasks(collect(rows, effective.isWithResult()));
         page.setTruncated(runIds.size() >= MAX_RUNS_PER_CONVERSATION);
         return page;
     }
@@ -403,10 +427,18 @@ public class AgentWorkflowTaskQueryServiceImpl implements AgentWorkflowTaskQuery
         return null;
     }
 
-    private LambdaQueryWrapper<AgentWorkflowInvocation> conversationScope(List<String> runIds, boolean includeTerminal) {
+    private LambdaQueryWrapper<AgentWorkflowInvocation> conversationScope(List<String> runIds,
+                                                                          AgentWorkflowTaskListOptions options) {
         LambdaQueryWrapper<AgentWorkflowInvocation> query = Wrappers.lambdaQuery(AgentWorkflowInvocation.class)
                 .in(AgentWorkflowInvocation::getAgentRunId, runIds);
-        if (!includeTerminal) query.notIn(AgentWorkflowInvocation::getStatus, TERMINAL_STATUSES);
+        if (StringUtils.isNotBlank(options.getState())) {
+            // 与工具侧不同，这里连 'all' 也要认：它表示「终态不过滤」。请求一旦带了 state 就完全
+            // 接管 includeTerminal —— 否则界面上选「全部」会在默认的 includeTerminal=false 下
+            // 退化成「只看未结束」，两个开关各说一半。
+            applyStateFilter(query, options.getState());
+        } else if (!options.isIncludeTerminal()) {
+            query.notIn(AgentWorkflowInvocation::getStatus, TERMINAL_STATUSES);
+        }
         return query;
     }
 

@@ -9,6 +9,7 @@ import com.aether.i18n.I18nService;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
 import com.aether.permission.Permission;
+import com.aether.workflow.dto.AgentWorkflowTaskListOptions;
 import com.aether.workflow.dto.AgentWorkflowTaskListRequest;
 import com.aether.workflow.service.AgentWorkflowTaskQueryService;
 import com.aether.workflow.vo.AgentWorkflowTaskPage;
@@ -16,6 +17,7 @@ import com.aether.workflow.vo.AgentWorkflowTaskVo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
@@ -23,12 +25,13 @@ import java.util.Collections;
 import java.util.HashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -73,7 +76,12 @@ class AgentChatWorkflowControllerTest {
 
         assertEquals(200, response.getCode());
         assertEquals(1, response.getData().size());
-        verify(fixture.tasks).listByConversation("conv-1", null, false, 1, 20);
+        // 作用域只来自会话归属，请求体里的任何字段都扩大不了它。
+        AgentWorkflowTaskListOptions options = fixture.optionsOf("conv-1");
+        assertEquals(1, options.getCurrent());
+        assertEquals(20, options.getPageSize());
+        assertFalse(options.isIncludeTerminal());
+        assertNull(options.getState());
     }
 
     @Test
@@ -86,7 +94,7 @@ class AgentChatWorkflowControllerTest {
 
         // 403 等于告诉无关的人「这个会话是存在的」；与不存在共用 404。
         assertTrue(error.getMessage().startsWith("404:"));
-        verify(fixture.tasks, never()).listByConversation(anyString(), any(), anyBoolean(), anyInt(), anyInt());
+        verify(fixture.tasks, never()).listByConversation(anyString(), any(), any(AgentWorkflowTaskListOptions.class));
     }
 
     @Test
@@ -113,7 +121,7 @@ class AgentChatWorkflowControllerTest {
         ServerException error = assertThrows(ServerException.class, () -> fixture.controller.tasks("conv-1", request));
 
         assertTrue(error.getMessage().startsWith("404:"));
-        verify(fixture.tasks, never()).listByConversation(anyString(), any(), anyBoolean(), anyInt(), anyInt());
+        verify(fixture.tasks, never()).listByConversation(anyString(), any(), any(AgentWorkflowTaskListOptions.class));
     }
 
     @Test
@@ -136,7 +144,12 @@ class AgentChatWorkflowControllerTest {
 
         fixture.controller.tasks("conv-1", null);
 
-        verify(fixture.tasks).listByConversation("conv-1", null, false, 1, 20);
+        AgentWorkflowTaskListOptions options = fixture.optionsOf("conv-1");
+        assertEquals(1, options.getCurrent());
+        assertEquals(20, options.getPageSize());
+        // 不传 state 也不传 includeTerminal 时沿用旧语义「只看未结束的」。
+        assertNull(options.getState());
+        assertFalse(options.isIncludeTerminal());
     }
 
     /** 打开历史会话时才有必要翻出终态行。 */
@@ -152,7 +165,54 @@ class AgentChatWorkflowControllerTest {
 
         fixture.controller.tasks("conv-1", request);
 
-        verify(fixture.tasks).listByConversation("conv-1", null, true, 2, 10);
+        AgentWorkflowTaskListOptions options = fixture.optionsOf("conv-1");
+        assertTrue(options.isIncludeTerminal());
+        assertEquals(2, options.getCurrent());
+        assertEquals(10, options.getPageSize());
+    }
+
+    /** 三档筛选是 dashboard 的「全部 / 进行中 / 已结束」。 */
+    @Test
+    void stateIsForwardedSoTheChatPageCanFilter() {
+        Fixture fixture = new Fixture();
+        fixture.ownedConversation("conv-1", "user-1");
+        fixture.page();
+        AgentWorkflowTaskListRequest request = new AgentWorkflowTaskListRequest();
+        request.setState("finished");
+
+        fixture.controller.tasks("conv-1", request);
+
+        assertEquals("finished", fixture.optionsOf("conv-1").getState());
+    }
+
+    @Test
+    void theStateIsMatchedCaseInsensitively() {
+        Fixture fixture = new Fixture();
+        fixture.ownedConversation("conv-1", "user-1");
+        fixture.page();
+        AgentWorkflowTaskListRequest request = new AgentWorkflowTaskListRequest();
+        request.setState("  FINISHED ");
+
+        fixture.controller.tasks("conv-1", request);
+
+        assertTrue(fixture.optionsOf("conv-1").getState().trim().equalsIgnoreCase("finished"));
+    }
+
+    /**
+     * service 对未知 state 是「静默不筛」，那对界面传错值来说等于悄悄返回全部，
+     * 用户会以为筛选生效了。接口这层必须拦住。
+     */
+    @Test
+    void anUnknownStateIsRejectedInsteadOfSilentlyListingEverything() {
+        Fixture fixture = new Fixture();
+        fixture.ownedConversation("conv-1", "user-1");
+        AgentWorkflowTaskListRequest request = new AgentWorkflowTaskListRequest();
+        request.setState("done");
+
+        ServerException error = assertThrows(ServerException.class, () -> fixture.controller.tasks("conv-1", request));
+
+        assertTrue(error.getMessage().startsWith("422:"));
+        verify(fixture.tasks, never()).listByConversation(anyString(), any(), any(AgentWorkflowTaskListOptions.class));
     }
 
     private static class Fixture {
@@ -181,7 +241,15 @@ class AgentChatWorkflowControllerTest {
             AgentWorkflowTaskPage page = new AgentWorkflowTaskPage();
             page.setTasks(java.util.Arrays.asList(rows));
             page.setTotal(rows.length);
-            when(tasks.listByConversation(anyString(), any(), anyBoolean(), anyInt(), anyInt())).thenReturn(page);
+            when(tasks.listByConversation(anyString(), any(), any(AgentWorkflowTaskListOptions.class))).thenReturn(page);
+        }
+
+        /** 捕获实际下发的选项，同时钉住作用域用的会话 ID。 */
+        AgentWorkflowTaskListOptions optionsOf(String conversationId) {
+            ArgumentCaptor<AgentWorkflowTaskListOptions> captor =
+                    ArgumentCaptor.forClass(AgentWorkflowTaskListOptions.class);
+            verify(tasks).listByConversation(eq(conversationId), any(), captor.capture());
+            return captor.getValue();
         }
     }
 
