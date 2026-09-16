@@ -117,7 +117,10 @@ services:
         - 'http://localhost:8080/actuator/health'
       interval: 30s
       timeout: 3s
-      start_period: 60s
+      # 生产就绪要 ~127s（CI 里同一套 context 只要 12~23s）。原来给 60s + 3 次重试，
+      # 容忍窗口约 2 分钟，正好压在就绪线上：v0.1.13 判成 healthy，v0.1.14 判成
+      # unhealthy，服务其实是好的。放到 180s 留出余量。
+      start_period: 180s
       retries: 3
     mem_limit: '${ADMIN_MEM_LIMIT:-1g}'
     mem_reservation: '${ADMIN_MEM_RESERVATION:-768m}'
@@ -200,7 +203,9 @@ services:
         - 'http://localhost:8080/actuator/health'
       interval: 30s
       timeout: 3s
-      start_period: 60s
+      # 同 admin：front 的就绪时刻一直贴着判定线，v0.1.14 就是在这里判成了 unhealthy
+      # 并让整条发布失败，而容器本身是正常的。放到 180s 留出余量。
+      start_period: 180s
       retries: 3
     mem_limit: '${FRONT_MEM_LIMIT:-1g}'
     mem_reservation: '${FRONT_MEM_RESERVATION:-768m}'
