@@ -38,6 +38,40 @@ class AgentToolCatalogTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void noWorkflowToolAsksTheModelForAStateVersionOrAMandatoryTarget() {
+        AgentWorkflowCapability capability = new AgentWorkflowCapability();
+        capability.setId("cap-1");
+        capability.setCapabilityCode("file_analyse");
+        AgentToolCatalog catalog = catalog(capability);
+
+        List<AgentTool> tools = catalog.getBoundTools("agent-1");
+
+        int checked = 0;
+        for (AgentTool tool : tools) {
+            JSONObject schema = JSONObject.parseObject(tool.getParametersSchema());
+            JSONObject properties = schema.getJSONObject("properties");
+            JSONArray required = schema.getJSONArray("required");
+            // 状态版本改由服务端在执行时读当前值。只要还有一个工具露出这个参数，模型就会继续
+            // 先 observe 再回传 —— 那次往返正是这次要拿掉的东西。
+            assertTrue(!properties.containsKey("expectedStateVersion"),
+                    tool.getCode() + " 不该再暴露 expectedStateVersion");
+            // 目标由服务端按会话解析，invocationId 必须是可选的。
+            assertTrue(required == null || !required.contains("invocationId"),
+                    tool.getCode() + " 不该把 invocationId 标成必填");
+            // workflow_start 用 capabilityCode 选能力，不涉及调用目标；workflow_list 刻意是
+            // (Agent, 用户) 全量的，好让别的会话里启动的调用能被接管 —— 两者都不适用这条规则。
+            if ("workflow_start".equals(tool.getCode()) || "workflow_list".equals(tool.getCode())) continue;
+            // 描述里必须写清「不传 invocationId 会作用于本会话当前调用」，否则模型会保守地
+            // 先调 workflow_list 找 id，那同样是一次多余的往返。
+            assertTrue(tool.getDescription().contains("本会话"),
+                    tool.getCode() + " 的描述没说清目标解析规则");
+            checked++;
+        }
+        assertEquals(6, checked, "六个动作工具都应下发");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void workflowListAdvertisesIncludeCompletedAsAnOptionalParameter() {
         AgentWorkflowCapability capability = new AgentWorkflowCapability();
         capability.setId("cap-1");
@@ -113,7 +147,7 @@ class AgentToolCatalogTest {
         // 漏提的话新参数最多十分钟才下发，而模型按旧参数表调用不会报错、只会答错。
         ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
         verify(values).set(key.capture(), any(), anyLong(), any());
-        assertTrue(key.getValue().startsWith("agent:tools:v7:"), key.getValue());
+        assertTrue(key.getValue().startsWith("agent:tools:v8:"), key.getValue());
     }
 
     @Test

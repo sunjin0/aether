@@ -374,6 +374,15 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
         return result(invocation, "WORKFLOW_RETRY_ACCEPTED");
     }
 
+    @Override
+    public Long currentStateVersion(String invocationId, String userId, String agentDefinitionId) {
+        AgentWorkflowInvocation invocation = requiredInvocation(invocationId);
+        requireOwner(invocation, userId, agentDefinitionId);
+        if (StringUtils.isBlank(invocation.getWorkflowInstanceId())) return 0L;
+        AgentWorkflowInstance instance = instanceService.getById(invocation.getWorkflowInstanceId());
+        return instance == null || instance.getStateVersion() == null ? 0L : instance.getStateVersion();
+    }
+
     private AgentWorkflowCapability requiredCapability(String id, String applicationId) {
         return requiredCapability(id, applicationId, true);
     }

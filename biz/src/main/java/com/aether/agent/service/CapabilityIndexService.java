@@ -155,18 +155,21 @@ public class CapabilityIndexService {
     private List<Map<String, Object>> actionContracts(String serialized) {
         List<Map<String, Object>> contracts = new ArrayList<>();
         addActionContract(contracts, serialized, "START", "启动工作流", Collections.emptyList(), "能力输入参数");
+        // required 里去掉了 expectedStateVersion：状态版本改由服务端在执行时读取，契约里
+        // 若继续列着它，模型会照旧先 OBSERVE 再凑一个数字回传 —— 那正是这次要去掉的往返。
+        // invocationId 留着：它是精确指定目标的办法，代价为零（observe 已经给过）。
         addActionContract(contracts, serialized, "OBSERVE", "读取状态、当前节点、状态版本和下一步动作",
-                Collections.singletonList("invocationId"), "任何运行中调用");
+                Collections.singletonList("invocationId"), "不传 invocationId 时作用于本会话当前调用");
         addActionContract(contracts, serialized, "STOP", "停止工作流",
-                java.util.Arrays.asList("invocationId", "expectedStateVersion"), "必须先 OBSERVE");
+                Collections.singletonList("invocationId"), "不传 invocationId 时作用于本会话当前调用");
         addActionContract(contracts, serialized, "PROVIDE_AGENT_INPUT", "向 AGENT_INPUT_ALLOWED 交互节点提交结构化输入",
-                java.util.Arrays.asList("invocationId", "expectedStateVersion", "input"), "只能用于 Agent 输入交互，不能用于 MCP 授权");
+                java.util.Arrays.asList("invocationId", "input"), "只能用于 Agent 输入交互，不能用于 MCP 授权");
         addActionContract(contracts, serialized, "RESOLVE_MCP_APPROVAL", "处理 MCP 工具授权节点",
-                java.util.Arrays.asList("invocationId", "expectedStateVersion", "decision"), "decision=once|allow_10m|reject，必须有用户明确授权");
+                java.util.Arrays.asList("invocationId", "decision"), "decision=once|allow_10m|reject，必须有用户明确授权");
         addActionContract(contracts, serialized, "SIGNAL_EVENT", "向等待事件的实例发送事件",
-                java.util.Arrays.asList("invocationId", "expectedStateVersion", "eventType", "eventId"), "必须先 OBSERVE");
+                java.util.Arrays.asList("invocationId", "eventType", "eventId"), "不传 invocationId 时作用于本会话当前调用");
         addActionContract(contracts, serialized, "RETRY_NODE", "重试失败节点",
-                java.util.Arrays.asList("invocationId", "expectedStateVersion", "nodeId"), "外部结果 UNKNOWN 时禁止自动重试");
+                java.util.Arrays.asList("invocationId", "nodeId"), "外部结果 UNKNOWN 时禁止自动重试");
         return contracts;
     }
 

@@ -51,7 +51,7 @@ public class AgentWorkflowNextActionResolver {
                 && isMcpToolApprovalConfig(node == null || StringUtils.isBlank(node.getInteractionConfig())
                 ? null : JSONObject.parseObject(node.getInteractionConfig()))) {
             action.put("type", "RESOLVE_MCP_APPROVAL");
-            action.put("required", Arrays.asList("invocationId", "expectedStateVersion", "decision"));
+            action.put("required", Arrays.asList("invocationId", "decision"));
             action.put("authorizationRequired", true);
             action.put("decisions", Arrays.asList("once", "allow_10m", "reject"));
             JSONObject config = JSONObject.parseObject(node.getInteractionConfig());
@@ -61,13 +61,13 @@ public class AgentWorkflowNextActionResolver {
         } else if (STATUS_WAITING_USER.equals(status) && hasAction(capability, "PROVIDE_AGENT_INPUT")
                 && agentInputAllowed(definition)) {
             action.put("type", "PROVIDE_AGENT_INPUT");
-            action.put("required", Arrays.asList("invocationId", "expectedStateVersion", "input"));
+            action.put("required", Arrays.asList("invocationId", "input"));
             if (node != null && StringUtils.isNotBlank(node.getNodeId())) action.put("nodeId", node.getNodeId());
             action.put("schema", agentInputSchema(definition));
         } else if (STATUS_WAITING_USER.equals(status)) action.put("type", "WAITING_HUMAN");
         else if (STATUS_WAITING_EVENT.equals(status) && hasAction(capability, "SIGNAL_EVENT")) {
             action.put("type", "SIGNAL_EVENT");
-            action.put("required", Arrays.asList("invocationId", "expectedStateVersion", "eventType", "eventId"));
+            action.put("required", Arrays.asList("invocationId", "eventType", "eventId"));
             if (node != null && StringUtils.isNotBlank(node.getInteractionConfig())) {
                 JSONObject config = JSONObject.parseObject(node.getInteractionConfig());
                 action.put("eventType", config.getString("eventType"));
@@ -80,7 +80,7 @@ public class AgentWorkflowNextActionResolver {
                 action.put("retryable", false);
             } else {
                 action.put("type", "RETRY_NODE");
-                action.put("required", Arrays.asList("invocationId", "expectedStateVersion", "nodeId"));
+                action.put("required", Arrays.asList("invocationId", "nodeId"));
                 action.put("nodeId", snapshot.getCurrentNodeId());
             }
         } else if (isTerminal(status)) action.put("type", "NONE");

@@ -39,8 +39,19 @@ public class AgentToolCatalog {
      * <p>{@code workflowCacheMatches} 只校验「有没有能力绑定」，不校验 schema，所以改动
      * 任何工具的参数或描述都必须提这个版本号，否则最多 10 分钟不生效。
      */
-    private static final String CACHE_KEY_PREFIX = "agent:tools:v7:";
+    private static final String CACHE_KEY_PREFIX = "agent:tools:v8:";
     private static final long CACHE_TTL_MINUTES = 10;
+
+    /**
+     * 目标解析规则，逐字复用到每个需要 invocationId 的工具描述里。
+     *
+     * <p>这条必须写在描述里：状态版本参数已经从 schema 里去掉了（改由服务端在执行时读当前值），
+     * 模型若不知道「不传 invocationId 就作用于本会话当前调用」，会保守地先调 workflow_list
+     * 找出 id 再动手 —— 那正是这次要去掉的那次往返。
+     */
+    private static final String TARGET_RULE =
+            "不传 invocationId 时自动作用于本会话当前进行中的调用；"
+                    + "本会话有多个在跑时会返回候选列表，需要你指定，不会替你猜。";
 
     private final AgentToolService agentToolService;
     private final AgentToolBindingService bindingService;
@@ -136,46 +147,40 @@ public class AgentToolCatalog {
                         property("operationKey", "string", "启动幂等键；不传时使用运行上下文生成")),
                 "启动指定工作流能力；先根据 capabilityCode 选择能力，再传入工作流定义的 input。"));
         tools.add(unifiedWorkflowTool("OBSERVE", "workflow_observe",
-                actionSchema(new String[]{"invocationId"},
-                        property("invocationId", "string", "工作流调用 ID")),
-                "观察工作流状态、当前节点、状态版本和下一步动作。"));
+                actionSchema(new String[0], invocationIdProperty()),
+                "观察工作流状态、当前节点、状态版本和下一步动作。" + TARGET_RULE));
         tools.add(unifiedWorkflowTool("STOP", "workflow_stop",
-                actionSchema(new String[]{"invocationId", "expectedStateVersion"},
-                        property("invocationId", "string", "工作流调用 ID"),
-                        property("expectedStateVersion", "integer", "最近一次观察返回的状态版本"),
+                actionSchema(new String[0],
+                        invocationIdProperty(),
                         property("reason", "string", "停止原因")),
-                "停止已启动的工作流。"));
+                "停止工作流。" + TARGET_RULE));
         tools.add(unifiedWorkflowTool("PROVIDE_AGENT_INPUT", "workflow_provide_input",
-                actionSchema(new String[]{"invocationId", "expectedStateVersion", "input"},
-                        property("invocationId", "string", "工作流调用 ID"),
-                        property("expectedStateVersion", "integer", "最近一次观察返回的状态版本"),
+                actionSchema(new String[]{"input"},
+                        invocationIdProperty(),
                         objectProperty("input", "仅用于允许 Agent 输入的交互节点")),
-                "向明确允许 Agent 输入的交互节点提交结构化输入；不能用于 MCP 授权。"));
+                "向明确允许 Agent 输入的交互节点提交结构化输入；不能用于 MCP 授权。" + TARGET_RULE));
         JSONObject decision = property("decision", "string", "MCP 授权决定");
         ((JSONObject) decision.get("schema")).put("enum",
                 new JSONArray().fluentAdd("once").fluentAdd("allow_10m").fluentAdd("reject"));
         tools.add(unifiedWorkflowTool("RESOLVE_MCP_APPROVAL", "workflow_resolve_mcp_approval",
-                actionSchema(new String[]{"invocationId", "expectedStateVersion", "decision"},
-                        property("invocationId", "string", "工作流调用 ID"),
-                        property("expectedStateVersion", "integer", "最近一次观察返回的状态版本"),
+                actionSchema(new String[]{"decision"},
+                        invocationIdProperty(),
                         decision),
-                "处理当前 MCP 授权节点，只能提交 once、allow_10m 或 reject。"));
+                "处理当前 MCP 授权节点，只能提交 once、allow_10m 或 reject。" + TARGET_RULE));
         tools.add(unifiedWorkflowTool("SIGNAL_EVENT", "workflow_signal_event",
-                actionSchema(new String[]{"invocationId", "expectedStateVersion", "eventType", "eventId"},
-                        property("invocationId", "string", "工作流调用 ID"),
-                        property("expectedStateVersion", "integer", "最近一次观察返回的状态版本"),
+                actionSchema(new String[]{"eventType", "eventId"},
+                        invocationIdProperty(),
                         property("eventType", "string", "事件类型"),
                         property("eventId", "string", "事件幂等 ID"),
                         property("correlationKey", "string", "关联键"),
                         objectProperty("data", "事件数据")),
-                "向等待事件的工作流发送业务事件。"));
+                "向等待事件的工作流发送业务事件。" + TARGET_RULE));
         tools.add(unifiedWorkflowTool("RETRY_NODE", "workflow_retry",
-                actionSchema(new String[]{"invocationId", "expectedStateVersion", "nodeId"},
-                        property("invocationId", "string", "工作流调用 ID"),
-                        property("expectedStateVersion", "integer", "最近一次观察返回的状态版本"),
+                actionSchema(new String[]{"nodeId"},
+                        invocationIdProperty(),
                         property("nodeId", "string", "失败节点 ID"),
                         property("reason", "string", "重试原因")),
-                "仅在工作流明确允许且外部结果不为 UNKNOWN 时重试失败节点。"));
+                "仅在工作流明确允许且外部结果不为 UNKNOWN 时重试失败节点。" + TARGET_RULE));
         JSONObject state = property("state", "string",
                 "粗粒度状态筛选，按工作流实例的真实状态判定（不是调用行的状态）：running 只看未结束，"
                         + "finished 只看已结束（含跑完但未被观察过的），all 等价于不传；"
@@ -217,6 +222,11 @@ public class AgentToolCatalog {
         tool.setParametersSchema(schema);
         tool.setStatus(1);
         return tool;
+    }
+
+    /** 每次新建，不要提成共享字段：`actionSchema` 会把同一个实例塞进多个 schema。 */
+    private JSONObject invocationIdProperty() {
+        return property("invocationId", "string", "工作流调用 ID；不传时作用于本会话当前进行中的调用");
     }
 
     private JSONObject objectProperty(String name, String description) {

@@ -99,15 +99,19 @@ Capability 不再对应一套独立工具。所有能力共用固定工具协议
 
 ```text
 workflow_start(capabilityCode, input, operationKey?)
-workflow_observe(invocationId)
-workflow_stop(invocationId, expectedStateVersion, reason?)
-workflow_provide_input(invocationId, expectedStateVersion, input)
-workflow_resolve_mcp_approval(invocationId, expectedStateVersion, decision)
-workflow_signal_event(invocationId, expectedStateVersion, eventType, eventId, ...)
-workflow_retry(invocationId, expectedStateVersion, nodeId, reason?)
+workflow_observe(invocationId?)
+workflow_stop(invocationId?, reason?)
+workflow_provide_input(invocationId?, input)
+workflow_resolve_mcp_approval(invocationId?, decision)
+workflow_signal_event(invocationId?, eventType, eventId, ...)
+workflow_retry(invocationId?, nodeId, reason?)
 ```
 
-`workflow_start` 只接受当前 Agent 已绑定且已发布的 `capabilityCode`，服务端解析到 Capability ID 和冻结版本；其余工具只接受服务端签发的 `invocationId`。不要提供一个可自由填入 `workflowId` 的万能工具，也不要把数百个工作流重复展开到模型工具上下文。
+`workflow_start` 只接受当前 Agent 已绑定且已发布的 `capabilityCode`，服务端解析到 Capability ID 和冻结版本。不要提供一个可自由填入 `workflowId` 的万能工具，也不要把数百个工作流重复展开到模型工具上下文。
+
+**目标解析（先查后改）**：`invocationId` 一律可选。不传时由服务端按当前会话把目标定下来 —— 会话内恰好一条未终态的调用就直接用它，一条都没有或多于一条则返回结构化结果（后者附候选列表），不替模型猜。`PROVIDE_AGENT_INPUT`、`RESOLVE_MCP_APPROVAL`、`SIGNAL_EVENT`、`RETRY_NODE` 这类状态绑定的动作会先用 `nextAction` 收窄候选，只有一条在等这个动作时同样直接采用。显式传 `invocationId` 仍然有效，用于接管别的会话里启动的调用。
+
+**状态版本不再由模型回传**：`expectedStateVersion` 已从全部工具参数中去掉，服务端在执行时读当前值并照旧做乐观锁校验。这样「读」发生在服务端一次事务内，模型不必先 `OBSERVE` 再回传一个它看到的版本 —— 那次往返既费 token，又制造了「模型照着旧快照操作」的机会。
 
 ### 3.2 身份模型
 
@@ -143,7 +147,7 @@ Agent 只使用以下明确语义的动作，避免模糊的“继续”或万�
 | `SIGNAL_EVENT` | 提交已声明业务事件 | Capability、事件类型与关联键均匹配 |
 | `RETRY_NODE` | 重试当前失败节点 | 节点与策略显式允许，且不存在未知外部副作用 |
 
-`CONTINUE` 仅作为 Agent 产品层的交互文案，不作为领域命令。Agent 先调用 `OBSERVE`，再根据服务端返回的 `nextAction` 使用一个明确动作。
+`CONTINUE` 仅作为 Agent 产品层的交互文案，不作为领域命令。`OBSERVE` 用来观察进度、读取结果和确认下一步，不再作为提交动作前的必经步骤 —— 动作工具自己会解析目标并读取状态版本。
 
 ### 4.1 启动
 
@@ -254,13 +258,13 @@ RUNNING / WAITING_USER / WAITING_EVENT / WAITING_SUBFLOW
 
 ### 5.2 乐观并发控制
 
-对改变实例的 Agent 动作增加 `expectedStateVersion`。实例每发生一次状态或可操作性变化递增版本号；服务端版本不匹配时拒绝操作，返回稳定码：
+改变实例的 Agent 动作都要过 `expectedStateVersion`。实例每发生一次状态或可操作性变化递增版本号；版本不匹配时拒绝操作，返回稳定码：
 
 ```text
 WORKFLOW_INSTANCE_STATE_CHANGED
 ```
 
-Agent 必须重新 `OBSERVE` 后再作出判断，避免“Agent 看到等待输入，但人工已提交答案”的竞态。
+**这个版本号由服务端在执行时读取，不是模型传来的参数**：工具层在调用领域服务前先读当前值，领域服务在持有实例行锁的事务里再比对一次。竞态窗口因此从「模型上一次观察到现在」缩到一次事务，而模型那一侧不必再 `OBSERVE` 一趟。领域服务仍保留显式传入版本的入口，供非模型的内部调用方使用。
 
 ### 5.3 幂等键
 

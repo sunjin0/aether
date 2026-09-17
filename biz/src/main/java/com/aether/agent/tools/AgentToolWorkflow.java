@@ -404,7 +404,10 @@ public class AgentToolWorkflow {
         ToolExecutionResult result;
         try {
             checkCancelled(cancellationToken);
-            if (!isWorkflowTool(tool) && !allowedByResourcePolicy(tool, call.getName(), agentId, userId)) {
+            // 工作流工具同样过资源策略。它的 id 是合成的（workflow:stop 之类），不在 agent_tool 表里，
+            // 但策略用的是 id 字面量，管理员照样能为它授权；没有规则时默认放行，所以既有部署行为不变。
+            // 别因为「工作流工具是平台内置的」就把这一层再摘掉 —— 那等于这类工具永远无法被收回。
+            if (!allowedByResourcePolicy(tool, call.getName(), agentId, userId)) {
                 result = ToolExecutionResult.failure("资源策略拒绝执行该工具", STATUS_SECURITY_BLOCK);
                 result.setToolCallId(call.getId());
                 return result;

@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +35,17 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
     private static final int LIST_LIMIT = 20;
     /** 单字段截断上限，与 ToolResultContextCompressor.isLargeTextField 取同一个值。 */
     private static final int FIELD_MAX_CHARS = 1200;
+    /** 目标解析最多看几条在跑的工作流；与清单同一口径，避免两条读路径给出不同答案。 */
+    private static final int TARGET_CANDIDATE_LIMIT = LIST_LIMIT;
+    /**
+     * 只能作用于特定状态的动作。这类动作允许先用 nextAction 收窄候选：只有一条在等它时，
+     * 模型不必再从候选里挑一次。
+     *
+     * <p>OBSERVE 与 STOP 不在此列 —— 它们对任何未终态的调用都成立，按状态收窄会误判。
+     */
+    private static final List<String> STATE_BOUND_ACTIONS = Arrays.asList(
+            "PROVIDE_AGENT_INPUT", "RESOLVE_MCP_APPROVAL", "SIGNAL_EVENT", "RETRY_NODE");
+
     /**
      * 整个清单载荷的字符预算。
      *
@@ -79,6 +91,10 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
         AgentTool tool = context == null ? null : context.getTool();
         if (tool == null || !supports(tool.getToolType()) && !supports(tool.getType()))
             return ToolExecutionResult.failure(I18nUtils.getMessage("agent.workflow.tool.capability.not-bound"), 3);
+        // 解析出的目标要活到 catch：错误载荷里带的必须是服务端实际作用的那个 id，而不是模型
+        // 有没有传 —— 否则「状态冲突」的补偿观察会因为 id 为空而整段跳过，模型失去那个闭环。
+        String resolvedInvocationId = null;
+        Long resolvedStateVersion = null;
         try {
             Map<String, Object> arguments = new LinkedHashMap<>(context.getArguments() == null
                     ? java.util.Collections.<String, Object>emptyMap() : context.getArguments());
@@ -105,20 +121,33 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
                         context.getRunId(), taskId, context.getIdempotencyKey(), context.getUserId(), context.getApplicationId());
                 return success(JSON.toJSONString(result), started, requestArguments);
             }
-            // 清单查询不带 invocationId；必须放在下面那句必填校验之前。
+            // 清单查询不带 invocationId；必须放在目标解析之前。
             if ("LIST".equalsIgnoreCase(action)) {
                 return list(context, started, requestArguments);
-            }
-            String invocationId = string(arguments.get("invocationId"));
-            if (StringUtils.isBlank(invocationId)) {
-                return structuredFailure(new IllegalArgumentException("Workflow invocationId is required"),
-                        requestedAction(arguments, tool), null, longValue(arguments.get("expectedStateVersion")), context, arguments);
             }
             // 动作专用工具不再要求模型重复传 action；保留 INSTANCE 的 action
             // 读取逻辑仅用于历史调用和非模型内部调用。
             String requested = StringUtils.defaultIfBlank(string(arguments.get("action")),
                     StringUtils.defaultIfBlank(tool.getWorkflowToolAction(), "OBSERVE")).toUpperCase();
+            // 先查：模型不传 invocationId 时，由服务端从会话上下文把目标定下来。
+            String invocationId = blankToNull(string(arguments.get("invocationId")));
+            if (invocationId == null) {
+                TargetResolution resolution = resolveTarget(context, requested, run);
+                if (resolution.getInvocationId() == null) {
+                    return targetFailure(resolution, requested, requestArguments);
+                }
+                invocationId = resolution.getInvocationId();
+            }
+            resolvedInvocationId = invocationId;
+            // 后改：模型不再需要先 observe 再回传状态版本。缺省时读当前值即可 —— 领域层的
+            // 乐观锁校验原样保留（调用期间真被别处改过仍会 409），只是把「读」从模型的一次
+            // 往返挪进了服务端。显式传版本的老调用方（历史脚本、非模型内部调用）行为不变。
             Long expectedStateVersion = longValue(arguments.get("expectedStateVersion"));
+            if (expectedStateVersion == null) {
+                expectedStateVersion = invocationService.currentStateVersion(
+                        invocationId, context.getUserId(), context.getAgentDefinitionId());
+            }
+            resolvedStateVersion = expectedStateVersion;
             if ("STOP".equals(requested)) {
                 AgentWorkflowInvocationService.AgentWorkflowInvocationResult result = invocationService.stop(
                         invocationId, string(arguments.get("reason")), expectedStateVersion,
@@ -164,8 +193,11 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
         } catch (Exception e) {
             Map<String, Object> failedArguments = context == null || context.getArguments() == null
                     ? java.util.Collections.<String, Object>emptyMap() : context.getArguments();
+            // 优先用服务端解析出来的目标：模型没传 invocationId 时，failedArguments 里也是空的。
             return structuredFailure(e, requestedAction(failedArguments, tool),
-                    string(failedArguments.get("invocationId")), longValue(failedArguments.get("expectedStateVersion")), context, failedArguments);
+                    resolvedInvocationId != null ? resolvedInvocationId : string(failedArguments.get("invocationId")),
+                    resolvedStateVersion != null ? resolvedStateVersion : longValue(failedArguments.get("expectedStateVersion")),
+                    context, failedArguments);
         }
     }
 
@@ -397,6 +429,90 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
         }
     }
 
+    /**
+     * 模型没传 invocationId 时替它定目标 —— 这就是「先查后改」里的「先查」。
+     *
+     * <p>取数走 {@link AgentWorkflowTaskQueryService}，与聊天页的任务清单同源：会话内已进入终态的
+     * 调用不会进候选，由实例真值判定的终态也算数，两条读路径不会给出不同结论。
+     *
+     * <p>不猜：恰好一条才直接用；零条或多条都返回结构化结果（前者说明没有可操作的调用，后者把
+     * 候选原样交给模型）。停错工作流的代价远大于多一次调用，所以这里宁可多问一句。
+     */
+    private TargetResolution resolveTarget(ToolExecutionContext context, String action, AgentRun run) {
+        if (taskQueryService == null) return TargetResolution.required();
+        AgentWorkflowTaskListOptions options = new AgentWorkflowTaskListOptions();
+        options.setInFlightLimit(TARGET_CANDIDATE_LIMIT);
+        options.setIncludeTerminal(false);
+        options.setWithResult(false);
+        AgentWorkflowTaskPage page;
+        try {
+            // run 由调用方传入，别在这里再查一次：它是同一个 run，多一次查询纯属浪费。
+            String conversationId = run == null ? null : run.getConversationId();
+            page = StringUtils.isNotBlank(conversationId)
+                    ? taskQueryService.listByConversation(conversationId, null, options)
+                    // 会话缺失（评测、脚本调用）时退回「本 Agent 为本用户启动的」：范围更宽，
+                    // 但归属校验在领域层照旧兜底，不会因此越权。
+                    : taskQueryService.listInFlight(context.getAgentDefinitionId(), context.getUserId(), options);
+        } catch (Exception e) {
+            // 解析失败按「无法定目标」处理，让模型显式传 invocationId，而不是把异常当领域错误报出去。
+            return TargetResolution.required();
+        }
+        List<AgentWorkflowTaskVo> tasks = page == null ? null : page.getTasks();
+        if (tasks == null || tasks.isEmpty()) return TargetResolution.notFound();
+        List<AgentWorkflowTaskVo> pool = tasks;
+        if (STATE_BOUND_ACTIONS.contains(action)) {
+            List<AgentWorkflowTaskVo> waiting = new ArrayList<>();
+            for (AgentWorkflowTaskVo task : tasks) {
+                if (action.equals(nextActionType(task))) waiting.add(task);
+            }
+            // 一条都不在等这个动作时不要退回全集：随便挑一条必然被领域层的状态前置条件打回，
+            // 模型只会收到一条看不出所以然的状态错误。
+            if (waiting.isEmpty()) return TargetResolution.notWaiting(tasks);
+            pool = waiting;
+        }
+        if (pool.size() == 1 && StringUtils.isNotBlank(pool.get(0).getInvocationId())) {
+            return TargetResolution.resolved(pool.get(0).getInvocationId());
+        }
+        return TargetResolution.ambiguous(pool);
+    }
+
+    /** {@code nextAction.type} 与动作名同源（见 AgentWorkflowNextActionResolver），可直接比。 */
+    private String nextActionType(AgentWorkflowTaskVo task) {
+        Map<String, Object> nextAction = task == null ? null : task.getNextAction();
+        Object type = nextAction == null ? null : nextAction.get("type");
+        return type == null ? null : String.valueOf(type);
+    }
+
+    /**
+     * 目标没定下来时的结构化结果。
+     *
+     * <p>候选刻意复用 {@link #invocationView}：与 workflow_list 同一形状，模型不必学第二套。
+     */
+    private ToolExecutionResult targetFailure(TargetResolution resolution, String action,
+                                              Map<String, Object> requestArguments) {
+        JSONObject payload = new JSONObject();
+        payload.put("success", false);
+        payload.put("errorCode", resolution.getErrorCode());
+        payload.put("message", resolution.getMessage());
+        payload.put("action", action);
+        // 目标没定下来 = 模型这次参数不足以成事，retryable 保持 false，逼它换参数而不是原样重试。
+        payload.put("retryable", false);
+        if (resolution.getRequiredAction() != null) payload.put("requiredAction", resolution.getRequiredAction());
+        if (resolution.getCandidates() != null && !resolution.getCandidates().isEmpty()) {
+            List<Map<String, Object>> candidates = new ArrayList<>();
+            for (AgentWorkflowTaskVo task : resolution.getCandidates()) candidates.add(invocationView(task));
+            payload.put("candidates", candidates);
+        }
+        ToolExecutionResult result = ToolExecutionResult.failure(resolution.getMessage(), 1);
+        result.setContent(payload.toJSONString());
+        result.setRawResponse(payload.toJSONString());
+        result.setHttpStatus(409);
+        result.setRequestMethod("WORKFLOW");
+        result.setRequestBody(JSON.toJSONString(requestArguments == null
+                ? java.util.Collections.<String, Object>emptyMap() : requestArguments));
+        return result;
+    }
+
     private String requestedAction(Map<String, Object> arguments, AgentTool tool) {
         return StringUtils.defaultIfBlank(string(arguments == null ? null : arguments.get("action")),
                 StringUtils.defaultIfBlank(tool == null ? null : tool.getWorkflowToolAction(), "OBSERVE"))
@@ -498,5 +614,60 @@ public class WorkflowToolExecutor implements com.aether.agent.executor.ToolExecu
         if (value == null) return null;
         try { return Long.valueOf(String.valueOf(value)); }
         catch (NumberFormatException ignored) { return null; }
+    }
+
+    /**
+     * 目标解析的结论：成功只有 {@code invocationId}，失败则由错误码说明原因并附候选。
+     *
+     * <p>{@code errorCode} 一律是模型可据此换动作的取值，不复用
+     * {@code structuredFailure} 的文本匹配 —— 那里是靠英文错误文本反推码的，新加的
+     * 分支越多越容易撞车。
+     */
+    private static final class TargetResolution {
+        private final String invocationId;
+        private final String errorCode;
+        private final String message;
+        private final String requiredAction;
+        private final List<AgentWorkflowTaskVo> candidates;
+
+        private TargetResolution(String invocationId, String errorCode, String message,
+                                 String requiredAction, List<AgentWorkflowTaskVo> candidates) {
+            this.invocationId = invocationId;
+            this.errorCode = errorCode;
+            this.message = message;
+            this.requiredAction = requiredAction;
+            this.candidates = candidates;
+        }
+
+        static TargetResolution resolved(String invocationId) {
+            return new TargetResolution(invocationId, null, null, null, null);
+        }
+
+        /** 取不到会话上下文（评测、脚本调用）时的兜底：维持「调用方必须显式给 id」的老行为。 */
+        static TargetResolution required() {
+            return new TargetResolution(null, "WORKFLOW_TARGET_REQUIRED",
+                    "Workflow invocationId is required", "LIST", null);
+        }
+
+        static TargetResolution notFound() {
+            return new TargetResolution(null, "WORKFLOW_TARGET_NOT_FOUND",
+                    "No active workflow invocation in this conversation", null, null);
+        }
+
+        static TargetResolution notWaiting(List<AgentWorkflowTaskVo> tasks) {
+            return new TargetResolution(null, "WORKFLOW_TARGET_NOT_WAITING",
+                    "No active workflow invocation is waiting for this action", "OBSERVE", tasks);
+        }
+
+        static TargetResolution ambiguous(List<AgentWorkflowTaskVo> tasks) {
+            return new TargetResolution(null, "WORKFLOW_TARGET_AMBIGUOUS",
+                    "Multiple active workflow invocations: pass invocationId to choose one", "LIST", tasks);
+        }
+
+        String getInvocationId() { return invocationId; }
+        String getErrorCode() { return errorCode; }
+        String getMessage() { return message; }
+        String getRequiredAction() { return requiredAction; }
+        List<AgentWorkflowTaskVo> getCandidates() { return candidates; }
     }
 }

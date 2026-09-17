@@ -35,7 +35,7 @@ class AgentWorkflowNextActionResolverTest {
         Map<String, Object> action = resolver.resolve(capability("RESOLVE_MCP_APPROVAL"), snapshot);
 
         assertEquals("RESOLVE_MCP_APPROVAL", action.get("type"));
-        assertEquals(Arrays.asList("invocationId", "expectedStateVersion", "decision"), action.get("required"));
+        assertEquals(Arrays.asList("invocationId", "decision"), action.get("required"));
         assertEquals(Boolean.TRUE, action.get("authorizationRequired"));
         assertEquals(Arrays.asList("once", "allow_10m", "reject"), action.get("decisions"));
         assertEquals("approve_1", action.get("nodeId"));
@@ -64,7 +64,7 @@ class AgentWorkflowNextActionResolverTest {
         Map<String, Object> action = resolver.resolve(capability("PROVIDE_AGENT_INPUT"), snapshot);
 
         assertEquals("PROVIDE_AGENT_INPUT", action.get("type"));
-        assertEquals(Arrays.asList("invocationId", "expectedStateVersion", "input"), action.get("required"));
+        assertEquals(Arrays.asList("invocationId", "input"), action.get("required"));
         assertEquals("fill_1", action.get("nodeId"));
         @SuppressWarnings("unchecked")
         Map<String, Object> schema = (Map<String, Object>) action.get("schema");
@@ -156,7 +156,7 @@ class AgentWorkflowNextActionResolverTest {
         Map<String, Object> action = resolver.resolve(capability("SIGNAL_EVENT"), snapshot);
 
         assertEquals("SIGNAL_EVENT", action.get("type"));
-        assertEquals(Arrays.asList("invocationId", "expectedStateVersion", "eventType", "eventId"), action.get("required"));
+        assertEquals(Arrays.asList("invocationId", "eventType", "eventId"), action.get("required"));
         assertEquals("ticket.completed", action.get("eventType"));
         assertEquals("T-1", action.get("correlationKey"));
     }
@@ -181,7 +181,7 @@ class AgentWorkflowNextActionResolverTest {
                 .resolve(capability("RETRY_NODE"), snapshot);
 
         assertEquals("RETRY_NODE", action.get("type"));
-        assertEquals(Arrays.asList("invocationId", "expectedStateVersion", "nodeId"), action.get("required"));
+        assertEquals(Arrays.asList("invocationId", "nodeId"), action.get("required"));
         assertEquals("pay_1", action.get("nodeId"));
     }
 

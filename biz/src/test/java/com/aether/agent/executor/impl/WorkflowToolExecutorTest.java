@@ -1,5 +1,6 @@
 package com.aether.agent.executor.impl;
 
+import com.aether.agent.entity.AgentRun;
 import com.aether.agent.entity.AgentTool;
 import com.aether.agent.executor.ToolExecutionContext;
 import com.aether.agent.executor.ToolExecutionResult;
@@ -469,6 +470,146 @@ class WorkflowToolExecutorTest {
         // 默认 includeCompleted=true 会让结果内联；显式关掉时不该再去解析结果。
         assertTrue(options.isIncludeTerminal());
         assertFalse(options.isWithResult());
+    }
+
+    @Test
+    void missingInvocationIdResolvesToTheOnlyActiveWorkflowInTheConversation() {
+        AgentWorkflowInvocationService invocations = mock(AgentWorkflowInvocationService.class);
+        AgentWorkflowTaskQueryService tasks = mock(AgentWorkflowTaskQueryService.class);
+        AgentRunService runs = mock(AgentRunService.class);
+        AgentRun run = new AgentRun();
+        run.setConversationId("conv-1");
+        when(runs.getById("run-1")).thenReturn(run);
+        AgentWorkflowTaskPage page = new AgentWorkflowTaskPage();
+        page.setTasks(Collections.singletonList(task("inv-1", "RUNNING", "OBSERVE")));
+        when(tasks.listByConversation(eq("conv-1"), isNull(), any(AgentWorkflowTaskListOptions.class)))
+                .thenReturn(page);
+        when(invocations.currentStateVersion("inv-1", "user-1", "agent-1")).thenReturn(4L);
+        when(invocations.stop(eq("inv-1"), eq("用户取消了"), eq(4L), eq("user-1"), eq("agent-1")))
+                .thenReturn(new AgentWorkflowInvocationService.AgentWorkflowInvocationResult());
+
+        WorkflowToolExecutor executor = new WorkflowToolExecutor(invocations, runs,
+                mock(AgentWorkflowCapabilityService.class), tasks);
+        Map<String, Object> args = new HashMap<>();
+        args.put("reason", "用户取消了");
+        ToolExecutionResult result = executor.execute(context(tool(null, "STOP"), args));
+
+        assertTrue(result.isSuccess(), result.getContent());
+        // 模型既没传 invocationId 也没先 observe 拿状态版本，两样都由服务端补齐。
+        verify(invocations).stop("inv-1", "用户取消了", 4L, "user-1", "agent-1");
+        // 目标按会话取；既然拿到了会话就不该退回到「本 Agent 为本用户启动的」那层更宽的候选。
+        verify(tasks, never()).listInFlight(anyString(), anyString(), any(AgentWorkflowTaskListOptions.class));
+    }
+
+    @Test
+    void withoutAConversationTheTargetFallsBackToTheAgentsInFlightList() {
+        AgentWorkflowInvocationService invocations = mock(AgentWorkflowInvocationService.class);
+        AgentWorkflowTaskQueryService tasks = mock(AgentWorkflowTaskQueryService.class);
+        // 评测与脚本调用没有会话上下文：run 查不到，只能退回上一层候选。
+        when(tasks.listInFlight(eq("agent-1"), eq("user-1"), any(AgentWorkflowTaskListOptions.class)))
+                .thenReturn(new AgentWorkflowTaskPage());
+        WorkflowToolExecutor executor = new WorkflowToolExecutor(invocations, mock(AgentRunService.class),
+                mock(AgentWorkflowCapabilityService.class), tasks);
+
+        ToolExecutionResult result = executor.execute(context(tool(null, "STOP"), new HashMap<>()));
+
+        assertFalse(result.isSuccess());
+        assertEquals(409, result.getHttpStatus());
+        assertTrue(result.getContent().contains("WORKFLOW_TARGET_NOT_FOUND"), result.getContent());
+    }
+
+    @Test
+    void multipleActiveInvocationsReturnCandidatesInsteadOfPickingOne() {
+        AgentWorkflowInvocationService invocations = mock(AgentWorkflowInvocationService.class);
+        AgentWorkflowTaskQueryService tasks = mock(AgentWorkflowTaskQueryService.class);
+        AgentWorkflowTaskPage page = new AgentWorkflowTaskPage();
+        page.setTasks(java.util.Arrays.asList(
+                task("inv-1", "RUNNING", "OBSERVE"),
+                task("inv-2", "RUNNING", "OBSERVE")));
+        when(tasks.listInFlight(eq("agent-1"), eq("user-1"), any(AgentWorkflowTaskListOptions.class)))
+                .thenReturn(page);
+        WorkflowToolExecutor executor = new WorkflowToolExecutor(invocations, mock(AgentRunService.class),
+                mock(AgentWorkflowCapabilityService.class), tasks);
+
+        ToolExecutionResult result = executor.execute(context(tool(null, "STOP"), new HashMap<>()));
+
+        assertFalse(result.isSuccess());
+        assertEquals(409, result.getHttpStatus());
+        assertTrue(result.getContent().contains("WORKFLOW_TARGET_AMBIGUOUS"), result.getContent());
+        // 候选复用 workflow_list 的字段形状，模型不必学第二套。
+        assertTrue(result.getContent().contains("inv-1"));
+        assertTrue(result.getContent().contains("inv-2"));
+        assertTrue(result.getContent().contains("\"capabilityCode\":\"ticket_flow\""));
+        // 停错工作流是破坏性的，宁可多问一句也不挑一条执行。
+        verifyNoInteractions(invocations);
+    }
+
+    @Test
+    void stateBoundActionNarrowsCandidatesToTheOneWaitingForIt() {
+        AgentWorkflowInvocationService invocations = mock(AgentWorkflowInvocationService.class);
+        AgentWorkflowTaskQueryService tasks = mock(AgentWorkflowTaskQueryService.class);
+        AgentWorkflowTaskPage page = new AgentWorkflowTaskPage();
+        page.setTasks(java.util.Arrays.asList(
+                task("inv-1", "RUNNING", "OBSERVE"),
+                task("inv-2", "WAITING_ACTION", "PROVIDE_AGENT_INPUT")));
+        when(tasks.listInFlight(eq("agent-1"), eq("user-1"), any(AgentWorkflowTaskListOptions.class)))
+                .thenReturn(page);
+        when(invocations.currentStateVersion("inv-2", "user-1", "agent-1")).thenReturn(9L);
+        when(invocations.provideAgentInput(eq("inv-2"), anyMap(), eq(9L), eq("user-1"), eq("agent-1")))
+                .thenReturn(new AgentWorkflowInvocationService.AgentWorkflowInvocationResult());
+        WorkflowToolExecutor executor = new WorkflowToolExecutor(invocations, mock(AgentRunService.class),
+                mock(AgentWorkflowCapabilityService.class), tasks);
+        Map<String, Object> args = new HashMap<>();
+        args.put("input", Collections.singletonMap("suggestedAssignee", "u-1"));
+
+        ToolExecutionResult result = executor.execute(context(tool(null, "PROVIDE_AGENT_INPUT"), args));
+
+        assertTrue(result.isSuccess(), result.getContent());
+        // 只有一条在等 Agent 输入，模型不必再从候选里挑一次。
+        verify(invocations).provideAgentInput(eq("inv-2"),
+                argThat(value -> "u-1".equals(value.get("suggestedAssignee"))), eq(9L), eq("user-1"), eq("agent-1"));
+    }
+
+    @Test
+    void stateBoundActionWhenNothingIsWaitingSaysSoInsteadOfPickingOne() {
+        AgentWorkflowInvocationService invocations = mock(AgentWorkflowInvocationService.class);
+        AgentWorkflowTaskQueryService tasks = mock(AgentWorkflowTaskQueryService.class);
+        AgentWorkflowTaskPage page = new AgentWorkflowTaskPage();
+        page.setTasks(java.util.Arrays.asList(
+                task("inv-1", "RUNNING", "OBSERVE"),
+                task("inv-2", "RUNNING", "OBSERVE")));
+        when(tasks.listInFlight(eq("agent-1"), eq("user-1"), any(AgentWorkflowTaskListOptions.class)))
+                .thenReturn(page);
+        WorkflowToolExecutor executor = new WorkflowToolExecutor(invocations, mock(AgentRunService.class),
+                mock(AgentWorkflowCapabilityService.class), tasks);
+        Map<String, Object> args = new HashMap<>();
+        args.put("input", Collections.singletonMap("suggestedAssignee", "u-1"));
+
+        ToolExecutionResult result = executor.execute(context(tool(null, "PROVIDE_AGENT_INPUT"), args));
+
+        assertFalse(result.isSuccess());
+        // 不能退回全集随便挑一条：那样必然被领域层的状态前置条件打回，模型只看到一条
+        // 看不出所以然的状态错误。这里直接把「没有人在等」说清楚。
+        assertTrue(result.getContent().contains("WORKFLOW_TARGET_NOT_WAITING"), result.getContent());
+        assertTrue(result.getContent().contains("\"requiredAction\":\"OBSERVE\""));
+        verifyNoInteractions(invocations);
+    }
+
+    @Test
+    void explicitStateVersionStillWinsOverTheServerSideRead() {
+        AgentWorkflowInvocationService invocations = mock(AgentWorkflowInvocationService.class);
+        when(invocations.stop(eq("inv-1"), any(), eq(7L), eq("user-1"), eq("agent-1")))
+                .thenReturn(new AgentWorkflowInvocationService.AgentWorkflowInvocationResult());
+        WorkflowToolExecutor executor = new WorkflowToolExecutor(invocations, mock(AgentRunService.class));
+        Map<String, Object> args = new HashMap<>();
+        args.put("invocationId", "inv-1");
+        args.put("expectedStateVersion", 7);
+
+        ToolExecutionResult result = executor.execute(context(tool(null, "STOP"), args));
+
+        assertTrue(result.isSuccess(), result.getContent());
+        // 历史脚本与非模型内部调用仍然传版本，这条路径不该被新增的服务端读取改掉。
+        verify(invocations, never()).currentStateVersion(anyString(), anyString(), anyString());
     }
 
     /** 带一组参数跑一次清单，返回交给查询服务的取数选项。 */

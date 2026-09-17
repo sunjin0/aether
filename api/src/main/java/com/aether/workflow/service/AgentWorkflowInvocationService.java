@@ -13,6 +13,16 @@ public interface AgentWorkflowInvocationService {
 
     AgentWorkflowInvocationObservation observe(String invocationId, String userId, String agentDefinitionId);
 
+    /**
+     * 读取调用当前的状态版本，供工具在模型没有先 observe 时补齐乐观锁的期望值。
+     *
+     * <p>刻意不复用 {@link #observe}：后者要装配最近事件与输出，只为拿一个版本号太重。归属与
+     * 能力校验在这里同样要过，所以它不是一个可以绕过授权的读口子。
+     *
+     * @return 实例当前状态版本；实例尚未建立时返回 0，让后续动作按自己的错误语义报 404
+     */
+    Long currentStateVersion(String invocationId, String userId, String agentDefinitionId);
+
     default AgentWorkflowInvocationResult stop(String invocationId, String reason, String userId, String agentDefinitionId) {
         return stop(invocationId, reason, null, userId, agentDefinitionId);
     }
