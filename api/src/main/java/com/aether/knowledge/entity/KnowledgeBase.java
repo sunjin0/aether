@@ -49,6 +49,10 @@ public class KnowledgeBase extends BaseEntity {
      */
     private String retrievalConfig;
     /**
+     * 文档分片配置 JSON，例如 strategy、maxChars、overlapChars、maxTokens。
+     */
+    private String chunkingConfig;
+    /**
      * 文档审批策略 JSON，例如 requireDifferentApprover。
      */
     private String reviewConfig;

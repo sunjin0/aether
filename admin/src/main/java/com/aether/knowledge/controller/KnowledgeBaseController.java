@@ -15,6 +15,7 @@ import com.aether.i18n.I18nUtils;
 import com.aether.exception.ServerException;
 import com.aether.knowledge.model.KnowledgeBaseScope;
 import com.aether.knowledge.model.KnowledgeBaseVisibility;
+import com.aether.knowledge.model.KnowledgeChunkingConfig;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.permission.Permission;
 import com.aether.local.CurrentUser;
@@ -153,6 +154,7 @@ public class KnowledgeBaseController {
             kb.setTenantId(CurrentUser.getUser().get("tenantId"));
         }
         kb.setReviewConfig(validateReviewConfig(vo.getReviewConfig()));
+        kb.setChunkingConfig(validateChunkingConfig(vo.getChunkingConfig()));
         kb.setOwnerAdminId(knowledgeAccessService.currentAdminId());
         if (kb.getStatus() == null) {
             kb.setStatus(1);
@@ -182,6 +184,9 @@ public class KnowledgeBaseController {
         KnowledgeBase kb = mutableFields(vo);
         if (vo.getReviewConfig() != null) {
             kb.setReviewConfig(validateReviewConfig(vo.getReviewConfig()));
+        }
+        if (vo.getChunkingConfig() != null) {
+            kb.setChunkingConfig(validateChunkingConfig(vo.getChunkingConfig()));
         }
         kb.setId(id);
         // Ownership can only be changed through an explicit membership/transfer workflow.
@@ -216,6 +221,7 @@ public class KnowledgeBaseController {
         kb.setEmbeddingProviderId(catalog.getProviderId());
         kb.setVisibility(vo.getVisibility());
         kb.setRetrievalConfig(vo.getRetrievalConfig());
+        kb.setChunkingConfig(vo.getChunkingConfig());
         kb.setReviewConfig(vo.getReviewConfig());
         kb.setName(vo.getName());
         kb.setDescription(vo.getDescription());
@@ -227,6 +233,7 @@ public class KnowledgeBaseController {
         KnowledgeBaseVo vo = new KnowledgeBaseVo();
         vo.setScope(request.getScope()); vo.setEmbeddingModelId(request.getEmbeddingModelId());
         vo.setVisibility(request.getVisibility()); vo.setRetrievalConfig(request.getRetrievalConfig());
+        vo.setChunkingConfig(request.getChunkingConfig());
         vo.setReviewConfig(request.getReviewConfig()); vo.setName(request.getName());
         vo.setDescription(request.getDescription()); vo.setStatus(request.getStatus());
         return vo;
@@ -250,6 +257,7 @@ public class KnowledgeBaseController {
         @ApiModelProperty(value = "嵌入模型 ID", required = true, example = "model-embedding-001") private String embeddingModelId;
         @ApiModelProperty(value = "可见性", example = "platform") private String visibility;
         @ApiModelProperty(value = "检索配置 JSON", example = "{\"topK\":5}") private String retrievalConfig;
+        @ApiModelProperty(value = "分片配置 JSON；strategy 可为 SEMANTIC、MARKDOWN、PARAGRAPH 或 FIXED_LENGTH；针对 text-embedding-v4，maxChars 为 256-4096，maxTokens 为 128-2048，overlapChars 不超过 1024 且不超过 maxChars 的一半", example = "{\"strategy\":\"SEMANTIC\",\"maxChars\":2400,\"overlapChars\":320,\"maxTokens\":1400}") private String chunkingConfig;
         @ApiModelProperty(value = "审核配置 JSON", required = true, example = "{\"reviewModelId\":\"model-chat-001\"}") private String reviewConfig;
         @ApiModelProperty(value = "知识库名称", required = true, example = "产品文档") private String name;
         @ApiModelProperty(value = "描述", example = "产品帮助中心文档") private String description;
@@ -294,6 +302,15 @@ public class KnowledgeBaseController {
             throw e;
         } catch (Exception e) {
             throw new ServerException(400, I18nUtils.getMessage("knowledge.base.review-config.invalid"));
+        }
+    }
+
+    /** 校验并规范化知识库分片配置。 */
+    private String validateChunkingConfig(String value) {
+        try {
+            return KnowledgeChunkingConfig.fromJson(value).toJson();
+        } catch (Exception e) {
+            throw new ServerException(400, I18nUtils.getMessage("knowledge.base.chunking-config.invalid"));
         }
     }
 

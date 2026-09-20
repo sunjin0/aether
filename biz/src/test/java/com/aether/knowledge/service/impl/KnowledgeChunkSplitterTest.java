@@ -129,4 +129,18 @@ class KnowledgeChunkSplitterTest {
             assertTrue(chunk.getContent().startsWith("| 名称 | 说明 |\n| --- | --- |"));
         }
     }
+
+    @Test
+    void usesFixedLengthStrategyWithoutMarkdownStructure() {
+        KnowledgeChunkSplitter splitter = new KnowledgeChunkSplitter();
+
+        List<KnowledgeChunkSplitter.Segment> chunks = splitter.split("# 标题\n第一段内容。第二段内容。第三段内容。", 12, 3, 100,
+                com.aether.knowledge.model.KnowledgeChunkingConfig.STRATEGY_FIXED_LENGTH);
+
+        assertTrue(chunks.size() > 1);
+        assertEquals("ROOT", chunks.get(0).getSectionPath());
+        for (KnowledgeChunkSplitter.Segment chunk : chunks) {
+            assertTrue(chunk.getContent().length() <= 12);
+        }
+    }
 }

@@ -30,6 +30,10 @@ public class KnowledgeBaseVo extends BaseEntity {
      * 检索配置 JSON；当前只保存，暂不启用混合检索/重排。
      */
     private String retrievalConfig;
+    /**
+     * 文档语义分片配置 JSON，例如 {"maxChars":2400,"overlapChars":320,"maxTokens":1400}。
+     */
+    private String chunkingConfig;
     private String reviewConfig;
     /**
      * 实际回答引用累计次数。

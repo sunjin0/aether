@@ -9,6 +9,7 @@ import com.aether.knowledge.entity.KnowledgeIndexJob;
 import com.aether.knowledge.model.KnowledgeIndexJobStatus;
 import com.aether.knowledge.model.KnowledgeDocumentSourceType;
 import com.aether.knowledge.model.KnowledgeJobType;
+import com.aether.knowledge.model.KnowledgeChunkingConfig;
 import com.aether.agent.entity.ModelProvider;
 import com.aether.knowledge.service.KnowledgeDocumentChunkService;
 import com.aether.knowledge.service.KnowledgeDocumentIndexService;
@@ -139,7 +140,10 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
         String documentVersionId = version == null ? null : version.getId();
         String indexContent = version == null ? document.getContent()
                 : StringUtils.defaultIfBlank(version.getStructuredContent(), version.getContent());
-        List<KnowledgeChunkSplitter.Segment> chunks = chunkSplitter.split(indexContent);
+        KnowledgeChunkingConfig chunkingConfig = resolveChunkingConfig(knowledgeBase);
+        List<KnowledgeChunkSplitter.Segment> chunks = chunkSplitter.split(indexContent,
+                chunkingConfig.getMaxChars(), chunkingConfig.getOverlapChars(), chunkingConfig.getMaxTokens(),
+                chunkingConfig.getStrategy());
         if (chunks.isEmpty()) {
             throw new ServerException(422, I18nUtils.getMessage("knowledge.document.content.empty"));
         }
@@ -320,6 +324,15 @@ public class KnowledgeDocumentIndexServiceImpl implements KnowledgeDocumentIndex
             return modelCatalogService.resolveProvider(knowledgeBase.getEmbeddingModelId(), "EMBEDDING");
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /** 历史数据或异常配置均回退至默认值，确保后台索引任务不会因配置问题卡死。 */
+    private KnowledgeChunkingConfig resolveChunkingConfig(KnowledgeBase knowledgeBase) {
+        try {
+            return KnowledgeChunkingConfig.fromJson(knowledgeBase.getChunkingConfig());
+        } catch (Exception ignored) {
+            return KnowledgeChunkingConfig.defaults();
         }
     }
 }

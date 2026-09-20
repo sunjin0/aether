@@ -1,5 +1,6 @@
 package com.aether.knowledge.service.impl;
 
+import com.aether.knowledge.model.KnowledgeChunkingConfig;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
@@ -56,6 +57,39 @@ public class KnowledgeChunkSplitter {
      * 处理split。
      */
     public List<Segment> split(String content) {
+        return split(content, maxChars, overlapChars, maxTokens);
+    }
+
+    /**
+     * 按知识库配置执行语义分片。每次索引单独创建分片器，避免不同知识库的策略相互影响。
+     */
+    public List<Segment> split(String content, int configuredMaxChars, int configuredOverlapChars, int configuredMaxTokens) {
+        return split(content, configuredMaxChars, configuredOverlapChars, configuredMaxTokens,
+                KnowledgeChunkingConfig.STRATEGY_SEMANTIC);
+    }
+
+    /** 按配置的策略和参数执行分片。 */
+    public List<Segment> split(String content, int configuredMaxChars, int configuredOverlapChars,
+                               int configuredMaxTokens, String strategy) {
+        if (configuredMaxChars <= 0 || configuredOverlapChars < 0
+                || configuredOverlapChars >= configuredMaxChars || configuredMaxTokens <= 0) {
+            throw new IllegalArgumentException("invalid chunk size configuration");
+        }
+        if (KnowledgeChunkingConfig.STRATEGY_FIXED_LENGTH.equals(strategy)) {
+            return fixedLengthSplit(content, configuredMaxChars, configuredOverlapChars, configuredMaxTokens);
+        }
+        if (KnowledgeChunkingConfig.STRATEGY_PARAGRAPH.equals(strategy)) {
+            return paragraphSplit(content, configuredMaxChars, configuredOverlapChars, configuredMaxTokens);
+        }
+        if (KnowledgeChunkingConfig.STRATEGY_MARKDOWN.equals(strategy)) {
+            return markdownSplit(content, configuredMaxChars, configuredOverlapChars, configuredMaxTokens);
+        }
+        if (!KnowledgeChunkingConfig.STRATEGY_SEMANTIC.equals(strategy)) {
+            throw new IllegalArgumentException("unsupported chunking strategy");
+        }
+        if (configuredMaxChars != maxChars || configuredOverlapChars != overlapChars || configuredMaxTokens != maxTokens) {
+            return new KnowledgeChunkSplitter(configuredMaxChars, configuredOverlapChars, configuredMaxTokens).split(content);
+        }
         if (StringUtils.isBlank(content)) {
             return Collections.emptyList();
         }
@@ -84,6 +118,97 @@ public class KnowledgeChunkSplitter {
             section.append(line);
         }
         appendSection(result, section.toString(), sectionPath);
+        return result;
+    }
+
+    /** 不解析标题层级，按空行段落聚合，适合纯文本与转录内容。 */
+    private List<Segment> paragraphSplit(String content, int configuredMaxChars, int configuredOverlapChars,
+                                         int configuredMaxTokens) {
+        if (StringUtils.isBlank(content)) {
+            return Collections.emptyList();
+        }
+        KnowledgeChunkSplitter configured = new KnowledgeChunkSplitter(configuredMaxChars, configuredOverlapChars,
+                configuredMaxTokens);
+        List<String> units = new ArrayList<>();
+        String normalized = content.replace("\r\n", "\n").replace('\r', '\n').trim();
+        for (String paragraph : normalized.split("\\n\\s*\\n+")) {
+            configured.addUnit(units, paragraph.trim());
+        }
+        List<Segment> result = new ArrayList<>();
+        configured.pack(result, units, "ROOT");
+        return result;
+    }
+
+    /** 严格以 Markdown 标题划分章节；章节内按长度窗口切分，不重排段落或表格。 */
+    private List<Segment> markdownSplit(String content, int configuredMaxChars, int configuredOverlapChars,
+                                        int configuredMaxTokens) {
+        if (StringUtils.isBlank(content)) {
+            return Collections.emptyList();
+        }
+        KnowledgeChunkSplitter configured = new KnowledgeChunkSplitter(configuredMaxChars, configuredOverlapChars,
+                configuredMaxTokens);
+        String normalized = content.replace("\r\n", "\n").replace('\r', '\n').trim();
+        List<Segment> result = new ArrayList<>();
+        String[] headings = new String[6];
+        String sectionPath = "ROOT";
+        StringBuilder section = new StringBuilder();
+        for (String line : normalized.split("\n", -1)) {
+            Matcher matcher = HEADING.matcher(line.trim());
+            if (matcher.matches()) {
+                appendMarkdownSection(result, section.toString(), sectionPath, configured);
+                section.setLength(0);
+                int level = matcher.group(1).length();
+                headings[level - 1] = matcher.group(2).trim();
+                for (int index = level; index < headings.length; index++) {
+                    headings[index] = null;
+                }
+                sectionPath = configured.joinHeadings(headings);
+                configured.appendHeadingContext(section, headings, level);
+                continue;
+            }
+            if (section.length() > 0) {
+                section.append('\n');
+            }
+            section.append(line);
+        }
+        appendMarkdownSection(result, section.toString(), sectionPath, configured);
+        return result;
+    }
+
+    private void appendMarkdownSection(List<Segment> output, String value, String sectionPath,
+                                       KnowledgeChunkSplitter configured) {
+        String section = StringUtils.trimToEmpty(value);
+        if (section.isEmpty() || configured.isHeadingOnly(section)) {
+            return;
+        }
+        List<String> units = new ArrayList<>();
+        configured.addHardSplit(units, section);
+        configured.pack(output, units, sectionPath);
+    }
+
+    /** 固定窗口策略同时遵守字符和 token 上限，并保留相邻窗口重叠内容。 */
+    private List<Segment> fixedLengthSplit(String content, int configuredMaxChars, int configuredOverlapChars,
+                                           int configuredMaxTokens) {
+        if (StringUtils.isBlank(content)) {
+            return Collections.emptyList();
+        }
+        String normalized = content.replace("\r\n", "\n").replace('\r', '\n').trim();
+        List<Segment> result = new ArrayList<>();
+        int start = 0;
+        while (start < normalized.length()) {
+            int end = Math.min(normalized.length(), start + configuredMaxChars);
+            while (end > start + 1 && estimateTokens(normalized.substring(start, end)) > configuredMaxTokens) {
+                end--;
+            }
+            String part = normalized.substring(start, end).trim();
+            if (!part.isEmpty()) {
+                result.add(new Segment(part, "ROOT"));
+            }
+            if (end >= normalized.length()) {
+                break;
+            }
+            start = Math.max(start + 1, end - configuredOverlapChars);
+        }
         return result;
     }
 
