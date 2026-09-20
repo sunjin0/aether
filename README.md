@@ -19,6 +19,7 @@ Aether 的 Java 后端与平台聚合部署项目。提供用户与权限、Agen
 - Java 8 源码目标，Spring Boot 2.7.18，Maven 多模块构建。
 - PostgreSQL（建议 pgvector）、Redis、MinIO。
 - 普通 Agent 直接通过模型供应商的 OpenAI 兼容接口流式回复。
+- 普通 Agent 支持 `DIRECT` 与受控 `REACT` 推理策略；`REACT` 会在模型、工具和观察结果之间迭代，并复用现有审批与审计链路。
 - Deep Agent 由 `aether-deep-agent-service` 执行；Java 负责运行生命周期、HMAC 回调校验、工具审批和短期 MCP 委派 JWT。
 
 ## 本地开发

@@ -103,7 +103,7 @@ storage MinIO 对象存储抽象（知识库/附件复用；front 不直接依�
     - `ConversationContextService.buildWithSummary` 组装上下文（≤10 条原始消息；超过后注入 `【对话历史摘要】` + 摘要游标之后的消息）。
     - `KnowledgeContextService.enhance` 在 Agent 已授权范围内注入 RAG 检索结果与引用编号；安装 Skill 后还必须应用 Skill
       声明的知识库交集。
-    - 调用模型流式接口；工具循环（最多 5 轮）内执行 `ask_user` 或 MCP 审批。
+    - 调用模型流式接口；标准 Agent 按 `reasoningStrategy` 执行：`DIRECT` 只生成一次，`REACT` 在模型决策、工具调用和工具结果观察之间循环。未配置时兼容默认为 `REACT`，工具轮次由 `maxToolRounds` 控制（服务端上限 20）。每次运行快照会记录策略、轮次和审批策略。
 3. 模型分片经 `ModelStreamCallback` → `AgentStreamCallback` → SSE 事件 `message`/`reasoning`/`tool_call`/`question`/
    `done`/`error`。
 4. 未安装 Skill 时结束后写 `agent_run`、`agent_tool_call_log`、引用日志，并异步提取管理员偏好。Skill 接入后在首次模型调用前先创建运行记录并冻结

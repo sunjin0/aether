@@ -46,6 +46,10 @@ public class AgentEvaluationTargetAdapter implements EvaluationTargetAdapter {
         if(snapshot.containsKey("temperature")) agent.setTemperature(snapshot.getBigDecimal("temperature"));
         if(snapshot.containsKey("maxTokens")) agent.setMaxTokens(snapshot.getInteger("maxTokens"));
         if(snapshot.containsKey("maxToolRounds")) agent.setMaxToolRounds(snapshot.getInteger("maxToolRounds"));
+        // Old snapshots predate the strategy field; freeze their historical default
+        // instead of accidentally reading a newer live Agent configuration.
+        agent.setReasoningStrategy(snapshot.containsKey("reasoningStrategy")
+                ? snapshot.getString("reasoningStrategy") : "REACT");
         if(snapshot.containsKey("defaultThinking")) agent.setDefaultThinking(snapshot.getBoolean("defaultThinking"));
         if(snapshot.containsKey("defaultReasoningEffort")) agent.setDefaultReasoningEffort(snapshot.getString("defaultReasoningEffort"));
         if(snapshot.containsKey("executionMode")) agent.setExecutionMode(snapshot.getString("executionMode"));

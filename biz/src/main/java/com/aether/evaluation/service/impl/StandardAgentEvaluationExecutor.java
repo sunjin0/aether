@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Service
 public class StandardAgentEvaluationExecutor {
     private static final int MAX_TOOL_ROUNDS = 5;
+    private static final int MAX_ALLOWED_TOOL_ROUNDS = 20;
     private final ModelCatalogService modelCatalogService;
     private final ModelClientFactory modelClientFactory;
     private final AgentToolWorkflow agentToolWorkflow;
@@ -95,7 +96,9 @@ public class StandardAgentEvaluationExecutor {
             request.setAgent(frozenAgent);
             request.setProvider(provider);
             request.setMessages(messages);
-            request.setTools(agentToolWorkflow.getRequestTools(tools, message, Collections.emptySet()));
+            request.setTools(isReactEnabled(frozenAgent)
+                    ? agentToolWorkflow.getRequestTools(tools, message, Collections.emptySet())
+                    : Collections.<AgentTool>emptyList());
             request.setTemperature(frozenAgent.getTemperature());
             request.setMaxCompletionTokens(frozenAgent.getMaxTokens());
             request.setReasoningEffort(frozenAgent.getDefaultReasoningEffort());
@@ -104,7 +107,7 @@ public class StandardAgentEvaluationExecutor {
             ModelChatResponse response = client.chat(request, token);
             JSONArray toolEvidence = new JSONArray();
             int rounds = 0;
-            while (hasToolCalls(response) && rounds++ < MAX_TOOL_ROUNDS) {
+            while (hasToolCalls(response) && rounds++ < maxToolRounds(frozenAgent)) {
                 token.throwIfCancelled();
                 List<ToolExecutionResult> results = agentToolWorkflow.executeMcpCalls(response, frozenAgent,
                         "evaluation", run.getId(), tools, token);
@@ -141,6 +144,16 @@ public class StandardAgentEvaluationExecutor {
         } finally {
             cancellations.remove(result.getId(), token);
         }
+    }
+
+    private boolean isReactEnabled(AgentDefinition agent) {
+        return agent == null || !"DIRECT".equalsIgnoreCase(agent.getReasoningStrategy());
+    }
+
+    private int maxToolRounds(AgentDefinition agent) {
+        if (!isReactEnabled(agent)) return 0;
+        Integer configured = agent == null ? null : agent.getMaxToolRounds();
+        return configured == null || configured <= 0 ? MAX_TOOL_ROUNDS : Math.min(configured, MAX_ALLOWED_TOOL_ROUNDS);
     }
 
     public void cancel(String resultId) {
