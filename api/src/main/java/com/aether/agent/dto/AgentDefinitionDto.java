@@ -54,6 +54,9 @@ public class AgentDefinitionDto {
     @ApiModelProperty(value = "最大工具调用轮次")
     private Integer maxToolRounds;
 
+    @ApiModelProperty(value = "标准 Agent 推理策略：DIRECT 或 REACT")
+    private String reasoningStrategy;
+
     @ApiModelProperty(value = "访问类型")
     private String accessType;
 

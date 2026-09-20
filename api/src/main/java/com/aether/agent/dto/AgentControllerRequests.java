@@ -27,7 +27,7 @@ public final class AgentControllerRequests {
     }
     @Data @ApiModel("工具审批策略请求") public static class ToolApprovalPolicy { private String toolApprovalPolicy; }
     @Data @ApiModel("智能体运行列表请求") public static class RunList {
-        private Long current; private Long pageSize; private String agentDefinitionId; private String userId; private Integer status; private Long startTime; private Long endTime;
+        private Long current; private Long pageSize; private String agentDefinitionId; private String conversationId; private String userId; private Integer status; private Long startTime; private Long endTime;
     }
     @Data @ApiModel("知识库绑定列表请求") public static class KnowledgeBindingList {
         private Long current; private Long pageSize; private String agentDefinitionId; private String knowledgeBaseId; private Integer status;

@@ -662,8 +662,19 @@ public class AgentChatController {
             JSONObject data = new JSONObject();
             data.put("requestId", requestId);
             data.put("stage", stage);
-            data.put("message", message);
-            send("status", data, false);
+            data.put("messageKey", "pages.agent.chat.progress." + stage);
+            send("progress", data, false);
+        }
+
+        @Override
+        public void onRunStep(String runId, String stepJson) {
+            try {
+                JSONObject data = JSON.parseObject(stepJson);
+                data.put("requestId", requestId);
+                send("run_step", data, false);
+            } catch (Exception e) {
+                log.warn("发送聊天运行步骤事件失败: runId={}", runId, e);
+            }
         }
 
         /**

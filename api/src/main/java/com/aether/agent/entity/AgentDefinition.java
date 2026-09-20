@@ -64,6 +64,10 @@ public class AgentDefinition extends BaseEntity {
     @ApiModelProperty(value = "最大工具调用轮次，默认1")
     private Integer maxToolRounds;
 
+    /** 标准 Agent 推理策略：DIRECT 仅生成一次，REACT 允许模型-工具-观察循环。 */
+    @ApiModelProperty(value = "标准 Agent 推理策略：DIRECT 或 REACT")
+    private String reasoningStrategy;
+
     @ApiModelProperty(value = "默认是否启用深度思考")
     private Boolean defaultThinking;
 

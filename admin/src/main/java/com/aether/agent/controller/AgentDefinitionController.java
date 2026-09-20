@@ -167,6 +167,7 @@ public class AgentDefinitionController {
     @Transactional(rollbackFor = Exception.class)
     @PostMapping
     public WebResponse<String> save(@RequestBody AgentDefinitionDto dto) {
+        normalizeExecutionStrategy(dto);
         applyModelCatalog(dto);
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
@@ -198,6 +199,7 @@ public class AgentDefinitionController {
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}")
     public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody AgentDefinitionDto dto) {
+        normalizeExecutionStrategy(dto);
         applyModelCatalog(dto);
         AgentDefinition existing = agentDefinitionService.getById(id);
         if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) {
@@ -242,11 +244,26 @@ public class AgentDefinitionController {
     }
 
     private boolean hasExecutionConfigurationChange(AgentDefinition existing, AgentDefinitionDto dto) {
-        if (!Objects.equals(existing.getSystemPrompt(), dto.getSystemPrompt()) || !Objects.equals(existing.getModelProviderId(), dto.getModelProviderId()) || !Objects.equals(existing.getModelId(), dto.getModelId()) || !Objects.equals(existing.getContextCompressionModelId(), dto.getContextCompressionModelId()) || !Objects.equals(existing.getModel(), dto.getModel()) || !Objects.equals(existing.getTemperature(), dto.getTemperature()) || !Objects.equals(existing.getMaxTokens(), dto.getMaxTokens()) || !Objects.equals(existing.getMaxToolRounds(), dto.getMaxToolRounds()) || !Objects.equals(existing.getExecutionMode(), dto.getExecutionMode())) return true;
+        if (!Objects.equals(existing.getSystemPrompt(), dto.getSystemPrompt()) || !Objects.equals(existing.getModelProviderId(), dto.getModelProviderId()) || !Objects.equals(existing.getModelId(), dto.getModelId()) || !Objects.equals(existing.getContextCompressionModelId(), dto.getContextCompressionModelId()) || !Objects.equals(existing.getModel(), dto.getModel()) || !Objects.equals(existing.getTemperature(), dto.getTemperature()) || !Objects.equals(existing.getMaxTokens(), dto.getMaxTokens()) || !Objects.equals(existing.getMaxToolRounds(), dto.getMaxToolRounds()) || !Objects.equals(existing.getExecutionMode(), dto.getExecutionMode()) || !Objects.equals(normalizeReasoningStrategy(existing.getReasoningStrategy()), normalizeReasoningStrategy(dto.getReasoningStrategy()))) return true;
         if (dto.getToolIds() == null) return false;
         List<String> current = agentToolBindingService.lambdaQuery().eq(AgentToolBinding::getAgentDefinitionId, existing.getId()).eq(AgentToolBinding::getStatus, 1).list().stream().map(AgentToolBinding::getToolId).sorted().collect(Collectors.toList());
         List<String> requested = dto.getToolIds().stream().filter(Objects::nonNull).sorted().collect(Collectors.toList());
         return !current.equals(requested);
+    }
+
+    private String normalizeReasoningStrategy(String value) {
+        return StringUtils.defaultIfBlank(value, "REACT").trim().toUpperCase();
+    }
+
+    private void normalizeExecutionStrategy(AgentDefinitionDto dto) {
+        String strategy = normalizeReasoningStrategy(dto.getReasoningStrategy());
+        if (!"DIRECT".equals(strategy) && !"REACT".equals(strategy)) {
+            throw new ServerException(400, I18nUtils.getMessage("agent.reasoning.strategy.invalid"));
+        }
+        if (dto.getMaxToolRounds() != null && (dto.getMaxToolRounds() < 0 || dto.getMaxToolRounds() > 20)) {
+            throw new ServerException(400, I18nUtils.getMessage("agent.reasoning.rounds.invalid"));
+        }
+        dto.setReasoningStrategy(strategy);
     }
 
     private void requireTenant(AgentDefinition definition) {

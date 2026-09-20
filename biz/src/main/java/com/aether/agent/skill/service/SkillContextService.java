@@ -163,7 +163,7 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
             skillPrompt.append(resolveStaticPrompt(skill, version, resources));
             if (!maskedInput.isEmpty()) skillPrompt.append("\nValidated inputs: ").append(JSON.toJSONString(maskedInput));
             Map<String, Object> snapshot = new LinkedHashMap<>();
-            snapshot.put("skillId", skill.getId()); snapshot.put("code", skill.getCode()); snapshot.put("versionId", version.getId()); snapshot.put("versionNo", version.getVersionNo());
+            snapshot.put("skillId", skill.getId()); snapshot.put("name", skill.getName()); snapshot.put("code", skill.getCode()); snapshot.put("versionId", version.getId()); snapshot.put("versionNo", version.getVersionNo());
             snapshot.put("input", maskedInput); snapshot.put("resources", resources.stream().map(this::resourceSnapshot).collect(Collectors.toList()));
             snapshotSkills.add(snapshot);
         }

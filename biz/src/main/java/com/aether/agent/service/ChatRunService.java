@@ -52,6 +52,11 @@ public class ChatRunService {
                 .orderByDesc(AgentRun::getCreatedAt).last("limit 1"), false);
     }
 
+    /** Returns the durable run so a resumed approval can keep writing into its original reply. */
+    public AgentRun get(String runId) {
+        return org.apache.commons.lang3.StringUtils.isBlank(runId) ? null : agentRunService.getById(runId);
+    }
+
     /**
      * 创建当前请求。
      */

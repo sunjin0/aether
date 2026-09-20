@@ -38,8 +38,10 @@ import com.aether.agent.service.ContextMetricService;
 import com.aether.agent.service.CapabilityIndexService;
 import com.aether.agent.entity.AgentRunContextMetric;
 import com.aether.agent.entity.AgentRun;
+import com.aether.agent.entity.AgentRunStep;
 import com.aether.agent.service.QueryRewriteService;
 import com.aether.agent.service.ChatRunService;
+import com.aether.agent.service.AgentRunStepService;
 import com.aether.agent.service.ChatRunContext;
 import com.aether.agent.service.ChatRunOrchestrator;
 import com.aether.agent.service.ToolResultContextCompressor;
@@ -95,10 +97,20 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final String INTERACTION_STATUS_PENDING = "pending";
     private static final String INTERACTION_STATUS_ANSWERED = "answered";
     private static final int TOOL_CALL_STATUS_SUCCESS = 0;
-    private static final int MAX_TOOL_CALL_ITERATIONS = 5; // 最大工具调用迭代次数
+    private static final int MAX_TOOL_CALL_ITERATIONS = 5; // 未配置时保持历史默认行为
+    private static final int MAX_ALLOWED_TOOL_CALL_ITERATIONS = 20;
+    /** DIRECT 是答案生成模式；工具、接口、检索等执行事实只能由服务端账本声明。 */
+    private static final String DIRECT_EXECUTION_CONSTRAINT = "[Direct execution policy]\n"
+            + "当前回合不具备外部工具、接口、检索或执行能力。不得声称已执行搜索、调用接口、"
+            + "读取系统、获得实时数据或工具结果。需要外部信息时，应明确说明当前无法验证。"
+            + "工具执行状态和结果仅能由平台在独立事件中提供。";
     /** 统一的运行生命周期编排器；保留可选注入以兼容历史单元测试。 */
     @Autowired(required = false)
     private ChatRunOrchestrator chatRunOrchestrator;
+
+    /** 标准 Agent 与 Deep Agent 共用运行步骤账本，便于聊天过程在事后回放。 */
+    @Autowired(required = false)
+    private AgentRunStepService agentRunStepService;
 
     /** 按工具类型压缩模型上下文中的结果，不影响持久化的原始工具消息。 */
     @Autowired(required = false)
@@ -261,6 +273,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             AgentMessage userMessage = saveUserMessage(conversation.getId(), dto.getMessage(), rewrittenContent,
                 dto.getAttachmentContent(), dto.getAttachments(), agent, provider, dto.getRequestId());
         String runId = null;
+        AgentMessage replyMessage = null;
 
         try {
 SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveContent(rewrittenContent, dto.getMessage()), provider);
@@ -276,8 +289,8 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             request.setProvider(provider);
             request.setRequestId(dto.getRequestId());
             request.setMessages(context);
-            request.setTools(agentToolWorkflow.getRequestTools(skillContext.getTools(),
-                    effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getRoutingToolIds()));
+            request.setTools(requestTools(agent, agentToolWorkflow.getRequestTools(skillContext.getTools(),
+                    effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getRoutingToolIds())));
 
             // 在任何模型调用前冻结本次 Skill 装配结果，失败运行同样可追溯。
             runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(),
@@ -301,7 +314,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             int iteration = 0;
             boolean toolCallAttempted = false;
             boolean toolCallSucceeded = false;
-            while (hasToolCalls(modelResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
+            while (hasToolCalls(modelResponse) && iteration < maxToolIterations(agent)) {
                 if (runId == null) {
                     runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), modelResponse, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
                 }
@@ -309,14 +322,16 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 toolCallAttempted = true;
                 attachCitedSources(modelResponse, sources);
                 AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
-                        conversation.getId(), modelResponse, System.currentTimeMillis() - startTime, agent, provider);
+                        conversation.getId(), modelResponse, System.currentTimeMillis() - startTime, agent, provider, replyMessage);
+                replyMessage = assistantPrelude;
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), modelResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
                     AgentMessage questionMessage = internalToolResult.getMessage();
+                    linkInteractionToReply(questionMessage, replyMessage);
                     updateConversationMessageCount(conversation.getId());
                     boolean waitingUser = MESSAGE_TYPE_INTERACTION.equals(questionMessage.getMessageType());
-                    updateRun(runId, questionMessage.getId(), modelResponse, latencyMs,
+                    updateRun(runId, replyMessage == null ? questionMessage.getId() : replyMessage.getId(), modelResponse, latencyMs,
                             waitingUser ? RUN_STATUS_WAITING_USER : RUN_STATUS_SUCCESS, null);
                     AgentMessageVo vo = new AgentMessageVo();
                     BeanUtils.copyProperties(questionMessage, vo);
@@ -327,8 +342,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 // prelude is recovered through normal conversation history.
                 AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), modelResponse, agent, userId, runId, skillContext.getTools());
                 if (approval != null) {
+                    linkInteractionToReply(approval, replyMessage);
                     updateConversationMessageCount(conversation.getId());
-                    updateRun(runId, approval.getId(), modelResponse, System.currentTimeMillis() - startTime,
+                    updateRun(runId, replyMessage == null ? approval.getId() : replyMessage.getId(), modelResponse, System.currentTimeMillis() - startTime,
                             RUN_STATUS_WAITING_USER, null);
                     AgentMessageVo vo = new AgentMessageVo();
                     BeanUtils.copyProperties(approval, vo);
@@ -340,8 +356,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 AgentMessage workflowApproval = agentToolWorkflow.createWorkflowApproval(
                         conversation.getId(), modelResponse, toolResults, agent, runId);
                 if (workflowApproval != null) {
+                    linkInteractionToReply(workflowApproval, replyMessage);
                     updateConversationMessageCount(conversation.getId());
-                    updateRun(runId, workflowApproval.getId(), modelResponse, System.currentTimeMillis() - startTime,
+                    updateRun(runId, replyMessage == null ? workflowApproval.getId() : replyMessage.getId(), modelResponse, System.currentTimeMillis() - startTime,
                             RUN_STATUS_WAITING_USER, null);
                     AgentMessageVo vo = new AgentMessageVo();
                     BeanUtils.copyProperties(workflowApproval, vo);
@@ -384,7 +401,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 modelResponse.setSources(null);
             }
 
-            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider);
+            AgentMessage assistantMessage = replyMessage == null
+                    ? saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider)
+                    : appendAssistantReply(replyMessage, modelResponse, latencyMs, agent, provider);
             knowledgeContextService.recordCitationsAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
@@ -482,6 +501,8 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 dto.getAttachmentContent(), dto.getAttachments(), agent, provider, dto.getRequestId());
         long userPersistedAt = System.currentTimeMillis();
         String runId = null;
+        AgentMessage replyMessage = null;
+        ChatProgressRecorder progress = new ChatProgressRecorder(callback, dto.getRequestId());
 
         log.info("流式请求开始: requestId={}, agent={}, model={}, thinking={}",
                 dto.getRequestId(), agent.getId(), agent.getModel(), agent.getDefaultThinking());
@@ -491,20 +512,39 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
 
         try {
             long t0 = System.currentTimeMillis();
-            callback.onStatus("preparing", "正在准备对话上下文");
+            progress.status("preparing");
             SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveContent(rewrittenContent, dto.getMessage()), provider);
             long skillResolvedAt = System.currentTimeMillis();
+            Map<String, Object> skillProgress = skillProgressData(skillContext);
+            if (Integer.valueOf(0).equals(skillProgress.get("skillCount")) == false) {
+                progress.record("chat.skill.resolved", skillProgress);
+            }
             List<ModelChatMessage> context = buildContextWithSummary(agent, provider, conversation.getId(), userId);
             attachNativeFiles(context, dto, provider);
             long contextBuiltAt = System.currentTimeMillis();
             applySkillPrompt(context, skillContext);
-            callback.onStatus("retrieving", "正在检索资料");
+            boolean retrievalRequested = skillContext.getKnowledgeBaseIds() != null && !skillContext.getKnowledgeBaseIds().isEmpty();
+            if (retrievalRequested) {
+                progress.status("retrieving");
+                progress.record("chat.retrieval.started", progressData(
+                        "knowledgeBaseCount", skillContext.getKnowledgeBaseIds().size(),
+                        "retrievalMode", dto.getRetrievalMode()));
+            }
+            long retrievalStartedAt = System.currentTimeMillis();
             List<Map<String, Object>> sources = knowledgeContextService.enhanceCancellable(
                     context, userId, conversation.getId(), agent.getId(), effectiveContent(rewrittenContent, dto.getMessage()),
                     skillContext.getKnowledgeBaseIds(), dto.getRetrievalMode(), callback::isCancelled);
             long retrievalCompletedAt = System.currentTimeMillis();
+            if (retrievalRequested || (sources != null && !sources.isEmpty())) {
+                progress.record("chat.retrieval.completed", retrievalProgressData(sources,
+                        retrievalCompletedAt - retrievalStartedAt));
+            }
             enforceSkillBudget(context, agent, provider, skillContext);
             conversationContextService.enforceBudget(context, agent, provider);
+            progress.record("chat.context.assembled", progressData(
+                    "messageCount", context.size(),
+                    "estimatedTokens", conversationContextService.estimateContextTokens(context, agent.getModel()),
+                    "durationMs", System.currentTimeMillis() - retrievalCompletedAt));
             long t1 = System.currentTimeMillis();
             log.info("聊天预处理耗时: requestId={}, conversationId={}, skill={}ms, historySummary={}ms, retrieval={}ms, budget={}ms, inputTokens={}, sources={}",
                     dto.getRequestId(), conversation.getId(), skillResolvedAt - t0, contextBuiltAt - skillResolvedAt,
@@ -520,15 +560,18 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             request.setProvider(provider);
             request.setRequestId(dto.getRequestId());
             request.setMessages(context);
-            request.setTools(agentToolWorkflow.getRequestTools(skillContext.getTools(),
-                    effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getRoutingToolIds()));
+            request.setTools(requestTools(agent, agentToolWorkflow.getRequestTools(skillContext.getTools(),
+                    effectiveContent(rewrittenContent, dto.getMessage()), skillContext.getRoutingToolIds())));
 
             // SSE 首个分片到达前即保存运行快照，避免连接中断时丢失实际授权上下文。
             runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(),
                     modelInputSnapshot(request), null, 0, RUN_STATUS_RUNNING, null, skillContext.getSnapshot());
+            progress.attachRun(runId);
+            progress.record("chat.request.ready", progressData("toolCount", request.getTools() == null ? 0 : request.getTools().size(),
+                    "durationMs", System.currentTimeMillis() - t0));
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
-            callback.onStatus("generating", "正在生成回答");
+            progress.status("generating");
             // 推理未开启时，不转发reasoning chunks
             boolean thinkingEnabled = Boolean.TRUE.equals(agent.getDefaultThinking());
             ForwardingStreamCallback streamCallback = createStreamCallback(callback, conversation.getId(), thinkingEnabled);
@@ -555,27 +598,36 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             boolean toolCallAttempted = false;
             boolean toolCallSucceeded = false;
             ModelChatResponse chatResponse = toChatResponse(modelResponse);
-            while (hasToolCalls(chatResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
+            while (hasToolCalls(chatResponse) && iteration < maxToolIterations(agent)) {
                 ensureNotCancelled(callback);
                 if (runId == null) {
                     runId = saveRun(agent, provider, userId, conversation.getId(), userMessage.getId(), effectiveContent(rewrittenContent, dto.getMessage()), chatResponse, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
                 }
                 iteration++;
+                progress.record("chat.tool.planned", progressData("iteration", iteration,
+                        "tools", plannedToolNames(chatResponse), "durationMs",
+                        System.currentTimeMillis() - modelStreamStartedAt));
+                publishStructuredToolRequest(callback, conversation.getId(), chatResponse);
                 toolCallAttempted = true;
                 attachCitedSources(chatResponse, sources);
                 AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
-                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime, agent, provider);
+                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime, agent, provider, replyMessage);
+                replyMessage = assistantPrelude;
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
                     AgentMessage questionMessage = internalToolResult.getMessage();
+                    linkInteractionToReply(questionMessage, replyMessage);
                     updateConversationMessageCount(conversation.getId());
                     AgentMessageVo questionVo = new AgentMessageVo();
                     BeanUtils.copyProperties(questionMessage, questionVo);
 
                     boolean waitingUser = MESSAGE_TYPE_INTERACTION.equals(questionMessage.getMessageType());
-                    updateRun(runId, questionMessage.getId(), chatResponse, latencyMs,
+                    updateRun(runId, replyMessage == null ? questionMessage.getId() : replyMessage.getId(), chatResponse, latencyMs,
                             waitingUser ? RUN_STATUS_WAITING_USER : RUN_STATUS_SUCCESS, null);
+                    if (waitingUser) {
+                        progress.record("chat.waiting.user_input", Collections.<String, Object>emptyMap());
+                    }
 
                     if (!callback.isClosed()) {
                         ModelStreamResponse doneResponse = new ModelStreamResponse();
@@ -595,11 +647,13 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 }
                 AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), chatResponse, agent, userId, runId, skillContext.getTools());
                 if (approval != null) {
+                    linkInteractionToReply(approval, replyMessage);
                     updateConversationMessageCount(conversation.getId());
                     AgentMessageVo approvalVo = new AgentMessageVo();
                     BeanUtils.copyProperties(approval, approvalVo);
-                    updateRun(runId, approval.getId(), chatResponse, System.currentTimeMillis() - startTime,
+                    updateRun(runId, replyMessage == null ? approval.getId() : replyMessage.getId(), chatResponse, System.currentTimeMillis() - startTime,
                             RUN_STATUS_WAITING_USER, null);
+                    progress.record("chat.waiting.user_approval", Collections.<String, Object>emptyMap());
                     if (!callback.isClosed()) {
                         ModelStreamResponse done = new ModelStreamResponse();
                         AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : approval;
@@ -612,8 +666,14 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 }
                 long toolExecutionStartedAt = System.currentTimeMillis();
                 ensureNotCancelled(callback);
+                progress.record("chat.tool.started", progressData("iteration", iteration,
+                        "tools", plannedToolNames(chatResponse)));
                 List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId,
                         runId, skillContext.getTools(), callback::isClosed);
+                Map<String, Object> toolResultProgress = toolResultProgressData(toolResults);
+                toolResultProgress.put("durationMs", System.currentTimeMillis() - toolExecutionStartedAt);
+                progress.record("chat.tool.completed", toolResultProgress);
+                progress.record("chat.tool.result.validated", toolResultProgress);
                 saveToolResultMessages(conversation.getId(), toolResults, agent, provider);
                 log.info("工具执行耗时: requestId={}, runId={}, duration={}ms, calls={}", dto.getRequestId(), runId,
                         System.currentTimeMillis() - toolExecutionStartedAt, toolResults.size());
@@ -651,6 +711,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             if (!authenticityCheck.isValid()) {
                 log.warn("拦截疑似工具结果幻觉流式回答: conversationId={}, attempted={}, succeeded={}, reason={}",
                         conversation.getId(), toolCallAttempted, toolCallSucceeded, authenticityCheck.getReason());
+                progress.record("chat.model.retrying", progressData("reasonCode", "tool_result_authenticity"));
                 ModelChatResponse retryResponse = retryToolAuthenticity(modelClient, request, chatResponse, authenticityCheck, runId);
                 ToolAuthenticityCheck retryCheck = checkToolAuthenticity(retryResponse.getContent(), false, false);
                 if (retryCheck.isValid()) {
@@ -664,6 +725,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                     modelResponse.setContent(buildToolAuthenticityFallback(retryCheck));
                     chatResponse.setContent(modelResponse.getContent());
                     authenticityCheck = retryCheck;
+                    if (!callback.isClosed()) {
+                        callback.onReplace(conversation.getId(), modelResponse.getContent());
+                    }
                 }
             }
             if (sources != null && !sources.isEmpty()) {
@@ -672,10 +736,15 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             } else {
                 modelResponse.setSources(null);
             }
+            progress.record("chat.answer.grounded", progressData(
+                    "citationCount", modelResponse.getSources() == null ? 0 : modelResponse.getSources().size(),
+                    "toolResultVerified", toolCallSucceeded));
 
 
             long finalPersistStartedAt = System.currentTimeMillis();
-            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider);
+            AgentMessage assistantMessage = replyMessage == null
+                    ? saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider)
+                    : appendAssistantReply(replyMessage, toChatResponse(modelResponse), latencyMs, agent, provider);
             knowledgeContextService.recordCitationsAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), userMessage, assistantMessage, agent, provider);
@@ -691,6 +760,8 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                         authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             }
             attachPendingArtifacts(runId, assistantMessage.getId());
+            progress.record("chat.reply.persisted", progressData("durationMs", System.currentTimeMillis() - finalPersistStartedAt));
+            progress.record("chat.completed", progressData("durationMs", latencyMs));
             log.info("聊天最终落库耗时: requestId={}, runId={}, duration={}ms", dto.getRequestId(), runId,
                     System.currentTimeMillis() - finalPersistStartedAt);
             ChatLatencyMetrics.record("chat.final_persist", System.currentTimeMillis() - finalPersistStartedAt);
@@ -705,6 +776,11 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             } else {
                 updateRun(runId, userMessage.getId(), null, latencyMs, runStatusFor(e), e.getMessage());
             }
+            progress.attachRun(runId);
+            if (e instanceof CancellationException) {
+                progress.record("chat.cancelled", Collections.<String, Object>emptyMap());
+            }
+            progress.record("chat.failed", progressData("errorCode", resolveErrorCode(e)));
             if (!callback.isClosed()) {
                 callback.onError(resolveErrorCode(e), resolveErrorMessage(e));
             }
@@ -718,12 +794,14 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         String userId = resolveUserId(dto.getUserId());
         long startTime = System.currentTimeMillis();
         String runId = null;
+        AgentMessage replyMessage = null;
         AgentConversation conversation = null;
         AgentDefinition agent = null;
         ModelProvider provider = null;
         AgentMessage answerMessage = null;
         String answerContent = null;
         ApprovalExecution approvalExecution = null;
+        ChatProgressRecorder progress = new ChatProgressRecorder(callback, dto.getRequestId());
 
         try {
             conversation = getOpenReplyConversation(dto.getConversationId(), userId, Boolean.TRUE.equals(dto.getTemporary()));
@@ -747,6 +825,12 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             approvalExecution = agentToolWorkflow.executeApprovedMcpTool(question, dto.getAnswer(), agent, userId);
             if (approvalExecution != null) {
                 runId = approvalExecution.getRunId();
+                replyMessage = replyMessageForRun(runId);
+                progress.attachRun(runId);
+                List<ToolExecutionResult> approvedResults = Collections.singletonList(approvalExecution.getResult());
+                Map<String, Object> approvedProgress = toolResultProgressData(approvedResults);
+                progress.record("chat.tool.completed", approvedProgress);
+                progress.record("chat.tool.result.validated", approvedProgress);
                 addToolResultsToContext(context, approvalExecution.getToolCallResponse(),
                         Collections.singletonList(approvalExecution.getResult()), agent);
             }
@@ -761,7 +845,7 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             // MCP (or ask_user) again, otherwise the model can immediately ask
             // the same confirmation a second time.
             boolean approvalRejected = approvalExecution != null && !approvalExecution.getResult().isSuccess();
-            request.setTools(approvalRejected ? Collections.<AgentTool>emptyList()
+            request.setTools(approvalRejected || !isReactEnabled(agent) ? Collections.<AgentTool>emptyList()
                     : agentToolWorkflow.getRequestTools(skillContext.getTools(), answerContent, skillContext.getRoutingToolIds()));
 
             // 回答分支同样在模型调用前固化 Skill 快照；已存在的审批续跑运行保留其原始快照。
@@ -769,8 +853,10 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 runId = saveRun(agent, provider, userId, conversation.getId(), answerMessage.getId(), modelInputSnapshot(request),
                         null, 0, RUN_STATUS_RUNNING, null, skillContext.getSnapshot());
             }
+            progress.attachRun(runId);
 
             ModelClient modelClient = modelClientFactory.getClient(provider);
+            progress.status("generating");
             ForwardingStreamCallback streamCallback = createStreamCallback(callback, dto.getConversationId(), thinkingEnabled);
             long modelStreamStartedAt = System.currentTimeMillis();
             ModelStreamResponse modelResponse = dispatchStream(modelClient, request, streamCallback, runId, 1);
@@ -787,27 +873,35 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             boolean toolCallAttempted = approvalExecution != null;
             boolean toolCallSucceeded = approvalExecution != null && approvalExecution.getResult().isSuccess();
             ModelChatResponse chatResponse = toChatResponse(modelResponse);
-            while (hasToolCalls(chatResponse) && iteration < MAX_TOOL_CALL_ITERATIONS) {
+            while (hasToolCalls(chatResponse) && iteration < maxToolIterations(agent)) {
                 if (runId == null) {
                     runId = saveRun(agent, provider, userId, conversation.getId(), answerMessage.getId(), answerContent, chatResponse, 0, RUN_STATUS_SUCCESS, null, skillContext.getSnapshot());
                 }
                 iteration++;
+                progress.record("chat.tool.planned", progressData("iteration", iteration,
+                        "tools", plannedToolNames(chatResponse)));
+                publishStructuredToolRequest(callback, conversation.getId(), chatResponse);
                 toolCallAttempted = true;
                 attachCitedSources(chatResponse, sources);
                 AgentMessage assistantPrelude = saveAssistantPreludeIfPresent(
-                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime, agent, provider);
+                        conversation.getId(), chatResponse, System.currentTimeMillis() - startTime, agent, provider, replyMessage);
+                replyMessage = assistantPrelude;
                 ToolResult internalToolResult = handleInternalToolCall(conversation.getId(), chatResponse, System.currentTimeMillis() - startTime);
                 if (internalToolResult != null) {
                     long latencyMs = System.currentTimeMillis() - startTime;
                     AgentMessage nextQuestion = internalToolResult.getMessage();
+                    linkInteractionToReply(nextQuestion, replyMessage);
                     updateConversationMessageCount(conversation.getId());
 
                     AgentMessageVo questionVo = new AgentMessageVo();
                     BeanUtils.copyProperties(nextQuestion, questionVo);
 
                     boolean waitingUser = MESSAGE_TYPE_INTERACTION.equals(nextQuestion.getMessageType());
-                    updateRun(runId, nextQuestion.getId(), chatResponse, latencyMs,
+                    updateRun(runId, replyMessage == null ? nextQuestion.getId() : replyMessage.getId(), chatResponse, latencyMs,
                             waitingUser ? RUN_STATUS_WAITING_USER : RUN_STATUS_SUCCESS, null);
+                    if (waitingUser) {
+                        progress.record("chat.waiting.user_input", Collections.<String, Object>emptyMap());
+                    }
 
                     if (!callback.isClosed()) {
                         ModelStreamResponse doneResponse = new ModelStreamResponse();
@@ -828,11 +922,13 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
 
                 AgentMessage approval = agentToolWorkflow.createMcpApproval(conversation.getId(), chatResponse, agent, userId, runId, skillContext.getTools());
                 if (approval != null) {
+                    linkInteractionToReply(approval, replyMessage);
                     updateConversationMessageCount(conversation.getId());
                     AgentMessageVo approvalVo = new AgentMessageVo();
                     BeanUtils.copyProperties(approval, approvalVo);
-                    updateRun(runId, approval.getId(), chatResponse, System.currentTimeMillis() - startTime,
+                    updateRun(runId, replyMessage == null ? approval.getId() : replyMessage.getId(), chatResponse, System.currentTimeMillis() - startTime,
                             RUN_STATUS_WAITING_USER, null);
+                    progress.record("chat.waiting.user_approval", Collections.<String, Object>emptyMap());
                     if (!callback.isClosed()) {
                         ModelStreamResponse done = new ModelStreamResponse();
                         AgentMessage doneMessage = assistantPrelude != null ? assistantPrelude : approval;
@@ -844,16 +940,23 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                     return;
                 }
                 ensureNotCancelled(callback);
+                progress.record("chat.tool.started", progressData("iteration", iteration,
+                        "tools", plannedToolNames(chatResponse)));
                 List<ToolExecutionResult> toolResults = agentToolWorkflow.executeMcpCalls(chatResponse, agent, userId,
                         runId, skillContext.getTools(), callback::isClosed);
+                Map<String, Object> toolResultProgress = toolResultProgressData(toolResults);
+                progress.record("chat.tool.completed", toolResultProgress);
+                progress.record("chat.tool.result.validated", toolResultProgress);
                 saveToolResultMessages(conversation.getId(), toolResults, agent, provider);
                 toolCallSucceeded = toolCallSucceeded || hasSuccessfulToolResult(toolResults);
                 AgentMessage workflowApproval = agentToolWorkflow.createWorkflowApproval(
                         conversation.getId(), chatResponse, toolResults, agent, runId);
                 if (workflowApproval != null) {
+                    linkInteractionToReply(workflowApproval, replyMessage);
                     updateConversationMessageCount(conversation.getId());
-                    updateRun(runId, workflowApproval.getId(), chatResponse, System.currentTimeMillis() - startTime,
+                    updateRun(runId, replyMessage == null ? workflowApproval.getId() : replyMessage.getId(), chatResponse, System.currentTimeMillis() - startTime,
                             RUN_STATUS_WAITING_USER, null);
+                    progress.record("chat.waiting.user_approval", Collections.<String, Object>emptyMap());
                     AgentMessageVo approvalVo = new AgentMessageVo();
                     BeanUtils.copyProperties(workflowApproval, approvalVo);
                     if (!callback.isClosed()) {
@@ -903,6 +1006,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                     modelResponse.setContent(buildToolAuthenticityFallback(retryCheck));
                     chatResponse.setContent(modelResponse.getContent());
                     authenticityCheck = retryCheck;
+                    if (!callback.isClosed()) {
+                        callback.onReplace(conversation.getId(), modelResponse.getContent());
+                    }
                 }
             }
 
@@ -913,7 +1019,9 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                 modelResponse.setSources(null);
             }
 
-            AgentMessage assistantMessage = saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider);
+            AgentMessage assistantMessage = replyMessage == null
+                    ? saveAssistantMessage(conversation.getId(), modelResponse, latencyMs, agent, provider)
+                    : appendAssistantReply(replyMessage, toChatResponse(modelResponse), latencyMs, agent, provider);
             knowledgeContextService.recordCitationsAsync(agent.getId(), conversation.getId(), assistantMessage.getId(),
                     modelResponse.getSources());
             extractAdminPreferenceAsync(userId, conversation.getId(), answerMessage, assistantMessage, agent, provider);
@@ -929,6 +1037,8 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                         authenticityCheck.isValid() ? null : authenticityCheck.getReason());
             }
             attachPendingArtifacts(runId, assistantMessage.getId());
+            progress.record("chat.reply.persisted", Collections.<String, Object>emptyMap());
+            progress.record("chat.completed", progressData("latencyMs", latencyMs));
             modelResponse.setRunId(runId);
             if (!callback.isClosed()) {
                 callback.onDone(conversation.getId(), assistantMessage.getId(), modelResponse);
@@ -942,6 +1052,8 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
                     updateRun(runId, answerMessage.getId(), null, latencyMs, runStatusFor(e), e.getMessage());
                 }
             }
+            progress.attachRun(runId);
+            progress.record("chat.failed", progressData("errorCode", resolveErrorCode(e)));
             if (!callback.isClosed()) {
                 callback.onError(resolveErrorCode(e), resolveErrorMessage(e));
             }
@@ -1370,23 +1482,87 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
 
     private AgentMessage saveAssistantPreludeIfPresent(String conversationId, ModelChatResponse response, long latencyMs,
                                                        AgentDefinition agent, ModelProvider provider) {
+        return saveAssistantPreludeIfPresent(conversationId, response, latencyMs, agent, provider, null);
+    }
+
+    private AgentMessage saveAssistantPreludeIfPresent(String conversationId, ModelChatResponse response, long latencyMs,
+                                                       AgentDefinition agent, ModelProvider provider,
+                                                       AgentMessage existingReply) {
         if (response == null || (StringUtils.isBlank(response.getContent()) && StringUtils.isBlank(response.getToolCalls()))) {
             return null;
         }
-        ModelChatResponse prelude = new ModelChatResponse();
-        prelude.setContent(response.getContent());
-        prelude.setReasoningContent(response.getReasoningContent());
-        prelude.setModel(response.getModel());
-        prelude.setPromptTokens(response.getPromptTokens());
-        prelude.setCompletionTokens(response.getCompletionTokens());
-        prelude.setTotalTokens(response.getTotalTokens());
-        prelude.setReasoningTokens(response.getReasoningTokens());
-        prelude.setSources(response.getSources());
-        prelude.setToolCalls(response.getToolCalls());
-        AgentMessage message = saveAssistantMessage(conversationId, prelude, latencyMs, agent, provider);
-        message.setMessageType(MESSAGE_TYPE_TOOL_CALL);
-        agentMessageService.updateById(message);
-        return message;
+        // A model may explain what it is about to do before it emits a tool call. That prose is
+        // part of the user-facing reply, while the tool-call payload is protocol-only. Persist
+        // them separately so the UI can render the former without exposing protocol records.
+        ModelChatResponse visible = new ModelChatResponse();
+        visible.setContent(response.getContent());
+        visible.setReasoningContent(response.getReasoningContent());
+        visible.setModel(response.getModel());
+        visible.setPromptTokens(response.getPromptTokens());
+        visible.setCompletionTokens(response.getCompletionTokens());
+        visible.setTotalTokens(response.getTotalTokens());
+        visible.setReasoningTokens(response.getReasoningTokens());
+        visible.setSources(response.getSources());
+        // A tool-only model turn still needs a durable reply container.  The container is
+        // populated when the approved tool chain produces its final text, rather than
+        // making the approval card or a later final answer a second assistant reply.
+        AgentMessage visiblePrelude = existingReply == null
+                ? saveAssistantMessage(conversationId, visible, latencyMs, agent, provider)
+                : appendAssistantReply(existingReply, visible, latencyMs, agent, provider);
+        if (StringUtils.isNotBlank(response.getToolCalls())) {
+            ModelChatResponse protocol = new ModelChatResponse();
+            protocol.setModel(response.getModel());
+            protocol.setToolCalls(response.getToolCalls());
+            AgentMessage protocolMessage = saveAssistantMessage(conversationId, protocol, latencyMs, agent, provider);
+            protocolMessage.setMessageType(MESSAGE_TYPE_TOOL_CALL);
+            agentMessageService.updateById(protocolMessage);
+        }
+        return visiblePrelude;
+    }
+
+    /**
+     * Appends a later model turn to the reply that was created for the original user request.
+     * This deliberately preserves one assistant message across any number of approvals and
+     * tool rounds; protocol and interaction records remain separate, non-reply records.
+     */
+    private AgentMessage appendAssistantReply(AgentMessage reply, ModelChatResponse response, long latencyMs,
+                                              AgentDefinition agent, ModelProvider provider) {
+        if (reply == null || response == null) return reply;
+        String current = StringUtils.trimToNull(reply.getContent());
+        String next = StringUtils.trimToNull(response.getContent());
+        if (StringUtils.isNotBlank(next) && !StringUtils.equals(current, next)) {
+            reply.setContent(StringUtils.isBlank(current) ? next : current + "\n\n" + next);
+        }
+        reply.setReasoningContent(response.getReasoningContent());
+        reply.setToolCalls(null);
+        reply.setModel(response.getModel());
+        reply.setPromptTokens(response.getPromptTokens());
+        reply.setCompletionTokens(response.getCompletionTokens());
+        reply.setTotalTokens(response.getTotalTokens());
+        reply.setReasoningTokens(response.getReasoningTokens());
+        reply.setLatencyMs((int) latencyMs);
+        populateAssistantContextMetrics(reply, reply.getContent(), agent, provider);
+        if (response.getSources() != null && !response.getSources().isEmpty()) {
+            reply.setCitations(JSON.toJSONString(response.getSources()));
+        }
+        agentMessageService.updateById(reply);
+        updateContextCache(reply.getConversationId(), new ModelChatMessage("assistant", reply.getContent()));
+        return reply;
+    }
+
+    private AgentMessage replyMessageForRun(String runId) {
+        AgentRun run = chatRunService.get(runId);
+        if (run == null || StringUtils.isBlank(run.getMessageId())) return null;
+        AgentMessage message = agentMessageService.getById(run.getMessageId());
+        return message != null && "assistant".equals(message.getRole())
+                && MESSAGE_TYPE_CHAT.equals(message.getMessageType()) ? message : null;
+    }
+
+    /** Makes an approval a step of its owning reply, while preserving it as an interaction record. */
+    private void linkInteractionToReply(AgentMessage interaction, AgentMessage reply) {
+        if (interaction == null || reply == null || StringUtils.isBlank(reply.getId())) return;
+        interaction.setParentMessageId(reply.getId());
+        agentMessageService.updateById(interaction);
     }
 
     /**
@@ -1465,9 +1641,22 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
      * 创建实时转发回调，保持流式消息的即时展示。
      */
     private ForwardingStreamCallback createStreamCallback(final AgentStreamCallback callback,
-                                                          final String conversationId,
-                                                          final boolean thinkingEnabled) {
+                                                           final String conversationId,
+                                                           final boolean thinkingEnabled) {
         return new ForwardingStreamCallback(callback, conversationId, thinkingEnabled);
+    }
+
+    /**
+     * 工具请求事件必须在服务端已经收到完整结构化调用后才发布。不能将模型流中零散的
+     * tool_calls delta 直接当作执行事实转发给客户端；成功/失败事实仍以执行账本为准。
+     */
+    private void publishStructuredToolRequest(AgentStreamCallback callback, String conversationId,
+                                              ModelChatResponse response) {
+        if (callback == null || callback.isClosed() || response == null
+                || !hasToolCalls(response)) {
+            return;
+        }
+        callback.onToolCall(conversationId, response.getToolCalls());
     }
 
     /**
@@ -1523,9 +1712,8 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
          */
         @Override
         public void onToolCall(String toolCallJson) {
-            if (!callback.isClosed()) {
-                callback.onToolCall(conversationId, toolCallJson);
-            }
+            // 工具调用分片仅用于在服务端拼装完整调用；完整且可执行的调用会在
+            // AgentChatServiceImpl.publishStructuredToolRequest 中统一发布。
         }
 
         /**
@@ -1590,6 +1778,10 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         snapshot.put("topP", request.getTopP());
         snapshot.put("maxCompletionTokens", request.getMaxCompletionTokens());
         snapshot.put("reasoningEffort", request.getReasoningEffort());
+        AgentDefinition agent = request.getAgent();
+        snapshot.put("reasoningStrategy", agent == null || StringUtils.isBlank(agent.getReasoningStrategy())
+                ? "REACT" : agent.getReasoningStrategy().toUpperCase());
+        snapshot.put("maxToolRounds", agent == null ? null : agent.getMaxToolRounds());
         return JSON.toJSONString(snapshot);
     }
 
@@ -1634,6 +1826,10 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         AgentConversation conversation = agentConversationService.getById(conversationId);
         String policy = conversation == null ? "ask" : normalizeToolApprovalPolicy(conversation.getToolApprovalPolicy());
         snapshot.put("toolApprovalPolicy", policy);
+        AgentDefinition agent = conversation == null ? null : agentDefinitionService.getById(conversation.getAgentDefinitionId());
+        snapshot.put("reasoningStrategy", agent == null || StringUtils.isBlank(agent.getReasoningStrategy())
+                ? "REACT" : agent.getReasoningStrategy().toUpperCase());
+        snapshot.put("maxToolRounds", agent == null ? null : agent.getMaxToolRounds());
         return snapshot.toJSONString();
     }
 
@@ -1789,14 +1985,69 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
      * 解析SkillContext。
      */
     private SkillRuntimeContext resolveSkillContext(AgentDefinition agent, AgentChatDto dto, String routingQuery, ModelProvider provider) {
-        if (skillContextService != null) return skillContextService.resolve(agent, dto, routingQuery, provider);
+        if (skillContextService != null) {
+            return projectSkillContextForExecution(agent, skillContextService.resolve(agent, dto, routingQuery, provider));
+        }
         SkillRuntimeContext context = new SkillRuntimeContext();
         String prompt = StringUtils.defaultString(agent.getSystemPrompt());
         if (capabilityIndexService != null) prompt += capabilityIndexService.buildIndex(agent.getId(), null);
         context.setSystemPrompt(prompt);
         context.setTools(agentToolWorkflow.getBoundTools(agent.getId()));
         context.setSnapshot("{\"installed\":false}");
+        return projectSkillContextForExecution(agent, context);
+    }
+
+    /**
+     * DIRECT 不能只省略 OpenAI 的 tools 参数。能力目录和工具执行约束同样会诱导
+     * 模型把工具名写进回答，因此在模型上下文中一并剔除；审计快照仍保留原始授权。
+     */
+    private SkillRuntimeContext projectSkillContextForExecution(AgentDefinition agent, SkillRuntimeContext context) {
+        if (context == null || isReactEnabled(agent)) {
+            return context;
+        }
+        List<String> sourceMessages = context.getSystemMessages();
+        List<String> directMessages = new ArrayList<>();
+        if (sourceMessages == null || sourceMessages.isEmpty()) {
+            if (StringUtils.isNotBlank(agent.getSystemPrompt())) {
+                directMessages.add(agent.getSystemPrompt());
+            }
+        } else {
+            for (String message : sourceMessages) {
+                if (StringUtils.isBlank(message)
+                        || message.contains("[可用能力 / Available capabilities]")
+                        || message.contains("[Tool execution constraints]")) {
+                    continue;
+                }
+                directMessages.add(message);
+            }
+        }
+        directMessages.add(DIRECT_EXECUTION_CONSTRAINT);
+        context.setSystemMessages(directMessages);
+        context.setSystemPrompt(StringUtils.join(directMessages, "\n\n"));
+        context.setTools(Collections.<AgentTool>emptyList());
+        context.setRoutingToolIds(Collections.<String>emptySet());
+        context.setRequiredToolIds(Collections.<String>emptySet());
         return context;
+    }
+
+    /**
+     * ReAct is the backwards-compatible default for STANDARD agents. DIRECT is
+     * useful for deterministic answer-only agents and must not expose tools to
+     * the model, otherwise a provider can still return an unsolicited call.
+     */
+    private boolean isReactEnabled(AgentDefinition agent) {
+        return agent == null || !"DIRECT".equalsIgnoreCase(StringUtils.trim(agent.getReasoningStrategy()));
+    }
+
+    private int maxToolIterations(AgentDefinition agent) {
+        if (!isReactEnabled(agent)) return 0;
+        Integer configured = agent == null ? null : agent.getMaxToolRounds();
+        if (configured == null || configured <= 0) return MAX_TOOL_CALL_ITERATIONS;
+        return Math.min(configured, MAX_ALLOWED_TOOL_CALL_ITERATIONS);
+    }
+
+    private List<AgentTool> requestTools(AgentDefinition agent, List<AgentTool> tools) {
+        return isReactEnabled(agent) ? tools : Collections.<AgentTool>emptyList();
     }
 
     /**
@@ -1829,6 +2080,178 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
             }
         }
         return false;
+    }
+
+    private int successfulToolResultCount(List<ToolExecutionResult> toolResults) {
+        if (toolResults == null || toolResults.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (ToolExecutionResult result : toolResults) {
+            if (result != null && result.isSuccess()
+                    && Integer.valueOf(TOOL_CALL_STATUS_SUCCESS).equals(result.getStatus())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** Summarizes execution facts only; tool response bodies and arguments stay out of the progress ledger. */
+    private Map<String, Object> toolResultProgressData(List<ToolExecutionResult> toolResults) {
+        int callCount = toolResults == null ? 0 : toolResults.size();
+        int successCount = successfulToolResultCount(toolResults);
+        int timeoutCount = 0;
+        int securityBlockCount = 0;
+        if (toolResults != null) {
+            for (ToolExecutionResult result : toolResults) {
+                if (result == null || result.isSuccess() || result.getStatus() == null) continue;
+                if (Integer.valueOf(2).equals(result.getStatus())) timeoutCount++;
+                if (Integer.valueOf(ToolExecutionResult.STATUS_SECURITY_BLOCK).equals(result.getStatus())) securityBlockCount++;
+            }
+        }
+        return progressData("callCount", callCount, "successCount", successCount,
+                "failureCount", callCount - successCount, "timeoutCount", timeoutCount,
+                "securityBlockCount", securityBlockCount, "valid", successCount > 0);
+    }
+
+    /** Retrieval sources are individual chunks; keep both document and chunk counts for the UI. */
+    private Map<String, Object> retrievalProgressData(List<Map<String, Object>> sources, long durationMs) {
+        int chunkCount = sources == null ? 0 : sources.size();
+        java.util.Set<String> documentIds = new java.util.LinkedHashSet<>();
+        if (sources != null) {
+            for (Map<String, Object> source : sources) {
+                Object documentId = source == null ? null : source.get("documentId");
+                if (documentId != null && StringUtils.isNotBlank(String.valueOf(documentId))) {
+                    documentIds.add(String.valueOf(documentId));
+                }
+            }
+        }
+        return progressData("sourceCount", chunkCount, "chunkCount", chunkCount,
+                "documentCount", documentIds.size(), "durationMs", Math.max(0L, durationMs));
+    }
+
+    /** Names are only persisted after the model has returned a structured tool request. */
+    private List<String> plannedToolNames(ModelChatResponse response) {
+        List<String> names = new ArrayList<>();
+        if (response == null) return names;
+        for (String name : parseToolNameByCallId(response.getToolCalls()).values()) {
+            if (StringUtils.isNotBlank(name) && !names.contains(name)) names.add(name);
+        }
+        return names;
+    }
+
+    private Map<String, Object> progressData(Object... entries) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        for (int index = 0; entries != null && index + 1 < entries.length; index += 2) {
+            if (entries[index] instanceof String) {
+                data.put((String) entries[index], entries[index + 1]);
+            }
+        }
+        return data;
+    }
+
+    /** Emits only durable identifiers and display parameters; no locale-specific prose is persisted. */
+    private Map<String, Object> skillProgressData(SkillRuntimeContext skillContext) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        List<String> skills = new ArrayList<>();
+        if (skillContext != null && StringUtils.isNotBlank(skillContext.getSnapshot())) {
+            try {
+                JSONArray items = JSON.parseObject(skillContext.getSnapshot()).getJSONArray("skills");
+                if (items != null) {
+                    for (int index = 0; index < items.size(); index++) {
+                        JSONObject item = items.getJSONObject(index);
+                        if (item != null) {
+                            String name = StringUtils.defaultIfBlank(item.getString("name"), item.getString("code"));
+                            if (StringUtils.isNotBlank(name)) skills.add(name);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // Progress persistence must never affect the actual reply path.
+            }
+        }
+        data.put("skills", skills);
+        data.put("skillCount", skills.size());
+        return data;
+    }
+
+    /**
+     * Buffers early status transitions until the immutable AgentRun exists, then stores and streams
+     * exactly the same machine-readable event. This makes reconnect/history views deterministic.
+     */
+    private final class ChatProgressRecorder {
+        private final AgentStreamCallback callback;
+        private final String requestId;
+        private final List<PendingProgressStep> pending = new ArrayList<>();
+        private String runId;
+        private int sequence;
+
+        private ChatProgressRecorder(AgentStreamCallback callback, String requestId) {
+            this.callback = callback;
+            this.requestId = StringUtils.defaultIfBlank(requestId, UUID.randomUUID().toString());
+        }
+
+        private void status(String stage) {
+            if (callback != null) callback.onStatus(stage, null);
+            record("chat.status." + stage, progressData("stage", stage));
+        }
+
+        private void attachRun(String value) {
+            if (StringUtils.isBlank(value) || value.equals(runId)) return;
+            runId = value;
+            for (PendingProgressStep step : new ArrayList<>(pending)) persist(step);
+            pending.clear();
+        }
+
+        private void record(String eventType, Map<String, Object> data) {
+            PendingProgressStep step = new PendingProgressStep(eventType,
+                    data == null ? Collections.<String, Object>emptyMap() : data, System.currentTimeMillis());
+            if (StringUtils.isBlank(runId)) {
+                pending.add(step);
+            } else {
+                persist(step);
+            }
+        }
+
+        private void persist(PendingProgressStep pendingStep) {
+            if (StringUtils.isBlank(runId)) return;
+            String eventId = "chat:" + requestId + ":" + (++sequence);
+            AgentRunStep step = new AgentRunStep();
+            step.setRunId(runId);
+            step.setEventId(eventId);
+            step.setEventType(pendingStep.eventType);
+            step.setOccurredAt(pendingStep.occurredAt);
+            step.setData(JSON.toJSONString(pendingStep.data));
+            if (agentRunStepService != null) {
+                try {
+                    agentRunStepService.saveIfAbsent(step);
+                } catch (RuntimeException e) {
+                    // Progress tracking is auxiliary and must not interrupt the chat reply.
+                    log.warn("保存聊天流程步骤失败: runId={}, eventType={}", runId, pendingStep.eventType, e);
+                }
+            }
+            if (callback != null && !callback.isClosed()) {
+                JSONObject payload = new JSONObject();
+                payload.put("runId", runId);
+                payload.put("eventId", eventId);
+                payload.put("eventType", pendingStep.eventType);
+                payload.put("occurredAt", pendingStep.occurredAt);
+                payload.put("data", pendingStep.data);
+                callback.onRunStep(runId, payload.toJSONString());
+            }
+        }
+    }
+
+    private static final class PendingProgressStep {
+        private final String eventType;
+        private final Map<String, Object> data;
+        private final long occurredAt;
+
+        private PendingProgressStep(String eventType, Map<String, Object> data, long occurredAt) {
+            this.eventType = eventType;
+            this.data = data;
+            this.occurredAt = occurredAt;
+        }
     }
 
     /**

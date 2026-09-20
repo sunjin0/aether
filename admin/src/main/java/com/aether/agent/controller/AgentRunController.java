@@ -89,6 +89,7 @@ public class AgentRunController {
         Page<AgentRun> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         Wrapper<AgentRun> wrapper = Wrappers.lambdaQuery(AgentRun.class)
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentRun::getAgentDefinitionId, vo.getAgentDefinitionId())
+                .eq(StringUtils.isNotBlank(vo.getConversationId()), AgentRun::getConversationId, vo.getConversationId())
                 .eq(StringUtils.isNotBlank(vo.getUserId()), AgentRun::getUserId, vo.getUserId())
                 .eq(vo.getStatus() != null, AgentRun::getStatus, vo.getStatus())
                 .ge(vo.getStartTime() != null, AgentRun::getCreatedAt, vo.getStartTime())
