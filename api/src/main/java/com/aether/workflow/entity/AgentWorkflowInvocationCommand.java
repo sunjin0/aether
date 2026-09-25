@@ -1,6 +1,6 @@
 package com.aether.workflow.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -9,8 +9,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_invocation_command")
-public class AgentWorkflowInvocationCommand extends BaseEntity {
-    private String tenantId;
+public class AgentWorkflowInvocationCommand extends AccountOwnedEntity {
     private String applicationId;
     private String invocationId;
     private String commandType;

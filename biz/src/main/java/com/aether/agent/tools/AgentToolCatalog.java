@@ -295,8 +295,8 @@ public class AgentToolCatalog {
     }
 
     private String cacheKey(String agentId) {
-        String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
-        return CACHE_KEY_PREFIX + tenantId + ":" + agentId;
+        String accountId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("userId");
+        return CACHE_KEY_PREFIX + accountId + ":" + agentId;
     }
 
     /**

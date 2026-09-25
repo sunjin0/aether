@@ -16,9 +16,9 @@ public class AgentMcpServerServiceImpl extends ServiceImpl<AgentMcpServerMapper,
     @Override
     public AgentMcpServer getById(java.io.Serializable id) {
         AgentMcpServer server = super.getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (server != null && StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(server.getTenantId())
-                && !tenantId.equals(server.getTenantId())) return null;
+        String accountId = CurrentUser.dataOwnerId();
+        if (server != null && StringUtils.isNotBlank(accountId)
+                && !accountId.equals(server.getCreatedBy())) return null;
         return server;
     }
 }

@@ -1,6 +1,6 @@
 package com.aether.agent.skill.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,8 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_skill_resource")
-public class AgentSkillResource extends BaseEntity {
-    private String tenantId;
+public class AgentSkillResource extends AccountOwnedEntity {
     private String skillVersionId;
     private String name;
     private String type;

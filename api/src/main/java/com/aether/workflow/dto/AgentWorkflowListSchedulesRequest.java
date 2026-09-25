@@ -10,4 +10,5 @@ public class AgentWorkflowListSchedulesRequest {
     @ApiModelProperty(value = "定时任务名称", required = false, example = "每日订单审核") private String name;
     @ApiModelProperty(value = "工作流 ID", required = false, example = "workflow-001") private String workflowId;
     @ApiModelProperty(value = "是否启用", required = false, example = "true") private Boolean enabled;
+    @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
 }

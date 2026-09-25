@@ -215,7 +215,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         HashMap<String, String> payload = new HashMap<>();
         payload.put("userId", String.valueOf(user.getId()));
         //角色
-        payload.put("role", one.getType());
+        payload.put("role", tokenRole(one.getId(), one.getType()));
         Token token = TokenUtils.createToken(payload);
         user.setToken(token.getToken());
         user.setRefreshToken(token.getRefreshToken());
@@ -225,6 +225,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         map.put("userId", one.getId());
         map.put("token", token.getToken());
         redisTemplate.opsForHash().put(TokenUtils.TOKEN_KEY, one.getId(), this.getPermissionMapByUserId(one.getId(), token.getToken()));
+        user.setRoleType(roleType(one.getId()));
 
         return user;
 
@@ -255,7 +256,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         HashMap<String, String> payload = new HashMap<>();
         payload.put("userId", userId);
-        payload.put("role", user.getType());
+        payload.put("role", tokenRole(user.getId(), user.getType()));
         Token nextToken = TokenUtils.createToken(payload);
         boolean rotated = tokenService.update(nextToken, Wrappers.<Token>lambdaUpdate()
                 .eq(Token::getUserId, userId)
@@ -268,6 +269,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         result.setToken(nextToken.getToken());
         result.setRefreshToken(nextToken.getRefreshToken());
         return result;
+    }
+
+    /** 登录令牌只携带两种稳定角色，避免历史用户 type 值绕过账号数据范围。 */
+    private String tokenRole(String userId, String fallback) {
+        List<UserRole> bindings = userRoleService.list(Wrappers.<UserRole>lambdaQuery()
+                .select(UserRole::getRoleId)
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getDeleted, false));
+        for (UserRole binding : bindings) {
+            Role role = roleService.getById(binding.getRoleId());
+            if (role != null && "ADMIN".equalsIgnoreCase(role.getRoleType())) {
+                return "ADMIN";
+            }
+        }
+        return "USER";
     }
 
     /**
@@ -394,9 +410,30 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         user.setPassword(null);
         user.setSmtpAuthorizationCode(null);
         BeanUtils.copyProperties(user, userVo);
+        userVo.setRoleType(roleType(user.getId()));
         HashMap<String, Object> map = getPermissionMapByUserId(currentUser.get("userId"), currentUser.get("token"));
         userVo.setPermissionMap(map);
         return userVo;
+    }
+
+    /** 角色类型是账号权限边界的唯一判断依据，不依赖角色名称或用户 type 字段。 */
+    private String roleType(String userId) {
+        if (StringUtils.isBlank(userId)) {
+            return "USER";
+        }
+        List<UserRole> bindings = userRoleService.list(Wrappers.<UserRole>lambdaQuery()
+                .select(UserRole::getRoleId)
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getDeleted, false));
+        if (bindings != null) {
+            for (UserRole binding : bindings) {
+                Role role = roleService.getById(binding.getRoleId());
+                if (role != null && "ADMIN".equalsIgnoreCase(role.getRoleType())) {
+                    return "ADMIN";
+                }
+            }
+        }
+        return "USER";
     }
 
     /**
@@ -478,7 +515,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private List<String> roleServiceIds(String code, String scope) {
         if (StringUtils.isBlank(code)) return Collections.emptyList();
         return roleService.list(Wrappers.<Role>lambdaQuery().select(Role::getId).eq(Role::getName, code)
-                .eq(Role::getScope, scope).eq(Role::getDeleted, false)).stream().map(Role::getId).collect(Collectors.toList());
+                .eq(Role::getDeleted, false)).stream().map(Role::getId).collect(Collectors.toList());
     }
 
     /**

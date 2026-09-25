@@ -72,7 +72,6 @@ public class UserController {
     public WebResponse<List<UserVo>> list(@RequestBody UserRequests.ListRequest user) throws ServerException {
         Page<User> userPage = new Page<>(user.getCurrent(), user.getPageSize());
         Wrapper<User> queryWrapper = Wrappers.lambdaQuery(User.class)
-                .eq(StringUtils.isNotBlank(currentTenantId()), User::getTenantId, currentTenantId())
                 .like(StringUtils.isNotBlank(user.getSex()), User::getSex, user.getSex())
                 .like(StringUtils.isNotBlank(user.getType()), User::getType, user.getType())
                 .like(StringUtils.isNotBlank(user.getUsername()), User::getUsername, user.getUsername())
@@ -100,7 +99,6 @@ public class UserController {
     public WebResponse<List<Option>> options() {
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User> optionsQuery = Wrappers.lambdaQuery(User.class)
                         .eq(User::getDeleted, false);
-        if (StringUtils.isNotBlank(currentTenantId())) optionsQuery.eq(User::getTenantId, currentTenantId());
         List<Option> options = userService.list(optionsQuery.orderByAsc(User::getUsername))
                 .stream().map(item -> new Option(item.getUsername(), item.getId())).collect(Collectors.toList());
         return WebResponse.OK(options);
@@ -141,7 +139,6 @@ public class UserController {
                                       UserRequests.SaveRequest request) throws ServerException {
         UserVo User = new UserVo();
         BeanUtils.copyProperties(request, User);
-        User.setTenantId(currentTenantId());
         // 密码加密
         if (StringUtils.isNotEmpty(User.getPassword())) {
             User.setPassword(encoder.encode(User.getPassword()));
@@ -149,7 +146,7 @@ public class UserController {
         encryptSmtpAuthorizationCode(User, null);
         boolean saved = userService.save(User);
         if (saved && User.getRoleIds() != null && !User.getRoleIds().isEmpty()) {
-            validateRoleTenants(User.getRoleIds());
+            validateAccountRoles(User.getRoleIds());
             userService.bindRole(User.getId(), User.getRoleIds());
         }
         return WebResponse.OK(saved ? I18nUtils.getMessage("system.admin.create.success") : I18nUtils.getMessage("system.admin.create.fail"), saved);
@@ -175,27 +172,20 @@ public class UserController {
             User.setPassword(encoder.encode(User.getPassword()));
         }
         User existing = userService.getById(User.getId());
-        User.setTenantId(existing == null ? currentTenantId() : existing.getTenantId());
         encryptSmtpAuthorizationCode(User, existing);
         if (User.getRoleIds() != null) {
-            validateRoleTenants(User.getRoleIds());
+            validateAccountRoles(User.getRoleIds());
             userService.bindRole(User.getId(), User.getRoleIds());
         }
         boolean update = userService.updateById(User);
         return WebResponse.OK(update ? I18nUtils.getMessage("system.admin.update.success") : I18nUtils.getMessage("system.admin.update.fail"), update);
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-    }
-
-    private void validateRoleTenants(List<String> roleIds) {
-        String tenantId = currentTenantId();
-        if (StringUtils.isBlank(tenantId)) return;
+    private void validateAccountRoles(List<String> roleIds) {
         for (String roleId : roleIds) {
             Role role = roleService.getById(roleId);
-            if (role == null || !tenantId.equals(role.getTenantId()))
-                throw new ServerException(403, "角色不属于当前租户");
+            if (role == null || !("ADMIN".equalsIgnoreCase(role.getRoleType()) || "USER".equalsIgnoreCase(role.getRoleType())))
+                throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
         }
     }
 

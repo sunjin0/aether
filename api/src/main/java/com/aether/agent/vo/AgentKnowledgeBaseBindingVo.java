@@ -21,9 +21,6 @@ public class AgentKnowledgeBaseBindingVo extends BaseEntity {
     @ApiModelProperty(value = "Knowledge base name")
     private String knowledgeBaseName;
 
-    @ApiModelProperty(value = "Knowledge base scope: PLATFORM or AGENT")
-    private String scope;
-
     @ApiModelProperty(value = "status: 0-disabled, 1-enabled")
     private Integer status;
 

@@ -30,6 +30,7 @@ import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.permission.Permission;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
@@ -63,12 +64,13 @@ public class AgentSkillController {
     private final ModelCatalogService modelCatalogService;
     private final SkillRoutingConfigService routingConfigService;
     private final SkillRoutingIndexService routingIndexService;
+    private final AccountDataScopeService accountDataScopeService;
 
     /**
      * 创建 {@code AgentSkillController} 实例。
      */
     @Autowired
-    public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService, SkillRouterService skillRouterService, AgentDefinitionService agentDefinitionService, ModelProviderService modelProviderService, ModelCatalogService modelCatalogService, SkillRoutingConfigService routingConfigService, SkillRoutingIndexService routingIndexService) {
+    public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService, SkillRouterService skillRouterService, AgentDefinitionService agentDefinitionService, ModelProviderService modelProviderService, ModelCatalogService modelCatalogService, SkillRoutingConfigService routingConfigService, SkillRoutingIndexService routingIndexService, AccountDataScopeService accountDataScopeService) {
         this.skillService = skillService;
         this.resourceWorkbenchService = resourceWorkbenchService;
         this.skillRouterService = skillRouterService;
@@ -77,13 +79,14 @@ public class AgentSkillController {
         this.modelCatalogService = modelCatalogService;
         this.routingConfigService = routingConfigService;
         this.routingIndexService = routingIndexService;
+        this.accountDataScopeService = accountDataScopeService;
     }
 
     /**
      * Test/backward-compatible constructor; Spring uses the complete dependency constructor.
      */
     public AgentSkillController(AgentSkillService skillService, SkillResourceWorkbenchService resourceWorkbenchService) {
-        this(skillService, resourceWorkbenchService, null, null, null, null, null, null);
+        this(skillService, resourceWorkbenchService, null, null, null, null, null, null, null);
     }
 
     /**
@@ -97,6 +100,9 @@ public class AgentSkillController {
                 .like(StringUtils.isNotBlank(query.getCode()), AgentSkill::getCode, query.getCode())
                 .eq(StringUtils.isNotBlank(query.getCategory()), AgentSkill::getCategory, query.getCategory())
                 .eq(query.getStatus() != null, AgentSkill::getStatus, query.getStatus())
+                .in(accountDataScopeService != null, AgentSkill::getCreatedBy,
+                        accountDataScopeService == null ? java.util.Collections.emptyList()
+                                : accountDataScopeService.readableCreatorIds(query.getCreatorUserId()))
                 .orderByDesc(AgentSkill::getCreatedAt));
         List<AgentSkillVo> records = page.getRecords().stream().map(item -> {
             AgentSkillVo vo = skillService.lifecycle(item);
@@ -118,6 +124,7 @@ public class AgentSkillController {
     public WebResponse<List<Option>> options() {
         List<Option> os = skillService.list(Wrappers.lambdaQuery(AgentSkill.class)
                         .eq(AgentSkill::getDeleted, false)
+                        .in(AgentSkill::getCreatedBy, accountDataScopeService.readableCreatorIds(null))
                         .orderByAsc(AgentSkill::getName))
                 .stream().map(item -> {
                     Option option = new Option(item.getName(), item.getId());
@@ -187,7 +194,7 @@ public class AgentSkillController {
         AgentSkillDetailVo detail = skillService.detail(id);
         if (detail.getDraft() == null || !versionId.equals(detail.getDraft().getId()))
             throw new IllegalArgumentException(I18nUtils.getMessage("skill.draft.publish.current.required"));
-        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String userId = CurrentUser.userId();
         return WebResponse.OK(skillService.publish(id, userId));
     }
 
@@ -307,7 +314,9 @@ public class AgentSkillController {
     @PostMapping("/routing-preview")
     public WebResponse<SkillRouteDecision> routingPreview(@RequestParam @NotBlank String agentId, @RequestParam @NotBlank String query) {
         AgentDefinition agent = agentDefinitionService.getById(agentId);
-        if (agent == null) throw new IllegalArgumentException(I18nUtils.getMessage("skill.agent.not-found"));
+        String ownerId = CurrentUser.dataOwnerId();
+        if (agent == null || (StringUtils.isNotBlank(ownerId) && !ownerId.equals(agent.getCreatedBy())))
+            throw new IllegalArgumentException(I18nUtils.getMessage("skill.agent.not-found"));
         ModelProvider provider = "DEEP".equalsIgnoreCase(agent.getExecutionMode()) || modelCatalogService == null
                 ? null : modelCatalogService.resolveProvider(agent.getModelId(), "CHAT,MULTIMODAL");
         return WebResponse.OK(skillRouterService.route(agent, provider, query, skillService.listBindings(agentId).stream().filter(binding -> Integer.valueOf(1).equals(binding.getStatus())).collect(Collectors.toList())));

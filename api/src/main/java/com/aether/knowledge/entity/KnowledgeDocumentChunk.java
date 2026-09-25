@@ -1,6 +1,6 @@
 package com.aether.knowledge.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.TableField;
 import io.swagger.annotations.ApiModel;
@@ -13,15 +13,13 @@ import lombok.experimental.Accessors;
  * 知识库文档分块，由 pgvector 存储向量文本表示。
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("knowledge_document_chunk")
 @ApiModel(value = "KnowledgeDocumentChunk", description = "知识库文档分块")
-public class KnowledgeDocumentChunk extends BaseEntity {
+public class KnowledgeDocumentChunk extends AccountOwnedEntity {
 
     /** 冗余租户边界，避免向量检索脱离知识库授权链路。 */
-    private String tenantId;
-
     /**
      * 关联知识库 ID。
      */

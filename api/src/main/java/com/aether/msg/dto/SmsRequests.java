@@ -15,6 +15,7 @@ public final class SmsRequests {
         @ApiModelProperty(value = "类型", example = "login") private String type;
         @ApiModelProperty(value = "状态", example = "0") private Integer state;
         @ApiModelProperty(value = "用户 ID", example = "1") private String userId;
+        @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
     }
     @Data @ApiModel("短信保存请求") public static class SaveRequest {
         @ApiModelProperty(value = "短信 ID", example = "1") private String id;

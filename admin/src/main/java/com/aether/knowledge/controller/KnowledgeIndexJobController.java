@@ -61,7 +61,7 @@ public class KnowledgeIndexJobController {
     public WebResponse<List<KnowledgeIndexJob>> list(@RequestBody(required = false) ListRequest request) {
         KnowledgeIndexJobQueryVo query = request == null ? null : request.toQuery();
         if (query == null) query = new KnowledgeIndexJobQueryVo();
-        List<String> readableIds = accessService.readableKnowledgeBaseIds();
+        List<String> readableIds = accessService.readableKnowledgeBaseIds(query.getCreatorUserId());
         long current = query.getCurrent() == null || query.getCurrent() < 1 ? 1 : query.getCurrent();
         long pageSize = query.getPageSize() == null ? 20 : Math.max(1, Math.min(100, query.getPageSize()));
         if (readableIds.isEmpty()) {
@@ -115,10 +115,11 @@ public class KnowledgeIndexJobController {
         @ApiModelProperty(value = "知识库 ID", example = "kb-001") private String knowledgeBaseId;
         @ApiModelProperty(value = "文档 ID", example = "doc-001") private String documentId;
         @ApiModelProperty(value = "任务状态", example = "SUCCEEDED") private String status;
+        @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
         public KnowledgeIndexJobQueryVo toQuery() {
             KnowledgeIndexJobQueryVo query = new KnowledgeIndexJobQueryVo();
             query.setCurrent(current); query.setPageSize(pageSize); query.setJobType(jobType); query.setKnowledgeBaseId(knowledgeBaseId);
-            query.setDocumentId(documentId); query.setStatus(status); return query;
+            query.setDocumentId(documentId); query.setStatus(status); query.setCreatorUserId(creatorUserId); return query;
         }
     }
 }

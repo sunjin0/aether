@@ -10,6 +10,7 @@ import com.aether.msg.mapper.SmsMessageMapper;
 import com.aether.msg.service.SmsMessageService;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import com.aether.local.CurrentUser;
 
 /**
  * <p>
@@ -43,6 +44,8 @@ public class SmsMessageServiceImpl extends ServiceImpl<SmsMessageMapper, Sms> im
      */
     @Override
     public Page<Sms> list(SmsVo message) throws ServerException {
+        String owner = CurrentUser.dataOwnerId();
+        String requestedOwner = StringUtils.isNotBlank(owner) ? owner : message.getCreatorUserId();
         return super.page(new Page<>(message.getCurrent(), message.getPageSize()),
                 Wrappers.lambdaQuery(Sms.class)
                         .eq(StringUtils.isNotBlank(message.getId()), Sms::getId, message.getId())
@@ -50,6 +53,7 @@ public class SmsMessageServiceImpl extends ServiceImpl<SmsMessageMapper, Sms> im
                         .eq(message.getType() != null, Sms::getType, message.getType())
                         .eq(message.getState() != null, Sms::getState, message.getState())
                         .eq(message.getUserId() != null, Sms::getUserId, message.getUserId())
+                        .eq(StringUtils.isNotBlank(requestedOwner), Sms::getCreatedBy, requestedOwner)
                         .orderByDesc(Sms::getCreatedAt));
     }
 

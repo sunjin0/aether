@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -14,14 +14,11 @@ import java.math.BigDecimal;
  * Agent定义
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_definition")
 @ApiModel(value = "AgentDefinition对象", description = "Agent定义")
-public class AgentDefinition extends BaseEntity {
-
-    @ApiModelProperty(value = "所属租户")
-    private String tenantId;
+public class AgentDefinition extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
@@ -73,9 +70,6 @@ public class AgentDefinition extends BaseEntity {
 
     @ApiModelProperty(value = "默认推理力度：low/medium/high")
     private String defaultReasoningEffort;
-
-    @ApiModelProperty(value = "访问类型：private/public，默认private")
-    private String accessType;
 
     @ApiModelProperty(value = "排序号")
     private Integer sort;

@@ -127,9 +127,7 @@ public class KnowledgeRetrievalEvaluationController {
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/runs")
     public WebResponse<String> createRun(@PathVariable String id, @RequestParam(value = "evaluationSetVersionId", required = false) String evaluationSetVersionId) {
-        KnowledgeRetrievalEvaluationSet set = setMapper.selectById(id);
-        if (set == null || Boolean.TRUE.equals(set.getDeleted()))
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.set.not-found"));
+        KnowledgeRetrievalEvaluationSet set = requireSet(id);
         if (runMapper.selectCount(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationRun.class)
                 .eq(KnowledgeRetrievalEvaluationRun::getEvaluationSetId, id)
                 .eq(KnowledgeRetrievalEvaluationRun::getDeleted, false)
@@ -153,7 +151,6 @@ public class KnowledgeRetrievalEvaluationController {
             datasetSnapshot = version.getSnapshotJson();
         }
         KnowledgeRetrievalEvaluationRun run = new KnowledgeRetrievalEvaluationRun();
-        run.setTenantId(currentTenantId());
         run.setEvaluationSetId(id);
         run.setEvaluationSetVersionId(evaluationSetVersionId);
         run.setAgentDefinitionIdSnapshot(set.getAgentDefinitionId());
@@ -190,7 +187,6 @@ public class KnowledgeRetrievalEvaluationController {
             if (chunks.isEmpty()) {
                 invalid++;
                 KnowledgeRetrievalEvaluationResult result = new KnowledgeRetrievalEvaluationResult();
-                result.setTenantId(run.getTenantId());
                 result.setRunId(run.getId());
                 result.setEvaluationCaseId(item.getId());
                 result.setStatus("INVALID_LABEL");
@@ -232,9 +228,7 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("查询检索评测运行进度")
     @GetMapping("/sets/{setId}/runs/{runId}/progress")
     public WebResponse<Map<String, Object>> progress(@PathVariable String setId, @PathVariable String runId) {
-        KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
-        if (run == null || Boolean.TRUE.equals(run.getDeleted()) || !setId.equals(run.getEvaluationSetId()))
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.run.not-found"));
+        KnowledgeRetrievalEvaluationRun run = requireRun(setId, runId);
         List<KnowledgeRetrievalEvaluationTask> tasks = taskMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationTask.class).eq(KnowledgeRetrievalEvaluationTask::getRunId, runId).eq(KnowledgeRetrievalEvaluationTask::getDeleted, false));
         int queued = 0, running = 0, succeeded = 0, failed = 0, cancelled = 0;
         for (KnowledgeRetrievalEvaluationTask task : tasks) {
@@ -265,9 +259,7 @@ public class KnowledgeRetrievalEvaluationController {
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/runs/{runId}/cancel")
     public WebResponse<Void> cancelRun(@PathVariable String setId, @PathVariable String runId) {
-        KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
-        if (run == null || Boolean.TRUE.equals(run.getDeleted()) || !setId.equals(run.getEvaluationSetId()))
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.run.not-found"));
+        KnowledgeRetrievalEvaluationRun run = requireRun(setId, runId);
         if ("RUNNING".equals(run.getStatus())) {
             run.setStatus("CANCELLED");
             run.setFinishedAt(System.currentTimeMillis());
@@ -284,9 +276,7 @@ public class KnowledgeRetrievalEvaluationController {
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{setId}/runs/{runId}/retry-failed")
     public WebResponse<Void> retryFailed(@PathVariable String setId, @PathVariable String runId) {
-        KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
-        if (run == null || Boolean.TRUE.equals(run.getDeleted()) || !setId.equals(run.getEvaluationSetId()))
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.run.not-found"));
+        KnowledgeRetrievalEvaluationRun run = requireRun(setId, runId);
         int requeued = taskMapper.update(null, Wrappers.lambdaUpdate(KnowledgeRetrievalEvaluationTask.class).eq(KnowledgeRetrievalEvaluationTask::getRunId, runId).eq(KnowledgeRetrievalEvaluationTask::getStatus, "FAILED").set(KnowledgeRetrievalEvaluationTask::getStatus, "QUEUED").set(KnowledgeRetrievalEvaluationTask::getAttemptCount, 0).set(KnowledgeRetrievalEvaluationTask::getErrorCode, null).set(KnowledgeRetrievalEvaluationTask::getErrorMessage, null).set(KnowledgeRetrievalEvaluationTask::getFinishedAt, null));
         if (requeued > 0) {
             resultMapper.delete(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationResult.class).eq(KnowledgeRetrievalEvaluationResult::getRunId, runId).eq(KnowledgeRetrievalEvaluationResult::getStatus, "RETRIEVAL_ERROR"));
@@ -398,9 +388,7 @@ public class KnowledgeRetrievalEvaluationController {
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/versions")
     public WebResponse<String> publishVersion(@PathVariable String id) {
-        KnowledgeRetrievalEvaluationSet set = setMapper.selectById(id);
-        if (set == null || Boolean.TRUE.equals(set.getDeleted()))
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.set.not-found"));
+        KnowledgeRetrievalEvaluationSet set = requireSet(id);
         requireHealthy(id);
         List<KnowledgeRetrievalEvaluationCaseEntity> cases = caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false).eq(KnowledgeRetrievalEvaluationCaseEntity::getStatus, 1));
         Set<String> caseIds = cases.stream().map(KnowledgeRetrievalEvaluationCaseEntity::getId).collect(Collectors.toSet());
@@ -411,7 +399,6 @@ public class KnowledgeRetrievalEvaluationController {
         snapshot.put("cases", cases);
         snapshot.put("labels", labels);
             KnowledgeRetrievalEvaluationSetVersion version = new KnowledgeRetrievalEvaluationSetVersion();
-        version.setTenantId(set.getTenantId());
         version.setEvaluationSetId(id);
         version.setVersionNo(latest == null ? 1 : latest.getVersionNo() + 1);
         version.setSnapshotJson(JSON.toJSONString(snapshot));
@@ -426,6 +413,7 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("查询评测集版本列表")
     @GetMapping("/sets/{id}/versions")
     public WebResponse<List<KnowledgeRetrievalEvaluationSetVersion>> versions(@PathVariable String id) {
+        requireSet(id);
         return WebResponse.OK(setVersionMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSetVersion.class).eq(KnowledgeRetrievalEvaluationSetVersion::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationSetVersion::getDeleted, false).orderByDesc(KnowledgeRetrievalEvaluationSetVersion::getVersionNo)));
     }
 
@@ -468,13 +456,13 @@ public class KnowledgeRetrievalEvaluationController {
      */
     @ApiOperation("查询评测集列表")
     @GetMapping("/sets")
-    public WebResponse<List<KnowledgeRetrievalEvaluationSet>> sets(@RequestParam(defaultValue = "1") Long current, @RequestParam(defaultValue = "10") Long pageSize, @RequestParam(required = false) String name, @RequestParam(required = false) String agentDefinitionId) {
+    public WebResponse<List<KnowledgeRetrievalEvaluationSet>> sets(@RequestParam(defaultValue = "1") Long current, @RequestParam(defaultValue = "10") Long pageSize, @RequestParam(required = false) String name, @RequestParam(required = false) String agentDefinitionId, @RequestParam(required = false) String creatorUserId) {
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeRetrievalEvaluationSet> setQuery = Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSet.class)
                 .eq(KnowledgeRetrievalEvaluationSet::getDeleted, false)
                 .like(StringUtils.isNotBlank(name), KnowledgeRetrievalEvaluationSet::getName, name)
                 .like(StringUtils.isNotBlank(agentDefinitionId), KnowledgeRetrievalEvaluationSet::getAgentDefinitionId, agentDefinitionId)
                 .orderByDesc(KnowledgeRetrievalEvaluationSet::getCreatedAt);
-        applyTenant(setQuery);
+        applyOwner(setQuery, creatorUserId);
         Page<KnowledgeRetrievalEvaluationSet> page = setMapper.selectPage(new Page<>(Math.max(current, 1), Math.min(Math.max(pageSize, 1), 100)), setQuery);
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
@@ -485,10 +473,7 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("查询评测集详情")
     @GetMapping("/sets/{id}")
     public WebResponse<KnowledgeRetrievalEvaluationSet> set(@PathVariable String id) {
-        KnowledgeRetrievalEvaluationSet item = setMapper.selectById(id);
-        if (item == null || Boolean.TRUE.equals(item.getDeleted()))
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.set.not-found"));
-        return WebResponse.OK(item);
+        return WebResponse.OK(requireSet(id));
     }
 
     /**
@@ -499,7 +484,6 @@ public class KnowledgeRetrievalEvaluationController {
     @PostMapping("/sets")
     public WebResponse<String> saveSet(@RequestBody SaveSetRequest request) {
         KnowledgeRetrievalEvaluationSet set = request.toEntity();
-        set.setTenantId(currentTenantId());
         if (StringUtils.isBlank(set.getAgentDefinitionId()) || StringUtils.isBlank(set.getName()))
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.set.agent-definition-and-name.required"));
         if (set.getStatus() == null) set.setStatus(1);
@@ -545,6 +529,7 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("查询评测用例列表")
     @GetMapping("/sets/{id}/cases")
     public WebResponse<List<KnowledgeRetrievalEvaluationCaseEntity>> cases(@PathVariable String id) {
+        requireSet(id);
         return WebResponse.OK(caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false)));
     }
 
@@ -555,6 +540,7 @@ public class KnowledgeRetrievalEvaluationController {
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases")
     public WebResponse<String> saveCase(@PathVariable String id, @RequestBody SaveCaseRequest request) {
+        requireSet(id);
         KnowledgeRetrievalEvaluationCaseEntity item = request.toEntity();
         if (StringUtils.isBlank(item.getQuestion()))
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.case.question.required"));
@@ -630,6 +616,7 @@ public class KnowledgeRetrievalEvaluationController {
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/cases/batch-status")
     public WebResponse<Void> batchCaseStatus(@PathVariable String id, @RequestBody CaseStatusRequest request) {
+        requireSet(id);
         if (request == null || request.getCaseIds() == null || request.getCaseIds().isEmpty() || request.getStatus() == null || request.getStatus() != 0 && request.getStatus() != 1)
             throw new ServerException(400, I18nUtils.getMessage("knowledge.evaluation.case.batch-status.required"));
         caseMapper.update(null, Wrappers.lambdaUpdate(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, id).in(KnowledgeRetrievalEvaluationCaseEntity::getId, request.getCaseIds()).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false).set(KnowledgeRetrievalEvaluationCaseEntity::getStatus, request.getStatus()));
@@ -642,6 +629,7 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("导出评测用例和标注")
     @GetMapping("/sets/{id}/cases/export")
     public WebResponse<List<KnowledgeRetrievalEvaluationCaseTransferVo>> exportCases(@PathVariable String id) {
+        requireSet(id);
         List<KnowledgeRetrievalEvaluationCaseEntity> cases = caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false));
         Set<String> caseIds = cases.stream().map(KnowledgeRetrievalEvaluationCaseEntity::getId).collect(Collectors.toSet());
         List<KnowledgeRetrievalEvaluationLabel> labels = caseIds.isEmpty() ? Collections.emptyList() : labelMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationLabel.class).in(KnowledgeRetrievalEvaluationLabel::getEvaluationCaseId, caseIds).eq(KnowledgeRetrievalEvaluationLabel::getDeleted, false));
@@ -700,9 +688,7 @@ public class KnowledgeRetrievalEvaluationController {
     @Permission(path = "/knowledge/evaluation", type = Permission.Type.Write)
     @PostMapping("/sets/{id}/run")
     public WebResponse<KnowledgeRetrievalEvaluationReport> runSet(@PathVariable String id) {
-        KnowledgeRetrievalEvaluationSet set = setMapper.selectById(id);
-        if (set == null || Boolean.TRUE.equals(set.getDeleted()))
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.set.not-found"));
+        KnowledgeRetrievalEvaluationSet set = requireSet(id);
         List<KnowledgeRetrievalEvaluationCaseEntity> cases = caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false).eq(KnowledgeRetrievalEvaluationCaseEntity::getStatus, 1));
         List<KnowledgeRetrievalEvaluationCase> inputs = new ArrayList<>();
         List<KnowledgeRetrievalEvaluationCaseEntity> validCases = new ArrayList<>();
@@ -732,7 +718,6 @@ public class KnowledgeRetrievalEvaluationController {
         long startedAt = System.currentTimeMillis();
         KnowledgeRetrievalEvaluationReport report = evaluationService.evaluate(set.getAgentDefinitionId(), inputs);
         KnowledgeRetrievalEvaluationRun run = new KnowledgeRetrievalEvaluationRun();
-        run.setTenantId(set.getTenantId());
         run.setEvaluationSetId(id);
         run.setAgentDefinitionIdSnapshot(set.getAgentDefinitionId());
         run.setRetrievalConfigSnapshot(retrievalConfigSnapshot(set.getAgentDefinitionId(), cases, Collections.emptyList()));
@@ -753,7 +738,6 @@ public class KnowledgeRetrievalEvaluationController {
             KnowledgeRetrievalEvaluationReport.Item item = report.getItems().get(i);
             KnowledgeRetrievalEvaluationCaseEntity source = validCases.get(i);
             KnowledgeRetrievalEvaluationResult result = new KnowledgeRetrievalEvaluationResult();
-            result.setTenantId(run.getTenantId());
             result.setRunId(run.getId());
             result.setEvaluationCaseId(source.getId());
             result.setStatus(item.getStatus());
@@ -773,7 +757,6 @@ public class KnowledgeRetrievalEvaluationController {
         }
         for (KnowledgeRetrievalEvaluationCaseEntity source : invalidCases) {
             KnowledgeRetrievalEvaluationResult result = new KnowledgeRetrievalEvaluationResult();
-            result.setTenantId(run.getTenantId());
             result.setRunId(run.getId());
             result.setEvaluationCaseId(source.getId());
             result.setStatus("INVALID_LABEL");
@@ -797,6 +780,7 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("查询评测运行记录")
     @GetMapping("/sets/{id}/runs")
     public WebResponse<List<KnowledgeRetrievalEvaluationRun>> runs(@PathVariable String id) {
+        requireSet(id);
         return WebResponse.OK(runMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationRun.class).eq(KnowledgeRetrievalEvaluationRun::getEvaluationSetId, id).eq(KnowledgeRetrievalEvaluationRun::getDeleted, false).orderByDesc(KnowledgeRetrievalEvaluationRun::getStartedAt)));
     }
 
@@ -822,6 +806,7 @@ public class KnowledgeRetrievalEvaluationController {
     @ApiOperation("查询评测指标趋势")
     @GetMapping("/sets/{setId}/trend")
     public WebResponse<List<KnowledgeRetrievalEvaluationRun>> trend(@PathVariable String setId) {
+        requireSet(setId);
         return WebResponse.OK(runMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationRun.class).eq(KnowledgeRetrievalEvaluationRun::getEvaluationSetId, setId).eq(KnowledgeRetrievalEvaluationRun::getDeleted, false).in(KnowledgeRetrievalEvaluationRun::getStatus, "SUCCEEDED", "PARTIAL_FAILED", "FAILED", "CANCELLED").orderByAsc(KnowledgeRetrievalEvaluationRun::getStartedAt)));
     }
 
@@ -947,9 +932,7 @@ public class KnowledgeRetrievalEvaluationController {
                                                                            @RequestParam(defaultValue = "10") Long pageSize,
                                                                            @RequestParam(required = false) String status,
                                                                            @RequestParam(required = false, name = "question") String questionKeyword) {
-        KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
-        if (run == null || Boolean.TRUE.equals(run.getDeleted()) || !setId.equals(run.getEvaluationSetId()))
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.run.not-found"));
+        KnowledgeRetrievalEvaluationRun run = requireRun(setId, runId);
         long safeCurrent = Math.max(1L, current);
         long safePageSize = Math.min(100L, Math.max(1L, pageSize));
         Page<KnowledgeRetrievalEvaluationResult> page = resultMapper.selectPage(new Page<>(safeCurrent, safePageSize),
@@ -1151,6 +1134,7 @@ public class KnowledgeRetrievalEvaluationController {
      * 处理requireCase。
      */
     private KnowledgeRetrievalEvaluationCaseEntity requireCase(String setId, String caseId) {
+        requireSet(setId);
         KnowledgeRetrievalEvaluationCaseEntity item = caseMapper.selectById(caseId);
         if (item == null || Boolean.TRUE.equals(item.getDeleted()) || !setId.equals(item.getEvaluationSetId()))
             throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.case.not-found"));
@@ -1163,20 +1147,21 @@ public class KnowledgeRetrievalEvaluationController {
     private KnowledgeRetrievalEvaluationSet requireSet(String setId) {
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeRetrievalEvaluationSet> query = Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationSet.class)
                 .eq(KnowledgeRetrievalEvaluationSet::getId, setId);
-        applyTenant(query);
+        applyOwner(query, null);
         KnowledgeRetrievalEvaluationSet set = setMapper.selectOne(query);
         if (set == null || Boolean.TRUE.equals(set.getDeleted()))
             throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.set.not-found"));
         return set;
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
     }
 
-    private void applyTenant(com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeRetrievalEvaluationSet> query) {
-        String tenantId = currentTenantId();
-        if (StringUtils.isNotBlank(tenantId)) query.eq(KnowledgeRetrievalEvaluationSet::getTenantId, tenantId);
+    private void applyOwner(com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeRetrievalEvaluationSet> query, String requestedCreatorId) {
+        String accountId = currentDataOwnerId();
+        if (StringUtils.isNotBlank(accountId)) query.eq(KnowledgeRetrievalEvaluationSet::getCreatedBy, accountId);
+        else if (StringUtils.isNotBlank(requestedCreatorId)) query.eq(KnowledgeRetrievalEvaluationSet::getCreatedBy, requestedCreatorId);
     }
 
     /**
@@ -1246,6 +1231,7 @@ public class KnowledgeRetrievalEvaluationController {
      * 处理require运行。
      */
     private KnowledgeRetrievalEvaluationRun requireRun(String setId, String runId) {
+        requireSet(setId);
         KnowledgeRetrievalEvaluationRun run = runMapper.selectById(runId);
         if (run == null || Boolean.TRUE.equals(run.getDeleted()) || !setId.equals(run.getEvaluationSetId()))
             throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.run.not-found"));
@@ -1287,9 +1273,7 @@ public class KnowledgeRetrievalEvaluationController {
      * Checks targets against the currently effective agent retrieval scope.
      */
     private KnowledgeRetrievalEvaluationHealthVo evaluationSetHealth(String setId) {
-        KnowledgeRetrievalEvaluationSet set = setMapper.selectById(setId);
-        if (set == null || Boolean.TRUE.equals(set.getDeleted()))
-            throw new ServerException(404, I18nUtils.getMessage("knowledge.evaluation.set.not-found"));
+        KnowledgeRetrievalEvaluationSet set = requireSet(setId);
         KnowledgeRetrievalEvaluationHealthVo response = new KnowledgeRetrievalEvaluationHealthVo();
         List<KnowledgeRetrievalEvaluationCaseEntity> cases = caseMapper.selectList(Wrappers.lambdaQuery(KnowledgeRetrievalEvaluationCaseEntity.class).eq(KnowledgeRetrievalEvaluationCaseEntity::getEvaluationSetId, setId).eq(KnowledgeRetrievalEvaluationCaseEntity::getDeleted, false).eq(KnowledgeRetrievalEvaluationCaseEntity::getStatus, 1));
         response.setEnabledCaseCount(cases.size());
@@ -1349,7 +1333,6 @@ public class KnowledgeRetrievalEvaluationController {
     private Set<String> effectiveKnowledgeBaseIds(String agentDefinitionId) {
         Set<String> boundIds = bindingService.list(Wrappers.lambdaQuery(AgentKnowledgeBaseBinding.class).eq(AgentKnowledgeBaseBinding::getAgentDefinitionId, agentDefinitionId).eq(AgentKnowledgeBaseBinding::getStatus, 1).eq(AgentKnowledgeBaseBinding::getDeleted, false)).stream().map(AgentKnowledgeBaseBinding::getKnowledgeBaseId).filter(StringUtils::isNotBlank).collect(Collectors.toSet());
         Set<String> ids = boundIds.isEmpty() ? new HashSet<>() : knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class).in(KnowledgeBase::getId, boundIds).eq(KnowledgeBase::getStatus, 1).eq(KnowledgeBase::getIndexStatus, 2).eq(KnowledgeBase::getDeleted, false)).stream().map(KnowledgeBase::getId).collect(Collectors.toSet());
-        ids.addAll(knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class).eq(KnowledgeBase::getScope, "PLATFORM").eq(KnowledgeBase::getStatus, 1).eq(KnowledgeBase::getIndexStatus, 2).eq(KnowledgeBase::getDeleted, false)).stream().map(KnowledgeBase::getId).collect(Collectors.toSet()));
         return ids;
     }
 
@@ -1393,7 +1376,6 @@ public class KnowledgeRetrievalEvaluationController {
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", base.getId());
                 item.put("name", base.getName());
-                item.put("scope", base.getScope());
                 item.put("status", base.getStatus());
                 item.put("indexStatus", base.getIndexStatus());
                 item.put("embeddingModelId", embeddingModelId);

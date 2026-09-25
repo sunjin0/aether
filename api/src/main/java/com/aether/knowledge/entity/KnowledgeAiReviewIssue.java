@@ -1,6 +1,6 @@
 package com.aether.knowledge.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_ai_review_issue")
-public class KnowledgeAiReviewIssue extends BaseEntity {
+public class KnowledgeAiReviewIssue extends AccountOwnedEntity {
     /**
      * 所属 AI 审查记录 ID。
      */

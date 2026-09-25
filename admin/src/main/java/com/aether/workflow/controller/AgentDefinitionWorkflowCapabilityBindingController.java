@@ -113,7 +113,7 @@ public class AgentDefinitionWorkflowCapabilityBindingController {
                 .eq(AgentDefinitionWorkflowCapabilityBinding::getDeleted, false)) > 0)
             throw new ServerException(409, I18nUtils.getMessage("agent.workflow.capability.binding.exists"));
         AgentDefinitionWorkflowCapabilityBinding binding = new AgentDefinitionWorkflowCapabilityBinding();
-        binding.setTenantId(currentTenantId()); binding.setAgentDefinitionId(agentId); binding.setCapabilityId(capability.getId());
+        binding.setAgentDefinitionId(agentId); binding.setCapabilityId(capability.getId());
         binding.setPriority(request.getPriority() == null ? 0 : request.getPriority()); binding.setStatus(request.getStatus() == null ? 1 : request.getStatus());
         bindingService.save(binding);
         return WebResponse.OK(I18nUtils.getMessage("agent.workflow.capability.binding.create.success"));
@@ -146,8 +146,8 @@ public class AgentDefinitionWorkflowCapabilityBindingController {
     private AgentDefinition requireAgent(String id) {
         AgentDefinition agent = agentDefinitionService.getById(id);
         if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
-        String tenant = currentTenantId();
-        if (StringUtils.isNotBlank(tenant) && !StringUtils.equals(tenant, agent.getTenantId())) throw new ServerException(403, I18nUtils.getMessage("agent.workflow.capability.application.denied"));
+        String owner = currentDataOwnerId();
+        if (StringUtils.isNotBlank(owner) && !StringUtils.equals(owner, agent.getCreatedBy())) throw new ServerException(403, I18nUtils.getMessage("agent.workflow.capability.application.denied"));
         return agent;
     }
     private boolean contains(AgentWorkflowCapability item, String keyword) {
@@ -171,5 +171,5 @@ public class AgentDefinitionWorkflowCapabilityBindingController {
                 .eq(EvaluationPolicy::getTargetType, "AGENT").eq(EvaluationPolicy::getTargetId, agentId).eq(EvaluationPolicy::getDeleted, false), false);
         if (policy != null && Boolean.TRUE.equals(policy.getRequired())) throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.configuration.locked"));
     }
-    private String currentTenantId() { return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"); }
+    private String currentDataOwnerId() { return CurrentUser.dataOwnerId(); }
 }

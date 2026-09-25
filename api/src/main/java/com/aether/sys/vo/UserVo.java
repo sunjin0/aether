@@ -49,6 +49,13 @@ public class UserVo extends User {
      * 权限映射
      */
     private HashMap<String, Object> permissionMap;
+
+    /**
+     * 当前账号绑定角色的稳定类型，仅返回 ADMIN 或 USER。
+     * 前端据此决定是否显示跨账号数据筛选项，不能使用角色名称判断。
+     */
+    private String roleType;
+
     private Long current;
     private Long pageSize;
 }

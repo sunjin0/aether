@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_session")
-public class AgentSession extends BaseEntity {
+public class AgentSession extends AccountOwnedEntity {
     private String conversationId;
     private String agentDefinitionId;
     private String userId;

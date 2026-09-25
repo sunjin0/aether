@@ -1,6 +1,6 @@
 package com.aether.knowledge.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_document_version")
-public class KnowledgeDocumentVersion extends BaseEntity {
+public class KnowledgeDocumentVersion extends AccountOwnedEntity {
     /**
      * 所属 knowledge_document 的 ID。
      */

@@ -1,6 +1,6 @@
 package com.aether.agent.product.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -9,7 +9,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_product_profile")
-public class AgentProductProfile extends BaseEntity {
+public class AgentProductProfile extends AccountOwnedEntity {
     /** Stable logical product identifier shared by all of its versions. */
     private String productId;
     private String applicationId;

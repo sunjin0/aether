@@ -7,6 +7,7 @@ import com.aether.knowledge.service.KnowledgeReviewTaskQueryService;
 import com.aether.knowledge.vo.KnowledgeReviewTaskQueryVo;
 import com.aether.knowledge.vo.KnowledgeReviewTaskVo;
 import com.aether.local.CurrentUser;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.workflow.entity.AgentWorkflow;
 import com.aether.workflow.entity.AgentWorkflowInstance;
 import com.aether.workflow.entity.AgentWorkflowNodeInstance;
@@ -51,6 +52,8 @@ public class WorkbenchController {
     private final AgentWorkflowExecutionService executionService;
     private final AgentWorkflowOperationsService operationsService;
     private final KnowledgeReviewTaskQueryService reviewTaskQueryService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AccountDataScopeService dataScopeService;
 
     /**
      * 创建 {@code WorkbenchController} 实例。
@@ -136,6 +139,8 @@ public class WorkbenchController {
         List<AgentWorkflowVo> quickStarts = workflowService.list(Wrappers.lambdaQuery(AgentWorkflow.class)
                 .eq(AgentWorkflow::getStatus, 1)
                 .eq(AgentWorkflow::getDeleted, false)
+                .in(dataScopeService != null, AgentWorkflow::getCreatedBy,
+                        dataScopeService == null ? Collections.emptyList() : dataScopeService.readableCreatorIds(null))
                 .orderByDesc(AgentWorkflow::getUpdatedAt)
                 .last("LIMIT " + ITEM_LIMIT)).stream().map(workflow -> {
             AgentWorkflowVo vo = new AgentWorkflowVo();

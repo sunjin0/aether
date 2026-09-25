@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -12,11 +12,11 @@ import lombok.experimental.Accessors;
  * 运行记录
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_run")
 @ApiModel(value = "AgentRun对象", description = "运行记录")
-public class AgentRun extends BaseEntity {
+public class AgentRun extends AccountOwnedEntity {
     private String runOrigin;
     private String evaluationResultId;
     private String evaluationSnapshotId;

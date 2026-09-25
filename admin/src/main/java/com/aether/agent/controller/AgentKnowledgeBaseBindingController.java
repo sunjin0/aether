@@ -16,6 +16,7 @@ import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -68,8 +69,14 @@ public class AgentKnowledgeBaseBindingController {
             pageSize = 10L;
         }
         Page<AgentKnowledgeBaseBinding> page = new Page<>(current, pageSize);
+        String owner = CurrentUser.dataOwnerId();
+        List<String> readableAgentIds = owner == null || agentDefinitionService == null ? null : agentDefinitionService.list(
+                Wrappers.lambdaQuery(AgentDefinition.class).select(AgentDefinition::getId)
+                        .eq(AgentDefinition::getCreatedBy, owner).eq(AgentDefinition::getDeleted, false))
+                .stream().map(AgentDefinition::getId).collect(Collectors.toList());
         Wrapper<AgentKnowledgeBaseBinding> wrapper = Wrappers.lambdaQuery(AgentKnowledgeBaseBinding.class)
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentKnowledgeBaseBinding::getAgentDefinitionId, vo.getAgentDefinitionId())
+                .in(readableAgentIds != null, AgentKnowledgeBaseBinding::getAgentDefinitionId, readableAgentIds == null || readableAgentIds.isEmpty() ? java.util.Collections.singletonList("__none__") : readableAgentIds)
                 .eq(StringUtils.isNotBlank(vo.getKnowledgeBaseId()), AgentKnowledgeBaseBinding::getKnowledgeBaseId, vo.getKnowledgeBaseId())
                 .eq(vo.getStatus() != null, AgentKnowledgeBaseBinding::getStatus, vo.getStatus())
                 .eq(AgentKnowledgeBaseBinding::getDeleted, false)
@@ -90,7 +97,6 @@ public class AgentKnowledgeBaseBindingController {
             KnowledgeBase kb = kbMap.get(item.getKnowledgeBaseId());
             if (kb != null) {
                 itemVo.setKnowledgeBaseName(kb.getName());
-                itemVo.setScope(kb.getScope());
             }
             return itemVo;
         }).collect(Collectors.toList());
@@ -107,6 +113,7 @@ public class AgentKnowledgeBaseBindingController {
         if (StringUtils.isBlank(vo.getAgentDefinitionId()) || StringUtils.isBlank(vo.getKnowledgeBaseId())) {
             throw new ServerException(400, I18nUtils.getMessage("agent.knowledge.binding.required"));
         }
+        requireAgentOwner(vo.getAgentDefinitionId());
         assertAgentConfigurationMutable(vo.getAgentDefinitionId());
         validateKnowledgeBase(vo.getKnowledgeBaseId());
         boolean exists = bindingService.count(Wrappers.lambdaQuery(AgentKnowledgeBaseBinding.class)
@@ -134,6 +141,7 @@ public class AgentKnowledgeBaseBindingController {
     public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody Status vo) {
         AgentKnowledgeBaseBinding existing = bindingService.getById(id);
         if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.knowledge.binding.not-found"));
+        requireAgentOwner(existing.getAgentDefinitionId());
         assertAgentConfigurationMutable(existing.getAgentDefinitionId());
         AgentKnowledgeBaseBinding binding = new AgentKnowledgeBaseBinding();
         binding.setId(id);
@@ -151,6 +159,7 @@ public class AgentKnowledgeBaseBindingController {
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         AgentKnowledgeBaseBinding existing = bindingService.getById(id);
         if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.knowledge.binding.not-found"));
+        requireAgentOwner(existing.getAgentDefinitionId());
         assertAgentConfigurationMutable(existing.getAgentDefinitionId());
         boolean removed = bindingService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.knowledge-binding.delete.success") : I18nUtils.getMessage("agent.knowledge-binding.delete.fail"));
@@ -161,7 +170,8 @@ public class AgentKnowledgeBaseBindingController {
      */
     private void validateKnowledgeBase(String knowledgeBaseId) {
         KnowledgeBase kb = knowledgeBaseService.getById(knowledgeBaseId);
-        if (kb == null || Boolean.TRUE.equals(kb.getDeleted())) {
+        if (kb == null || Boolean.TRUE.equals(kb.getDeleted())
+                || (StringUtils.isNotBlank(CurrentUser.dataOwnerId()) && !StringUtils.equals(CurrentUser.dataOwnerId(), kb.getCreatedBy()))) {
             throw new ServerException(404, I18nUtils.getMessage("agent.knowledge.base.not.found"));
         }
     }
@@ -172,5 +182,15 @@ public class AgentKnowledgeBaseBindingController {
         if (agent == null || agent.getStatus() == null || agent.getStatus() != 1) return;
         EvaluationPolicy policy = evaluationPolicyService.getOne(Wrappers.lambdaQuery(EvaluationPolicy.class).eq(EvaluationPolicy::getTargetType, "AGENT").eq(EvaluationPolicy::getTargetId, agentId).eq(EvaluationPolicy::getDeleted, false), false);
         if (policy != null && Boolean.TRUE.equals(policy.getRequired())) throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.configuration.locked"));
+    }
+
+    private void requireAgentOwner(String agentId) {
+        if (agentDefinitionService == null) return;
+        AgentDefinition agent = agentDefinitionService.getById(agentId);
+        String owner = CurrentUser.dataOwnerId();
+        if (agent == null || Boolean.TRUE.equals(agent.getDeleted())
+                || (StringUtils.isNotBlank(owner) && !StringUtils.equals(owner, agent.getCreatedBy()))) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
+        }
     }
 }

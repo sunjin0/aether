@@ -881,7 +881,6 @@ public class DeepAgentRunService {
             AgentToolCallLog logEntry = new AgentToolCallLog();
             logEntry.setRunId(runId);
             if (com.aether.local.CurrentUser.getUser() != null) {
-                logEntry.setTenantId(com.aether.local.CurrentUser.getUser().get("tenantId"));
             }
             logEntry.setToolCallId(toolCallId);
             logEntry.setToolName(toolName);

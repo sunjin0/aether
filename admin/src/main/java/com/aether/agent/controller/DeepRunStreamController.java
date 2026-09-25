@@ -48,7 +48,7 @@ public class DeepRunStreamController {
     @GetMapping(value = "/{runId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@PathVariable String runId) throws Exception {
         AgentRun run = deepAgentRunService.getDeepRunForReconciliation(runId);
-        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String userId = CurrentUser.userId();
         if (StringUtils.isBlank(userId) || !userId.equals(run.getUserId())) {
             throw new ServerException(403, I18nUtils.getMessage("agent.deep.run.access.denied"));
         }

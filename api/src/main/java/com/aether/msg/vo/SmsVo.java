@@ -12,4 +12,5 @@ import lombok.EqualsAndHashCode;
 public class SmsVo extends Sms {
     private Long current;
     private Long pageSize;
+    private String creatorUserId;
 }

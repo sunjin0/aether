@@ -8,6 +8,7 @@ import com.aether.agent.service.ModelProviderService;
 import com.aether.entity.Option;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.apache.commons.lang3.StringUtils;
@@ -67,6 +68,22 @@ public class ModelCatalogServiceImpl extends ServiceImpl<ModelCatalogMapper, Mod
         }
         model.setName(StringUtils.trim(model.getName()));
         model.setCapabilities(String.join(",", normalized));
+        String ownerId = CurrentUser.userId();
+        if (StringUtils.isNotBlank(model.getId())) {
+            ModelCatalog existing = getById(model.getId());
+            if (existing != null && StringUtils.isNotBlank(existing.getCreatedBy())) {
+                ownerId = existing.getCreatedBy();
+            }
+        }
+        if (StringUtils.isNotBlank(ownerId)
+                && lambdaQuery().eq(ModelCatalog::getCreatedBy, ownerId)
+                .eq(ModelCatalog::getProviderId, model.getProviderId())
+                .eq(ModelCatalog::getName, model.getName())
+                .eq(ModelCatalog::getDeleted, false)
+                .ne(StringUtils.isNotBlank(model.getId()), ModelCatalog::getId, model.getId())
+                .exists()) {
+            throw new ServerException(409, I18nUtils.getMessage("agent.model.catalog.name.duplicate"));
+        }
     }
 
     /**
@@ -113,7 +130,9 @@ public class ModelCatalogServiceImpl extends ServiceImpl<ModelCatalogMapper, Mod
      */
     private boolean providerAvailable(String id) {
         ModelProvider p = providerService.getById(id);
-        return p != null && !Boolean.TRUE.equals(p.getDeleted()) && Integer.valueOf(1).equals(p.getStatus());
+        String ownerId = CurrentUser.dataOwnerId();
+        return p != null && !Boolean.TRUE.equals(p.getDeleted()) && Integer.valueOf(1).equals(p.getStatus())
+                && (StringUtils.isBlank(ownerId) || ownerId.equals(p.getCreatedBy()));
     }
 
     /**

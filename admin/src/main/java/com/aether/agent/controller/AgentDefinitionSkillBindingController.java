@@ -18,12 +18,14 @@ import com.aether.agent.skill.vo.AgentSkillVo;
 import com.aether.entity.WebResponse;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.local.CurrentUser;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
+import org.apache.commons.lang3.StringUtils;
 
 import javax.validation.constraints.NotBlank;
 import java.util.List;
@@ -56,6 +58,7 @@ public class AgentDefinitionSkillBindingController {
     @ApiOperation("查询 Agent 已安装 Skill")
     @GetMapping("/{agentId}/skills")
     public WebResponse<List<AgentDefinitionSkillBinding>> list(@PathVariable @NotBlank String agentId) {
+        requireAgentOwner(agentId);
         return WebResponse.OK(skillService.listBindings(agentId));
     }
 
@@ -63,6 +66,7 @@ public class AgentDefinitionSkillBindingController {
     @PostMapping("/{agentId}/skills/list")
     public WebResponse<List<AgentDefinitionSkillBindingVo>> listPage(@PathVariable @NotBlank String agentId,
                                                                         @RequestBody(required = false) InstalledSkillList query) {
+        requireAgentOwner(agentId);
         InstalledSkillList request = query == null ? new InstalledSkillList() : query;
         List<AgentDefinitionSkillBinding> bindings = skillService.listBindings(agentId);
         List<String> skillIds = bindings.stream().map(AgentDefinitionSkillBinding::getSkillId).distinct().collect(Collectors.toList());
@@ -100,6 +104,7 @@ public class AgentDefinitionSkillBindingController {
     @ApiOperation("查询 Agent 可安装 Skill")
     @PostMapping("/{agentId}/skills/available")
     public WebResponse<List<AgentSkillVo>> available(@PathVariable @NotBlank String agentId, @RequestBody AvailableSkillList query) {
+        requireAgentOwner(agentId);
         List<String> installedIds = skillService.listBindings(agentId).stream().map(AgentDefinitionSkillBinding::getSkillId).collect(Collectors.toList());
         Page<AgentSkill> page = skillService.page(new Page<>(query.getCurrent() == null ? 1 : query.getCurrent(), query.getPageSize() == null ? 12 : query.getPageSize()),
                 Wrappers.lambdaQuery(AgentSkill.class).notIn(!installedIds.isEmpty(), AgentSkill::getId, installedIds)
@@ -118,6 +123,7 @@ public class AgentDefinitionSkillBindingController {
     @PostMapping("/{agentId}/skills")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<String> install(@PathVariable @NotBlank String agentId, @RequestBody AgentSkillInstallDto dto) {
+        requireAgentOwner(agentId);
         assertAgentConfigurationMutable(agentId);
         return WebResponse.OK(I18nUtils.getMessage("skill.installation.create.success"), skillService.install(agentId, dto));
     }
@@ -129,6 +135,7 @@ public class AgentDefinitionSkillBindingController {
     @PutMapping("/{agentId}/skills/{bindingId}")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<Void> update(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String bindingId, @RequestBody AgentSkillBindingUpdateDto dto) {
+        requireAgentOwner(agentId);
         assertAgentConfigurationMutable(agentId);
         skillService.updateBinding(agentId, bindingId, dto);
         return WebResponse.OK(I18nUtils.getMessage("skill.installation.update.success"));
@@ -141,6 +148,7 @@ public class AgentDefinitionSkillBindingController {
     @DeleteMapping("/{agentId}/skills/{bindingId}")
     @Permission(path = "/agent/definition", type = Permission.Type.Write)
     public WebResponse<Void> delete(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String bindingId) {
+        requireAgentOwner(agentId);
         assertAgentConfigurationMutable(agentId);
         skillService.removeBinding(agentId, bindingId);
         return WebResponse.OK(I18nUtils.getMessage("skill.installation.delete.success"));
@@ -152,5 +160,15 @@ public class AgentDefinitionSkillBindingController {
         if (agent == null || agent.getStatus() == null || agent.getStatus() != 1) return;
         EvaluationPolicy policy = evaluationPolicyService.getOne(Wrappers.lambdaQuery(EvaluationPolicy.class).eq(EvaluationPolicy::getTargetType, "AGENT").eq(EvaluationPolicy::getTargetId, agentId).eq(EvaluationPolicy::getDeleted, false), false);
         if (policy != null && Boolean.TRUE.equals(policy.getRequired())) throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.configuration.locked"));
+    }
+
+    private void requireAgentOwner(String agentId) {
+        if (agentDefinitionService == null) return;
+        AgentDefinition agent = agentDefinitionService.getById(agentId);
+        String owner = CurrentUser.dataOwnerId();
+        if (agent == null || Boolean.TRUE.equals(agent.getDeleted())
+                || (StringUtils.isNotBlank(owner) && !StringUtils.equals(owner, agent.getCreatedBy()))) {
+            throw new ServerException(404, I18nUtils.getMessage("skill.agent.not-found"));
+        }
     }
 }

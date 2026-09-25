@@ -10,6 +10,7 @@ import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentToolBindingService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.service.ModelCatalogService;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.evaluation.service.EvaluationPolicyService;
 import com.aether.evaluation.entity.EvaluationPolicy;
 import com.aether.agent.vo.AgentDefinitionVo;
@@ -55,6 +56,7 @@ public class AgentDefinitionController {
     private final AgentToolBindingService agentToolBindingService;
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
+    private final AccountDataScopeService dataScopeService;
     @Autowired(required = false)
     private EvaluationPolicyService evaluationPolicyService;
     @Autowired(required = false)
@@ -67,11 +69,13 @@ public class AgentDefinitionController {
     public AgentDefinitionController(AgentDefinitionService agentDefinitionService,
                                      AgentToolBindingService agentToolBindingService,
                                      ModelProviderService modelProviderService,
-                                     ModelCatalogService modelCatalogService) {
+                                     ModelCatalogService modelCatalogService,
+                                     AccountDataScopeService dataScopeService) {
         this.agentDefinitionService = agentDefinitionService;
         this.agentToolBindingService = agentToolBindingService;
         this.modelProviderService = modelProviderService;
         this.modelCatalogService = modelCatalogService;
+        this.dataScopeService = dataScopeService;
     }
 
     /**
@@ -91,7 +95,7 @@ public class AgentDefinitionController {
                 .eq(StringUtils.isNotBlank(vo.getModelId()), AgentDefinition::getModelId, vo.getModelId())
                 .eq(StringUtils.isNotBlank(vo.getApplicationId()), AgentDefinition::getApplicationId, vo.getApplicationId())
                 .eq(AgentDefinition::getDeleted, false)
-                .eq(StringUtils.isNotBlank(currentTenantId()), AgentDefinition::getTenantId, currentTenantId())
+                .in(AgentDefinition::getCreatedBy, dataScopeService.readableCreatorIds(vo.getCreatorUserId()))
                 .orderByDesc(AgentDefinition::getCreatedAt);
         Page<AgentDefinition> result = agentDefinitionService.page(page, wrapper);
         List<AgentDefinitionVo> list = result.getRecords().stream().map(item -> {
@@ -113,13 +117,25 @@ public class AgentDefinitionController {
     @GetMapping("/options")
     public WebResponse<List<Option>> options(@RequestParam(required = false) String applicationId,
                                              @RequestParam(value = "status", required = false, defaultValue = "1") Integer status) {
-        String scopedApplicationId = normalizeApplicationId(applicationId);
-        List<Option> options = agentDefinitionService.list(Wrappers.lambdaQuery(AgentDefinition.class)
-                        .eq(AgentDefinition::getApplicationId, scopedApplicationId)
+        /*
+         * applicationId 为空是跨页面的通用下拉场景。历史实现把它强制归一到
+         * 平台空间 0，再调用 requireActive；平台空间绑定到其它账号后，普通用户
+         * 会被服务层过滤成 null，最终错误返回“业务应用空间不存在”。
+         * 未指定空间时只查询当前账号数据范围内的启用 Agent；只有显式指定空间
+         * 才校验该空间是否存在并属于当前账号（管理员可查看全部）。
+         */
+        String requestedApplicationId = StringUtils.trimToNull(applicationId);
+        List<String> readableCreators = dataScopeService.readableCreatorIds(null);
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AgentDefinition> query =
+                Wrappers.lambdaQuery(AgentDefinition.class)
                         .eq(status != null, AgentDefinition::getStatus, status)
                         .eq(AgentDefinition::getDeleted, false)
-                .eq(StringUtils.isNotBlank(currentTenantId()), AgentDefinition::getTenantId, currentTenantId())
-                        .orderByAsc(AgentDefinition::getName))
+                        .in(AgentDefinition::getCreatedBy, readableCreators)
+                        .orderByAsc(AgentDefinition::getName);
+        if (requestedApplicationId != null) {
+            query.eq(AgentDefinition::getApplicationId, normalizeApplicationId(requestedApplicationId));
+        }
+        List<Option> options = agentDefinitionService.list(query)
                 .stream().map(item -> {
                     Option option = new Option(item.getName(), item.getId());
                     // 聊天页需要据此区分标准运行与 Deep Agent 运行；不暴露任何 Agent 配置细节。
@@ -143,7 +159,7 @@ public class AgentDefinitionController {
         if (definition == null || Boolean.TRUE.equals(definition.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
-        requireTenant(definition);
+        dataScopeService.assertReadable(definition.getCreatedBy());
         AgentDefinitionVo vo = new AgentDefinitionVo();
         List<String> toolIds = agentToolBindingService.lambdaQuery()
                 .eq(AgentToolBinding::getAgentDefinitionId, id)
@@ -171,7 +187,6 @@ public class AgentDefinitionController {
         applyModelCatalog(dto);
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
-        definition.setTenantId(currentTenantId());
         definition.setApplicationId(normalizeApplicationId(dto.getApplicationId()));
         applyEmailConfiguration(definition, dto, null);
         boolean saved = agentDefinitionService.save(definition);
@@ -205,14 +220,13 @@ public class AgentDefinitionController {
         if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
-        requireTenant(existing);
+        dataScopeService.assertWritable(existing.getCreatedBy());
         if (existing.getStatus() != null && existing.getStatus() == 1 && evaluationGateRequired(id) && hasExecutionConfigurationChange(existing, dto)) {
             throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.configuration.locked"));
         }
         AgentDefinition definition = new AgentDefinition();
         BeanUtils.copyProperties(dto, definition);
         definition.setId(id);
-        definition.setTenantId(existing.getTenantId());
         definition.setApplicationId(normalizeApplicationId(StringUtils.defaultIfBlank(dto.getApplicationId(), existing.getApplicationId())));
         applyEmailConfiguration(definition, dto, existing);
         boolean updated = agentDefinitionService.updateById(definition);
@@ -229,10 +243,6 @@ public class AgentDefinitionController {
             }
         }
         return WebResponse.OK(updated ? I18nUtils.getMessage("agent.definition.update.success") : I18nUtils.getMessage("agent.definition.update.fail"));
-    }
-
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
     }
 
     private boolean evaluationGateRequired(String agentId) {
@@ -266,14 +276,6 @@ public class AgentDefinitionController {
         dto.setReasoningStrategy(strategy);
     }
 
-    private void requireTenant(AgentDefinition definition) {
-        String tenantId = currentTenantId();
-        if (StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(definition.getTenantId())
-                && !tenantId.equals(definition.getTenantId())) {
-            throw new ServerException(403, "不能访问其他租户的 Agent");
-        }
-    }
-
     /**
      * 软删除 Agent 定义。
      */
@@ -287,7 +289,7 @@ public class AgentDefinitionController {
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
         AgentDefinition existing = agentDefinitionService.getById(id);
         if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
-        requireTenant(existing);
+        dataScopeService.assertWritable(existing.getCreatedBy());
         boolean removed = agentDefinitionService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.definition.delete.success") : I18nUtils.getMessage("agent.definition.delete.fail"));
     }
@@ -304,7 +306,7 @@ public class AgentDefinitionController {
     public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody Status vo) {
         AgentDefinition existing = agentDefinitionService.getById(id);
         if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
-        requireTenant(existing);
+        dataScopeService.assertWritable(existing.getCreatedBy());
         if (Integer.valueOf(1).equals(vo.getStatus()) && evaluationPolicyService != null && !evaluationPolicyService.allowedToPublish("AGENT", id)) {
             throw new ServerException(409, I18nUtils.getMessage("agent.evaluation.gate.enable.denied"));
         }
@@ -330,6 +332,7 @@ public class AgentDefinitionController {
         if (source == null || Boolean.TRUE.equals(source.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
+        dataScopeService.assertReadable(source.getCreatedBy());
         AgentDefinition copy = new AgentDefinition();
         BeanUtils.copyProperties(source, copy);
         copy.setId(null);

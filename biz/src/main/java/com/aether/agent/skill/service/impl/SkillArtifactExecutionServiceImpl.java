@@ -230,14 +230,13 @@ public class SkillArtifactExecutionServiceImpl implements SkillArtifactExecution
             throw new ServerException(409, I18nUtils.getMessage("skill.artifact.checksum-mismatch"));
         AgentArtifact artifact = new AgentArtifact();
         artifact.setExecutionId(job.getId());
-        artifact.setTenantId(job.getTenantId());
         artifact.setRunId(job.getRunId());
         artifact.setSkillVersionId(job.getSkillVersionId());
         artifact.setUserId(job.getUserId());
         artifact.setAgentDefinitionId(job.getAgentDefinitionId());
         artifact.setFileName(fileName);
-        String tenantPrefix = StringUtils.isBlank(job.getTenantId()) ? "" : "tenant/" + job.getTenantId() + "/";
-        artifact.setObjectKey(tenantPrefix + "chat/artifacts/" + job.getId() + "/" + UUID.randomUUID().toString() + "." + extension);
+        String accountPrefix = StringUtils.isBlank(job.getCreatedBy()) ? "" : "account/" + job.getCreatedBy() + "/";
+        artifact.setObjectKey(accountPrefix + "chat/artifacts/" + job.getId() + "/" + UUID.randomUUID().toString() + "." + extension);
         artifact.setContentSha256(actualHash);
         artifact.setContentType(StringUtils.defaultIfBlank(contentType, "application/octet-stream"));
         artifact.setSize((long) content.length);

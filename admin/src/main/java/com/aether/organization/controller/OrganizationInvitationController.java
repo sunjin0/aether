@@ -189,8 +189,8 @@ public class OrganizationInvitationController {
         String userId = currentUserId();
         List<String> roleIds = users.getRoleIdsByUserId(userId);
         if (roleIds == null || !roles.lambdaQuery().in(Role::getId, roleIds)
-                .eq(Role::getScope, "PLATFORM").eq(Role::getDeleted, false)
-                .in(Role::getName, "root", "SUPER_ADMIN").exists())
+                .eq(Role::getDeleted, false)
+                .eq(Role::getRoleType, "ADMIN").exists())
             throw new ServerException(403, I18nUtils.getMessage("organization.platform-admin.only"));
     }
 

@@ -400,8 +400,9 @@ public class PlatformOrganizationController {
     private void requirePlatformAdmin() {
         String userId = userId();
         List<String> roleIds = users.getRoleIdsByUserId(userId);
-        if (roleIds == null || !roles.lambdaQuery().in(Role::getId, roleIds).eq(Role::getName, "root")
-                .eq(Role::getScope, "PLATFORM").eq(Role::getDeleted, false).exists())
+        if (roleIds == null || !roles.lambdaQuery().in(Role::getId, roleIds)
+                .eq(Role::getRoleType, "ADMIN")
+                .eq(Role::getDeleted, false).exists())
             throw new IllegalStateException(I18nUtils.getMessage("organization.platform-admin.only"));
     }
 }

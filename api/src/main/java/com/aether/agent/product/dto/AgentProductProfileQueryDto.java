@@ -15,6 +15,8 @@ public class AgentProductProfileQueryDto {
     private String productType;
     @ApiModelProperty(value = "按状态筛选：0-禁用，1-启用", example = "1")
     private Integer status;
+    @ApiModelProperty(value = "创建账号 ID，仅管理员可用")
+    private String creatorUserId;
     @ApiModelProperty(value = "从 1 开始的页码；省略时使用默认值", example = "1")
     private Long current;
     @ApiModelProperty(value = "每页数量；省略时使用默认值", example = "20")

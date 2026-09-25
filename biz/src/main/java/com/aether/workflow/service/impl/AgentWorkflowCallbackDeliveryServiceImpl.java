@@ -18,8 +18,8 @@ public class AgentWorkflowCallbackDeliveryServiceImpl
     @Override
     public AgentWorkflowCallbackDelivery getById(java.io.Serializable id) {
         AgentWorkflowCallbackDelivery value = super.getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (value != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(value.getTenantId())) return null;
+        String accountId = CurrentUser.dataOwnerId();
+        if (value != null && StringUtils.isNotBlank(accountId) && !accountId.equals(value.getCreatedBy())) return null;
         return value;
     }
 }

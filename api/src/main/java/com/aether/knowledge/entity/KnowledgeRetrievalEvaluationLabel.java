@@ -1,6 +1,6 @@
 package com.aether.knowledge.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_retrieval_evaluation_label")
-public class KnowledgeRetrievalEvaluationLabel extends BaseEntity {
+public class KnowledgeRetrievalEvaluationLabel extends AccountOwnedEntity {
     private String evaluationCaseId;
     private String targetType;
     private String documentId;

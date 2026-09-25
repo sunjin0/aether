@@ -70,8 +70,8 @@ public class KnowledgeIndexWorker {
             KnowledgeDocument document = documentService.getById(job.getDocumentId());
             if (document == null || Boolean.TRUE.equals(document.getDeleted()))
                 throw new IllegalStateException("document not found");
-            if (job.getTenantId() != null && !job.getTenantId().equals(document.getTenantId()))
-                throw new IllegalStateException("document tenant mismatch");
+            if (job.getCreatedBy() != null && !job.getCreatedBy().equals(document.getCreatedBy()))
+                throw new IllegalStateException("document owner mismatch");
             // 必须把当前任务版本写入分块，前端才能按版本查看分块内容。
             KnowledgeDocumentVersion targetVersion = versionService.getById(job.getDocumentVersionId());
             if (targetVersion == null || Boolean.TRUE.equals(targetVersion.getDeleted())) {
@@ -85,7 +85,7 @@ public class KnowledgeIndexWorker {
             indexServiceProvider.getObject().reindex(document, targetVersion);
             long chunkCount = chunkService.count(Wrappers.lambdaQuery(KnowledgeDocumentChunk.class)
                     .eq(KnowledgeDocumentChunk::getDocumentVersionId, targetVersion.getId())
-                    .eq(job.getTenantId() != null, KnowledgeDocumentChunk::getTenantId, job.getTenantId())
+                    .eq(job.getCreatedBy() != null, KnowledgeDocumentChunk::getCreatedBy, job.getCreatedBy())
                     .eq(KnowledgeDocumentChunk::getDeleted, false));
             boolean completed = jobService.update(Wrappers.lambdaUpdate(KnowledgeIndexJob.class)
                     .eq(KnowledgeIndexJob::getId, jobId)

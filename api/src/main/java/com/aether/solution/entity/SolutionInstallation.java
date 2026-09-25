@@ -1,6 +1,6 @@
 package com.aether.solution.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -9,9 +9,8 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("aether_solution_installation")
-public class SolutionInstallation extends BaseEntity {
+public class SolutionInstallation extends AccountOwnedEntity {
     /** 安装关系所属租户。 */
-    private String tenantId;
     private String solutionId;
     private String applicationId;
     private String solutionVersion;

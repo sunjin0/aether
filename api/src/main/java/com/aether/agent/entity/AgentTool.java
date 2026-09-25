@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
@@ -13,14 +13,11 @@ import lombok.experimental.Accessors;
  * 工具
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_tool")
 @ApiModel(value = "AgentTool对象", description = "工具")
-public class AgentTool extends BaseEntity {
-
-    @ApiModelProperty(value = "所属租户")
-    private String tenantId;
+public class AgentTool extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "工具名称")
     private String name;

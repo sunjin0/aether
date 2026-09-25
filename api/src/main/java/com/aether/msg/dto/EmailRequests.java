@@ -17,6 +17,7 @@ public final class EmailRequests {
         @ApiModelProperty(value = "类型", example = "notification") private String type;
         @ApiModelProperty(value = "状态", example = "0") private Integer state;
         @ApiModelProperty(value = "用户 ID", example = "1") private String userId;
+        @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
     }
     @Data @ApiModel("邮件保存请求") public static class SaveRequest {
         @ApiModelProperty(value = "邮件 ID", example = "1") private String id;

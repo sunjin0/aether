@@ -17,6 +17,7 @@ import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
 import com.aether.local.CurrentUser;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.utils.AesUtil;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -54,6 +55,7 @@ public class AgentMcpServerController {
     private final AgentMcpServerService agentMcpServerService;
     private final AgentToolService agentToolService;
     private final McpClient mcpClient;
+    private final AccountDataScopeService accountDataScopeService;
 
     @Autowired(required = false)
     private AgentToolCatalog agentToolCatalog;
@@ -61,12 +63,21 @@ public class AgentMcpServerController {
     /**
      * 创建 {@code AgentMcpServerController} 实例。
      */
+    @Autowired
     public AgentMcpServerController(AgentMcpServerService agentMcpServerService,
                                     AgentToolService agentToolService,
-                                    McpClient mcpClient) {
+                                    McpClient mcpClient,
+                                    AccountDataScopeService accountDataScopeService) {
         this.agentMcpServerService = agentMcpServerService;
         this.agentToolService = agentToolService;
         this.mcpClient = mcpClient;
+        this.accountDataScopeService = accountDataScopeService;
+    }
+
+    public AgentMcpServerController(AgentMcpServerService agentMcpServerService,
+                                    AgentToolService agentToolService,
+                                    McpClient mcpClient) {
+        this(agentMcpServerService, agentToolService, mcpClient, null);
     }
 
     /**
@@ -85,7 +96,9 @@ public class AgentMcpServerController {
                 .eq(StringUtils.isNotBlank(vo.getTransport()), AgentMcpServer::getTransport, vo.getTransport())
                 .eq(vo.getStatus() != null, AgentMcpServer::getStatus, vo.getStatus())
                 .eq(AgentMcpServer::getDeleted, false)
-                .eq(StringUtils.isNotBlank(currentTenantId()), AgentMcpServer::getTenantId, currentTenantId())
+                .in(accountDataScopeService != null, AgentMcpServer::getCreatedBy,
+                        accountDataScopeService == null ? java.util.Collections.emptyList() : accountDataScopeService.readableCreatorIds(vo.getCreatorUserId()))
+                .eq(accountDataScopeService == null && StringUtils.isNotBlank(currentDataOwnerId()), AgentMcpServer::getCreatedBy, currentDataOwnerId())
                 .orderByDesc(AgentMcpServer::getCreatedAt);
         Page<AgentMcpServer> result = agentMcpServerService.page(page, wrapper);
         List<AgentMcpServerVo> list = result.getRecords().stream().map(item -> {
@@ -106,7 +119,9 @@ public class AgentMcpServerController {
     public WebResponse<List<Option>> options() {
         List<Option> options = agentMcpServerService.list(Wrappers.lambdaQuery(AgentMcpServer.class)
                         .eq(AgentMcpServer::getStatus, 1).eq(AgentMcpServer::getDeleted, false)
-                .eq(StringUtils.isNotBlank(currentTenantId()), AgentMcpServer::getTenantId, currentTenantId())
+                .in(accountDataScopeService != null, AgentMcpServer::getCreatedBy,
+                        accountDataScopeService == null ? java.util.Collections.emptyList() : accountDataScopeService.readableCreatorIds(null))
+                .eq(accountDataScopeService == null && StringUtils.isNotBlank(currentDataOwnerId()), AgentMcpServer::getCreatedBy, currentDataOwnerId())
                         .orderByAsc(AgentMcpServer::getName))
                 .stream().map(item -> new Option(item.getName(), item.getId())).collect(Collectors.toList());
         return WebResponse.OK(options);
@@ -135,7 +150,6 @@ public class AgentMcpServerController {
     public WebResponse<String> save(@RequestBody AgentMcpServerDto dto) {
         AgentMcpServer server = new AgentMcpServer();
         BeanUtils.copyProperties(dto, server);
-        server.setTenantId(currentTenantId());
         fillDefaults(server);
         encryptAuthToken(server);
         boolean saved = agentMcpServerService.save(server);
@@ -154,7 +168,6 @@ public class AgentMcpServerController {
         AgentMcpServer server = new AgentMcpServer();
         BeanUtils.copyProperties(dto, server);
         server.setId(id);
-        server.setTenantId(existing.getTenantId());
         fillDefaults(server);
         applyAuthTokenForUpdate(server, existing, dto);
         boolean updated = agentMcpServerService.updateById(server);
@@ -171,6 +184,7 @@ public class AgentMcpServerController {
     @Permission(path = "/agent/mcp-server", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
+        getExistingServer(id);
         long toolCount = agentToolService.count(Wrappers.lambdaQuery(AgentTool.class)
                 .eq(AgentTool::getMcpServerId, id)
                 .eq(AgentTool::getDeleted, false));
@@ -242,16 +256,15 @@ public class AgentMcpServerController {
                     .eq(AgentTool::getMcpServerId, id)
                     .eq(AgentTool::getMcpToolName, definition.getName())
                     .eq(AgentTool::getDeleted, false)
-                    .eq(StringUtils.isNotBlank(currentTenantId()), AgentTool::getTenantId, currentTenantId())) > 0;
+                    .eq(StringUtils.isNotBlank(server.getCreatedBy()), AgentTool::getCreatedBy, server.getCreatedBy())) > 0;
             if (exists) {
                 continue;
             }
             AgentTool tool = new AgentTool();
-            tool.setTenantId(server.getTenantId());
             tool.setMcpServerId(id);
             tool.setMcpToolName(definition.getName());
             tool.setName(definition.getName());
-            tool.setCode(uniqueToolCode(server.getCode(), definition.getName()));
+            tool.setCode(uniqueToolCode(server.getCode(), definition.getName(), server.getCreatedBy()));
             tool.setDescription(definition.getDescription());
             tool.setMcpInputSchema(definition.getInputSchema());
             tool.setTimeoutMs(server.getTimeoutMs());
@@ -269,14 +282,14 @@ public class AgentMcpServerController {
     private AgentMcpServer getExistingServer(String id) {
         AgentMcpServer server = agentMcpServerService.getById(id);
         if (server == null || Boolean.TRUE.equals(server.getDeleted())
-                || (StringUtils.isNotBlank(currentTenantId()) && !currentTenantId().equals(server.getTenantId()))) {
+                || (StringUtils.isNotBlank(currentDataOwnerId()) && !currentDataOwnerId().equals(server.getCreatedBy()))) {
             throw new ServerException(404, I18nUtils.getMessage("mcp.server.not.found"));
         }
         return server;
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
     }
 
     private String safeHealthMessage(RuntimeException ex) {
@@ -392,12 +405,13 @@ public class AgentMcpServerController {
     /**
      * 处理uniqueToolCode。
      */
-    private String uniqueToolCode(String serverCode, String toolName) {
+    private String uniqueToolCode(String serverCode, String toolName, String ownerId) {
         String baseCode = sanitizeCode(StringUtils.defaultIfBlank(serverCode, "mcp") + "_" + toolName);
         String code = baseCode;
         int suffix = 1;
         while (agentToolService.count(Wrappers.lambdaQuery(AgentTool.class)
                 .eq(AgentTool::getCode, code)
+                .eq(StringUtils.isNotBlank(ownerId), AgentTool::getCreatedBy, ownerId)
                 .eq(AgentTool::getDeleted, false)) > 0) {
             code = baseCode + "_" + suffix++;
         }

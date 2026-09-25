@@ -10,6 +10,7 @@ import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.entity.ModelCatalog;
 import com.aether.agent.vo.ModelProviderVo;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.entity.WebResponse;
 import com.aether.entity.Option;
 import com.aether.exception.ServerException;
@@ -59,14 +60,17 @@ public class ModelProviderController {
 
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
+    private final AccountDataScopeService accountDataScopeService;
 
     /**
      * 创建 {@code ModelProviderController} 实例。
      */
     @Autowired
-    public ModelProviderController(ModelProviderService modelProviderService, ModelCatalogService modelCatalogService) {
+    public ModelProviderController(ModelProviderService modelProviderService, ModelCatalogService modelCatalogService,
+                                   AccountDataScopeService accountDataScopeService) {
         this.modelProviderService = modelProviderService;
         this.modelCatalogService = modelCatalogService;
+        this.accountDataScopeService = accountDataScopeService;
     }
 
     /**
@@ -83,6 +87,7 @@ public class ModelProviderController {
                 .like(StringUtils.isNotBlank(vo.getName()), ModelProvider::getName, vo.getName())
                 .eq(StringUtils.isNotBlank(vo.getType()), ModelProvider::getType, vo.getType())
                 .eq(vo.getStatus() != null, ModelProvider::getStatus, vo.getStatus())
+                .in(ModelProvider::getCreatedBy, accountDataScopeService.readableCreatorIds(vo.getCreatorUserId()))
                 .eq(ModelProvider::getDeleted, false)
                 .orderByDesc(ModelProvider::getCreatedAt);
         Page<ModelProvider> result = modelProviderService.page(page, wrapper);
@@ -108,6 +113,7 @@ public class ModelProviderController {
                         .eq(StringUtils.isNotBlank(type), ModelProvider::getType, type)
                         .notLike(excludeEmbedding, ModelProvider::getType, "embedding")
                         .eq(ModelProvider::getStatus, 1).eq(ModelProvider::getDeleted, false)
+                        .in(ModelProvider::getCreatedBy, accountDataScopeService.readableCreatorIds(null))
                         .orderByAsc(ModelProvider::getName))
                 .stream().map(item -> new Option(item.getName(), item.getId())).collect(Collectors.toList());
         return WebResponse.OK(options);
@@ -140,8 +146,14 @@ public class ModelProviderController {
     @ApiOperation("查询模型目录")
     @GetMapping("/models")
     public WebResponse<List<ModelCatalog>> models(@RequestParam(required = false) String providerId) {
+        List<String> readableProviderIds = modelProviderService.list(Wrappers.lambdaQuery(ModelProvider.class)
+                        .in(ModelProvider::getCreatedBy, accountDataScopeService.readableCreatorIds(null)))
+                .stream().map(ModelProvider::getId).collect(Collectors.toList());
+        if (StringUtils.isNotBlank(providerId)) requireReadable(providerId);
         return WebResponse.OK(modelCatalogService.list(Wrappers.lambdaQuery(ModelCatalog.class)
                 .eq(StringUtils.isNotBlank(providerId), ModelCatalog::getProviderId, providerId)
+                .in(StringUtils.isBlank(providerId), ModelCatalog::getProviderId,
+                        readableProviderIds.isEmpty() ? java.util.Collections.singletonList("__none__") : readableProviderIds)
                 .eq(ModelCatalog::getDeleted, false).orderByAsc(ModelCatalog::getSortNum)));
     }
 
@@ -151,7 +163,7 @@ public class ModelProviderController {
     @ApiOperation("从供应商读取可用模型列表")
     @GetMapping("/{id}/models/discover")
     public WebResponse<List<Option>> discoverModels(@PathVariable @NotBlank String id) {
-        ModelProvider provider = modelProviderService.getById(id);
+        ModelProvider provider = requireReadable(id);
         if (provider == null || Boolean.TRUE.equals(provider.getDeleted()) || StringUtils.isBlank(provider.getApiBaseUrl())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
         }
@@ -223,6 +235,9 @@ public class ModelProviderController {
     public WebResponse<Void> updateModel(@PathVariable String id, @RequestBody ModelCatalogRequest request) {
         ModelCatalog model = model(request);
         model.setId(id);
+        ModelCatalog existing = modelCatalogService.getById(id);
+        if (existing != null) requireReadable(existing.getProviderId());
+        requireReadable(model.getProviderId());
         modelCatalogService.validateForSave(model);
         modelCatalogService.updateById(model);
         return WebResponse.OK(I18nUtils.getMessage("agent.model.catalog.update.success"));
@@ -251,6 +266,8 @@ public class ModelProviderController {
     @ApiOperation("删除模型目录项")
     @DeleteMapping("/models/{id}")
     public WebResponse<Void> deleteModel(@PathVariable String id) {
+        ModelCatalog existing = modelCatalogService.getById(id);
+        if (existing != null) requireReadable(existing.getProviderId());
         return WebResponse.OK(modelCatalogService.removeById(id) ? I18nUtils.getMessage("agent.model.catalog.delete.success") : I18nUtils.getMessage("agent.model.catalog.delete.fail"));
     }
 
@@ -261,6 +278,8 @@ public class ModelProviderController {
     @ApiOperation("更新模型目录项状态")
     @PutMapping("/models/{id}/status")
     public WebResponse<Void> updateModelStatus(@PathVariable String id, @RequestBody Status model) {
+        ModelCatalog existing = modelCatalogService.getById(id);
+        if (existing != null) requireReadable(existing.getProviderId());
         ModelCatalog update = new ModelCatalog();
         update.setId(id);
         update.setStatus(model.getStatus());
@@ -277,7 +296,7 @@ public class ModelProviderController {
     })
     @GetMapping("/{id}")
     public WebResponse<ModelProviderVo> detail(@PathVariable @NotBlank String id) {
-        ModelProvider provider = modelProviderService.getById(id);
+        ModelProvider provider = requireReadable(id);
         if (provider == null || Boolean.TRUE.equals(provider.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
         }
@@ -304,7 +323,9 @@ public class ModelProviderController {
             provider.setApiKey(AesUtil.encrypt(provider.getApiKey()));
         }
         ModelProvider one = modelProviderService.getOne(Wrappers.<ModelProvider>lambdaQuery()
-                .eq(ModelProvider::getName, provider.getName()));
+                .eq(ModelProvider::getName, provider.getName())
+                .eq(ModelProvider::getCreatedBy, accountDataScopeService.currentUserId())
+                .eq(ModelProvider::getDeleted, false));
         if (one != null && !one.getId().equals(provider.getId())) {
             throw new ServerException(400, I18nUtils.getMessage("model.provider.name.duplicate"));
         }
@@ -323,6 +344,7 @@ public class ModelProviderController {
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}")
     public WebResponse<Void> update(@PathVariable @NotBlank String id, @RequestBody @Valid ModelProviderDto dto) {
+        ModelProvider existing = requireWritable(id);
         ModelProvider provider = new ModelProvider();
         BeanUtils.copyProperties(dto, provider);
         provider.setId(id);
@@ -332,7 +354,9 @@ public class ModelProviderController {
             provider.setApiKey(null);
         }
         ModelProvider one = modelProviderService.getOne(Wrappers.<ModelProvider>lambdaQuery()
-                .eq(ModelProvider::getName, provider.getName()));
+                .eq(ModelProvider::getName, provider.getName())
+                .eq(ModelProvider::getCreatedBy, existing.getCreatedBy())
+                .eq(ModelProvider::getDeleted, false));
         if (one != null && !one.getId().equals(provider.getId())) {
             throw new ServerException(400, I18nUtils.getMessage("model.provider.name.duplicate"));
         }
@@ -351,6 +375,7 @@ public class ModelProviderController {
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @DeleteMapping("/{id}")
     public WebResponse<Void> delete(@PathVariable @NotBlank String id) {
+        requireWritable(id);
         boolean removed = modelProviderService.removeById(id);
         return WebResponse.OK(removed ? I18nUtils.getMessage("agent.model-provider.delete.success") : I18nUtils.getMessage("agent.model-provider.delete.fail"));
     }
@@ -365,6 +390,7 @@ public class ModelProviderController {
     @Permission(path = "/agent/model-provider", type = Permission.Type.Write)
     @PutMapping("/{id}/status")
     public WebResponse<Void> updateStatus(@PathVariable @NotBlank String id, @RequestBody Status vo) {
+        requireWritable(id);
         ModelProvider provider = new ModelProvider();
         provider.setId(id);
         provider.setStatus(vo.getStatus());
@@ -381,7 +407,7 @@ public class ModelProviderController {
     })
     @PostMapping("/{id}/test")
     public WebResponse<Map<String, Object>> testConnection(@PathVariable @NotBlank String id) {
-        ModelProvider provider = modelProviderService.getById(id);
+        ModelProvider provider = requireReadable(id);
         if (provider == null || Boolean.TRUE.equals(provider.getDeleted()) || StringUtils.isBlank(provider.getApiBaseUrl())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
         }
@@ -406,5 +432,20 @@ public class ModelProviderController {
         result.put("elapsedMs", System.currentTimeMillis() - startedAt);
         result.put("error", error);
         return WebResponse.OK(connected ? I18nUtils.getMessage("agent.model-provider.connection.test.success") : I18nUtils.getMessage("agent.model-provider.connection.test.fail"), result);
+    }
+
+    private ModelProvider requireReadable(String id) {
+        ModelProvider provider = modelProviderService.getById(id);
+        if (provider == null || Boolean.TRUE.equals(provider.getDeleted())) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.model.provider.not.found"));
+        }
+        accountDataScopeService.assertReadable(provider.getCreatedBy());
+        return provider;
+    }
+
+    private ModelProvider requireWritable(String id) {
+        ModelProvider provider = requireReadable(id);
+        accountDataScopeService.assertWritable(provider.getCreatedBy());
+        return provider;
     }
 }

@@ -29,4 +29,6 @@ public class AgentArtifactQueryDto {
      */
     @ApiModelProperty(value = "是否查询回收站", example = "false")
     private Boolean recycled = false;
+    @ApiModelProperty(value = "创建账号 ID，仅管理员可用")
+    private String creatorUserId;
 }

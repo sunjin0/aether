@@ -30,8 +30,8 @@ public class AgentWorkflowExternalInvocationServiceImpl
     @Override
     public AgentWorkflowExternalInvocation getById(java.io.Serializable id) {
         AgentWorkflowExternalInvocation value = super.getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (value != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(value.getTenantId())) return null;
+        String accountId = CurrentUser.dataOwnerId();
+        if (value != null && StringUtils.isNotBlank(accountId) && !accountId.equals(value.getCreatedBy())) return null;
         return value;
     }
 
@@ -46,7 +46,6 @@ public class AgentWorkflowExternalInvocationServiceImpl
                 .eq(AgentWorkflowExternalInvocation::getDeleted, false).last("FOR UPDATE"));
         if (existing != null) return existing;
         AgentWorkflowExternalInvocation value = new AgentWorkflowExternalInvocation();
-        value.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
         value.setApplicationId(StringUtils.defaultIfBlank(applicationId, "0"));
         value.setInstanceId(instanceId);
         value.setNodeInstanceId(nodeInstanceId);

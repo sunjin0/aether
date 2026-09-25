@@ -9,9 +9,11 @@ import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import com.aether.local.CurrentUser;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.HashMap;
 
 /**
  * 异步配置
@@ -37,6 +39,28 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setKeepAliveSeconds(60);
         executor.setThreadNamePrefix("async-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        // 让自动填充插件在异步写入时仍能获取触发任务的认证账号。
+        executor.setTaskDecorator(delegate -> {
+            HashMap<String, String> captured = CurrentUser.getUser();
+            HashMap<String, String> snapshot = captured == null ? null : new HashMap<>(captured);
+            return () -> {
+                HashMap<String, String> previous = CurrentUser.getUser();
+                try {
+                    if (snapshot == null) {
+                        CurrentUser.remove();
+                    } else {
+                        CurrentUser.set(new HashMap<>(snapshot));
+                    }
+                    delegate.run();
+                } finally {
+                    if (previous == null) {
+                        CurrentUser.remove();
+                    } else {
+                        CurrentUser.set(previous);
+                    }
+                }
+            };
+        });
         executor.initialize();
         return executor;
     }

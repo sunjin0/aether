@@ -42,8 +42,8 @@ public class AgentWorkflowWebhookTriggerServiceImpl
     @Override
     public AgentWorkflowWebhookTrigger getById(java.io.Serializable id) {
         AgentWorkflowWebhookTrigger trigger = super.getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (trigger != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(trigger.getTenantId())) return null;
+        String accountId = CurrentUser.dataOwnerId();
+        if (trigger != null && StringUtils.isNotBlank(accountId) && !accountId.equals(trigger.getCreatedBy())) return null;
         return trigger;
     }
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -73,7 +73,6 @@ public class AgentWorkflowWebhookTriggerServiceImpl
     public AgentWorkflowWebhookTriggerSecretVo create(AgentWorkflowWebhookTriggerDto dto) {
         validate(dto);
         AgentWorkflowWebhookTrigger trigger = new AgentWorkflowWebhookTrigger();
-        trigger.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
         trigger.setWorkflowId(dto.getWorkflowId());
         trigger.setServiceAccountId(dto.getServiceAccountId());
         trigger.setName(dto.getName());

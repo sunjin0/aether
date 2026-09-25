@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_task_event")
-public class AgentTaskEvent extends BaseEntity {
+public class AgentTaskEvent extends AccountOwnedEntity {
     private String taskId, runId, eventType, summary, data;
     private Long occurredAt;
 }

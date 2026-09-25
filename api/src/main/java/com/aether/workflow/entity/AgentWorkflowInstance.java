@@ -1,6 +1,6 @@
 package com.aether.workflow.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,11 +11,10 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_instance")
-public class AgentWorkflowInstance extends BaseEntity {
+public class AgentWorkflowInstance extends AccountOwnedEntity {
     private String runOrigin;
     private String evaluationResultId;
     private String evaluationSnapshotId;
-    private String tenantId;
     /** 统一 Execution 账本中的根节点 ID。 */
     private String executionId;
     /** 继承自工作流定义的业务应用空间。 */

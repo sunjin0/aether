@@ -1,6 +1,6 @@
 package com.aether.workflow.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_audit_event")
-public class AgentWorkflowAuditEvent extends BaseEntity {
+public class AgentWorkflowAuditEvent extends AccountOwnedEntity {
     private String instanceId;
     private String nodeInstanceId;
     private String eventType;

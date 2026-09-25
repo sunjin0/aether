@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -12,11 +12,11 @@ import lombok.experimental.Accessors;
  * 表示智能体知识库BaseBinding。
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_knowledge_base_binding")
 @ApiModel(value = "AgentKnowledgeBaseBinding", description = "Agent knowledge base binding")
-public class AgentKnowledgeBaseBinding extends BaseEntity {
+public class AgentKnowledgeBaseBinding extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "Agent definition ID")
     private String agentDefinitionId;

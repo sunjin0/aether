@@ -11,6 +11,7 @@ public class KnowledgeIndexJobQueryVo {
     private String documentId;
     private String jobType;
     private String status;
+    private String creatorUserId;
     private Long current = 1L;
     private Long pageSize = 20L;
 }

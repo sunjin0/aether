@@ -57,11 +57,13 @@ public class AgentWorkflowCapabilityController {
     @ApiOperation("查询工作流能力")
     @GetMapping
     public WebResponse<List<AgentWorkflowCapability>> list(@RequestParam(required = false) String applicationId,
-                                                           @RequestParam(required = false) String workflowId) {
+                                                           @RequestParam(required = false) String workflowId,
+                                                           @RequestParam(required = false) String creatorUserId) {
         return WebResponse.OK(capabilityService.list(Wrappers.lambdaQuery(AgentWorkflowCapability.class)
                 .eq(StringUtils.isNotBlank(applicationId), AgentWorkflowCapability::getApplicationId, applicationId)
                 .eq(StringUtils.isNotBlank(workflowId), AgentWorkflowCapability::getWorkflowId, workflowId)
-                .eq(StringUtils.isNotBlank(currentTenantId()), AgentWorkflowCapability::getTenantId, currentTenantId())
+                .eq(StringUtils.isNotBlank(currentDataOwnerId()), AgentWorkflowCapability::getCreatedBy, currentDataOwnerId())
+                .eq(StringUtils.isBlank(currentDataOwnerId()) && StringUtils.isNotBlank(creatorUserId), AgentWorkflowCapability::getCreatedBy, creatorUserId)
                 .eq(AgentWorkflowCapability::getDeleted, false)
                 .orderByDesc(AgentWorkflowCapability::getUpdatedAt)));
     }
@@ -75,7 +77,6 @@ public class AgentWorkflowCapabilityController {
         applyVersionSchemas(request);
         AgentWorkflowCapability value = new AgentWorkflowCapability();
         BeanUtils.copyProperties(request, value);
-        value.setTenantId(currentTenantId());
         value.setEnabled(Boolean.TRUE.equals(request.getEnabled()));
         // enabled=true is the explicit publish switch; keep status in sync so a
         // newly created enabled capability is immediately visible to the tool catalog.
@@ -84,6 +85,7 @@ public class AgentWorkflowCapabilityController {
         if (capabilityService.count(Wrappers.lambdaQuery(AgentWorkflowCapability.class)
                 .eq(AgentWorkflowCapability::getApplicationId, request.getApplicationId())
                 .eq(AgentWorkflowCapability::getCapabilityCode, request.getCapabilityCode())
+                .eq(AgentWorkflowCapability::getCreatedBy, CurrentUser.userId())
                 .eq(AgentWorkflowCapability::getDeleted, false)) > 0)
             throw new ServerException(409, I18nUtils.getMessage("agent.workflow.capability.code.exists"));
         capabilityService.save(value);
@@ -108,6 +110,7 @@ public class AgentWorkflowCapabilityController {
                 && capabilityService.count(Wrappers.lambdaQuery(AgentWorkflowCapability.class)
                 .eq(AgentWorkflowCapability::getApplicationId, request.getApplicationId())
                 .eq(AgentWorkflowCapability::getCapabilityCode, request.getCapabilityCode())
+                .eq(AgentWorkflowCapability::getCreatedBy, current.getCreatedBy())
                 .ne(AgentWorkflowCapability::getId, id)
                 .eq(AgentWorkflowCapability::getDeleted, false)) > 0)
             throw new ServerException(409, I18nUtils.getMessage("agent.workflow.capability.code.exists"));
@@ -115,7 +118,6 @@ public class AgentWorkflowCapabilityController {
         Integer previousStatus = current.getStatus();
         BeanUtils.copyProperties(request, current);
         current.setId(id);
-        current.setTenantId(currentTenantId());
         if (request.getEnabled() == null) current.setEnabled(previousEnabled);
         if (request.getStatus() == null) current.setStatus(request.getEnabled() != null
                 ? (Boolean.TRUE.equals(request.getEnabled()) ? 1 : 0)
@@ -158,7 +160,7 @@ public class AgentWorkflowCapabilityController {
         AgentWorkflowCapability value = capabilityService.getById(id);
         if (value == null || Boolean.TRUE.equals(value.getDeleted()))
             throw new ServerException(404, I18nUtils.getMessage("agent.workflow.capability.not-found"));
-        if (StringUtils.isNotBlank(currentTenantId()) && !StringUtils.equals(currentTenantId(), value.getTenantId()))
+        if (StringUtils.isNotBlank(currentDataOwnerId()) && !StringUtils.equals(currentDataOwnerId(), value.getCreatedBy()))
             throw new ServerException(403, I18nUtils.getMessage("agent.workflow.capability.application.denied"));
         return value;
     }
@@ -180,7 +182,7 @@ public class AgentWorkflowCapabilityController {
         if (workflow == null || version == null || !request.getWorkflowId().equals(version.getWorkflowId()))
             throw new ServerException(404, I18nUtils.getMessage("agent.workflow.capability.version.invalid"));
         if (!StringUtils.equals(request.getApplicationId(), workflow.getApplicationId())
-                || !tenantMatches(workflow.getTenantId()))
+                || !ownerMatches(workflow.getCreatedBy()))
             throw new ServerException(403, I18nUtils.getMessage("agent.workflow.capability.application.denied"));
         if (!Integer.valueOf(1).equals(workflow.getStatus()) || workflow.getPublishedVersion() == null
                 || !workflow.getPublishedVersion().equals(version.getVersionNo()))
@@ -191,7 +193,7 @@ public class AgentWorkflowCapabilityController {
         AgentWorkflow workflow = workflowService.getById(value.getWorkflowId());
         AgentWorkflowVersion version = versionService.getById(value.getWorkflowVersionId());
         if (workflow == null || version == null || !StringUtils.equals(value.getApplicationId(), workflow.getApplicationId())
-                || !tenantMatches(workflow.getTenantId()) || !Integer.valueOf(1).equals(workflow.getStatus())
+                || !ownerMatches(workflow.getCreatedBy()) || !Integer.valueOf(1).equals(workflow.getStatus())
                 || !Integer.valueOf(version.getVersionNo()).equals(workflow.getPublishedVersion()))
             throw new ServerException(409, I18nUtils.getMessage("agent.workflow.capability.version.invalid"));
     }
@@ -231,12 +233,12 @@ public class AgentWorkflowCapabilityController {
                 .forEach(binding -> toolCatalog.evict(binding.getAgentDefinitionId()));
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
     }
 
-    private boolean tenantMatches(String tenantId) {
-        String current = currentTenantId();
-        return StringUtils.isBlank(current) || StringUtils.isBlank(tenantId) || StringUtils.equals(current, tenantId);
+    private boolean ownerMatches(String accountId) {
+        String current = currentDataOwnerId();
+        return StringUtils.isBlank(current) || (StringUtils.isNotBlank(accountId) && StringUtils.equals(current, accountId));
     }
 }

@@ -1,7 +1,7 @@
 package com.aether.knowledge.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
@@ -12,14 +12,11 @@ import lombok.experimental.Accessors;
  * 文档（V0.7预留）
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("knowledge_document")
 @ApiModel(value = "KnowledgeDocument对象", description = "文档")
-public class KnowledgeDocument extends BaseEntity {
-
-    /** 冗余租户边界，便于文档和文件对象独立校验。 */
-    private String tenantId;
+public class KnowledgeDocument extends AccountOwnedEntity {
 
     /**
      * 关联知识库 ID。

@@ -49,9 +49,9 @@ public class AuditCenterController {
                 .ge(startTime != null, "created_at", startTime)
                 .le(endTime != null, "created_at", endTime)
                 .orderByDesc("created_at");
-        if (CurrentUser.getUser() != null && CurrentUser.getUser().get("tenantId") != null
-                && !CurrentUser.getUser().get("tenantId").trim().isEmpty()) {
-            query.eq("tenant_id", CurrentUser.getUser().get("tenantId"));
+        String accountId = CurrentUser.dataOwnerId();
+        if (accountId != null && !accountId.trim().isEmpty()) {
+            query.eq("created_by", accountId);
         }
         Page<AgentToolCallLog> page = new Page<>(Math.max(1, current), Math.min(Math.max(1, pageSize), 100));
         Page<AgentToolCallLog> result = service.page(page, query);
@@ -69,9 +69,9 @@ public class AuditCenterController {
                 .ge(startTime != null, "created_at", startTime)
                 .le(endTime != null, "created_at", endTime)
                 .orderByDesc("created_at");
-        if (CurrentUser.getUser() != null && CurrentUser.getUser().get("tenantId") != null
-                && !CurrentUser.getUser().get("tenantId").trim().isEmpty())
-            query.eq("tenant_id", CurrentUser.getUser().get("tenantId"));
+        String accountId = CurrentUser.dataOwnerId();
+        if (accountId != null && !accountId.trim().isEmpty())
+            query.eq("created_by", accountId);
         List<AgentToolCallLog> records = service.page(new Page<AgentToolCallLog>(1, safeLimit), query).getRecords();
         StringBuilder csv = new StringBuilder("id,runId,agentDefinitionId,toolId,status,createdAt\n");
         for (AgentToolCallLog record : records) {

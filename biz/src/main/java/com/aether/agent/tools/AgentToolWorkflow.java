@@ -981,7 +981,6 @@ public class AgentToolWorkflow {
         AgentToolCallLog log = new AgentToolCallLog();
         log.setRunId(runId);
         if (com.aether.local.CurrentUser.getUser() != null) {
-            log.setTenantId(com.aether.local.CurrentUser.getUser().get("tenantId"));
         }
         com.aether.agent.entity.AgentRun run = StringUtils.isBlank(runId) ? null : agentRunService.getById(runId);
         if (run != null) log.setApplicationId(run.getApplicationId());

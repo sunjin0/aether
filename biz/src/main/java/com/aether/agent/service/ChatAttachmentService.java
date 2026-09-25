@@ -73,9 +73,9 @@ public class ChatAttachmentService {
             byte[] bytes = file.getBytes();
             // Persist first so native model file inputs can be used even when local
             // OCR/text extraction is unavailable or fails.
-            String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-            String tenantPrefix = StringUtils.isBlank(tenantId) ? "" : tenantId + "/";
-            String objectKey = "chat/" + tenantPrefix + LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
+            String accountId = CurrentUser.userId();
+            String accountPrefix = StringUtils.isBlank(accountId) ? "" : accountId + "/";
+            String objectKey = "chat/" + accountPrefix + LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
                     + "/" + UUID.randomUUID().toString().replace("-", "") + suffix(fileName);
             long uploadStart = System.currentTimeMillis();
             objectStorageService.upload(bucket, objectKey, file);
@@ -107,15 +107,15 @@ public class ChatAttachmentService {
      * 读取聊天附件原始字节，供业务前端回显已上传的文件。
      *
      * <p>objectKey 是客户端传回来的值，因此这里沿用 {@link #resolveNativeFiles} 的同一道前缀校验：
-     * 只允许落在本租户的 {@code chat/} 前缀下，防止拿它当任意对象存储的读取口子。
+     * 只允许落在当前账号的 {@code chat/} 前缀下，防止拿它当任意对象存储的读取口子。
      * 聊天附件没有落库的归属台账（它只随一次对话请求存在），所以前缀是当前可用的边界。</p>
      */
     public byte[] readOwnedAttachment(String objectKey) {
         String key = StringUtils.trimToNull(objectKey);
         if (key == null) throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachment.required"));
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        String allowedPrefix = "chat/" + (StringUtils.isBlank(tenantId) ? "" : tenantId + "/");
-        // 只看前缀还不够："chat/tenant-1/../tenant-2/x" 也是以它开头的，必须把上跳段一并挡掉。
+        String accountId = CurrentUser.userId();
+        String allowedPrefix = "chat/" + (StringUtils.isBlank(accountId) ? "" : accountId + "/");
+        // 只看前缀还不够："chat/account-1/../account-2/x" 也是以它开头的，必须把上跳段一并挡掉。
         if (!key.startsWith(allowedPrefix) || hasTraversalSegment(key))
             throw new ServerException(404, I18nUtils.getMessage("agent.chat.attachment.not-found"));
         return objectStorageService.getObject(bucket, key);
@@ -139,8 +139,8 @@ public class ChatAttachmentService {
         try {
             JSONArray values = JSONArray.parseArray(attachments);
             if (values == null || values.size() > 3) return files;
-            String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-            String allowedPrefix = "chat/" + (StringUtils.isBlank(tenantId) ? "" : tenantId + "/");
+            String accountId = CurrentUser.userId();
+            String allowedPrefix = "chat/" + (StringUtils.isBlank(accountId) ? "" : accountId + "/");
             for (int i = 0; i < values.size(); i++) {
                 JSONObject value = values.getJSONObject(i);
                 if (value == null) continue;

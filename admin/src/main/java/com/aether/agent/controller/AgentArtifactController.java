@@ -66,7 +66,8 @@ public class AgentArtifactController {
     @ApiOperation("查询我的生成文件")
     @PostMapping("/list")
     public WebResponse<List<AgentArtifactVo>> list(@RequestBody AgentArtifactQueryDto query) {
-        Page<AgentArtifactVo> page = artifactService.pageOwned(currentUserId(), query == null ? new AgentArtifactQueryDto() : query);
+        // 管理员查询全量；普通用户由服务层同时按 user_id 和 created_by 收敛到本人。
+        Page<AgentArtifactVo> page = artifactService.pageOwned(CurrentUser.administrator() ? null : currentUserId(), query == null ? new AgentArtifactQueryDto() : query);
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
 
@@ -76,10 +77,10 @@ public class AgentArtifactController {
     @ApiOperation("查询本次运行已生成文件")
     @GetMapping("/run/{runId}")
     public WebResponse<AgentArtifact> byRun(@PathVariable @NotBlank String runId) {
-        String tenantId = currentTenantId();
+        String accountId = currentDataOwnerId();
         AgentArtifact artifact = artifactService.getOne(com.baomidou.mybatisplus.core.toolkit.Wrappers.lambdaQuery(AgentArtifact.class)
-                .eq(AgentArtifact::getRunId, runId).eq(AgentArtifact::getUserId, currentUserId())
-                .eq(StringUtils.isNotBlank(tenantId), AgentArtifact::getTenantId, tenantId)
+                .eq(AgentArtifact::getRunId, runId).eq(StringUtils.isNotBlank(accountId), AgentArtifact::getUserId, currentUserId())
+                .eq(StringUtils.isNotBlank(accountId), AgentArtifact::getCreatedBy, accountId)
                 .isNull(AgentArtifact::getRecycledAt).orderByDesc(AgentArtifact::getCreatedAt).last("limit 1"));
         return WebResponse.OK(artifact);
     }
@@ -128,14 +129,14 @@ public class AgentArtifactController {
      * 当前用户Id。
      */
     private String currentUserId() {
-        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String userId = CurrentUser.userId();
         if (StringUtils.isBlank(userId))
             throw new ServerException(401, I18nUtils.getMessage("agent.artifact.unauthorized"));
         return userId;
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
     }
 
     /**

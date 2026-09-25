@@ -128,6 +128,8 @@ public class GlobalFilter extends OncePerRequestFilter {
                         payload.put("principalId", principalId);
                     }
                     payload.put("userId", userId);
+                    String role = TokenUtils.getClaim(token, "role");
+                    if (role != null && !role.isEmpty()) payload.put("role", role);
                     copyContextHeader(request, payload, "X-Organization-Id", "organizationId");
                     copyContextHeader(request, payload, "X-Team-Id", "teamId");
                     payload.put("token", token);

@@ -6,6 +6,7 @@ import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.service.KnowledgeAccessService;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.local.CurrentUser;
+import com.aether.sys.service.AccountDataScopeService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -19,12 +20,14 @@ import java.util.List;
 /** 知识库访问范围校验服务，统一处理当前用户和知识库状态。 */
 public class KnowledgeAccessServiceImpl implements KnowledgeAccessService {
     private final KnowledgeBaseService knowledgeBaseService;
+    private final AccountDataScopeService dataScopeService;
 
     /**
      * 创建 {@code KnowledgeAccessServiceImpl} 实例。
      */
-    public KnowledgeAccessServiceImpl(KnowledgeBaseService knowledgeBaseService) {
+    public KnowledgeAccessServiceImpl(KnowledgeBaseService knowledgeBaseService, AccountDataScopeService dataScopeService) {
         this.knowledgeBaseService = knowledgeBaseService;
+        this.dataScopeService = dataScopeService;
     }
 
     /**
@@ -33,7 +36,7 @@ public class KnowledgeAccessServiceImpl implements KnowledgeAccessService {
     @Override
     /** 获取当前登录管理员 ID，未登录时抛出认证异常。 */
     public String currentAdminId() {
-        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String userId = CurrentUser.userId();
         if (StringUtils.isBlank(userId)) {
             throw new ServerException(401, I18nUtils.getMessage("knowledge.current-admin.required"));
         }
@@ -46,8 +49,14 @@ public class KnowledgeAccessServiceImpl implements KnowledgeAccessService {
     @Override
     /** 返回当前用户可读取的未删除知识库 ID。 */
     public List<String> readableKnowledgeBaseIds() {
-        currentAdminId();
+        return readableKnowledgeBaseIds(null);
+    }
+
+    @Override
+    public List<String> readableKnowledgeBaseIds(String creatorUserId) {
+        List<String> creators = dataScopeService.readableCreatorIds(creatorUserId);
         return knowledgeBaseService.list(Wrappers.lambdaQuery(KnowledgeBase.class)
+                        .in(KnowledgeBase::getCreatedBy, creators)
                         .eq(KnowledgeBase::getDeleted, false))
                 .stream()
                 .map(KnowledgeBase::getId)
@@ -71,6 +80,7 @@ public class KnowledgeAccessServiceImpl implements KnowledgeAccessService {
     /** 校验知识库可写；具体角色权限由接口权限切面负责。 */
     public KnowledgeBase requireWritable(String knowledgeBaseId) {
         KnowledgeBase base = getActive(knowledgeBaseId);
+        dataScopeService.assertWritable(base.getCreatedBy());
         return base;
     }
 
@@ -98,6 +108,7 @@ public class KnowledgeAccessServiceImpl implements KnowledgeAccessService {
         if (base == null || Boolean.TRUE.equals(base.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("knowledge.base.not-found"));
         }
+        dataScopeService.assertReadable(base.getCreatedBy());
         return base;
     }
 

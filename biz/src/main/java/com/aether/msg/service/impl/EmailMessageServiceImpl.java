@@ -19,6 +19,7 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.aether.local.CurrentUser;
 
 /**
  * <p>
@@ -61,6 +62,8 @@ public class EmailMessageServiceImpl extends ServiceImpl<EmailMessageMapper, Ema
      */
     @Override
     public Page<Email> list(EmailVo message) throws ServerException {
+        String owner = CurrentUser.dataOwnerId();
+        String requestedOwner = StringUtils.isNotBlank(owner) ? owner : message.getCreatorUserId();
         return super.page(new Page<>(message.getCurrent(), message.getPageSize()),
                 Wrappers.lambdaQuery(Email.class)
                         .eq(StringUtils.isNotBlank(message.getId()), Email::getId, message.getId())
@@ -70,6 +73,7 @@ public class EmailMessageServiceImpl extends ServiceImpl<EmailMessageMapper, Ema
                         .eq(message.getType() != null, Email::getType, message.getType())
                         .eq(message.getState() != null, Email::getState, message.getState())
                         .eq(message.getUserId() != null, Email::getUserId, message.getUserId())
+                        .eq(StringUtils.isNotBlank(requestedOwner), Email::getCreatedBy, requestedOwner)
                         .orderByDesc(Email::getCreatedAt));
     }
 

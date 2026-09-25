@@ -87,10 +87,13 @@ public class AgentRunController {
     @PostMapping("/list")
     public WebResponse<List<AgentRunVo>> list(@RequestBody RunList vo) {
         Page<AgentRun> page = new Page<>(vo.getCurrent(), vo.getPageSize());
+        String ownerId = CurrentUser.administrator() ? vo.getUserId() : CurrentUser.userId();
+        String creatorId = CurrentUser.administrator() ? vo.getCreatorUserId() : CurrentUser.userId();
         Wrapper<AgentRun> wrapper = Wrappers.lambdaQuery(AgentRun.class)
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentRun::getAgentDefinitionId, vo.getAgentDefinitionId())
                 .eq(StringUtils.isNotBlank(vo.getConversationId()), AgentRun::getConversationId, vo.getConversationId())
-                .eq(StringUtils.isNotBlank(vo.getUserId()), AgentRun::getUserId, vo.getUserId())
+                .eq(StringUtils.isNotBlank(ownerId), AgentRun::getUserId, ownerId)
+                .eq(StringUtils.isNotBlank(creatorId), AgentRun::getCreatedBy, creatorId)
                 .eq(vo.getStatus() != null, AgentRun::getStatus, vo.getStatus())
                 .ge(vo.getStartTime() != null, AgentRun::getCreatedAt, vo.getStartTime())
                 .le(vo.getEndTime() != null, AgentRun::getCreatedAt, vo.getEndTime())
@@ -123,6 +126,7 @@ public class AgentRunController {
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
         }
+        assertReadable(run);
         AgentRunVo vo = new AgentRunVo();
         BeanUtils.copyProperties(run, vo);
         // 只有单独的审计载荷权限才能触及明文快照；列表接口始终不返回这些字段。
@@ -159,6 +163,7 @@ public class AgentRunController {
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
         }
+        assertReadable(run);
         List<AgentRunStepVo> steps = agentRunStepService.listByRunId(id).stream()
                 // 兼容历史记录：聊天文本分片不是执行步骤，不在执行记录中展示。
                 .filter(item -> !"message.delta".equals(item.getEventType())).map(item -> {
@@ -183,6 +188,7 @@ public class AgentRunController {
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
         }
+        assertReadable(run);
         if (!"DEEP".equals(run.getExecutionMode())) {
             throw new ServerException(422, I18nUtils.getMessage("agent.deep.run.cancel.unsupported"));
         }
@@ -207,6 +213,7 @@ public class AgentRunController {
         if (run == null || Boolean.TRUE.equals(run.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
         }
+        assertReadable(run);
         AgentRunPlanVo plan = planService.detail(id);
         if (plan == null && StringUtils.isNotBlank(run.getTaskId())) {
             plan = planService.detailByTaskId(run.getTaskId());
@@ -227,7 +234,7 @@ public class AgentRunController {
     @ApiOperation("暂停 Agent 运行")
     @PostMapping("/{id}/pause")
     public WebResponse<Void> pause(@PathVariable @NotBlank String id) {
-        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String userId = CurrentUser.userId();
         if (StringUtils.isBlank(userId)) throw new ServerException(401, "未登录");
         deepAgentRunService.pause(id, userId);
         planService.markPaused(id, "用户暂停");
@@ -240,10 +247,16 @@ public class AgentRunController {
     @ApiOperation("恢复 Agent 运行")
     @PostMapping("/{id}/resume")
     public WebResponse<Void> resume(@PathVariable @NotBlank String id) {
-        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String userId = CurrentUser.userId();
         if (StringUtils.isBlank(userId)) throw new ServerException(401, "未登录");
         deepAgentRunService.resume(id, userId);
         planService.markRunning(id);
         return WebResponse.OK("运行已继续");
+    }
+
+    private void assertReadable(AgentRun run) {
+        if (!CurrentUser.administrator() && !StringUtils.equals(CurrentUser.userId(), run.getUserId())) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.run.not-found"));
+        }
     }
 }

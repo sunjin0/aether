@@ -8,6 +8,7 @@ import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
+import com.aether.sys.service.AccountDataScopeService;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -37,6 +38,9 @@ public class AgentToolCallLogController {
 
     private final AgentToolCallLogService agentToolCallLogService;
 
+    @Autowired(required = false)
+    private AccountDataScopeService dataScopeService;
+
     /**
      * 创建 {@code AgentToolCallLogController} 实例。
      */
@@ -60,6 +64,8 @@ public class AgentToolCallLogController {
                 .eq(StringUtils.isNotBlank(vo.getToolId()), AgentToolCallLog::getToolId, vo.getToolId())
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentToolCallLog::getAgentDefinitionId, vo.getAgentDefinitionId())
                 .eq(vo.getStatus() != null, AgentToolCallLog::getStatus, vo.getStatus())
+                .in(dataScopeService != null, AgentToolCallLog::getCreatedBy,
+                        dataScopeService == null ? java.util.Collections.emptyList() : dataScopeService.readableCreatorIds(vo.getCreatorUserId()))
                 .eq(AgentToolCallLog::getDeleted, false)
                 .orderByDesc(AgentToolCallLog::getCreatedAt);
         Page<AgentToolCallLog> result = agentToolCallLogService.page(page, wrapper);
@@ -85,6 +91,7 @@ public class AgentToolCallLogController {
         if (log == null || Boolean.TRUE.equals(log.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.tool-call-log.not-found"));
         }
+        if (dataScopeService != null) dataScopeService.assertReadable(log.getCreatedBy());
         AgentToolCallLogVo vo = new AgentToolCallLogVo();
         BeanUtils.copyProperties(log, vo);
         return WebResponse.OK(vo);

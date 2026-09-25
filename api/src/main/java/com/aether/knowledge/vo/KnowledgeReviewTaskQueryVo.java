@@ -14,6 +14,7 @@ public class KnowledgeReviewTaskQueryVo {
      * all/available/submittedByMe/reviewedByMe
      */
     private String view;
+    private String creatorUserId;
     private Long current = 1L;
     private Long pageSize = 20L;
 }

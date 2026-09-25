@@ -135,8 +135,8 @@ public class FileController {
      */
     private ResponseEntity<byte[]> fileResponse(String objectKey, String fileName, String contentType, boolean inline) {
         validateObjectKey(objectKey);
-        String tenantId = currentTenantId();
-        if (StringUtils.isNotBlank(tenantId) && !objectKey.startsWith("tenant/" + tenantId + "/")) {
+        String accountId = currentDataOwnerId();
+        if (StringUtils.isNotBlank(accountId) && !objectKey.startsWith("account/" + accountId + "/")) {
             throw new ServerException(403, I18nUtils.getMessage("file.identifier.invalid"));
         }
         return fileResponse(bucket, objectKey, fileName, contentType, inline);
@@ -199,19 +199,19 @@ public class FileController {
         if (!objectKey.startsWith("chat/")) {
             throw new ServerException(400, I18nUtils.getMessage("file.identifier.invalid"));
         }
-        String tenantId = currentTenantId();
-        if (StringUtils.isNotBlank(tenantId) && !objectKey.startsWith("chat/" + tenantId + "/")) {
+        String accountId = currentDataOwnerId();
+        if (StringUtils.isNotBlank(accountId) && !objectKey.startsWith("chat/" + accountId + "/")) {
             throw new ServerException(403, I18nUtils.getMessage("file.identifier.invalid"));
         }
     }
 
     private String storagePrefix() {
-        String tenantId = currentTenantId();
-        return StringUtils.isBlank(tenantId) ? "" : "tenant/" + tenantId + "/";
+        String accountId = currentDataOwnerId();
+        return StringUtils.isBlank(accountId) ? "" : "account/" + accountId + "/";
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
     }
 
     /**

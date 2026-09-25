@@ -9,6 +9,7 @@ import com.aether.permission.Permission;
 import com.aether.local.CurrentUser;
 import com.aether.sys.service.ResourceService;
 import com.aether.sys.service.RoleService;
+import com.aether.sys.service.DictService;
 import com.aether.entity.Option;
 import com.aether.entity.WebResponse;
 import com.aether.sys.entity.Role;
@@ -51,6 +52,9 @@ public class RoleController {
     @Resource
     private ResourceService resourceService;
 
+    @Resource
+    private DictService dictService;
+
 
     /**
      * 查询当前请求。
@@ -65,10 +69,10 @@ public class RoleController {
         BeanUtils.copyProperties(request, role);
         Page<Role> dictPage = new Page<>(role.getCurrent(), role.getPageSize());
         Wrapper<Role> queryWrapper = Wrappers.lambdaQuery(Role.class)
-                .eq(StringUtils.isNotBlank(currentOrganizationId()), Role::getScope, "ORGANIZATION")
-                .eq(CurrentUser.getUser() != null && StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")), Role::getTenantId, CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"))
                 .like(StringUtils.isNotBlank(role.getName()), Role::getName, role.getName())
+                .eq(StringUtils.isNotBlank(role.getRoleType()), Role::getRoleType, role.getRoleType())
                 .like(StringUtils.isNotBlank(role.getDescription()), Role::getDescription, role.getDescription())
+                .in(Role::getRoleType, "ADMIN", "USER")
                 .orderByDesc(Role::getCreatedAt);
         Page<Role> rolePage = roleService.page(dictPage, queryWrapper);
         return WebResponse.Page(rolePage.getRecords(), rolePage.getTotal());
@@ -85,15 +89,7 @@ public class RoleController {
     @Permission(path = "/sys/role", type = Permission.Type.Write)
     @GetMapping("/delete")
     public WebResponse<Boolean> delete(@RequestParam @NotBlank String id) throws ServerException {
-        if (StringUtils.isNotBlank(currentOrganizationId())) {
-            throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
-        }
-        requireCurrentTenant(id);
-        LambdaUpdateWrapper<Role> updateWrapper = Wrappers.lambdaUpdate(Role.class);
-        updateWrapper
-                .eq(Role::getId, id);
-        boolean update = roleService.remove(updateWrapper);
-        return WebResponse.OK(update ? I18nUtils.getMessage("system.role.delete.success") : I18nUtils.getMessage("system.role.delete.fail"), update);
+        throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
     }
 
     /**
@@ -108,15 +104,7 @@ public class RoleController {
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"name"})
                                       RoleRequests.SaveRequest request) throws ServerException {
-        if (StringUtils.isNotBlank(currentOrganizationId())) {
-            throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
-        }
-        Role role = new Role();
-        BeanUtils.copyProperties(request, role);
-        if (CurrentUser.getUser() != null) role.setTenantId(CurrentUser.getUser().get("tenantId"));
-        if (StringUtils.isNotBlank(currentOrganizationId())) role.setScope("ORGANIZATION");
-        boolean save = roleService.save(role);
-        return WebResponse.OK(save ? I18nUtils.getMessage("system.role.create.success") : I18nUtils.getMessage("system.role.create.fail"), save);
+        throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
     }
 
     /**
@@ -131,14 +119,7 @@ public class RoleController {
     public WebResponse<Boolean> update(@RequestBody
                                        @ValidEntity(fieldNames = {"name"})
                                         RoleRequests.UpdateRequest request) throws ServerException {
-        if (StringUtils.isNotBlank(currentOrganizationId())) {
-            throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
-        }
-        Role role = new Role();
-        BeanUtils.copyProperties(request, role);
-        requireCurrentTenant(request.getId());
-        boolean update = roleService.updateById(role);
-        return WebResponse.OK(update ? I18nUtils.getMessage("system.role.update.success") : I18nUtils.getMessage("system.role.update.fail"), update);
+        throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
     }
 
     /**
@@ -151,7 +132,7 @@ public class RoleController {
     })
     @GetMapping("/info")
     public WebResponse<Role> detail(@RequestParam @NotBlank String id) throws ServerException {
-        Role role = requireCurrentTenant(id);
+        Role role = requireRole(id);
         return WebResponse.OK(role);
     }
 
@@ -164,15 +145,22 @@ public class RoleController {
     })
     @GetMapping("/options")
     public WebResponse<List<Option>> options() throws ServerException {
-        String tenantId = currentTenantId();
         List<Option> options = roleService.lambdaQuery()
-                .select(Role::getId, Role::getName)
-                .eq(StringUtils.isNotBlank(tenantId), Role::getTenantId, tenantId)
+                .select(Role::getId, Role::getName, Role::getRoleType)
+                .in(Role::getRoleType, "ADMIN", "USER")
                 .list()
                 .stream()
                 .map(role -> new Option(role.getName(), role.getId()))
                 .collect(Collectors.toList());
         return WebResponse.OK(options);
+    }
+
+    /** 角色类型下拉选项，统一从系统字典读取。 */
+    @ApiOperation(value = "角色类型下拉框数据")
+    @GetMapping("/type-options")
+    @Permission(required = false)
+    public WebResponse<List<Option>> typeOptions() {
+        return WebResponse.OK(dictService.getOptions("System_Role_Type", true));
     }
 
     /**
@@ -191,19 +179,9 @@ public class RoleController {
         return WebResponse.OK(list.getRecords());
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-    }
-
-    private String currentOrganizationId() {
-        return CurrentUser.organizationId();
-    }
-
-    private Role requireCurrentTenant(String id) {
+    private Role requireRole(String id) {
         Role role = roleService.getById(id);
-        String tenantId = currentTenantId();
-        if (role == null || (StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(role.getTenantId())
-                && !tenantId.equals(role.getTenantId())))
+        if (role == null || !("ADMIN".equalsIgnoreCase(role.getRoleType()) || "USER".equalsIgnoreCase(role.getRoleType())))
             throw new ServerException(404, I18nUtils.getMessage("system.role.not-found"));
         return role;
     }

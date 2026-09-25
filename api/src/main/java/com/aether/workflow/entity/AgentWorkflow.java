@@ -1,7 +1,7 @@
 package com.aether.workflow.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
@@ -12,14 +12,11 @@ import lombok.experimental.Accessors;
  * AI 工作流定义。nodes/edges 始终保存当前草稿，发布内容保存在版本快照中。
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_workflow")
 @ApiModel(value = "AgentWorkflow对象", description = "工作流")
-public class AgentWorkflow extends BaseEntity {
-
-    @ApiModelProperty(value = "所属租户")
-    private String tenantId;
+public class AgentWorkflow extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;

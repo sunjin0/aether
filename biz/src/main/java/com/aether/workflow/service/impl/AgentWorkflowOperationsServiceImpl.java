@@ -40,11 +40,11 @@ public class AgentWorkflowOperationsServiceImpl implements AgentWorkflowOperatio
      */
     @Override
     public AgentWorkflowOperationsMetricsVo metrics() {
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        Map<String, Object> instances = metricsMapper.instanceMetrics(tenantId);
-        Map<String, Object> nodes = metricsMapper.nodeMetrics(tenantId);
-        Map<String, Object> callbacks = metricsMapper.callbackMetrics(tenantId);
-        Map<String, Object> jobs = metricsMapper.executionMetrics(tenantId);
+        String accountId = CurrentUser.dataOwnerId();
+        Map<String, Object> instances = metricsMapper.instanceMetrics(accountId);
+        Map<String, Object> nodes = metricsMapper.nodeMetrics(accountId);
+        Map<String, Object> callbacks = metricsMapper.callbackMetrics(accountId);
+        Map<String, Object> jobs = metricsMapper.executionMetrics(accountId);
         AgentWorkflowOperationsMetricsVo value = new AgentWorkflowOperationsMetricsVo();
         long total = number(instances, "total");
         long completed = number(instances, "completed");
@@ -68,11 +68,11 @@ public class AgentWorkflowOperationsServiceImpl implements AgentWorkflowOperatio
     @Override
     public List<AgentWorkflowDeadLetterVo> deadLetters(int limit) {
         int size = Math.max(1, Math.min(limit, 200));
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        String accountId = CurrentUser.dataOwnerId();
         List<AgentWorkflowDeadLetterVo> result = new ArrayList<AgentWorkflowDeadLetterVo>();
         for (AgentWorkflowExecutionJob job : jobService.list(Wrappers.lambdaQuery(AgentWorkflowExecutionJob.class)
                 .eq(AgentWorkflowExecutionJob::getStatus, "FAILED").eq(AgentWorkflowExecutionJob::getDeleted, false)
-                .eq(StringUtils.isNotBlank(tenantId), AgentWorkflowExecutionJob::getTenantId, tenantId)
+                .eq(StringUtils.isNotBlank(accountId), AgentWorkflowExecutionJob::getCreatedBy, accountId)
                 .orderByDesc(AgentWorkflowExecutionJob::getUpdatedAt).last("LIMIT " + size))) {
             AgentWorkflowDeadLetterVo value = new AgentWorkflowDeadLetterVo();
             value.setType("EXECUTION_JOB");
@@ -86,7 +86,7 @@ public class AgentWorkflowOperationsServiceImpl implements AgentWorkflowOperatio
         }
         for (AgentWorkflowCallbackDelivery delivery : callbackService.list(Wrappers.lambdaQuery(AgentWorkflowCallbackDelivery.class)
                 .eq(AgentWorkflowCallbackDelivery::getStatus, "FAILED").eq(AgentWorkflowCallbackDelivery::getDeleted, false)
-                .eq(StringUtils.isNotBlank(tenantId), AgentWorkflowCallbackDelivery::getTenantId, tenantId)
+                .eq(StringUtils.isNotBlank(accountId), AgentWorkflowCallbackDelivery::getCreatedBy, accountId)
                 .orderByDesc(AgentWorkflowCallbackDelivery::getUpdatedAt).last("LIMIT " + size))) {
             AgentWorkflowDeadLetterVo value = new AgentWorkflowDeadLetterVo();
             value.setType("CALLBACK");

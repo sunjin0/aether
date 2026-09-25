@@ -3,6 +3,7 @@ package com.aether.knowledge.service.impl;
 import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.local.CurrentUser;
+import com.aether.sys.service.AccountDataScopeService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,10 +13,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -25,6 +28,8 @@ import static org.mockito.Mockito.when;
 class KnowledgeAccessServiceImplTest {
     @Mock
     private KnowledgeBaseService baseService;
+    @Mock
+    private AccountDataScopeService dataScopeService;
     private KnowledgeAccessServiceImpl service;
 
     /**
@@ -32,10 +37,11 @@ class KnowledgeAccessServiceImplTest {
      */
     @BeforeEach
     void setUp() {
-        service = new KnowledgeAccessServiceImpl(baseService);
+        service = new KnowledgeAccessServiceImpl(baseService, dataScopeService);
         HashMap<String, String> user = new HashMap<>();
         user.put("userId", "admin-1");
         CurrentUser.set(user);
+        lenient().when(dataScopeService.readableCreatorIds(any())).thenReturn(Collections.singletonList("admin-1"));
     }
 
     /**
@@ -53,10 +59,10 @@ class KnowledgeAccessServiceImplTest {
     void readableIdsIncludeAllKnowledgeBasesWhenAccessControlIsDisabled() {
         KnowledgeBase platform = new KnowledgeBase();
         platform.setId("kb-1");
-        platform.setVisibility("platform");
+        platform.setCreatedBy("admin-1");
         KnowledgeBase owned = new KnowledgeBase();
         owned.setId("kb-2");
-        owned.setOwnerAdminId("admin-1");
+        owned.setCreatedBy("admin-1");
         when(baseService.list(any())).thenReturn(Arrays.asList(platform, owned));
         assertEquals(Arrays.asList("kb-1", "kb-2"), service.readableKnowledgeBaseIds());
     }
@@ -66,9 +72,9 @@ class KnowledgeAccessServiceImplTest {
      */
     @Test
     void privateKnowledgeBaseIsReadableWhenAccessControlIsDisabled() {
-        KnowledgeBase base = new KnowledgeBase().setVisibility("private");
+        KnowledgeBase base = new KnowledgeBase();
         base.setId("kb-1");
-        base.setOwnerAdminId("admin-2");
+        base.setCreatedBy("admin-1");
         when(baseService.getById("kb-1")).thenReturn(base);
         assertSame(base, service.requireReadable("kb-1"));
     }
@@ -78,9 +84,9 @@ class KnowledgeAccessServiceImplTest {
      */
     @Test
     void anyAuthenticatedAdministratorMayWriteWhenAccessControlIsDisabled() {
-        KnowledgeBase base = new KnowledgeBase().setVisibility("shared");
+        KnowledgeBase base = new KnowledgeBase();
         base.setId("kb-1");
-        base.setOwnerAdminId("admin-2");
+        base.setCreatedBy("admin-1");
         when(baseService.getById("kb-1")).thenReturn(base);
 
         assertSame(base, service.requireWritable("kb-1"));

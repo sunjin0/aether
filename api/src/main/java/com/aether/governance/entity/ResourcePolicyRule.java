@@ -1,6 +1,6 @@
 package com.aether.governance.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -9,7 +9,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("aether_resource_policy_rule")
-public class ResourcePolicyRule extends BaseEntity {
+public class ResourcePolicyRule extends AccountOwnedEntity {
     private String subjectType;
     private String subjectId;
     private String resourceType;

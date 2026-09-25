@@ -16,6 +16,7 @@ import com.aether.knowledge.entity.KnowledgeBase;
 import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.workflow.entity.AgentWorkflowInstance;
 import com.aether.workflow.entity.AgentWorkflowCallbackDelivery;
 import com.aether.workflow.entity.AgentWorkflow;
@@ -54,16 +55,18 @@ public class AgentApplicationController {
     private final AgentWorkflowService workflowService;
     private final KnowledgeBaseService knowledgeBaseService;
     private final AgentProductProfileService profileService;
+    private final AccountDataScopeService dataScopeService;
 
     public AgentApplicationController(AgentApplicationService applicationService, AgentRunService agentRunService,
                                        AgentWorkflowInstanceService workflowInstanceService, AgentWorkflowCallbackDeliveryService callbackDeliveryService,
                                        ServiceAccountService serviceAccountService, AgentDefinitionService agentDefinitionService,
                                        AgentWorkflowService workflowService, KnowledgeBaseService knowledgeBaseService,
-                                       AgentProductProfileService profileService) {
+                                       AgentProductProfileService profileService, AccountDataScopeService dataScopeService) {
         this.applicationService = applicationService;
         this.agentRunService = agentRunService; this.workflowInstanceService = workflowInstanceService; this.callbackDeliveryService = callbackDeliveryService;
         this.serviceAccountService = serviceAccountService; this.agentDefinitionService = agentDefinitionService;
         this.workflowService = workflowService; this.knowledgeBaseService = knowledgeBaseService; this.profileService = profileService;
+        this.dataScopeService = dataScopeService;
     }
 
     @ApiOperation("查询 Agent 应用列表")
@@ -77,6 +80,7 @@ public class AgentApplicationController {
                         .like(query != null && StringUtils.hasText(query.getName()), AgentApplication::getName, query == null ? null : query.getName())
                         .like(query != null && StringUtils.hasText(query.getCode()), AgentApplication::getCode, query == null ? null : query.getCode())
                         .eq(query != null && query.getStatus() != null, AgentApplication::getStatus, query == null ? null : query.getStatus())
+                        .in(AgentApplication::getCreatedBy, dataScopeService.readableCreatorIds(query == null ? null : query.getCreatorUserId()))
                         .orderByDesc(AgentApplication::getCreatedAt));
         return WebResponse.Page(page.getRecords().stream().map(this::vo).collect(Collectors.toList()), page.getTotal());
     }
@@ -89,6 +93,7 @@ public class AgentApplicationController {
         AgentApplication entity = new AgentApplication();
         BeanUtils.copyProperties(dto, entity);
         if (applicationService.count(Wrappers.lambdaQuery(AgentApplication.class).eq(AgentApplication::getCode, entity.getCode())
+                .eq(AgentApplication::getCreatedBy, dataScopeService.currentUserId())
                 .eq(AgentApplication::getDeleted, false)) > 0)
             throw new ServerException(422, I18nUtils.getMessage("agent.application.code.exists"));
         if (entity.getStatus() == null) entity.setStatus(1);
@@ -102,10 +107,12 @@ public class AgentApplicationController {
     public WebResponse<Void> update(@PathVariable String id, @RequestBody AgentApplicationDto dto) {
         AgentApplication entity = applicationService.getById(id);
         if (entity == null || Boolean.TRUE.equals(entity.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.application.not-found"));
+        dataScopeService.assertWritable(entity.getCreatedBy());
         validate(dto);
         if (!entity.getCode().equals(dto.getCode())
                 && applicationService.count(Wrappers.lambdaQuery(AgentApplication.class)
                 .eq(AgentApplication::getCode, dto.getCode())
+                .eq(AgentApplication::getCreatedBy, entity.getCreatedBy())
                 .ne(AgentApplication::getId, id).eq(AgentApplication::getDeleted, false)) > 0)
             throw new ServerException(422, I18nUtils.getMessage("agent.application.code.exists"));
         BeanUtils.copyProperties(dto, entity);
@@ -119,6 +126,7 @@ public class AgentApplicationController {
     public WebResponse<Void> delete(@PathVariable String id) {
         AgentApplication entity = applicationService.getById(id);
         if (entity == null || Boolean.TRUE.equals(entity.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.application.not-found"));
+        dataScopeService.assertWritable(entity.getCreatedBy());
         if ("0".equals(id)) throw new ServerException(422, I18nUtils.getMessage("agent.application.default.delete.forbidden"));
         if (hasReferences(id)) throw new ServerException(422, I18nUtils.getMessage("agent.application.delete.references.exist"));
         applicationService.removeById(id);
@@ -130,6 +138,7 @@ public class AgentApplicationController {
     @Permission(path = "/agent/application")
     public WebResponse<AgentApplicationUsageVo> usage(@PathVariable String id) {
         AgentApplication application = applicationService.requireActive(id);
+        dataScopeService.assertReadable(application.getCreatedBy());
         AgentApplicationUsageVo value = new AgentApplicationUsageVo(); value.setApplicationId(id);
         java.util.List<AgentRun> runs = agentRunService.list(Wrappers.lambdaQuery(AgentRun.class).eq(AgentRun::getApplicationId, id).eq(AgentRun::getDeleted, false));
         value.setAgentRuns((long) runs.size()); value.setTotalTokens(runs.stream().mapToLong(item -> item.getTotalTokens() == null ? 0L : item.getTotalTokens()).sum());

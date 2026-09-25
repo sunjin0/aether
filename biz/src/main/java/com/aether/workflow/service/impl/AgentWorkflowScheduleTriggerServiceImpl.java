@@ -39,8 +39,8 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
     @Override
     public AgentWorkflowScheduleTrigger getById(java.io.Serializable id) {
         AgentWorkflowScheduleTrigger trigger = super.getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (trigger != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(trigger.getTenantId())) return null;
+        String accountId = CurrentUser.dataOwnerId();
+        if (trigger != null && StringUtils.isNotBlank(accountId) && !accountId.equals(trigger.getCreatedBy())) return null;
         return trigger;
     }
     private static final long LEASE_MILLIS = 5 * 60 * 1000L;
@@ -67,7 +67,6 @@ public class AgentWorkflowScheduleTriggerServiceImpl extends ServiceImpl<AgentWo
         validate(dto);
         long now = System.currentTimeMillis();
         AgentWorkflowScheduleTrigger trigger = new AgentWorkflowScheduleTrigger();
-        trigger.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
         trigger.setWorkflowId(dto.getWorkflowId());
         trigger.setServiceAccountId(dto.getServiceAccountId());
         trigger.setName(dto.getName());

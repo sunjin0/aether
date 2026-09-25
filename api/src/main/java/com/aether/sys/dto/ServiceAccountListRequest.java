@@ -10,4 +10,5 @@ public class ServiceAccountListRequest {
     @ApiModelProperty(value = "页码", example = "1") private Long current;
     @ApiModelProperty(value = "每页数量", example = "20") private Long pageSize;
     @ApiModelProperty(value = "应用 ID", example = "app-1") private String applicationId;
+    @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
 }

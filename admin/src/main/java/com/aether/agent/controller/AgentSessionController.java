@@ -126,9 +126,9 @@ public class AgentSessionController {
     public WebResponse<Map<String, Object>> overview() {
         String userId = currentUserId();
         List<AgentSession> ownedSessions = sessions.list(Wrappers.lambdaQuery(AgentSession.class)
-                .eq(AgentSession::getUserId, userId).eq(AgentSession::getDeleted, false));
+                .eq(!CurrentUser.administrator(), AgentSession::getUserId, userId).eq(AgentSession::getDeleted, false));
         List<AgentTask> ownedTasks = tasks.list(Wrappers.lambdaQuery(AgentTask.class)
-                .eq(AgentTask::getUserId, userId).eq(AgentTask::getDeleted, false));
+                .eq(!CurrentUser.administrator(), AgentTask::getUserId, userId).eq(AgentTask::getDeleted, false));
         Map<String, Integer> taskStatusCounts = new LinkedHashMap<String, Integer>();
         int completed = 0;
         int manualIntervention = 0;
@@ -179,7 +179,7 @@ public class AgentSessionController {
         String message = StringUtils.trimToEmpty(input.getMessage());
         if (StringUtils.isBlank(message)) throw new ServerException(400, "任务内容不能为空");
         AgentConversation conversation = conversations.getById(conversationId);
-        if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted()) || !userId.equals(conversation.getUserId())
+        if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted()) || (!CurrentUser.administrator() && !userId.equals(conversation.getUserId()))
                 || !Integer.valueOf(0).equals(conversation.getStatus())) {
             throw new ServerException(409, "聊天会话不可继续执行");
         }
@@ -474,7 +474,7 @@ public class AgentSessionController {
     private AgentSession requireReadableSession(String sessionId) {
         AgentSession session = sessions.getById(sessionId);
         if (session == null || Boolean.TRUE.equals(session.getDeleted())
-                || (!currentUserId().equals(session.getUserId()) && !isExternalPrincipal(session.getUserId()))) {
+                || (!CurrentUser.administrator() && !currentUserId().equals(session.getUserId()))) {
             throw new ServerException(404, "Agent Session 不存在");
         }
         return session;
@@ -486,7 +486,7 @@ public class AgentSessionController {
     private AgentSession getReadableSessionByConversation(String conversationId) {
         AgentConversation conversation = conversations.getById(conversationId);
         if (conversation == null || Boolean.TRUE.equals(conversation.getDeleted())
-                || (!currentUserId().equals(conversation.getUserId()) && !isExternalPrincipal(conversation.getUserId()))) {
+                || (!CurrentUser.administrator() && !currentUserId().equals(conversation.getUserId()))) {
             throw new ServerException(404, "Agent Session 不存在");
         }
         AgentSession session = sessions.getOne(Wrappers.lambdaQuery(AgentSession.class)
@@ -495,7 +495,7 @@ public class AgentSessionController {
         if (session == null && isExternalPrincipal(conversation.getUserId())) {
             session = sessions.getOrCreate(conversation.getId(), conversation.getUserId(), conversation.getAgentDefinitionId());
         }
-        if (session == null || (!currentUserId().equals(session.getUserId()) && !isExternalPrincipal(session.getUserId()))) {
+        if (session == null || (!CurrentUser.administrator() && !currentUserId().equals(session.getUserId()))) {
             throw new ServerException(404, "Agent Session 不存在");
         }
         return session;
@@ -509,7 +509,7 @@ public class AgentSessionController {
      * 当前用户Id。
      */
     private String currentUserId() {
-        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String userId = CurrentUser.userId();
         if (StringUtils.isBlank(userId)) throw new ServerException(401, "未登录");
         return userId;
     }

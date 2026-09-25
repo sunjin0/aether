@@ -123,12 +123,12 @@ public class SkillRouterService {
      * 处理route缓存Key。
      */
     private String routeCacheKey(AgentDefinition agent, String query, List<AgentDefinitionSkillBinding> bindings) {
-        String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
+        String accountId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("userId");
         String installedVersions = bindings.stream().map(binding -> StringUtils.defaultString(binding.getSkillVersionId()) + ':'
                         + StringUtils.defaultString(binding.getSkillId()) + ':' + StringUtils.defaultString(binding.getPriority() == null ? null : binding.getPriority().toString())
                         + ':' + StringUtils.defaultString(binding.getStatus() == null ? null : binding.getStatus().toString()))
                 .sorted().collect(Collectors.joining("|"));
-        return tenantId + '|' + StringUtils.defaultString(agent == null ? null : agent.getId()) + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + installedVersions;
+        return accountId + '|' + StringUtils.defaultString(agent == null ? null : agent.getId()) + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + installedVersions;
     }
 
     /**

@@ -105,6 +105,7 @@ public class LoginController {
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
+    @Permission(path = "/sys")
     @GetMapping("/info")
     public WebResponse<UserVo> info() {
         return WebResponse.OK(userService.detail());
@@ -117,6 +118,7 @@ public class LoginController {
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
+    @Permission(path = "/sys")
     @GetMapping("/getRouters")
     @ApiImplicitParam(name = "Authorization", value = "token", required = true, paramType = "header")
     public WebResponse<List<ResourceVo>> getRouters() {
@@ -146,6 +148,7 @@ public class LoginController {
     @ApiImplicitParams({
             @ApiImplicitParam(name = "Authorization", value = "访问令牌", required = true, dataType = "string", paramType = "header")
     })
+    @Permission(path = "/sys")
     @GetMapping("/logout")
     public WebResponse<Boolean> logout() {
         boolean logout = userService.logout();

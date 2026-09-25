@@ -1,6 +1,6 @@
 package com.aether.msg.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -17,11 +17,11 @@ import lombok.experimental.Accessors;
  * @since 2024-09-11
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("msg_sms")
 @ApiModel(value = "MsgSms对象", description = "短信消息发送记录")
-public class Sms extends BaseEntity {
+public class Sms extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "用户id")
     private String userId;

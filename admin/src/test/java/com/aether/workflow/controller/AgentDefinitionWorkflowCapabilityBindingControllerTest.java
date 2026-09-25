@@ -62,7 +62,7 @@ class AgentDefinitionWorkflowCapabilityBindingControllerTest {
 
         HashMap<String, String> user = new HashMap<String, String>();
         user.put("userId", "user-1");
-        user.put("tenantId", "tenant-1");
+        user.put("userId", "account-1");
         CurrentUser.set(user);
 
         controller = new AgentDefinitionWorkflowCapabilityBindingController(
@@ -129,7 +129,7 @@ class AgentDefinitionWorkflowCapabilityBindingControllerTest {
         AgentDefinition agent = new AgentDefinition();
         agent.setId("agent-1");
         agent.setApplicationId("application-1");
-        agent.setTenantId("tenant-1");
+        agent.setCreatedBy("account-1");
         agent.setExecutionMode(executionMode);
         lenient().when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
     }

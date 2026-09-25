@@ -115,7 +115,7 @@ public class AgentChatWorkflowController {
     }
 
     private String currentUserId() {
-        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String userId = CurrentUser.userId();
         if (StringUtils.isBlank(userId)) throw new ServerException(401, I18nUtils.getMessage("agent.unauthorized"));
         return userId;
     }

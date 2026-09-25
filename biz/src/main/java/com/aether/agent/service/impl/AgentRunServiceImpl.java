@@ -5,6 +5,7 @@ import com.aether.agent.mapper.AgentRunMapper;
 import com.aether.agent.service.AgentRunContextMetricService;
 import com.aether.agent.service.AgentRunService;
 import com.aether.agent.vo.AgentRunStatisticsVo;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.apache.commons.lang3.StringUtils;
@@ -34,6 +35,7 @@ public class AgentRunServiceImpl extends ServiceImpl<AgentRunMapper, AgentRun> i
     public AgentRunStatisticsVo statistics(String agentDefinitionId, Long startTime, Long endTime) {
         List<AgentRun> runs = list(Wrappers.lambdaQuery(AgentRun.class)
                 .eq(StringUtils.isNotBlank(agentDefinitionId), AgentRun::getAgentDefinitionId, agentDefinitionId)
+                .eq(StringUtils.isNotBlank(CurrentUser.dataOwnerId()), AgentRun::getUserId, CurrentUser.dataOwnerId())
                 .ge(startTime != null, AgentRun::getCreatedAt, startTime)
                 .le(endTime != null, AgentRun::getCreatedAt, endTime)
                 .eq(AgentRun::getDeleted, false));

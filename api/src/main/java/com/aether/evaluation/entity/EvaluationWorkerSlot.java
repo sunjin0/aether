@@ -1,6 +1,6 @@
 package com.aether.evaluation.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -9,7 +9,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("evaluation_worker_slot")
-public class EvaluationWorkerSlot extends BaseEntity {
+public class EvaluationWorkerSlot extends AccountOwnedEntity {
     private String phase;
     private Integer slotNo;
     private String taskId;

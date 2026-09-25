@@ -10,4 +10,5 @@ public class AgentWorkflowListRequest {
     @ApiModelProperty(value = "工作流名称", required = false, example = "订单审核") private String name;
     @ApiModelProperty(value = "状态：0-草稿，1-启用，2-禁用", required = false, example = "1") private Integer status;
     @ApiModelProperty(value = "所属业务应用空间", required = false, example = "app-001") private String applicationId;
+    @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
 }

@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -12,11 +12,11 @@ import lombok.experimental.Accessors;
  * 模型供应商
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_model_provider")
 @ApiModel(value = "ModelProvider对象", description = "模型供应商")
-public class ModelProvider extends BaseEntity {
+public class ModelProvider extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "输入每百万Token价格")
     private java.math.BigDecimal inputPricePerMillionTokens;

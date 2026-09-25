@@ -7,6 +7,7 @@ import com.aether.i18n.I18nService;
 import com.aether.i18n.I18nUtils;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.mapper.ServiceAccountMapper;
+import com.aether.sys.service.AccountDataScopeService;
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +43,8 @@ class ServiceAccountServiceImplTest {
     @Mock
     private AgentDefinitionService agentDefinitionService;
     @Mock
+    private AccountDataScopeService dataScopeService;
+    @Mock
     private ValueOperations<String, Object> valueOperations;
 
     private ServiceAccountServiceImpl service;
@@ -52,7 +55,7 @@ class ServiceAccountServiceImplTest {
         lenient().when(i18n.getMessage(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         ReflectionTestUtils.setField(I18nUtils.class, "i18nService", i18n);
-        service = new ServiceAccountServiceImpl(new BCryptPasswordEncoder(), redisTemplate, agentDefinitionService, 900);
+        service = new ServiceAccountServiceImpl(new BCryptPasswordEncoder(), redisTemplate, agentDefinitionService, dataScopeService, 900);
         Field baseMapperField = ServiceImpl.class.getDeclaredField("baseMapper");
         baseMapperField.setAccessible(true);
         baseMapperField.set(service, serviceAccountMapper);

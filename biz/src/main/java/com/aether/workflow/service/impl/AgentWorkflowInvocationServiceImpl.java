@@ -118,7 +118,6 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
             throw failure(403, "agent.workflow.capability.application.denied");
 
         AgentWorkflowInvocation invocation = new AgentWorkflowInvocation();
-        invocation.setTenantId(capability.getTenantId());
         invocation.setApplicationId(capability.getApplicationId());
         invocation.setCapabilityId(capabilityId);
         invocation.setWorkflowId(capability.getWorkflowId());
@@ -525,7 +524,6 @@ public class AgentWorkflowInvocationServiceImpl implements AgentWorkflowInvocati
         AgentWorkflowInvocationCommand command = commandService.findByOperation(invocation.getId(), commandType, operationKey);
         if (command != null) return;
         command = new AgentWorkflowInvocationCommand();
-        command.setTenantId(invocation.getTenantId());
         command.setApplicationId(invocation.getApplicationId());
         command.setInvocationId(invocation.getId());
         command.setCommandType(commandType);

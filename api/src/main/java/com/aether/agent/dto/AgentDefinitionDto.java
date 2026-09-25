@@ -14,9 +14,6 @@ import java.util.List;
 @ApiModel("智能体定义创建或更新请求")
 public class AgentDefinitionDto {
 
-    @ApiModelProperty(value = "所属租户；普通编辑不可跨租户指定")
-    private String tenantId;
-
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
 
@@ -56,9 +53,6 @@ public class AgentDefinitionDto {
 
     @ApiModelProperty(value = "标准 Agent 推理策略：DIRECT 或 REACT")
     private String reasoningStrategy;
-
-    @ApiModelProperty(value = "访问类型")
-    private String accessType;
 
     @ApiModelProperty(value = "排序号")
     private Integer sort;

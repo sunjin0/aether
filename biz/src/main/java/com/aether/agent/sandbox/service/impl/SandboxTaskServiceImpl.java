@@ -101,7 +101,6 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
         long now = System.currentTimeMillis();
         SandboxExecutionTask task = new SandboxExecutionTask();
         if (com.aether.local.CurrentUser.getUser() != null) {
-            task.setTenantId(com.aether.local.CurrentUser.getUser().get("tenantId"));
         }
         task.setTemplateId(template.getId());
         task.setTemplateVersionId(version.getId());
@@ -179,7 +178,7 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
      * 处理decide。
      */
     private void decide(String id, String userId, String reason, String decision, String next) {
-        SandboxExecutionTask task = owned(id, userId, false);
+        SandboxExecutionTask task = owned(id, userId, com.aether.local.CurrentUser.administrator());
         if (!PENDING_APPROVAL.equals(task.getStatus())) throw conflict("task is not awaiting approval");
         long now = System.currentTimeMillis();
         if (task.getExpiresAt() <= now) {
@@ -205,7 +204,7 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void cancel(String id, String userId, String reason) {
-        SandboxExecutionTask task = owned(id, userId, false);
+        SandboxExecutionTask task = owned(id, userId, com.aether.local.CurrentUser.administrator());
         if (terminal(task.getStatus())) return;
         long now = System.currentTimeMillis();
         task.setCancelRequestedAt(now);
@@ -223,7 +222,7 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public SandboxTaskVo retry(String id, String userId) {
-        SandboxExecutionTask previous = owned(id, userId, false);
+        SandboxExecutionTask previous = owned(id, userId, com.aether.local.CurrentUser.administrator());
         if (!FAILED.equals(previous.getStatus()) && !TIMED_OUT.equals(previous.getStatus()) && !CANCELLED.equals(previous.getStatus()))
             throw conflict("only failed, timed out, or cancelled tasks can be retried");
         if (previous.getInputPurgedAt() != null)
@@ -489,14 +488,13 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
             throw conflict("sandbox artifact count exceeded");
         AgentArtifact artifact = new AgentArtifact();
         artifact.setExecutionId(id);
-        artifact.setTenantId(task.getTenantId());
         artifact.setRunId(StringUtils.defaultIfBlank(task.getRunId(), "sandbox:" + id));
         artifact.setSkillVersionId(task.getTemplateVersionId());
         artifact.setUserId(task.getRequesterUserId());
         artifact.setAgentDefinitionId(task.getAgentDefinitionId());
         artifact.setFileName(name);
-        String tenantPrefix = StringUtils.isBlank(task.getTenantId()) ? "" : "tenant/" + task.getTenantId() + "/";
-        artifact.setObjectKey(tenantPrefix + "chat/artifacts/" + id + "/" + UUID.randomUUID() + "." + extension);
+        String accountPrefix = StringUtils.isBlank(task.getCreatedBy()) ? "" : "account/" + task.getCreatedBy() + "/";
+        artifact.setObjectKey(accountPrefix + "chat/artifacts/" + id + "/" + UUID.randomUUID() + "." + extension);
         artifact.setContentSha256(checksum);
         artifact.setCallbackKey("sandbox:" + id + ":" + hash(name + ":" + checksum));
         artifact.setContentType(StringUtils.defaultIfBlank(contentType, "application/octet-stream"));
@@ -660,7 +658,8 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
      */
     @Override
     public SandboxTaskVo byRun(String runId, String userId, boolean admin) {
-        SandboxExecutionTask task = tasks.selectOne(Wrappers.lambdaQuery(SandboxExecutionTask.class).eq(SandboxExecutionTask::getRunId, runId).eq(!admin, SandboxExecutionTask::getRequesterUserId, userId).orderByDesc(SandboxExecutionTask::getCreatedAt).last("limit 1"));
+        boolean restricted = !admin && !com.aether.local.CurrentUser.administrator();
+        SandboxExecutionTask task = tasks.selectOne(Wrappers.lambdaQuery(SandboxExecutionTask.class).eq(SandboxExecutionTask::getRunId, runId).eq(restricted, SandboxExecutionTask::getRequesterUserId, userId).orderByDesc(SandboxExecutionTask::getCreatedAt).last("limit 1"));
         return task == null ? null : toVo(task, true);
     }
 
@@ -878,7 +877,7 @@ public class SandboxTaskServiceImpl implements SandboxTaskService {
      */
     private SandboxExecutionTask owned(String id, String userId, boolean admin) {
         SandboxExecutionTask task = tasks.selectById(id);
-        if (task == null || (!admin && !StringUtils.equals(userId, task.getRequesterUserId())))
+        if (task == null || (!admin && !com.aether.local.CurrentUser.administrator() && !StringUtils.equals(userId, task.getRequesterUserId())))
             throw new ServerException(404, "sandbox task not found");
         return task;
     }

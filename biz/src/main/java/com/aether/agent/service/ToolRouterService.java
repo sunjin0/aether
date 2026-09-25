@@ -168,9 +168,9 @@ public class ToolRouterService {
     }
 
     private String cacheKey(String query, List<AgentTool> routable, String embeddingModelId, int topK) {
-        String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
+        String accountId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("userId");
         String ids = routable.stream().map(AgentTool::getId).sorted().collect(Collectors.joining(","));
-        return tenantId + '|' + embeddingModelId + '|' + topK + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + ids;
+        return accountId + '|' + embeddingModelId + '|' + topK + '|' + query.trim().replaceAll("\\s+", " ").toLowerCase() + '|' + ids;
     }
 
     private void evictRouteCache() {

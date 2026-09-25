@@ -62,13 +62,16 @@ public class SolutionController {
                                             @RequestParam(defaultValue = "20") long pageSize,
                                             @RequestParam(required = false) String name,
                                             @RequestParam(required = false) String code,
-                                            @RequestParam(required = false) Integer status) {
+                                            @RequestParam(required = false) Integer status,
+                                            @RequestParam(required = false) String creatorUserId) {
+        String owner = CurrentUser.dataOwnerId();
+        String requestedOwner = StringUtils.isNotBlank(owner) ? owner : creatorUserId;
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<Solution> page =
                 new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(Math.max(1, current), Math.min(Math.max(1, pageSize), 100));
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<Solution> result = service.page(page,
                 new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Solution>()
                         .eq("deleted", false)
-                        .and(StringUtils.isNotBlank(currentTenantId()), q -> q.eq("tenant_id", currentTenantId()).or().isNull("tenant_id"))
+                        .eq(StringUtils.isNotBlank(requestedOwner), "created_by", requestedOwner)
                         .like(StringUtils.isNotBlank(name), "name", name)
                         .eq(StringUtils.isNotBlank(code), "code", code)
                         .eq(status != null, "status", status)
@@ -80,7 +83,7 @@ public class SolutionController {
     @GetMapping("/{id}")
     public WebResponse<Solution> detail(@PathVariable String id) {
         Solution solution = service.getById(id);
-        requireTenant(solution);
+        requireOwner(solution);
         if (solution == null || Boolean.TRUE.equals(solution.getDeleted())) throw new ServerException(404, "Solution 不存在");
         return WebResponse.OK(solution);
     }
@@ -91,13 +94,13 @@ public class SolutionController {
                                                                   @RequestParam(defaultValue = "false") boolean history) {
         AgentApplication application = applicationService.getById(applicationId);
         if (application == null || Boolean.TRUE.equals(application.getDeleted())
-                || (StringUtils.isNotBlank(currentTenantId()) && !currentTenantId().equals(application.getTenantId())))
+                || (StringUtils.isNotBlank(currentDataOwnerId()) && !currentDataOwnerId().equals(application.getCreatedBy())))
             throw new ServerException(404, "目标 Application 不存在");
         com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<SolutionInstallation> query =
                 new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<SolutionInstallation>()
                         .eq("application_id", applicationId).eq("deleted", false);
         if (!history) query.eq("status", 1);
-        query.eq(StringUtils.isNotBlank(currentTenantId()), "tenant_id", currentTenantId());
+        query.eq(StringUtils.isNotBlank(currentDataOwnerId()), "created_by", currentDataOwnerId());
         return WebResponse.OK(installationService.list(query.orderByDesc("created_at")));
     }
 
@@ -108,24 +111,21 @@ public class SolutionController {
         if (request == null || StringUtils.isAnyBlank(request.getName(), request.getCode(), request.getVersion()))
             return WebResponse.Error(400, "name、code 和 version 不能为空");
         if (request.getStatus() == null) request.setStatus(1);
-        String tenantId = currentTenantId();
+        String accountId = CurrentUser.userId();
         QueryWrapper<Solution> duplicate = new QueryWrapper<Solution>()
                 .eq("code", request.getCode()).eq("version", request.getVersion()).eq("deleted", false)
-                .isNull(StringUtils.isBlank(tenantId), "tenant_id")
-                .eq(StringUtils.isNotBlank(tenantId), "tenant_id", tenantId);
+                .eq(StringUtils.isNotBlank(accountId), "created_by", accountId);
         if (request.getId() != null) duplicate.ne("id", request.getId());
         if (service.getOne(duplicate, false) != null)
             return WebResponse.Error(409, "同租户下 Solution 编码和版本已存在");
         if (request.getId() == null) {
-            if (StringUtils.isNotBlank(tenantId)) request.setTenantId(tenantId);
             service.save(request);
         } else {
             Solution existing = service.getById(request.getId());
-            requireTenant(existing);
+            requireOwner(existing);
             if (existing == null || Boolean.TRUE.equals(existing.getDeleted())) return WebResponse.Error(404, "Solution 不存在");
-            if (StringUtils.isNotBlank(currentTenantId()) && StringUtils.isBlank(existing.getTenantId()))
+            if (StringUtils.isNotBlank(currentDataOwnerId()) && StringUtils.isBlank(existing.getCreatedBy()))
                 return WebResponse.Error(403, "全局 Solution 仅允许平台管理员修改");
-            request.setTenantId(existing.getTenantId());
             service.updateById(request);
         }
         return WebResponse.OK(request.getId());
@@ -136,9 +136,9 @@ public class SolutionController {
     @Permission(path = "/agent/application", type = Permission.Type.Write)
     public WebResponse<Boolean> delete(@PathVariable String id) {
         Solution solution = service.getById(id);
-        requireTenant(solution);
+        requireOwner(solution);
         if (solution == null || Boolean.TRUE.equals(solution.getDeleted())) return WebResponse.OK(false);
-        if (StringUtils.isNotBlank(currentTenantId()) && StringUtils.isBlank(solution.getTenantId()))
+        if (StringUtils.isNotBlank(currentDataOwnerId()) && StringUtils.isBlank(solution.getCreatedBy()))
             throw new ServerException(403, "全局 Solution 仅允许平台管理员删除");
         return WebResponse.OK(service.removeById(id));
     }
@@ -149,19 +149,19 @@ public class SolutionController {
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<String> install(@PathVariable String id, @RequestParam String applicationId) {
         Solution solution = service.getById(id);
-        requireTenant(solution);
+        requireOwner(solution);
         if (solution == null || Boolean.TRUE.equals(solution.getDeleted()) || !Integer.valueOf(1).equals(solution.getStatus()))
             return WebResponse.Error(404, "Solution 不存在或已禁用");
         AgentApplication application = applicationService.getById(applicationId);
         if (application == null || Boolean.TRUE.equals(application.getDeleted()) || !Integer.valueOf(1).equals(application.getStatus()))
             return WebResponse.Error(404, "目标 Application 不存在或已禁用");
-        if (StringUtils.isNotBlank(currentTenantId()) && !currentTenantId().equals(application.getTenantId()))
+        if (StringUtils.isNotBlank(currentDataOwnerId()) && !currentDataOwnerId().equals(application.getCreatedBy()))
             return WebResponse.Error(404, "目标 Application 不存在或已禁用");
         if (!validManifest(solution.getManifestJson())) return WebResponse.Error(422, "Solution Manifest 格式无效");
         if (!dependenciesAvailable(solution.getManifestJson(), id)) return WebResponse.Error(422, "Solution 依赖不存在或已禁用");
         SolutionInstallation existing = installationService.getOne(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<SolutionInstallation>()
                 .eq("solution_id", id).eq("application_id", applicationId).eq("solution_version", solution.getVersion()).eq("deleted", false)
-                .eq(StringUtils.isNotBlank(currentTenantId()), "tenant_id", currentTenantId()), false);
+                .eq(StringUtils.isNotBlank(currentDataOwnerId()), "created_by", currentDataOwnerId()), false);
         if (existing != null) {
             existing.setStatus(1);
             installationService.updateById(existing);
@@ -169,14 +169,13 @@ public class SolutionController {
         }
         List<SolutionInstallation> activeVersions = installationService.list(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<SolutionInstallation>()
                 .eq("solution_id", id).eq("application_id", applicationId).eq("status", 1).eq("deleted", false)
-                .eq(StringUtils.isNotBlank(currentTenantId()), "tenant_id", currentTenantId()));
+                .eq(StringUtils.isNotBlank(currentDataOwnerId()), "created_by", currentDataOwnerId()));
         for (SolutionInstallation active : activeVersions) {
             active.setStatus(0);
             installationService.updateById(active);
         }
         SolutionInstallation installation = new SolutionInstallation();
         installation.setSolutionId(id);
-        installation.setTenantId(currentTenantId());
         installation.setApplicationId(applicationId);
         installation.setSolutionVersion(solution.getVersion());
         installation.setStatus(1);
@@ -246,7 +245,7 @@ public class SolutionController {
             String code = dependency.getString("code");
             QueryWrapper<Solution> query = new QueryWrapper<Solution>().eq("code", code)
                     .eq("status", 1).eq("deleted", false);
-            query.and(StringUtils.isNotBlank(currentTenantId()), q -> q.eq("tenant_id", currentTenantId()).or().isNull("tenant_id"));
+            query.and(StringUtils.isNotBlank(currentDataOwnerId()), q -> q.eq("created_by", currentDataOwnerId()));
             if (selfId != null) query.ne("id", selfId);
             Solution resolved = service.getOne(query, false);
             if (resolved == null) return false;
@@ -265,8 +264,8 @@ public class SolutionController {
         if (workflowService == null || StringUtils.isBlank(code)) return false;
         QueryWrapper<com.aether.workflow.entity.AgentWorkflow> query = new QueryWrapper<com.aether.workflow.entity.AgentWorkflow>()
                 .eq("code", code).eq("status", 1).eq("deleted", false);
-        if (StringUtils.isNotBlank(currentTenantId()))
-            query.and(q -> q.eq("tenant_id", currentTenantId()).or().isNull("tenant_id"));
+        if (StringUtils.isNotBlank(currentDataOwnerId()))
+            query.and(q -> q.eq("created_by", currentDataOwnerId()));
         return workflowService.getOne(query, false) != null;
     }
 
@@ -275,8 +274,8 @@ public class SolutionController {
         if (knowledgeBaseService == null || StringUtils.isBlank(code)) return false;
         QueryWrapper<com.aether.knowledge.entity.KnowledgeBase> query = new QueryWrapper<com.aether.knowledge.entity.KnowledgeBase>()
                 .eq("name", code).eq("deleted", false);
-        if (StringUtils.isNotBlank(currentTenantId()))
-            query.and(q -> q.eq("tenant_id", currentTenantId()).or().isNull("tenant_id"));
+        if (StringUtils.isNotBlank(currentDataOwnerId()))
+            query.and(q -> q.eq("created_by", currentDataOwnerId()));
         return knowledgeBaseService.getOne(query, false) != null;
     }
 
@@ -285,8 +284,8 @@ public class SolutionController {
         String code = dependency.getString("code");
         QueryWrapper<com.aether.agent.entity.AgentMcpServer> query = new QueryWrapper<com.aether.agent.entity.AgentMcpServer>()
                 .eq("code", code).eq("status", 1).eq("deleted", false);
-        if (StringUtils.isNotBlank(currentTenantId()))
-            query.and(q -> q.eq("tenant_id", currentTenantId()).or().isNull("tenant_id"));
+        if (StringUtils.isNotBlank(currentDataOwnerId()))
+            query.and(q -> q.eq("created_by", currentDataOwnerId()));
         com.aether.agent.entity.AgentMcpServer connector = mcpServerService.getOne(query, false);
         if (connector == null) return false;
         String requiredVersion = dependency.getString("version");
@@ -301,7 +300,9 @@ public class SolutionController {
 
     private boolean skillAvailable(String code) {
         if (skillService == null) return false;
-        return skillService.getOne(new QueryWrapper<AgentSkill>().eq("code", code).eq("status", 1).eq("deleted", false), false) != null;
+        QueryWrapper<AgentSkill> query = new QueryWrapper<AgentSkill>().eq("code", code).eq("status", 1).eq("deleted", false);
+        if (StringUtils.isNotBlank(currentDataOwnerId())) query.eq("created_by", currentDataOwnerId());
+        return skillService.getOne(query, false) != null;
     }
 
     @ApiOperation("卸载 Solution")
@@ -311,7 +312,7 @@ public class SolutionController {
     public WebResponse<Boolean> uninstall(@PathVariable String id, @RequestParam String applicationId) {
         SolutionInstallation installation = installationService.getOne(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<SolutionInstallation>()
                 .eq("solution_id", id).eq("application_id", applicationId).eq("status", 1).eq("deleted", false)
-                .eq(StringUtils.isNotBlank(currentTenantId()), "tenant_id", currentTenantId()), false);
+                .eq(StringUtils.isNotBlank(currentDataOwnerId()), "created_by", currentDataOwnerId()), false);
         if (installation == null) return WebResponse.OK(false);
         installation.setStatus(0);
         return WebResponse.OK(installationService.updateById(installation));
@@ -323,12 +324,12 @@ public class SolutionController {
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<Boolean> rollback(@PathVariable String installationId) {
         SolutionInstallation target = installationService.getById(installationId);
-        if (target != null && !tenantMatches(target.getTenantId())) target = null;
+        if (target != null && !ownerMatches(target.getCreatedBy())) target = null;
         if (target == null || Boolean.TRUE.equals(target.getDeleted())) throw new ServerException(404, "安装记录不存在");
         List<SolutionInstallation> active = installationService.list(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<SolutionInstallation>()
                 .eq("solution_id", target.getSolutionId()).eq("application_id", target.getApplicationId())
                 .eq("status", 1).eq("deleted", false)
-                .eq(StringUtils.isNotBlank(currentTenantId()), "tenant_id", currentTenantId()));
+                .eq(StringUtils.isNotBlank(currentDataOwnerId()), "created_by", currentDataOwnerId()));
         for (SolutionInstallation item : active) {
             item.setStatus(0);
             installationService.updateById(item);
@@ -337,17 +338,17 @@ public class SolutionController {
         return WebResponse.OK(installationService.updateById(target));
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
     }
 
-    private boolean tenantMatches(String tenantId) {
-        String current = currentTenantId();
-        return StringUtils.isBlank(current) || StringUtils.isBlank(tenantId) || current.equals(tenantId);
+    private boolean ownerMatches(String accountId) {
+        String current = currentDataOwnerId();
+        return StringUtils.isBlank(current) || (StringUtils.isNotBlank(accountId) && current.equals(accountId));
     }
 
-    private void requireTenant(Solution solution) {
-        if (solution != null && !tenantMatches(solution.getTenantId()))
+    private void requireOwner(Solution solution) {
+        if (solution != null && !ownerMatches(solution.getCreatedBy()))
             throw new ServerException(404, "Solution 不存在");
     }
 }

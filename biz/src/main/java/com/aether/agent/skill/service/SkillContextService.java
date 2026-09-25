@@ -157,8 +157,8 @@ public SkillRuntimeContext resolve(AgentDefinition agent, AgentChatDto dto, Stri
             Map<String, Object> maskedInput = validateAndMaskInput(version.getInputSchema(), inputs.get(skill.getCode()));
             com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<AgentSkillResource> resourceQuery =
                     Wrappers.<AgentSkillResource>query().eq("skill_version_id", version.getId());
-            String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-            if (StringUtils.isNotBlank(tenantId)) resourceQuery.eq("tenant_id", tenantId);
+            String accountId = CurrentUser.userId();
+            if (StringUtils.isNotBlank(accountId)) resourceQuery.eq("created_by", accountId);
             List<AgentSkillResource> resources = resourceService.list(resourceQuery);
             skillPrompt.append(resolveStaticPrompt(skill, version, resources));
             if (!maskedInput.isEmpty()) skillPrompt.append("\nValidated inputs: ").append(JSON.toJSONString(maskedInput));
@@ -310,7 +310,7 @@ private String staticPromptCacheKey(AgentSkill skill, AgentSkillVersion version,
  * 资源Snapshot。
  */
 private Map<String, Object> resourceSnapshot(AgentSkillResource resource) {
-        Map<String, Object> result = new LinkedHashMap<>(); result.put("id", resource.getId()); result.put("name", resource.getName()); result.put("type", resource.getType()); result.put("objectKey", resource.getObjectKey()); result.put("sha256", resource.getContentSha256()); result.put("size", resource.getSize()); result.put("tenantId", resource.getTenantId()); return result;
+        Map<String, Object> result = new LinkedHashMap<>(); result.put("id", resource.getId()); result.put("name", resource.getName()); result.put("type", resource.getType()); result.put("objectKey", resource.getObjectKey()); result.put("sha256", resource.getContentSha256()); result.put("size", resource.getSize()); result.put("userId", resource.getCreatedBy()); return result;
     }
 
     /**

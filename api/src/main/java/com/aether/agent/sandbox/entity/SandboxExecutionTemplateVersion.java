@@ -1,6 +1,6 @@
 package com.aether.agent.sandbox.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("sandbox_execution_template_version")
-public class SandboxExecutionTemplateVersion extends BaseEntity {
+public class SandboxExecutionTemplateVersion extends AccountOwnedEntity {
     private String templateId;
     private Integer version;
     private Boolean published;

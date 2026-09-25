@@ -1,6 +1,6 @@
 package com.aether.agent.application.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,9 +11,8 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_application")
-public class AgentApplication extends BaseEntity {
+public class AgentApplication extends AccountOwnedEntity {
     /** 所属租户；为空时兼容历史单租户数据。 */
-    private String tenantId;
     /** 稳定、可用于开放 API 的业务应用编码。 */
     private String code;
     private String name;

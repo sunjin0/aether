@@ -24,6 +24,9 @@ public interface KnowledgeAccessService {
      */
     List<String> readableKnowledgeBaseIds();
 
+    /** 管理员可按创建账号筛选；普通用户只能得到自身资源。 */
+    List<String> readableKnowledgeBaseIds(String creatorUserId);
+
     /**
      * 获取可读的知识库
      *

@@ -115,9 +115,10 @@ public class KnowledgeReviewTaskController {
         @ApiModelProperty(value = "文档 ID", example = "doc-001") private String documentId;
         @ApiModelProperty(value = "审核状态", example = "PENDING") private String status;
         @ApiModelProperty(value = "任务视图", example = "available") private String view;
+        @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
         public KnowledgeReviewTaskQueryVo toQuery() {
             KnowledgeReviewTaskQueryVo query = new KnowledgeReviewTaskQueryVo();
-            query.setCurrent(current); query.setPageSize(pageSize); query.setKnowledgeBaseId(knowledgeBaseId); query.setDocumentId(documentId); query.setStatus(status); query.setView(view);
+            query.setCurrent(current); query.setPageSize(pageSize); query.setKnowledgeBaseId(knowledgeBaseId); query.setDocumentId(documentId); query.setStatus(status); query.setView(view); query.setCreatorUserId(creatorUserId);
             return query;
         }
     }

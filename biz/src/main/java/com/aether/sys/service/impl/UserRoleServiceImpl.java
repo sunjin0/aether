@@ -10,7 +10,6 @@ import com.aether.sys.entity.Role;
 import com.aether.sys.mapper.RoleMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import com.aether.local.CurrentUser;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -33,12 +32,11 @@ public class UserRoleServiceImpl extends ServiceImpl<UserRoleMapper, UserRole> i
  */
 @Override
     public boolean saveUserRoleIds(String userId, List<String> roleIds) {
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (tenantId != null && !tenantId.trim().isEmpty() && roleIds != null) {
+        if (roleIds != null) {
             for (String roleId : roleIds) {
                 Role role = roleMapper.selectById(roleId);
-                if (role == null || !tenantId.equals(role.getTenantId())) {
-                    throw new com.aether.exception.ServerException(403, "角色不属于当前租户");
+                if (role == null || !("ADMIN".equalsIgnoreCase(role.getRoleType()) || "USER".equalsIgnoreCase(role.getRoleType()))) {
+                    throw new com.aether.exception.ServerException(403, com.aether.i18n.I18nUtils.getMessage("auth.error.no.permission"));
                 }
             }
         }
@@ -47,7 +45,6 @@ public class UserRoleServiceImpl extends ServiceImpl<UserRoleMapper, UserRole> i
         // 添加角色资源
         List<UserRole> userRoles = roleIds.stream().map(roleId -> {
             UserRole userRole = new UserRole();
-            if (CurrentUser.getUser() != null) userRole.setTenantId(CurrentUser.getUser().get("tenantId"));
             userRole.setUserId(userId);
             userRole.setRoleId(roleId);
             return userRole;

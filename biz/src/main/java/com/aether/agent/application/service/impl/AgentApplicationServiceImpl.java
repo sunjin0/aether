@@ -16,8 +16,8 @@ public class AgentApplicationServiceImpl extends ServiceImpl<AgentApplicationMap
     @Override
     public AgentApplication getById(java.io.Serializable id) {
         AgentApplication application = super.getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (application != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(application.getTenantId())) return null;
+        String accountId = CurrentUser.dataOwnerId();
+        if (application != null && StringUtils.isNotBlank(accountId) && !accountId.equals(application.getCreatedBy())) return null;
         return application;
     }
 

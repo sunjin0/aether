@@ -12,4 +12,5 @@ import lombok.EqualsAndHashCode;
 public class MemberVo extends Member {
     private Long current;
     private Long pageSize;
+    private String creatorUserId;
 }

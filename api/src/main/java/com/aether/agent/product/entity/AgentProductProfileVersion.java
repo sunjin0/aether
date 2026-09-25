@@ -1,6 +1,6 @@
 package com.aether.agent.product.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -9,7 +9,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_product_profile_version")
-public class AgentProductProfileVersion extends BaseEntity {
+public class AgentProductProfileVersion extends AccountOwnedEntity {
     private String profileId;
     private Integer versionNo;
     private String snapshot;

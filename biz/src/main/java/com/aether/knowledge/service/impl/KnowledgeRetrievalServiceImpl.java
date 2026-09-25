@@ -14,7 +14,6 @@ import com.aether.knowledge.service.KnowledgeBaseService;
 import com.aether.knowledge.service.KnowledgeRetrievalService;
 import com.aether.knowledge.service.KnowledgeRerankService;
 import com.aether.local.CurrentUser;
-import com.aether.knowledge.model.KnowledgeBaseScope;
 import com.aether.knowledge.model.KnowledgeRetrievalResult;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.service.QueryRewriteService;
@@ -417,8 +416,8 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
      * 处理retrieval缓存Key。
      */
     private String retrievalCacheKey(String agentDefinitionId, String query) {
-        String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
-        return hashValue(StringUtils.defaultString(tenantId) + '\n' + agentDefinitionId + '\n' + normalizeQuery(query));
+        String accountId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("userId");
+        return hashValue(StringUtils.defaultString(accountId) + '\n' + agentDefinitionId + '\n' + normalizeQuery(query));
     }
 
     /**
@@ -506,8 +505,8 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
     }
 
     private String circuitKey(String providerId) {
-        String tenantId = CurrentUser.getUser() == null ? "public" : CurrentUser.getUser().get("tenantId");
-        return StringUtils.defaultIfBlank(tenantId, "public") + ":" + providerId;
+        String accountId = CurrentUser.getUser() == null ? "public" : CurrentUser.getUser().get("userId");
+        return StringUtils.defaultIfBlank(accountId, "public") + ":" + providerId;
     }
 
     /**

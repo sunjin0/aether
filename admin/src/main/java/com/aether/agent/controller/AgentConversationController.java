@@ -166,8 +166,9 @@ public class AgentConversationController {
                 .eq(StringUtils.isNotBlank(vo.getSource()), AgentConversation::getSource, vo.getSource())
                 .ne(!includeWorkflow, AgentConversation::getSource, AgentConversation.SOURCE_WORKFLOW)
                 .eq(AgentConversation::getDeleted, false)
-                .and(query -> query.eq(AgentConversation::getUserId, currentUserId())
-                        .or().likeRight(AgentConversation::getUserId, SERVICE_ACCOUNT_PRINCIPAL_PREFIX))
+                .eq(StringUtils.isNotBlank(CurrentUser.dataOwnerId()), AgentConversation::getCreatedBy, CurrentUser.dataOwnerId())
+                .eq(StringUtils.isBlank(CurrentUser.dataOwnerId()) && StringUtils.isNotBlank(vo.getCreatorUserId()), AgentConversation::getCreatedBy, vo.getCreatorUserId())
+                .eq(!CurrentUser.administrator(), AgentConversation::getUserId, currentUserId())
                 .orderByDesc(AgentConversation::getCreatedAt);
         Page<AgentConversation> result = agentConversationService.page(page, wrapper);
         Set<String> agentIds = result.getRecords().stream().map(AgentConversation::getAgentDefinitionId)
@@ -562,7 +563,7 @@ public class AgentConversationController {
         AgentConversation conversation = agentConversationService.getOne(Wrappers.lambdaQuery(AgentConversation.class)
                 .eq(AgentConversation::getId, id)
                 .eq(AgentConversation::getDeleted, false)
-                .eq(AgentConversation::getUserId, currentUserId()));
+                .eq(!CurrentUser.administrator(), AgentConversation::getUserId, currentUserId()));
         if (conversation == null) {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
@@ -574,8 +575,8 @@ public class AgentConversationController {
         AgentConversation conversation = agentConversationService.getOne(Wrappers.lambdaQuery(AgentConversation.class)
                 .eq(AgentConversation::getId, id)
                 .eq(AgentConversation::getDeleted, false));
-        if (conversation == null || (!StringUtils.equals(conversation.getUserId(), currentUserId())
-                && !isExternalConversation(conversation))) {
+        if (conversation == null || (!CurrentUser.administrator()
+                && !StringUtils.equals(conversation.getUserId(), currentUserId()))) {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }
         return conversation;

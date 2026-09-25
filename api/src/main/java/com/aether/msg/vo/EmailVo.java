@@ -13,4 +13,5 @@ import lombok.EqualsAndHashCode;
 public class EmailVo extends Email {
     private Long current;
     private Long pageSize;
+    private String creatorUserId;
 }

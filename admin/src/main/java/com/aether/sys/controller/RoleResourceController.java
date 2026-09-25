@@ -2,11 +2,9 @@ package com.aether.sys.controller;
 
 
 import com.aether.exception.ServerException;
-import com.aether.local.CurrentUser;
 import com.aether.sys.service.UserService;
 import com.aether.sys.service.RoleService;
 import com.aether.sys.entity.Role;
-import org.apache.commons.lang3.StringUtils;
 import com.aether.utils.TokenUtils;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aether.permission.Permission;
@@ -58,7 +56,7 @@ public class RoleResourceController {
     })
     @GetMapping("/permission")
     public WebResponse<List<String>> getPermissionByRoleId(@RequestParam @NotBlank String roleId) {
-        requireCurrentTenant(roleId);
+        requireOwner(roleId);
         return WebResponse.OK(roleResourceService.getPermissionByRoleId(roleId));
     }
 
@@ -75,7 +73,7 @@ public class RoleResourceController {
     public WebResponse<Boolean> save(@RequestBody
                                      @ValidEntity(fieldNames = {"resourceIds", "roleId"})
                                       RoleResourceSaveRequest request) {
-        requireCurrentTenant(request.getRoleId());
+        requireOwner(request.getRoleId());
         RoleResourceVo roleResourceVo = new RoleResourceVo();
         roleResourceVo.setRoleId(request.getRoleId());
         roleResourceVo.setResourceIds(request.getResourceIds());
@@ -94,15 +92,10 @@ public class RoleResourceController {
         return WebResponse.OK(result ? I18nUtils.getMessage("system.authorize.success") : I18nUtils.getMessage("system.authorize.fail"));
     }
 
-    private void requireCurrentTenant(String roleId) {
+    private void requireOwner(String roleId) {
         Role role = roleService.getById(roleId);
-        if (role != null && "DEPARTMENT".equalsIgnoreCase(role.getScope())) {
-            throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
-        }
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (role == null || (StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(role.getTenantId())
-                && !tenantId.equals(role.getTenantId()))) {
-            throw new ServerException(404, "角色不存在");
+        if (role == null || !("ADMIN".equalsIgnoreCase(role.getRoleType()) || "USER".equalsIgnoreCase(role.getRoleType()))) {
+            throw new ServerException(404, I18nUtils.getMessage("auth.error.no.permission"));
         }
     }
 }

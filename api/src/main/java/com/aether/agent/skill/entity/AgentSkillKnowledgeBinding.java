@@ -1,6 +1,6 @@
 package com.aether.agent.skill.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_skill_knowledge_binding")
-public class AgentSkillKnowledgeBinding extends BaseEntity {
+public class AgentSkillKnowledgeBinding extends AccountOwnedEntity {
     private String skillVersionId;
     private String knowledgeBaseId;
     /** Knowledge prompt declaration: ALWAYS, ROUTE_MATCHED, RETRIEVE_ONLY. */

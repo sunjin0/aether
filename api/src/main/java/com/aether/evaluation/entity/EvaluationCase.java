@@ -1,6 +1,6 @@
 package com.aether.evaluation.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.aether.evaluation.handler.JsonbStringTypeHandler;
@@ -10,7 +10,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "evaluation_case", autoResultMap = true)
-public class EvaluationCase extends BaseEntity {
+public class EvaluationCase extends AccountOwnedEntity {
     private String datasetId;
     private String caseKey;
     private String name;

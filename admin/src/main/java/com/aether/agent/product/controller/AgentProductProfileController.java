@@ -23,6 +23,7 @@ import io.swagger.annotations.ApiOperation;
 import com.aether.exception.ServerException;
 import com.aether.permission.Permission;
 import com.aether.local.CurrentUser;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.i18n.I18nUtils;
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -47,10 +48,12 @@ public class AgentProductProfileController {
     private final UserService userService;
     private final AgentToolBindingService toolBindingService;
     private final AgentKnowledgeBaseBindingService knowledgeBindingService;
+    private final AccountDataScopeService accountDataScopeService;
     public AgentProductProfileController(AgentProductProfileService profileService, AgentDefinitionService agentService, AgentWorkflowService workflowService, AgentApplicationService applicationService, AgentProductProfileVersionService versionService, UserService userService,
-                                         AgentToolBindingService toolBindingService, AgentKnowledgeBaseBindingService knowledgeBindingService) {
+                                         AgentToolBindingService toolBindingService, AgentKnowledgeBaseBindingService knowledgeBindingService,
+                                         AccountDataScopeService accountDataScopeService) {
         this.profileService = profileService; this.agentService = agentService; this.workflowService = workflowService; this.applicationService = applicationService; this.versionService = versionService; this.userService = userService;
-        this.toolBindingService = toolBindingService; this.knowledgeBindingService = knowledgeBindingService;
+        this.toolBindingService = toolBindingService; this.knowledgeBindingService = knowledgeBindingService; this.accountDataScopeService = accountDataScopeService;
     }
     @ApiOperation("查询 Agent 产品配置列表")
     @PostMapping("/list")
@@ -62,6 +65,7 @@ public class AgentProductProfileController {
                 .like(query != null && StringUtils.isNotBlank(query.getName()), AgentProductProfile::getName, query == null ? null : query.getName())
                 .eq(query != null && StringUtils.isNotBlank(query.getProductType()), AgentProductProfile::getProductType, query == null ? null : query.getProductType())
                 .eq(query != null && query.getStatus() != null, AgentProductProfile::getStatus, query == null ? null : query.getStatus())
+                .in(AgentProductProfile::getCreatedBy, accountDataScopeService.readableCreatorIds(query == null ? null : query.getCreatorUserId()))
                 .eq(AgentProductProfile::getDeleted, false).orderByDesc(AgentProductProfile::getUpdatedAt));
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
@@ -140,8 +144,8 @@ public class AgentProductProfileController {
         for (AgentProductProfileVersion version : versions) version.setPublishedBy(publisherName(version.getPublishedBy()));
         return WebResponse.OK(versions);
     }
-    private AgentProductProfile required(String id) { AgentProductProfile value = profileService.getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.product.not-found")); return value; }
-    private String publisherName() { return publisherName(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId")); }
+    private AgentProductProfile required(String id) { AgentProductProfile value = profileService.getById(id); if (value == null || Boolean.TRUE.equals(value.getDeleted())) throw new ServerException(404, I18nUtils.getMessage("agent.product.not-found")); accountDataScopeService.assertReadable(value.getCreatedBy()); return value; }
+    private String publisherName() { return publisherName(CurrentUser.userId()); }
     private String publisherName(String userId) {
         if (StringUtils.isBlank(userId)) return "-";
         User user = userService.getById(userId);
@@ -169,10 +173,12 @@ public class AgentProductProfileController {
             value.setWorkflowId(null);
             AgentDefinition agent = agentService.getById(value.getAgentDefinitionId());
             if (agent == null || Boolean.TRUE.equals(agent.getDeleted()) || !value.getApplicationId().equals(agent.getApplicationId())) throw new ServerException(422, I18nUtils.getMessage("agent.product.agent.application.mismatch"));
+            accountDataScopeService.assertReadable(agent.getCreatedBy());
         } else {
             value.setAgentDefinitionId(null);
             AgentWorkflow workflow = workflowService.getById(value.getWorkflowId());
             if (workflow == null || Boolean.TRUE.equals(workflow.getDeleted()) || !value.getApplicationId().equals(workflow.getApplicationId())) throw new ServerException(422, I18nUtils.getMessage("agent.product.workflow.application.mismatch"));
+            accountDataScopeService.assertReadable(workflow.getCreatedBy());
         }
         if (StringUtils.isBlank(value.getInputSchema())) value.setInputSchema(agentProduct
                 ? "{\"type\":\"object\",\"required\":[\"input\"],\"properties\":{\"input\":{\"type\":\"string\"}}}"

@@ -35,7 +35,7 @@ public class KnowledgeDocumentChunkServiceImpl
         if (filteredIds.isEmpty()) {
             return Collections.emptyList();
         }
-        return baseMapper.selectSimilarChunks(filteredIds, embedding, limit, currentTenantId());
+        return baseMapper.selectSimilarChunks(filteredIds, embedding, limit, currentDataOwnerId());
     }
 
     /**
@@ -52,7 +52,7 @@ public class KnowledgeDocumentChunkServiceImpl
         if (filteredIds.isEmpty()) {
             return Collections.emptyList();
         }
-        return baseMapper.selectLexicalChunks(filteredIds, query.trim(), limit, currentTenantId());
+        return baseMapper.selectLexicalChunks(filteredIds, query.trim(), limit, currentDataOwnerId());
     }
 
     /**
@@ -64,11 +64,11 @@ public class KnowledgeDocumentChunkServiceImpl
             return Collections.emptyList();
         }
         return baseMapper.selectNeighborChunks(documentVersionId,
-                Math.max(0, chunkIndex - radius), chunkIndex + radius, currentTenantId());
+                Math.max(0, chunkIndex - radius), chunkIndex + radius, currentDataOwnerId());
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
     }
 
     /**

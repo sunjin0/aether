@@ -32,8 +32,8 @@ public class AgentToolBindingServiceImpl extends ServiceImpl<AgentToolBindingMap
     @Override
     public AgentToolBinding getById(java.io.Serializable id) {
         AgentToolBinding binding = super.getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (binding != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(binding.getTenantId())) return null;
+        String accountId = CurrentUser.dataOwnerId();
+        if (binding != null && StringUtils.isNotBlank(accountId) && !accountId.equals(binding.getCreatedBy())) return null;
         return binding;
     }
 
@@ -80,8 +80,8 @@ public class AgentToolBindingServiceImpl extends ServiceImpl<AgentToolBindingMap
      */
     private void evictAgentCache(String agentId) {
         try {
-            String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
-            redisTemplate.delete(TOOLS_CACHE_KEY_PREFIX + tenantId + ":" + agentId);
+            String accountId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("userId");
+            redisTemplate.delete(TOOLS_CACHE_KEY_PREFIX + accountId + ":" + agentId);
         } catch (Exception e) {
             // 清除缓存失败不影响主流程
         }

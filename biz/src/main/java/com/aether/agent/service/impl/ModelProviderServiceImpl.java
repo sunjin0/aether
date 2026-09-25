@@ -6,10 +6,12 @@ import com.aether.agent.service.ModelProviderService;
 import com.aether.entity.Option;
 import com.aether.sys.entity.Dict;
 import com.aether.sys.mapper.DictMapper;
+import com.aether.local.CurrentUser;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.List;
@@ -28,7 +30,8 @@ public class ModelProviderServiceImpl extends ServiceImpl<ModelProviderMapper, M
      */
     @Override
     public List<Option> getModelProviders() {
-        List<ModelProvider> modelProviders = list(Wrappers.<ModelProvider>lambdaQuery().eq(ModelProvider::getStatus, 1));
+        List<ModelProvider> modelProviders = list(Wrappers.<ModelProvider>lambdaQuery().eq(ModelProvider::getStatus, 1)
+                .eq(StringUtils.isNotBlank(CurrentUser.dataOwnerId()), ModelProvider::getCreatedBy, CurrentUser.dataOwnerId()));
         return modelProviders.stream().map(modelProvider -> {
             String name = modelProvider.getName();
             Dict dict = dictMapper.selectOne(Wrappers.<Dict>lambdaQuery()
@@ -50,6 +53,7 @@ public class ModelProviderServiceImpl extends ServiceImpl<ModelProviderMapper, M
                 .in(ModelProvider::getType, Arrays.asList("openai", "local"))
                 .eq(ModelProvider::getStatus, 1)
                 .eq(ModelProvider::getDeleted, false)
+                .eq(StringUtils.isNotBlank(CurrentUser.dataOwnerId()), ModelProvider::getCreatedBy, CurrentUser.dataOwnerId())
                 .orderByAsc(ModelProvider::getSortNum)
                 .orderByDesc(ModelProvider::getCreatedAt));
         return modelProviders.stream()

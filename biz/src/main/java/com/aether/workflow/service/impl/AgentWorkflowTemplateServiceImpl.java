@@ -40,7 +40,6 @@ public class AgentWorkflowTemplateServiceImpl extends ServiceImpl<AgentWorkflowT
         if (StringUtils.isBlank(name))
             throw new ServerException(422, I18nUtils.getMessage("workflow.template.name.required"));
         AgentWorkflowTemplate template = new AgentWorkflowTemplate();
-        template.setTenantId(workflow.getTenantId());
         template.setName(name);
         template.setDescription(StringUtils.abbreviate(description, 1024));
         template.setAgentDefinitionId(workflow.getAgentDefinitionId());
@@ -69,7 +68,6 @@ public class AgentWorkflowTemplateServiceImpl extends ServiceImpl<AgentWorkflowT
         AgentWorkflow source = StringUtils.isBlank(template.getSourceWorkflowId()) ? null : workflowService.getById(template.getSourceWorkflowId());
         String applicationId = source == null ? "0" : StringUtils.defaultIfBlank(source.getApplicationId(), "0");
         workflow.setApplicationId(applicationId);
-        workflow.setTenantId(source == null ? currentTenantId() : source.getTenantId());
         workflow.setCode(resolveCode(applicationId, code));
         workflow.setName(name);
         workflow.setDescription(StringUtils.abbreviate(description, 1024));
@@ -83,16 +81,16 @@ public class AgentWorkflowTemplateServiceImpl extends ServiceImpl<AgentWorkflowT
         return workflow;
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
     }
 
     @Override
     public AgentWorkflowTemplate getById(java.io.Serializable id) {
         AgentWorkflowTemplate template = super.getById(id);
-        String tenantId = currentTenantId();
-        if (template != null && StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(template.getTenantId())
-                && !tenantId.equals(template.getTenantId())) return null;
+        String accountId = currentDataOwnerId();
+        if (template != null && StringUtils.isNotBlank(accountId)
+                && !accountId.equals(template.getCreatedBy())) return null;
         return template;
     }
 

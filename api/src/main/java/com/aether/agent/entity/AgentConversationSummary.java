@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -12,11 +12,11 @@ import lombok.experimental.Accessors;
  * Structured, validated rolling summary for one Agent conversation.
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_conversation_summary")
 @ApiModel(value = "AgentConversationSummary对象", description = "会话结构化摘要")
-public class AgentConversationSummary extends BaseEntity {
+public class AgentConversationSummary extends AccountOwnedEntity {
     public static final String STATUS_READY = "READY";
     public static final String STATUS_FAILED = "FAILED";
 
@@ -59,4 +59,3 @@ public class AgentConversationSummary extends BaseEntity {
     @ApiModelProperty(value = "状态：READY/REFRESHING/FAILED")
     private String status;
 }
-

@@ -1,6 +1,6 @@
 package com.aether.agent.skill.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -12,7 +12,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_skill_routing_index")
-public class AgentSkillRoutingIndex extends BaseEntity {
+public class AgentSkillRoutingIndex extends AccountOwnedEntity {
     private String skillVersionId;
     private String contentHash;
     private String embeddingProviderId;

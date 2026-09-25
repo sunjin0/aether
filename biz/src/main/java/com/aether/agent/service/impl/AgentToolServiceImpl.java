@@ -26,9 +26,9 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
     @Override
     public AgentTool getById(java.io.Serializable id) {
         AgentTool tool = super.getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (tool != null && StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(tool.getTenantId())
-                && !tenantId.equals(tool.getTenantId())) return null;
+        String accountId = CurrentUser.dataOwnerId();
+        if (tool != null && StringUtils.isNotBlank(accountId)
+                && !accountId.equals(tool.getCreatedBy())) return null;
         return tool;
     }
 
@@ -102,8 +102,8 @@ public class AgentToolServiceImpl extends ServiceImpl<AgentToolMapper, AgentTool
                             .eq(AgentToolBinding::getDeleted, false)
             );
             for (AgentToolBinding binding : bindings) {
-                String tenantId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("tenantId");
-                String cacheKey = TOOLS_CACHE_KEY_PREFIX + tenantId + ":" + binding.getAgentDefinitionId();
+                String accountId = CurrentUser.getUser() == null ? "" : CurrentUser.getUser().get("userId");
+                String cacheKey = TOOLS_CACHE_KEY_PREFIX + accountId + ":" + binding.getAgentDefinitionId();
                 redisTemplate.delete(cacheKey);
             }
         } catch (Exception e) {

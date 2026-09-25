@@ -1,6 +1,6 @@
 package com.aether.agent.skill.vo;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -9,7 +9,7 @@ import lombok.EqualsAndHashCode;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class AgentArtifactVo extends BaseEntity {
+public class AgentArtifactVo extends AccountOwnedEntity {
     private String runId;
     private String messageId;
     private String agentDefinitionId;

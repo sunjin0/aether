@@ -1,6 +1,6 @@
 package com.aether.knowledge.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,9 +11,8 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_retrieval_evaluation_set")
-public class KnowledgeRetrievalEvaluationSet extends BaseEntity {
+public class KnowledgeRetrievalEvaluationSet extends AccountOwnedEntity {
     /** 评测集所属租户。 */
-    private String tenantId;
     /**
      * 评测使用的 Agent 定义 ID。
      */

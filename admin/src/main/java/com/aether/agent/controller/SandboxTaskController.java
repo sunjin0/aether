@@ -67,7 +67,7 @@ public class SandboxTaskController {
     @ApiOperation("查询沙箱任务详情")
     @GetMapping("/tasks/{id}")
     public WebResponse<SandboxTaskVo> detail(@PathVariable @NotBlank String id) {
-        return WebResponse.OK(tasks.detail(id, user(), false));
+        return WebResponse.OK(tasks.detail(id, user(), CurrentUser.administrator()));
     }
 
     /**
@@ -76,7 +76,7 @@ public class SandboxTaskController {
     @ApiOperation("按 Agent 运行查询沙箱任务")
     @GetMapping("/tasks/run/{runId}")
     public WebResponse<SandboxTaskVo> byRun(@PathVariable @NotBlank String runId) {
-        return WebResponse.OK(tasks.byRun(runId, user(), false));
+        return WebResponse.OK(tasks.byRun(runId, user(), CurrentUser.administrator()));
     }
 
     /**
@@ -85,7 +85,7 @@ public class SandboxTaskController {
     @ApiOperation("查询沙箱任务事件")
     @GetMapping("/tasks/{id}/events")
     public WebResponse<List<SandboxTaskVo.SandboxEventVo>> events(@PathVariable @NotBlank String id) {
-        return WebResponse.OK(tasks.events(id, user(), false));
+        return WebResponse.OK(tasks.events(id, user(), CurrentUser.administrator()));
     }
 
     /**
@@ -94,12 +94,12 @@ public class SandboxTaskController {
     @ApiOperation("查询沙箱任务生成的制品")
     @GetMapping("/tasks/{id}/artifacts")
     public WebResponse<List<AgentArtifact>> artifacts(@PathVariable @NotBlank String id) {
-        SandboxTaskVo task = tasks.detail(id, user(), false);
+        SandboxTaskVo task = tasks.detail(id, user(), CurrentUser.administrator());
         String executionId = StringUtils.defaultIfBlank(task.getLegacyExecutionId(), task.getId());
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        String accountId = CurrentUser.dataOwnerId();
         return WebResponse.OK(artifacts.list(Wrappers.lambdaQuery(AgentArtifact.class)
-                .eq(AgentArtifact::getExecutionId, executionId).eq(AgentArtifact::getUserId, user())
-                .eq(StringUtils.isNotBlank(tenantId), AgentArtifact::getTenantId, tenantId)
+                .eq(AgentArtifact::getExecutionId, executionId).eq(StringUtils.isNotBlank(accountId), AgentArtifact::getUserId, user())
+                .eq(StringUtils.isNotBlank(accountId), AgentArtifact::getCreatedBy, accountId)
                 .isNull(AgentArtifact::getRecycledAt).orderByDesc(AgentArtifact::getCreatedAt)));
     }
 
@@ -323,7 +323,7 @@ public class SandboxTaskController {
      * 用户当前请求。
      */
     private String user() {
-        String id = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String id = CurrentUser.userId();
         if (StringUtils.isBlank(id)) throw new ServerException(401, I18nUtils.getMessage("sandbox.user.unauthorized"));
         return id;
     }

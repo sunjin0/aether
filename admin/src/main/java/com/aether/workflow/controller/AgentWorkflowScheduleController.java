@@ -66,18 +66,20 @@ public class AgentWorkflowScheduleController {
         AgentWorkflowListSchedulesRequest condition = query == null ? new AgentWorkflowListSchedulesRequest() : query;
         long current = condition.getCurrent() == null ? 1L : condition.getCurrent();
         long pageSize = condition.getPageSize() == null ? 10L : condition.getPageSize();
+        String owner = currentDataOwnerId();
         Page<AgentWorkflowScheduleTrigger> page = scheduleTriggerService.page(new Page<AgentWorkflowScheduleTrigger>(current, pageSize), Wrappers.lambdaQuery(AgentWorkflowScheduleTrigger.class)
                 .like(StringUtils.isNotBlank(condition.getName()), AgentWorkflowScheduleTrigger::getName, condition.getName())
                 .eq(StringUtils.isNotBlank(condition.getWorkflowId()), AgentWorkflowScheduleTrigger::getWorkflowId, condition.getWorkflowId())
-                .eq(StringUtils.isNotBlank(currentTenantId()), AgentWorkflowScheduleTrigger::getTenantId, currentTenantId())
+                .eq(StringUtils.isNotBlank(owner), AgentWorkflowScheduleTrigger::getCreatedBy, owner)
+                .eq(StringUtils.isBlank(owner) && StringUtils.isNotBlank(condition.getCreatorUserId()), AgentWorkflowScheduleTrigger::getCreatedBy, condition.getCreatorUserId())
                 .eq(condition.getEnabled() != null, AgentWorkflowScheduleTrigger::getEnabled, condition.getEnabled())
                 .eq(AgentWorkflowScheduleTrigger::getDeleted, false)
                 .orderByDesc(AgentWorkflowScheduleTrigger::getCreatedAt));
         return WebResponse.Page(page.getRecords(), page.getTotal());
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
     }
 
     /**

@@ -13,8 +13,6 @@ import com.aether.entity.WebResponse;
 import com.aether.entity.Option;
 import com.aether.i18n.I18nUtils;
 import com.aether.exception.ServerException;
-import com.aether.knowledge.model.KnowledgeBaseScope;
-import com.aether.knowledge.model.KnowledgeBaseVisibility;
 import com.aether.knowledge.model.KnowledgeChunkingConfig;
 import com.alibaba.fastjson2.JSONObject;
 import com.aether.permission.Permission;
@@ -75,20 +73,16 @@ public class KnowledgeBaseController {
     @PostMapping("/list")
     public WebResponse<List<KnowledgeBaseVo>> list(@RequestBody ListRequest request) {
         KnowledgeBaseVo vo = new KnowledgeBaseVo();
-        vo.setCurrent(request.getCurrent()); vo.setPageSize(request.getPageSize()); vo.setScope(request.getScope());
+        vo.setCurrent(request.getCurrent()); vo.setPageSize(request.getPageSize());
         vo.setEmbeddingProviderId(request.getEmbeddingProviderId()); vo.setName(request.getName());
         vo.setStatus(request.getStatus()); vo.setIndexStatus(request.getIndexStatus());
         Page<KnowledgeBase> page = new Page<>(vo.getCurrent(), vo.getPageSize());
-        List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
+        List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds(request.getCreatorUserId());
         if (readableIds.isEmpty()) {
             return WebResponse.Page(Collections.emptyList(), 0L);
         }
         Wrapper<KnowledgeBase> wrapper = Wrappers.lambdaQuery(KnowledgeBase.class)
                 .in(KnowledgeBase::getId, readableIds)
-                .and(CurrentUser.getUser() != null && StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")), q ->
-                        q.eq(KnowledgeBase::getTenantId, CurrentUser.getUser().get("tenantId"))
-                                )
-                .eq(StringUtils.isNotBlank(vo.getScope()), KnowledgeBase::getScope, vo.getScope())
                 .eq(StringUtils.isNotBlank(vo.getEmbeddingProviderId()), KnowledgeBase::getEmbeddingProviderId, vo.getEmbeddingProviderId())
                 .like(StringUtils.isNotBlank(vo.getName()), KnowledgeBase::getName, vo.getName())
                 .eq(vo.getStatus() != null, KnowledgeBase::getStatus, vo.getStatus())
@@ -113,13 +107,10 @@ public class KnowledgeBaseController {
     @GetMapping("/options")
     public WebResponse<List<Option>> options(@RequestParam(value = "status", required = false, defaultValue = "1") Integer status,
                                              @RequestParam(value = "indexStatus", required = false) Integer indexStatus) {
-        List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
+        List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds(null);
         if (readableIds.isEmpty()) return WebResponse.OK(Collections.emptyList());
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeBase> optionsQuery = Wrappers.lambdaQuery(KnowledgeBase.class)
                         .in(KnowledgeBase::getId, readableIds)
-                        .and(CurrentUser.getUser() != null && StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")), q ->
-                                q.eq(KnowledgeBase::getTenantId, CurrentUser.getUser().get("tenantId"))
-                                        )
                         .eq(status != null, KnowledgeBase::getStatus, status)
                         .eq(indexStatus != null, KnowledgeBase::getIndexStatus, indexStatus)
                         .eq(KnowledgeBase::getDeleted, false)
@@ -150,23 +141,13 @@ public class KnowledgeBaseController {
     public WebResponse<String> save(@RequestBody CreateRequest request) {
         KnowledgeBaseVo vo = writableVo(request);
         KnowledgeBase kb = mutableFields(vo);
-        if (CurrentUser.getUser() != null) {
-            kb.setTenantId(CurrentUser.getUser().get("tenantId"));
-        }
         kb.setReviewConfig(validateReviewConfig(vo.getReviewConfig()));
         kb.setChunkingConfig(validateChunkingConfig(vo.getChunkingConfig()));
-        kb.setOwnerAdminId(knowledgeAccessService.currentAdminId());
         if (kb.getStatus() == null) {
             kb.setStatus(1);
         }
         if (kb.getIndexStatus() == null) {
             kb.setIndexStatus(0);
-        }
-        if (StringUtils.isBlank(kb.getScope())) {
-            kb.setScope(KnowledgeBaseScope.PLATFORM);
-        }
-        if (StringUtils.isBlank(kb.getVisibility())) {
-            kb.setVisibility(KnowledgeBaseScope.PLATFORM.equalsIgnoreCase(kb.getScope()) ? KnowledgeBaseVisibility.PLATFORM : KnowledgeBaseVisibility.PRIVATE);
         }
         boolean saved = knowledgeBaseService.save(kb);
         return WebResponse.OK(saved ? I18nUtils.getMessage("knowledge.base.create.success") : I18nUtils.getMessage("knowledge.base.create.fail"), kb.getId());
@@ -189,8 +170,6 @@ public class KnowledgeBaseController {
             kb.setChunkingConfig(validateChunkingConfig(vo.getChunkingConfig()));
         }
         kb.setId(id);
-        // Ownership can only be changed through an explicit membership/transfer workflow.
-        kb.setOwnerAdminId(existing.getOwnerAdminId());
         boolean updated = knowledgeBaseService.updateById(kb);
         return WebResponse.OK(updated ? I18nUtils.getMessage("knowledge.base.update.success") : I18nUtils.getMessage("knowledge.base.update.fail"));
     }
@@ -212,14 +191,12 @@ public class KnowledgeBaseController {
      */
     private KnowledgeBase mutableFields(KnowledgeBaseVo vo) {
         KnowledgeBase kb = new KnowledgeBase();
-        kb.setScope(vo.getScope());
         kb.setEmbeddingProviderId(vo.getEmbeddingProviderId());
         kb.setEmbeddingModelId(vo.getEmbeddingModelId());
         if (StringUtils.isBlank(kb.getEmbeddingModelId()))
             throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
         com.aether.agent.entity.ModelCatalog catalog = modelCatalogService.requireAvailable(kb.getEmbeddingModelId(), "EMBEDDING");
         kb.setEmbeddingProviderId(catalog.getProviderId());
-        kb.setVisibility(vo.getVisibility());
         kb.setRetrievalConfig(vo.getRetrievalConfig());
         kb.setChunkingConfig(vo.getChunkingConfig());
         kb.setReviewConfig(vo.getReviewConfig());
@@ -231,8 +208,8 @@ public class KnowledgeBaseController {
 
     private KnowledgeBaseVo writableVo(BaseRequest request) {
         KnowledgeBaseVo vo = new KnowledgeBaseVo();
-        vo.setScope(request.getScope()); vo.setEmbeddingModelId(request.getEmbeddingModelId());
-        vo.setVisibility(request.getVisibility()); vo.setRetrievalConfig(request.getRetrievalConfig());
+        vo.setEmbeddingModelId(request.getEmbeddingModelId());
+        vo.setRetrievalConfig(request.getRetrievalConfig());
         vo.setChunkingConfig(request.getChunkingConfig());
         vo.setReviewConfig(request.getReviewConfig()); vo.setName(request.getName());
         vo.setDescription(request.getDescription()); vo.setStatus(request.getStatus());
@@ -244,18 +221,16 @@ public class KnowledgeBaseController {
     public static class ListRequest {
         @ApiModelProperty(value = "页码", example = "1") private Long current;
         @ApiModelProperty(value = "每页数量", example = "20") private Long pageSize;
-        @ApiModelProperty(value = "范围", example = "platform") private String scope;
         @ApiModelProperty(value = "嵌入供应商 ID", example = "provider-001") private String embeddingProviderId;
         @ApiModelProperty(value = "知识库名称关键词", example = "产品文档") private String name;
         @ApiModelProperty(value = "状态：0-禁用，1-启用", example = "1") private Integer status;
         @ApiModelProperty(value = "索引状态", example = "2") private Integer indexStatus;
+        @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
     }
 
     @Data
     public static class BaseRequest {
-        @ApiModelProperty(value = "范围", required = true, example = "platform") private String scope;
         @ApiModelProperty(value = "嵌入模型 ID", required = true, example = "model-embedding-001") private String embeddingModelId;
-        @ApiModelProperty(value = "可见性", example = "platform") private String visibility;
         @ApiModelProperty(value = "检索配置 JSON", example = "{\"topK\":5}") private String retrievalConfig;
         @ApiModelProperty(value = "分片配置 JSON；strategy 可为 SEMANTIC、MARKDOWN、PARAGRAPH 或 FIXED_LENGTH；针对 text-embedding-v4，maxChars 为 256-4096，maxTokens 为 128-2048，overlapChars 不超过 1024 且不超过 maxChars 的一半", example = "{\"strategy\":\"SEMANTIC\",\"maxChars\":2400,\"overlapChars\":320,\"maxTokens\":1400}") private String chunkingConfig;
         @ApiModelProperty(value = "审核配置 JSON", required = true, example = "{\"reviewModelId\":\"model-chat-001\"}") private String reviewConfig;

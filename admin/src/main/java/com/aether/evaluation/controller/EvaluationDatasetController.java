@@ -13,8 +13,12 @@ import com.aether.evaluation.entity.EvaluationDatasetVersion;
 import com.aether.evaluation.entity.EvaluationCaseVersion;
 import com.aether.permission.Permission;
 import com.aether.i18n.I18nUtils;
+import com.aether.sys.service.AccountDataScopeService;
+import com.aether.local.CurrentUser;
+import com.aether.exception.ServerException;
 import io.swagger.annotations.Api;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -38,16 +42,28 @@ public class EvaluationDatasetController {
     private final EvaluationCaseVersionService caseVersionService;
     private final EvaluationEvaluatorVersionService evaluatorVersionService;
     private final EvaluationDataDeletionService deletionService;
+    private final AccountDataScopeService dataScopeService;
 
+    @Autowired
+    public EvaluationDatasetController(EvaluationDatasetService service, EvaluationCaseService caseService,
+                                       EvaluationDatasetVersionService versionService, EvaluationCaseVersionService caseVersionService,
+                                       EvaluationEvaluatorVersionService evaluatorVersionService, EvaluationDataDeletionService deletionService,
+                                       AccountDataScopeService dataScopeService) {
+        this.service = service; this.caseService = caseService; this.versionService = versionService; this.caseVersionService = caseVersionService; this.evaluatorVersionService = evaluatorVersionService; this.deletionService = deletionService; this.dataScopeService = dataScopeService;
+    }
+
+    /** Backward-compatible constructor for unit tests; Spring uses the scoped constructor. */
     public EvaluationDatasetController(EvaluationDatasetService service, EvaluationCaseService caseService,
                                        EvaluationDatasetVersionService versionService, EvaluationCaseVersionService caseVersionService,
                                        EvaluationEvaluatorVersionService evaluatorVersionService, EvaluationDataDeletionService deletionService) {
-        this.service = service; this.caseService = caseService; this.versionService = versionService; this.caseVersionService = caseVersionService; this.evaluatorVersionService = evaluatorVersionService; this.deletionService = deletionService;
+        this(service, caseService, versionService, caseVersionService, evaluatorVersionService, deletionService, null);
     }
 
     @GetMapping
-    public WebResponse<List<EvaluationDataset>> list(@RequestParam(required = false) String targetType) {
+    public WebResponse<List<EvaluationDataset>> list(@RequestParam(required = false) String targetType,
+                                                      @RequestParam(required = false) String creatorUserId) {
         return WebResponse.OK(service.lambdaQuery().eq(targetType != null, EvaluationDataset::getTargetType, targetType)
+                .in(dataScopeService != null, EvaluationDataset::getCreatedBy, dataScopeService == null ? java.util.Collections.emptyList() : dataScopeService.readableCreatorIds(creatorUserId))
                 .eq(EvaluationDataset::getArchived, false).orderByDesc(EvaluationDataset::getUpdatedAt).list());
     }
 
@@ -68,8 +84,7 @@ public class EvaluationDatasetController {
     @PutMapping("/{id}")
     @Permission(path = "/evaluation/datasets", type = Permission.Type.Write)
     public WebResponse<?> update(@PathVariable String id, @RequestBody EvaluationDataset request) {
-        EvaluationDataset current = service.getById(id);
-        if (current == null) return WebResponse.Error(404, I18nUtils.getMessage("agent.evaluation.dataset.not-found"));
+        EvaluationDataset current = required(id);
         if (request.getName() != null) current.setName(request.getName());
         if (request.getDescription() != null) current.setDescription(request.getDescription());
         current.setRevision((current.getRevision() == null ? 0L : current.getRevision()) + 1);
@@ -80,39 +95,41 @@ public class EvaluationDatasetController {
     @DeleteMapping("/{id}")
     @Permission(path = "/evaluation/datasets", type = Permission.Type.Write)
     public WebResponse<?> delete(@PathVariable String id) {
-        if (service.getById(id) == null) return WebResponse.Error(404, I18nUtils.getMessage("agent.evaluation.dataset.not-found"));
+        required(id);
         deletionService.deleteDataset(id);
         return WebResponse.OK(I18nUtils.getMessage("agent.evaluation.data.delete.success"));
     }
 
     @GetMapping("/{id}/cases")
     public WebResponse<List<EvaluationCase>> cases(@PathVariable String id) {
+        required(id);
         return WebResponse.OK(caseService.lambdaQuery().eq(EvaluationCase::getDatasetId, id)
                 .eq(EvaluationCase::getDeleted, false).orderByAsc(EvaluationCase::getSortNum).list());
     }
 
     @GetMapping("/{id}/cases/export")
     public WebResponse<?> exportCases(@PathVariable String id) {
-        EvaluationDataset dataset=service.getById(id);if(dataset==null)return WebResponse.Error(404,I18nUtils.getMessage("agent.evaluation.dataset.not-found"));
+        EvaluationDataset dataset=required(id);
         Map<String,Object> out=new LinkedHashMap<>();out.put("schemaVersion",1);out.put("targetType",dataset.getTargetType());out.put("cases",caseService.lambdaQuery().eq(EvaluationCase::getDatasetId,id).eq(EvaluationCase::getDeleted,false).orderByAsc(EvaluationCase::getSortNum).list());return WebResponse.OK(out);
     }
 
     @PostMapping("/{id}/cases/import/preview")
     @Permission(path = "/evaluation/datasets", type = Permission.Type.Write)
     public WebResponse<?> previewImport(@PathVariable String id,@RequestBody Map<String,Object> request) {
-        EvaluationDataset dataset=service.getById(id);if(dataset==null)return WebResponse.Error(404,I18nUtils.getMessage("agent.evaluation.dataset.not-found"));return WebResponse.OK(validateImport(id,request));
+        EvaluationDataset dataset=required(id);return WebResponse.OK(validateImport(id,request));
     }
 
     @PostMapping("/{id}/cases/import")
     @Permission(path = "/evaluation/datasets", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<?> importCases(@PathVariable String id,@RequestBody Map<String,Object> request) {
-        EvaluationDataset dataset=service.getById(id);if(dataset==null)return WebResponse.Error(404,I18nUtils.getMessage("agent.evaluation.dataset.not-found"));Map<String,Object> preview=validateImport(id,request);if(!Boolean.TRUE.equals(preview.get("valid")))return WebResponse.Error(422,I18nUtils.getMessage("agent.evaluation.case.import.invalid"));
+        EvaluationDataset dataset=required(id);Map<String,Object> preview=validateImport(id,request);if(!Boolean.TRUE.equals(preview.get("valid")))return WebResponse.Error(422,I18nUtils.getMessage("agent.evaluation.case.import.invalid"));
         @SuppressWarnings("unchecked") List<Object> items=(List<Object>)preview.get("items");int sort=caseService.lambdaQuery().eq(EvaluationCase::getDatasetId,id).count().intValue();for(Object raw:items){EvaluationCase item=com.alibaba.fastjson2.JSON.parseObject(com.alibaba.fastjson2.JSON.toJSONString(raw),EvaluationCase.class);item.setId(null);item.setDatasetId(id);item.setRevision(0L);item.setSortNum(++sort);if(item.getEnabled()==null)item.setEnabled(true);if(item.getPassThreshold()==null)item.setPassThreshold(80);caseService.save(item);}dataset.setRevision((dataset.getRevision()==null?0:dataset.getRevision())+1);service.updateById(dataset);return WebResponse.OK(I18nUtils.getMessage("agent.evaluation.case.import.success"),items.size());
     }
 
     @GetMapping("/{id}/versions")
     public WebResponse<List<EvaluationDatasetVersion>> versions(@PathVariable String id) {
+        required(id);
         return WebResponse.OK(versionService.lambdaQuery().eq(EvaluationDatasetVersion::getDatasetId, id)
                 .eq(EvaluationDatasetVersion::getDeleted, false).orderByDesc(EvaluationDatasetVersion::getVersionNo).list());
     }
@@ -120,7 +137,7 @@ public class EvaluationDatasetController {
     @PostMapping("/{id}/cases")
     @Permission(path = "/evaluation/datasets", type = Permission.Type.Write)
     public WebResponse<String> addCase(@PathVariable String id, @RequestBody EvaluationCase item) {
-        if (service.getById(id) == null || item == null || blank(item.getCaseKey()) || blank(item.getInputJson()))
+        if (requiredOrNull(id) == null || item == null || blank(item.getCaseKey()) || blank(item.getInputJson()))
             return WebResponse.Error(422, I18nUtils.getMessage("agent.evaluation.case.input.invalid"));
         item.setId(null); item.setDatasetId(id); if (item.getEnabled() == null) item.setEnabled(true);
         if (item.getPassThreshold() == null) item.setPassThreshold(80);
@@ -151,8 +168,7 @@ public class EvaluationDatasetController {
     @Permission(path = "/evaluation/datasets", type = Permission.Type.Write)
     @Transactional(rollbackFor = Exception.class)
     public WebResponse<?> publishVersion(@PathVariable String id) {
-        EvaluationDataset dataset = service.getById(id);
-        if (dataset == null) return WebResponse.Error(404, I18nUtils.getMessage("agent.evaluation.dataset.not-found"));
+        EvaluationDataset dataset = required(id);
         List<EvaluationCase> enabled = caseService.lambdaQuery().eq(EvaluationCase::getDatasetId, id)
                 .eq(EvaluationCase::getEnabled, true).eq(EvaluationCase::getDeleted, false).list();
         if (enabled.isEmpty()) return WebResponse.Error(422, I18nUtils.getMessage("agent.evaluation.dataset.enabled-case.required"));
@@ -184,6 +200,18 @@ public class EvaluationDatasetController {
     }
 
     private boolean blank(String value) { return value == null || value.trim().isEmpty(); }
+
+    private EvaluationDataset requiredOrNull(String id) {
+        try { return required(id); } catch (ServerException ex) { return null; }
+    }
+
+    private EvaluationDataset required(String id) {
+        EvaluationDataset value = service.getById(id);
+        if (value == null || Boolean.TRUE.equals(value.getDeleted()))
+            throw new ServerException(404, I18nUtils.getMessage("agent.evaluation.dataset.not-found"));
+        if (dataScopeService != null) dataScopeService.assertReadable(value.getCreatedBy());
+        return value;
+    }
     /** Published case versions must reference immutable evaluators, otherwise an experiment can never produce a score. */
     private String validateBindings(List<EvaluationCase> cases) {
         for (EvaluationCase item : cases) {

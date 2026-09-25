@@ -1172,7 +1172,6 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 .eq(AgentWorkflowNodeInstance::getInstanceId, instance.getId()).eq(AgentWorkflowNodeInstance::getNodeId, nodeId));
         if (existing != null) return existing;
         AgentWorkflowNodeInstance newNode = new AgentWorkflowNodeInstance();
-        newNode.setTenantId(instance.getTenantId());
         newNode.setInstanceId(instance.getId());
         newNode.setNodeId(nodeId);
         newNode.setNodeType(definition.getString("type"));
@@ -1658,7 +1657,6 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                 .eq(AgentWorkflowJoinState::getTokenKey, tokenKey).eq(AgentWorkflowJoinState::getDeleted, false).last("FOR UPDATE"));
         if (state == null) {
             state = new AgentWorkflowJoinState();
-            state.setTenantId(instance.getTenantId());
             state.setInstanceId(instance.getId()); state.setJoinNodeId(joinNodeId); state.setTokenKey(tokenKey);
             JSONObject joinDefinition = nodeMap.get(joinNodeId);
             state.setJoinMode(StringUtils.defaultIfBlank(joinDefinition == null ? null : joinDefinition.getString("joinMode"),
@@ -1676,7 +1674,7 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
                     .eq(AgentWorkflowNodeToken::getInstanceId, instance.getId()).eq(AgentWorkflowNodeToken::getNodeId, entryId)
                     .eq(AgentWorkflowNodeToken::getTokenKey, tokenKey + ":" + i).eq(AgentWorkflowNodeToken::getDeleted, false));
             if (token == null) {
-                token = new AgentWorkflowNodeToken(); token.setTenantId(instance.getTenantId()); token.setInstanceId(instance.getId()); token.setNodeId(entryId);
+                token = new AgentWorkflowNodeToken(); token.setInstanceId(instance.getId()); token.setNodeId(entryId);
                 token.setTokenKey(tokenKey + ":" + i); token.setStatus("RUNNING"); nodeTokenService.save(token);
             }
             if ("COMPLETED".equals(token.getStatus())) { completed++; continue; }
@@ -1839,7 +1837,6 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             throw ex;
         }
         AgentWorkflowSubflowLink link = new AgentWorkflowSubflowLink();
-        link.setTenantId(parent.getTenantId());
         link.setParentInstanceId(parent.getId());
         link.setParentNodeId(node.getNodeId());
         link.setChildInstanceId(child.getId());
@@ -2115,7 +2112,8 @@ public class AgentWorkflowExecutionServiceImpl implements AgentWorkflowExecution
             if (StringUtils.isNotBlank(binding.getRoleId())) roleIds.add(binding.getRoleId());
         if (roleIds.isEmpty()) return false;
         return roleService.count(Wrappers.lambdaQuery(Role.class).in(Role::getId, roleIds)
-                .eq(Role::getName, "root").eq(Role::getDeleted, false)) > 0;
+                .eq(Role::getRoleType, "ADMIN")
+                .eq(Role::getDeleted, false)) > 0;
     }
 
     /**

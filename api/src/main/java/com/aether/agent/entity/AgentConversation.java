@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -12,11 +12,11 @@ import lombok.experimental.Accessors;
  * 会话
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_conversation")
 @ApiModel(value = "AgentConversation对象", description = "会话")
-public class AgentConversation extends BaseEntity {
+public class AgentConversation extends AccountOwnedEntity {
 
     public static final String SOURCE_CONSOLE = "CONSOLE";
     public static final String SOURCE_EXTERNAL = "EXTERNAL";

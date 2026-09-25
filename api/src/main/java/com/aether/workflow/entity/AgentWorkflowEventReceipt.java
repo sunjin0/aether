@@ -1,6 +1,6 @@
 package com.aether.workflow.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -9,7 +9,6 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_event_receipt")
-public class AgentWorkflowEventReceipt extends BaseEntity {
-    private String tenantId;
+public class AgentWorkflowEventReceipt extends AccountOwnedEntity {
     private String applicationId, eventType, eventId, correlationKey;
 }

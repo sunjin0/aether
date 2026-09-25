@@ -10,6 +10,7 @@ import com.aether.entity.WebResponse;
 import com.aether.user.service.MemberService;
 import com.aether.permission.Permission;
 import com.aether.i18n.I18nUtils;
+import com.aether.local.CurrentUser;
 import org.springframework.web.bind.annotation.*;
 import io.swagger.annotations.*;
 import org.springframework.beans.BeanUtils;
@@ -45,6 +46,9 @@ public class MemberController {
         BeanUtils.copyProperties(request, entity);
         Page<Member> page = new Page<>(entity.getCurrent(), entity.getPageSize());
         LambdaQueryWrapper<Member> wrapper = Wrappers.lambdaQuery(Member.class);
+        String owner = CurrentUser.dataOwnerId();
+        String requestedOwner = org.apache.commons.lang3.StringUtils.isNotBlank(owner) ? owner : entity.getCreatorUserId();
+        wrapper.eq(org.apache.commons.lang3.StringUtils.isNotBlank(requestedOwner), Member::getCreatedBy, requestedOwner);
         Page<Member> MemberPage = memberService.page(page, wrapper);
         return WebResponse.Page(MemberPage.getRecords(), MemberPage.getTotal());
     }

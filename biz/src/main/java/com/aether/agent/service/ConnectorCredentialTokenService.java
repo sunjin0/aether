@@ -32,9 +32,9 @@ public class ConnectorCredentialTokenService {
         this.config = config;
     }
 
-    public String create(String runId, String userId, String tenantId, String connectorId,
+    public String create(String runId, String userId, String accountId, String connectorId,
                          List<String> allowedTools, Map<String, String> credential) {
-        if (StringUtils.isAnyBlank(runId, userId, tenantId, connectorId)
+        if (StringUtils.isAnyBlank(runId, userId, accountId, connectorId)
                 || allowedTools == null || allowedTools.isEmpty()
                 || credential == null || credential.isEmpty()) {
             throw new IllegalArgumentException("连接器临时凭据参数不完整");
@@ -46,7 +46,7 @@ public class ConnectorCredentialTokenService {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("runId", runId);
             payload.put("userId", userId);
-            payload.put("tenantId", tenantId);
+            payload.put("accountId", accountId);
             payload.put("connectorId", connectorId);
             payload.put("allowedTools", allowedTools);
             payload.put("credential", new LinkedHashMap<>(credential));
@@ -83,8 +83,8 @@ public class ConnectorCredentialTokenService {
         }
     }
 
-    public void validate(Map<String, Object> claims, String tenantId, String connectorId, String toolName) {
-        if (claims == null || !StringUtils.equals(tenantId, String.valueOf(claims.get("tenantId")))
+    public void validate(Map<String, Object> claims, String accountId, String connectorId, String toolName) {
+        if (claims == null || !StringUtils.equals(accountId, String.valueOf(claims.get("accountId")))
                 || !StringUtils.equals(connectorId, String.valueOf(claims.get("connectorId")))) {
             throw new IllegalArgumentException("连接器临时凭据范围不匹配");
         }

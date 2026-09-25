@@ -1,6 +1,6 @@
 package com.aether.agent.vo;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -10,7 +10,7 @@ import lombok.EqualsAndHashCode;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class ModelProviderVo extends BaseEntity {
+public class ModelProviderVo extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "供应商名称")
     private String name;

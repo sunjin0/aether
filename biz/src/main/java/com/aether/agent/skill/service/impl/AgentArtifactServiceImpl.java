@@ -70,7 +70,7 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
         String extension = StringUtils.isNotBlank(query.getExtension()) ? normalizedExtension(query.getExtension()) : null;
         boolean restrictAgents = agentDefinitionIds != null && !agentDefinitionIds.isEmpty();
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AgentArtifact> ownedQuery = Wrappers.lambdaQuery(AgentArtifact.class)
-                .eq(AgentArtifact::getUserId, userId)
+                .eq(StringUtils.isNotBlank(userId), AgentArtifact::getUserId, userId)
                 .in(restrictAgents, AgentArtifact::getAgentDefinitionId, agentDefinitionIds)
                 .eq(StringUtils.isNotBlank(query.getAgentDefinitionId()), AgentArtifact::getAgentDefinitionId, query.getAgentDefinitionId())
                 .like(StringUtils.isNotBlank(query.getFileName()), AgentArtifact::getFileName, StringUtils.trim(query.getFileName()))
@@ -79,7 +79,10 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
                 .le(query.getEndTime() != null, AgentArtifact::getCreatedAt, query.getEndTime())
                 .isNotNull(recycled, AgentArtifact::getRecycledAt)
                 .isNull(!recycled, AgentArtifact::getRecycledAt);
-        applyTenant(ownedQuery);
+        applyOwner(ownedQuery);
+        if (CurrentUser.administrator() && StringUtils.isNotBlank(query.getCreatorUserId())) {
+            ownedQuery.eq(AgentArtifact::getCreatedBy, query.getCreatorUserId());
+        }
         Page<AgentArtifact> page = page(new Page<>(current, pageSize), ownedQuery.orderByDesc(AgentArtifact::getCreatedAt));
         Map<String, String> agentNames = agentNames(page.getRecords());
         Page<AgentArtifactVo> result = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
@@ -95,19 +98,19 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
     @Override
     public AgentArtifact requireOwned(String id, String userId, boolean recycled) {
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AgentArtifact> ownedQuery = Wrappers.lambdaQuery(AgentArtifact.class)
-                .eq(AgentArtifact::getId, id).eq(AgentArtifact::getUserId, userId)
+                .eq(AgentArtifact::getId, id).eq(StringUtils.isNotBlank(CurrentUser.dataOwnerId()), AgentArtifact::getUserId, userId)
                 .isNotNull(recycled, AgentArtifact::getRecycledAt)
                 .isNull(!recycled, AgentArtifact::getRecycledAt);
-        applyTenant(ownedQuery);
+        applyOwner(ownedQuery);
         AgentArtifact artifact = getOne(ownedQuery);
         if (artifact == null || (artifact.getExpiresAt() != null && artifact.getExpiresAt() <= System.currentTimeMillis()))
             throw new ServerException(404, I18nUtils.getMessage("agent.artifact.not-found"));
         return artifact;
     }
 
-    private void applyTenant(com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AgentArtifact> query) {
-        if (CurrentUser.getUser() != null && StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId"))) {
-            query.eq(AgentArtifact::getTenantId, CurrentUser.getUser().get("tenantId"));
+    private void applyOwner(com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AgentArtifact> query) {
+        if (StringUtils.isNotBlank(CurrentUser.dataOwnerId())) {
+            query.eq(AgentArtifact::getCreatedBy, CurrentUser.dataOwnerId());
         }
     }
 

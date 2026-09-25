@@ -61,7 +61,6 @@ public class WorkflowExecutionJobDispatcher {
                 .eq(AgentWorkflowExecutionJob::getDeleted, false).last("LIMIT 1"));
         if (existing == null) {
             AgentWorkflowExecutionJob job = new AgentWorkflowExecutionJob();
-            job.setTenantId(CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"));
             job.setInstanceId(instanceId);
             job.setStatus("PENDING");
             job.setAttemptCount(0);

@@ -105,7 +105,7 @@ public class KnowledgeDocumentController {
         KnowledgeDocumentVo vo = new KnowledgeDocumentVo();
         vo.setCurrent(request.getCurrent()); vo.setPageSize(request.getPageSize()); vo.setKnowledgeBaseId(request.getKnowledgeBaseId());
         vo.setTitle(request.getTitle()); vo.setStatus(request.getStatus()); vo.setReviewStatus(request.getReviewStatus());
-        List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds();
+        List<String> readableIds = knowledgeAccessService.readableKnowledgeBaseIds(request.getCreatorUserId());
         Page<KnowledgeDocument> page = new Page<>(vo.getCurrent(), vo.getPageSize());
         if (readableIds.isEmpty()) {
             return WebResponse.Page(Collections.emptyList(), 0L);
@@ -150,7 +150,6 @@ public class KnowledgeDocumentController {
         KnowledgeDocumentVo vo = createVo(request);
         KnowledgeBase base = knowledgeAccessService.requireWritable(vo.getKnowledgeBaseId());
         KnowledgeDocument document = new KnowledgeDocument();
-        document.setTenantId(base.getTenantId());
         document.setKnowledgeBaseId(vo.getKnowledgeBaseId());
         document.setTitle(vo.getTitle());
         document.setContent(null);
@@ -188,7 +187,6 @@ public class KnowledgeDocumentController {
         String name = StringUtils.defaultIfBlank(file.getOriginalFilename(), "document.txt");
         byte[] bytes = file.getBytes();
         KnowledgeDocument document = new KnowledgeDocument();
-        document.setTenantId(base.getTenantId());
         document.setKnowledgeBaseId(knowledgeBaseId);
         document.setTitle(StringUtils.defaultIfBlank(title, name));
         document.setSourceType(KnowledgeDocumentSourceType.FILE);
@@ -204,8 +202,8 @@ public class KnowledgeDocumentController {
         document.setCurrentVersionNo(0);
         if (!knowledgeDocumentService.save(document))
             throw new ServerException(500, I18nUtils.getMessage("knowledge.document.create.fail"));
-        String tenantPrefix = StringUtils.isBlank(base.getTenantId()) ? "" : "tenant/" + base.getTenantId() + "/";
-        String key = tenantPrefix + "knowledge/" + knowledgeBaseId + "/" + document.getId() + "/1/" + name.replaceAll("[^a-zA-Z0-9._-]", "_");
+        String accountPrefix = "account/" + base.getCreatedBy() + "/";
+        String key = accountPrefix + "knowledge/" + knowledgeBaseId + "/" + document.getId() + "/1/" + name.replaceAll("[^a-zA-Z0-9._-]", "_");
         boolean uploaded = false;
         try {
             objectStorageService.upload(knowledgeBucket, key, bytes, contentType);
@@ -601,6 +599,7 @@ public class KnowledgeDocumentController {
         @ApiModelProperty(value = "标题关键词", example = "安装") private String title;
         @ApiModelProperty(value = "处理状态", example = "2") private Integer status;
         @ApiModelProperty(value = "审核状态", example = "APPROVED") private String reviewStatus;
+        @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
     }
 
     @Data @ApiModel("新建知识库文档请求") public static class CreateRequest {

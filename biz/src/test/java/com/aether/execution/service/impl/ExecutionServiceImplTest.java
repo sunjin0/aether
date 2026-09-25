@@ -14,16 +14,16 @@ class ExecutionServiceImplTest {
     void clearCurrentUser() { CurrentUser.remove(); }
 
     @Test
-    void startCapturesTenantFromCurrentUser() {
+    void startCapturesAccountFromCurrentUser() {
         HashMap<String, String> user = new HashMap<>();
-        user.put("tenantId", "tenant-1");
+        user.put("userId", "account-1");
         CurrentUser.set(user);
         ExecutionServiceImpl service = spy(new ExecutionServiceImpl());
         doReturn(true).when(service).save(any(Execution.class));
 
         Execution result = service.start("AGENT", "trace-1", null, "user-1", "agent-1");
 
-        assertEquals("tenant-1", result.getTenantId());
+        assertEquals("account-1", result.getCreatedBy());
     }
 
     @Test

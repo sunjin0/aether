@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_session_memory")
-public class AgentSessionMemory extends BaseEntity {
+public class AgentSessionMemory extends AccountOwnedEntity {
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_SUPERSEDED = "SUPERSEDED";
     public static final String STATUS_DELETED = "DELETED";

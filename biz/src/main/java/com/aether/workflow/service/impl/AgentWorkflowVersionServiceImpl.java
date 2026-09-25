@@ -16,8 +16,8 @@ public class AgentWorkflowVersionServiceImpl extends ServiceImpl<AgentWorkflowVe
     @Override
     public AgentWorkflowVersion getById(java.io.Serializable id) {
         AgentWorkflowVersion version = super.getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (version != null && StringUtils.isNotBlank(tenantId) && !tenantId.equals(version.getTenantId())) return null;
+        String accountId = CurrentUser.dataOwnerId();
+        if (version != null && StringUtils.isNotBlank(accountId) && !accountId.equals(version.getCreatedBy())) return null;
         return version;
     }
 }

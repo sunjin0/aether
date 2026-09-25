@@ -1,6 +1,6 @@
 package com.aether.workflow.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,8 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_callback_delivery")
-public class AgentWorkflowCallbackDelivery extends BaseEntity {
-    private String tenantId;
+public class AgentWorkflowCallbackDelivery extends AccountOwnedEntity {
     /** 关联运行的业务应用空间，供审计和重试范围隔离。 */
     private String applicationId;
     private String instanceId;

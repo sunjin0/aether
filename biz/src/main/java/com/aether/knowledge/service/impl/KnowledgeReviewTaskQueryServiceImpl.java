@@ -73,7 +73,7 @@ public class KnowledgeReviewTaskQueryServiceImpl implements KnowledgeReviewTaskQ
     public IPage<KnowledgeReviewTaskVo> list(KnowledgeReviewTaskQueryVo request) {
         KnowledgeReviewTaskQueryVo query = request == null ? new KnowledgeReviewTaskQueryVo() : request;
         String taskStatus = normalizeStatus(query.getStatus());
-        List<String> readableIds = accessService.readableKnowledgeBaseIds();
+        List<String> readableIds = accessService.readableKnowledgeBaseIds(query.getCreatorUserId());
         String currentAdminId = accessService.currentAdminId();
         long current = query.getCurrent() == null || query.getCurrent() < 1 ? 1 : query.getCurrent();
         long pageSize = query.getPageSize() == null ? 20 : Math.max(1, Math.min(100, query.getPageSize()));

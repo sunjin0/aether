@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -12,11 +12,11 @@ import lombok.experimental.Accessors;
  * Agent message.
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_message")
 @ApiModel(value = "AgentMessage", description = "Agent message")
-public class AgentMessage extends BaseEntity {
+public class AgentMessage extends AccountOwnedEntity {
 
     /** 调用方请求标识，用于在重试时去重用户消息。 */
     private String requestId;

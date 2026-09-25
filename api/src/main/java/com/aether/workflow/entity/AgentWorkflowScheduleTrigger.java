@@ -1,6 +1,6 @@
 package com.aether.workflow.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.TableField;
 import lombok.Data;
@@ -12,8 +12,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_workflow_schedule_trigger")
-public class AgentWorkflowScheduleTrigger extends BaseEntity {
-    private String tenantId;
+public class AgentWorkflowScheduleTrigger extends AccountOwnedEntity {
     private String workflowId;
     private String serviceAccountId;
     private String name;

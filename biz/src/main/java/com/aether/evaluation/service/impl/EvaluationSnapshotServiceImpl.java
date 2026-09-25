@@ -58,7 +58,7 @@ public class EvaluationSnapshotServiceImpl extends ServiceImpl<EvaluationTargetS
         String canonical=canonicalJson(json);
         EvaluationTargetSnapshot snapshot = new EvaluationTargetSnapshot();
         snapshot.setTargetType(type); snapshot.setTargetId(target); snapshot.setSourceKind(kind); snapshot.setSourceVersionId(version);
-        snapshot.setSnapshotJson(canonical); snapshot.setFingerprint(hash(canonical)); snapshot.setCreatedBy(user); save(snapshot); return snapshot;
+        snapshot.setSnapshotJson(canonical); snapshot.setFingerprint(hash(canonical)); save(snapshot); return snapshot;
     }
     @Override public EvaluationTargetSnapshot createCurrentSnapshot(String type, String target, String user) {
         if ("AGENT".equals(type)) return snapshotAgent(target, user);

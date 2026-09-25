@@ -46,45 +46,45 @@ class ChatAttachmentServiceTest {
         ReflectionTestUtils.setField(I18nUtils.class, "i18nService", null);
     }
 
-    private static void signInAsTenant(String tenantId) {
+    private static void signInAsUser(String userId) {
         HashMap<String, String> user = new HashMap<String, String>();
-        if (tenantId != null) user.put("tenantId", tenantId);
+        if (userId != null) user.put("userId", userId);
         CurrentUser.set(user);
     }
 
     @Test
-    void theCallersOwnAttachmentIsReadFromItsTenantPrefix() {
-        signInAsTenant("tenant-1");
+    void theCallersOwnAttachmentIsReadFromItsAccountPrefix() {
+        signInAsUser("account-1");
         byte[] bytes = new byte[]{1, 2, 3};
-        when(storage.getObject(BUCKET, "chat/tenant-1/2026/09/24/abc.png")).thenReturn(bytes);
+        when(storage.getObject(BUCKET, "chat/account-1/2026/09/24/abc.png")).thenReturn(bytes);
 
-        assertArrayEquals(bytes, service.readOwnedAttachment("chat/tenant-1/2026/09/24/abc.png"));
+        assertArrayEquals(bytes, service.readOwnedAttachment("chat/account-1/2026/09/24/abc.png"));
     }
 
     /** objectKey 落在别的前缀下就是「读别人家对象」的尝试，一律当作不存在。 */
     @Test
-    void aKeyOutsideTheTenantPrefixIsRejectedAsNotFound() {
-        signInAsTenant("tenant-1");
+    void aKeyOutsideTheAccountPrefixIsRejectedAsNotFound() {
+        signInAsUser("account-1");
 
         for (String key : new String[]{
-                "chat/tenant-2/2026/09/24/abc.png",
-                "knowledge/tenant-1/doc.pdf",
-                "../chat/tenant-1/2026/09/24/abc.png",
-                "chat2/tenant-1/2026/09/24/abc.png"}) {
+                "chat/account-2/2026/09/24/abc.png",
+                "knowledge/account-1/doc.pdf",
+                "../chat/account-1/2026/09/24/abc.png",
+                "chat2/account-1/2026/09/24/abc.png"}) {
             ServerException error = assertThrows(ServerException.class, () -> service.readOwnedAttachment(key), key);
             assertTrue(error.getMessage().startsWith("404:"), key);
         }
         verify(storage, never()).getObject(anyString(), anyString());
     }
 
-    /** 前缀校验挡不住上跳：这个键是以 "chat/tenant-1/" 开头的，但读的是别的租户。 */
+    /** 前缀校验挡不住上跳：这个键是以 "chat/account-1/" 开头的，但读的是别的账号。 */
     @Test
-    void aKeyThatEscapesItsTenantThroughDotDotIsRejected() {
-        signInAsTenant("tenant-1");
+    void aKeyThatEscapesItsAccountThroughDotDotIsRejected() {
+        signInAsUser("account-1");
 
         for (String key : new String[]{
-                "chat/tenant-1/../tenant-2/2026/09/24/abc.png",
-                "chat/tenant-1/./../../tenant-2/abc.png"}) {
+                "chat/account-1/../account-2/2026/09/24/abc.png",
+                "chat/account-1/./../../account-2/abc.png"}) {
             ServerException error = assertThrows(ServerException.class, () -> service.readOwnedAttachment(key), key);
             assertTrue(error.getMessage().startsWith("404:"), key);
         }
@@ -93,7 +93,7 @@ class ChatAttachmentServiceTest {
 
     @Test
     void aBlankKeyIsRejectedBeforeTouchingStorage() {
-        signInAsTenant("tenant-1");
+        signInAsUser("account-1");
 
         ServerException error = assertThrows(ServerException.class, () -> service.readOwnedAttachment("  "));
 

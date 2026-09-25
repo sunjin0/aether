@@ -12,6 +12,7 @@ import com.aether.sys.dto.ServiceAccountUpdateDto;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.mapper.ServiceAccountMapper;
 import com.aether.sys.service.ServiceAccountService;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.local.CurrentUser;
 import com.aether.sys.vo.ServiceAccountSecretVo;
 import com.aether.sys.vo.ServiceAccountTokenVo;
@@ -45,6 +46,7 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
     private final RedisTemplate<String, Object> redisTemplate;
     private final AgentDefinitionService agentDefinitionService;
     private final int accessTokenSeconds;
+    private final AccountDataScopeService dataScopeService;
     @Autowired(required = false)
     private AgentApplicationService applicationService;
     @Autowired(required = false)
@@ -59,10 +61,12 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
      */
     public ServiceAccountServiceImpl(PasswordEncoder passwordEncoder, RedisTemplate<String, Object> redisTemplate,
                                      AgentDefinitionService agentDefinitionService,
+                                     AccountDataScopeService dataScopeService,
                                      @org.springframework.beans.factory.annotation.Value("${aether.service-account.access-token-seconds:900}") int accessTokenSeconds) {
         this.passwordEncoder = passwordEncoder;
         this.redisTemplate = redisTemplate;
         this.agentDefinitionService = agentDefinitionService;
+        this.dataScopeService = dataScopeService;
         this.accessTokenSeconds = Math.max(60, Math.min(accessTokenSeconds, 3600));
     }
 
@@ -83,7 +87,6 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
             throw new ServerException(409, I18nUtils.getMessage("service-account.client-id.exists"));
         String secret = "sa_" + randomToken(32);
         ServiceAccount account = new ServiceAccount();
-        if (CurrentUser.getUser() != null) account.setTenantId(CurrentUser.getUser().get("tenantId"));
         String applicationId = normalizeApplicationId(dto.getApplicationId());
         account.setApplicationId(applicationId);
         account.setName(dto.getName());
@@ -301,11 +304,12 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
      */
     private ServiceAccount required(String id) {
         ServiceAccount account = getById(id);
-        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
-        if (account == null || Boolean.TRUE.equals(account.getDeleted())
-                || (StringUtils.isNotBlank(tenantId) && StringUtils.isNotBlank(account.getTenantId())
-                && !tenantId.equals(account.getTenantId())))
+        if (account == null || Boolean.TRUE.equals(account.getDeleted()))
             throw new ServerException(404, I18nUtils.getMessage("service-account.not-found"));
+        String principal = CurrentUser.userId();
+        if (StringUtils.isBlank(principal) || !principal.startsWith("sa:")) {
+            dataScopeService.assertWritable(account.getCreatedBy());
+        }
         return account;
     }
 
@@ -314,7 +318,9 @@ public class ServiceAccountServiceImpl extends ServiceImpl<ServiceAccountMapper,
         if (productProfileService == null) throw new ServerException(422, I18nUtils.getMessage("service-account.product-service.unavailable"));
         long count = productProfileService.count(Wrappers.lambdaQuery(AgentProductProfile.class).in(AgentProductProfile::getId, productIds)
                 .eq(AgentProductProfile::getApplicationId, applicationId).eq(AgentProductProfile::getStatus, 1)
-                .eq(AgentProductProfile::getDeleted, false));
+                .eq(AgentProductProfile::getDeleted, false)
+                // 创建服务账号时，普通账号只能绑定自己创建的已发布产品；管理员可绑定全量产品。
+                .in(AgentProductProfile::getCreatedBy, dataScopeService.readableCreatorIds(null)));
         if (count != new LinkedHashSet<String>(productIds).size()) throw new ServerException(422, I18nUtils.getMessage("service-account.products.invalid"));
     }
 

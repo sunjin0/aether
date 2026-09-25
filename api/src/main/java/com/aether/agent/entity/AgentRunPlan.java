@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("agent_run_plan")
-public class AgentRunPlan extends BaseEntity {
+public class AgentRunPlan extends AccountOwnedEntity {
     private String runId, taskId, currentStepId, status, pauseReason;
     private Integer currentVersion;
     private Long lastActiveAt;

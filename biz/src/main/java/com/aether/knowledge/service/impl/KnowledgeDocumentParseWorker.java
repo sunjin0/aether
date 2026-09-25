@@ -128,7 +128,7 @@ public class KnowledgeDocumentParseWorker {
      * context is no longer available.
      */
     private void bindOperator(String operatorId, KnowledgeBase base) {
-        String actorId = StringUtils.defaultIfBlank(operatorId, base == null ? null : base.getOwnerAdminId());
+        String actorId = StringUtils.defaultIfBlank(operatorId, base == null ? null : base.getCreatedBy());
         if (StringUtils.isBlank(actorId)) {
             throw new IllegalStateException("knowledge document operator is missing");
         }

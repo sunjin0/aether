@@ -5,6 +5,7 @@ import com.aether.agent.entity.AgentRun;
 import com.aether.agent.service.AgentDefinitionService;
 import com.aether.agent.service.AgentRunService;
 import com.aether.entity.WebResponse;
+import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.permission.Permission;
 import com.aether.local.CurrentUser;
@@ -13,6 +14,7 @@ import com.aether.sys.dto.ServiceAccountUpdateDto;
 import com.aether.sys.dto.ServiceAccountListRequest;
 import com.aether.sys.entity.ServiceAccount;
 import com.aether.sys.service.ServiceAccountService;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.sys.vo.ServiceAccountSecretVo;
 import com.aether.sys.vo.ServiceAccountUsageItemVo;
 import com.aether.sys.vo.ServiceAccountUsageVo;
@@ -27,6 +29,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
+import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -50,6 +53,7 @@ public class ServiceAccountController {
     private final AgentDefinitionService agentDefinitionService;
     private final AgentWorkflowInstanceService workflowInstanceService;
     private final AgentWorkflowService workflowService;
+    private final AccountDataScopeService dataScopeService;
 
     /**
      * 创建 {@code ServiceAccountController} 实例。
@@ -58,12 +62,14 @@ public class ServiceAccountController {
                                     AgentRunService agentRunService,
                                     AgentDefinitionService agentDefinitionService,
                                     AgentWorkflowInstanceService workflowInstanceService,
-                                    AgentWorkflowService workflowService) {
+                                    AgentWorkflowService workflowService,
+                                    AccountDataScopeService dataScopeService) {
         this.serviceAccountService = serviceAccountService;
         this.agentRunService = agentRunService;
         this.agentDefinitionService = agentDefinitionService;
         this.workflowInstanceService = workflowInstanceService;
         this.workflowService = workflowService;
+        this.dataScopeService = dataScopeService;
     }
 
     /**
@@ -77,7 +83,7 @@ public class ServiceAccountController {
         long pageSize = query == null || query.getPageSize() == null ? 20L : Math.min(query.getPageSize(), 100L);
         Page<ServiceAccount> page = serviceAccountService.page(new Page<ServiceAccount>(current, pageSize),
                 Wrappers.lambdaQuery(ServiceAccount.class).eq(ServiceAccount::getDeleted, false)
-                        .eq(CurrentUser.getUser() != null && org.apache.commons.lang3.StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")), ServiceAccount::getTenantId, CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"))
+                        .in(ServiceAccount::getCreatedBy, dataScopeService.readableCreatorIds(query == null ? null : query.getCreatorUserId()))
                         .eq(query != null && org.apache.commons.lang3.StringUtils.isNotBlank(query.getApplicationId()), ServiceAccount::getApplicationId, query == null ? null : query.getApplicationId())
                         .orderByDesc(ServiceAccount::getCreatedAt));
         List<ServiceAccountVo> rows = page.getRecords().stream().map(this::vo).collect(Collectors.toList());
@@ -145,7 +151,8 @@ public class ServiceAccountController {
     @ApiOperation("服务账号外部接入使用情况")
     @Permission(path = "/service-account/monitor")
     @GetMapping("/api/sys/service-account/usage")
-    public WebResponse<ServiceAccountUsageVo> usage(@RequestParam(required = false, defaultValue = "7") Integer days) {
+    public WebResponse<ServiceAccountUsageVo> usage(@RequestParam(required = false, defaultValue = "7") Integer days,
+                                                   @RequestParam(required = false) String serviceAccountId) {
         int rangeDays = normalizeDays(days);
         long now = System.currentTimeMillis();
         long rangeMillis = rangeDays * 24L * 60L * 60L * 1000L;
@@ -153,10 +160,16 @@ public class ServiceAccountController {
         long previousRangeStart = rangeStart - rangeMillis;
         long last24HoursStart = now - 24L * 60L * 60L * 1000L;
         long previous24HoursStart = last24HoursStart - 24L * 60L * 60L * 1000L;
-        List<ServiceAccount> accounts = serviceAccountService.list(Wrappers.lambdaQuery(ServiceAccount.class)
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ServiceAccount> accountQuery = Wrappers.lambdaQuery(ServiceAccount.class)
                 .eq(ServiceAccount::getDeleted, false)
-                .and(CurrentUser.getUser() != null && org.apache.commons.lang3.StringUtils.isNotBlank(CurrentUser.getUser().get("tenantId")),
-                        q -> q.eq(ServiceAccount::getTenantId, CurrentUser.getUser().get("tenantId"))));
+                .in(ServiceAccount::getCreatedBy, dataScopeService.readableCreatorIds(null));
+        if (StringUtils.isNotBlank(serviceAccountId)) {
+            accountQuery.eq(ServiceAccount::getId, serviceAccountId);
+        }
+        List<ServiceAccount> accounts = serviceAccountService.list(accountQuery);
+        if (StringUtils.isNotBlank(serviceAccountId) && accounts.isEmpty()) {
+            throw new ServerException(404, I18nUtils.getMessage("service-account.not-found"));
+        }
         Map<String, ServiceAccount> accountByPrincipal = new HashMap<String, ServiceAccount>();
         for (ServiceAccount account : accounts) accountByPrincipal.put("sa:" + account.getId(), account);
         List<AgentRun> runs = accountByPrincipal.isEmpty() ? new ArrayList<AgentRun>() : agentRunService.list(

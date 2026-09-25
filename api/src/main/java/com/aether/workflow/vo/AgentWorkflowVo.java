@@ -1,6 +1,6 @@
 package com.aether.workflow.vo;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -10,7 +10,7 @@ import lombok.EqualsAndHashCode;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class AgentWorkflowVo extends BaseEntity {
+public class AgentWorkflowVo extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;

@@ -34,6 +34,7 @@ import com.aether.entity.WebResponse;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
+import com.aether.sys.service.AccountDataScopeService;
 import com.aether.permission.Permission;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -105,6 +106,7 @@ public class AgentChatController {
     private final ModelProviderService modelProviderService;
     private final ModelCatalogService modelCatalogService;
     private final DeepRunEventHub deepRunEventHub;
+    private final AccountDataScopeService dataScopeService;
     @Autowired(required = false)
     private RuntimeEmailCredentialStore runtimeEmailCredentialStore;
     /**
@@ -131,7 +133,7 @@ public class AgentChatController {
                                 DeepAgentCallbackController deepAgentCallbackController, KnowledgeContextService knowledgeContextService,
                                 DeepAgentConfig deepAgentConfig, SkillContextService skillContextService,
                                 ModelProviderService modelProviderService, ModelCatalogService modelCatalogService,
-                                DeepRunEventHub deepRunEventHub) {
+                                DeepRunEventHub deepRunEventHub, AccountDataScopeService dataScopeService) {
         this.agentChatService = agentChatService;
         this.agentConversationService = agentConversationService;
         this.agentMessageService = agentMessageService;
@@ -145,6 +147,7 @@ public class AgentChatController {
         this.modelProviderService = modelProviderService;
         this.modelCatalogService = modelCatalogService;
         this.deepRunEventHub = deepRunEventHub;
+        this.dataScopeService = dataScopeService;
     }
 
     /**
@@ -157,7 +160,7 @@ public class AgentChatController {
                                DeepAgentConfig deepAgentConfig) {
         this(agentChatService, agentConversationService, agentMessageService, chatAttachmentService, agentDefinitionService,
                 deepAgentRunService, deepAgentCallbackController, knowledgeContextService, deepAgentConfig, null, null, null,
-                new DeepRunEventHub());
+                new DeepRunEventHub(), null);
     }
 
     /**
@@ -180,6 +183,7 @@ public class AgentChatController {
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public WebResponse<AgentMessageVo> chat(@RequestBody AgentChatDto dto) {
         AgentDefinition agent = agentDefinitionService.getById(dto.getAgentId());
+        if (agent != null && dataScopeService != null) dataScopeService.assertReadable(agent.getCreatedBy());
         if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) {
             throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
         }
@@ -238,7 +242,7 @@ public class AgentChatController {
      * 与普通 Agent 共用 stream + parentMessageId 交互回复协议，恢复同一 Deep 运行。
      */
     private SseEmitter resumeDeep(AgentChatDto dto, HttpServletResponse response, AgentDefinition agent) {
-        String userId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("userId");
+        String userId = CurrentUser.userId();
         if (StringUtils.isBlank(userId)) throw new ServerException(401, I18nUtils.getMessage("agent.unauthorized"));
         AgentConversation conversation = getDeepConversation(dto.getConversationId(), userId, agent);
         if (conversation == null)
@@ -398,7 +402,7 @@ public class AgentChatController {
                 .eq(StringUtils.isNotBlank(vo.getAgentDefinitionId()), AgentConversation::getAgentDefinitionId, vo.getAgentDefinitionId())
                 .eq(AgentConversation::getStatus, status)
                 .eq(AgentConversation::getDeleted, false)
-                .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId"))
+                .eq(!CurrentUser.administrator(), AgentConversation::getUserId, CurrentUser.userId())
                 .orderByDesc(AgentConversation::getCreatedAt);
         Page<AgentConversation> result = agentConversationService.page(page, wrapper);
         List<AgentConversationVo> list = result.getRecords().stream().map(item -> {
@@ -423,7 +427,7 @@ public class AgentChatController {
         AgentConversation conversation = agentConversationService.getOne(Wrappers.lambdaQuery(AgentConversation.class)
                 .eq(AgentConversation::getId, id)
                 .eq(AgentConversation::getDeleted, false)
-                .eq(AgentConversation::getUserId, CurrentUser.getUser().get("userId")));
+                .eq(!CurrentUser.administrator(), AgentConversation::getUserId, CurrentUser.userId()));
         if (conversation == null) {
             throw new ServerException(404, I18nUtils.getMessage("agent.conversation.not.found"));
         }

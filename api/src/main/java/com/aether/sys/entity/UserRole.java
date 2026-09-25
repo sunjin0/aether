@@ -21,9 +21,6 @@ import lombok.experimental.Accessors;
 @Accessors(chain = true)
 @TableName("sys_user_role")
 public class UserRole extends BaseEntity {
-    /** 绑定发生时的租户快照。 */
-    private String tenantId;
-
     /**
      * 用户id
      */

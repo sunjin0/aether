@@ -20,16 +20,16 @@ import lombok.experimental.Accessors;
 @Accessors(chain = true)
 @TableName("sys_role")
 public class Role extends BaseEntity {
-    /** 租户角色归属；空值保留平台内置角色。 */
-    private String tenantId;
-
-    /** 授权作用域：PLATFORM、ORGANIZATION 或 TEAM。 */
-    private String scope;
-
     /**
      * 角色名称
      */
     private String name;
+
+    /**
+     * 角色类型：ADMIN 管理员，USER 普通用户。
+     * 业务授权只能依赖该稳定编码，不依赖可修改的角色名称。
+     */
+    private String roleType;
 
     /**
      * 角色描述

@@ -1,6 +1,6 @@
 package com.aether.agent.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
@@ -12,14 +12,11 @@ import lombok.experimental.Accessors;
  * MCP server configuration.
  */
 @Data
-@EqualsAndHashCode(callSuper = false)
+@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
 @TableName("agent_mcp_server")
 @ApiModel(value = "AgentMcpServer", description = "MCP server configuration")
-public class AgentMcpServer extends BaseEntity {
-
-    @ApiModelProperty(value = "Tenant owner")
-    private String tenantId;
+public class AgentMcpServer extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "MCP server name")
     private String name;

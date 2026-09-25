@@ -53,7 +53,7 @@ class SolutionControllerTest {
     }
 
     @Test
-    void tenantCannotModifyOrDeleteGlobalSolution() {
+    void ordinaryUserCannotModifyOrDeleteGlobalSolution() {
         SolutionService solutions = mock(SolutionService.class);
         Solution global = new Solution();
         global.setId("global");
@@ -62,13 +62,13 @@ class SolutionControllerTest {
         SolutionController target = new SolutionController(solutions, mock(SolutionInstallationService.class),
                 mock(AgentApplicationService.class), mock(AgentMcpServerService.class), mock(AgentSkillService.class));
         java.util.HashMap<String, String> user = new java.util.HashMap<>();
-        user.put("tenantId", "tenant-a");
+        user.put("userId", "account-a");
         CurrentUser.set(user);
         try {
             assertThrows(RuntimeException.class, () -> target.delete("global"));
             Solution update = new Solution();
             update.setId("global"); update.setName("changed"); update.setCode("global"); update.setVersion("1");
-            assertTrue(target.save(update).getCode() == 403);
+            assertThrows(RuntimeException.class, () -> target.save(update));
         } finally {
             CurrentUser.remove();
         }
@@ -94,7 +94,7 @@ class SolutionControllerTest {
     }
 
     @Test
-    void saveRejectsDuplicateCodeAndVersionWithinTenant() {
+    void saveRejectsDuplicateCodeAndVersionWithinAccount() {
         SolutionService solutions = mock(SolutionService.class);
         Solution duplicate = new Solution();
         duplicate.setId("existing");
@@ -102,7 +102,7 @@ class SolutionControllerTest {
         SolutionController target = new SolutionController(solutions, mock(SolutionInstallationService.class),
                 mock(AgentApplicationService.class), mock(AgentMcpServerService.class), mock(AgentSkillService.class));
         java.util.HashMap<String, String> user = new java.util.HashMap<>();
-        user.put("tenantId", "tenant-a");
+        user.put("userId", "account-a");
         CurrentUser.set(user);
         try {
             Solution request = new Solution();

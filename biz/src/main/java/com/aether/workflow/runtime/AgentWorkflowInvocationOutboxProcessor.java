@@ -93,7 +93,6 @@ public class AgentWorkflowInvocationOutboxProcessor {
             payload.put("output", outputResolver.resolve(instance, capability == null ? null : capability.getOutputSchema()));
         }
         AgentWorkflowInvocationOutbox event = new AgentWorkflowInvocationOutbox();
-        event.setTenantId(invocation.getTenantId());
         event.setApplicationId(invocation.getApplicationId());
         event.setInvocationId(invocation.getId());
         event.setWorkflowInstanceId(instance.getId());

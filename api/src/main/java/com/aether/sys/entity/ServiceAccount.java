@@ -1,6 +1,6 @@
 package com.aether.sys.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,9 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("sys_service_account")
-public class ServiceAccount extends BaseEntity {
-    /** 服务账号所属租户。 */
-    private String tenantId;
+public class ServiceAccount extends AccountOwnedEntity {
     /** 所属业务应用空间。 */
     private String applicationId;
     private String name;

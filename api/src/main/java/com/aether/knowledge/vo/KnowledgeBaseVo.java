@@ -1,6 +1,6 @@
 package com.aether.knowledge.vo;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -10,22 +10,11 @@ import lombok.EqualsAndHashCode;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class KnowledgeBaseVo extends BaseEntity {
-
-    @ApiModelProperty(value = "关联Agent定义ID")
-    private String scope;
+public class KnowledgeBaseVo extends AccountOwnedEntity {
 
     private String embeddingProviderId;
     private String embeddingModelId;
 
-    /**
-     * 后台管理员归属 ID。
-     */
-    private String ownerAdminId;
-    /**
-     * 可见性：platform-平台，private-私有，shared-共享。
-     */
-    private String visibility;
     /**
      * 检索配置 JSON；当前只保存，暂不启用混合检索/重排。
      */

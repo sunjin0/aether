@@ -1,6 +1,6 @@
 package com.aether.agent.sandbox.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,8 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("sandbox_execution_task")
-public class SandboxExecutionTask extends BaseEntity {
-    private String tenantId;
+public class SandboxExecutionTask extends AccountOwnedEntity {
     private String legacyExecutionId, templateId, templateVersionId, templateCode, requesterUserId, agentDefinitionId, runId, messageId;
     private String status, riskLevel, inputSnapshot, inputSha256, scriptSha256, configSnapshot, policyVersion, executionTokenHash;
     private String claimedBy, failureCode, failureReason, logSummary;

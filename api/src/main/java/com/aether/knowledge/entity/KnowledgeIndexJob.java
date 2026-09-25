@@ -1,6 +1,6 @@
 package com.aether.knowledge.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,9 +11,8 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_index_job")
-public class KnowledgeIndexJob extends BaseEntity {
+public class KnowledgeIndexJob extends AccountOwnedEntity {
     /** 异步任务创建时冻结的租户边界。 */
-    private String tenantId;
     /**
      * 所属知识库 ID。
      */

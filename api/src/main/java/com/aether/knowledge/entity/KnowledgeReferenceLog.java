@@ -1,6 +1,6 @@
 package com.aether.knowledge.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,9 +11,8 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("knowledge_reference_log")
-public class KnowledgeReferenceLog extends BaseEntity {
+public class KnowledgeReferenceLog extends AccountOwnedEntity {
     /** 租户边界，和被引用分块一起冻结。 */
-    private String tenantId;
     /** 产生引用的 Agent ID。 */
     private String agentDefinitionId;
     /** 产生引用的会话 ID。 */

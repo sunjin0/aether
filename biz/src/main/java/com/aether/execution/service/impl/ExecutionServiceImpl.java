@@ -21,11 +21,9 @@ public class ExecutionServiceImpl extends ServiceImpl<ExecutionMapper, Execution
                 Wrappers.lambdaQuery(Execution.class)
                 .eq(Execution::getTraceId, traceId)
                 .eq(Execution::getDeleted, false);
-        if (CurrentUser.getUser() != null) {
-            String tenantId = CurrentUser.getUser().get("tenantId");
-            if (tenantId != null && !tenantId.trim().isEmpty()) {
-                query.eq(Execution::getTenantId, tenantId);
-            }
+        String accountId = CurrentUser.dataOwnerId();
+        if (accountId != null && !accountId.trim().isEmpty()) {
+            query.eq(Execution::getCreatedBy, accountId);
         }
         return list(query.orderByAsc(Execution::getCreatedAt));
     }
@@ -60,9 +58,6 @@ public class ExecutionServiceImpl extends ServiceImpl<ExecutionMapper, Execution
         Execution execution = new Execution().setExecutionType(type).setTraceId(traceId)
                 .setParentExecutionId(parentId).setActorId(actorId).setResourceId(resourceId)
                 .setStatus("RUNNING").setStartedAt(now);
-        if (CurrentUser.getUser() != null) {
-            execution.setTenantId(CurrentUser.getUser().get("tenantId"));
-        }
         save(execution);
         return execution;
     }
@@ -70,11 +65,9 @@ public class ExecutionServiceImpl extends ServiceImpl<ExecutionMapper, Execution
     @Override
     public boolean finish(String id, String status, String errorCode, String errorMessage) {
         Execution execution = getById(id);
-        if (CurrentUser.getUser() != null) {
-            String tenantId = CurrentUser.getUser().get("tenantId");
-            if (tenantId != null && !tenantId.trim().isEmpty()
-                    && (execution == null || !tenantId.equals(execution.getTenantId()))) return false;
-        }
+        String accountId = CurrentUser.dataOwnerId();
+        if (accountId != null && !accountId.trim().isEmpty()
+                && (execution == null || !accountId.equals(execution.getCreatedBy()))) return false;
         if (execution == null || Boolean.TRUE.equals(execution.getDeleted()) || execution.getEndedAt() != null) return false;
         if (status == null || status.trim().isEmpty()) return false;
         long now = System.currentTimeMillis();

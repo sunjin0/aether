@@ -11,4 +11,5 @@ public class AgentWorkflowListInstancesRequest {
     @ApiModelProperty(value = "业务类型", required = false, example = "ORDER") private String businessType;
     @ApiModelProperty(value = "业务标识", required = false, example = "order-001") private String businessId;
     @ApiModelProperty(value = "实例状态", required = false, example = "RUNNING") private String status;
+    @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
 }

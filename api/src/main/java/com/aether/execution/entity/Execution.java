@@ -1,6 +1,6 @@
 package com.aether.execution.entity;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,12 +11,11 @@ import lombok.experimental.Accessors;
 @Accessors(chain = true)
 @EqualsAndHashCode(callSuper = true)
 @TableName("aether_execution")
-public class Execution extends BaseEntity {
+public class Execution extends AccountOwnedEntity {
     private String runOrigin;
     private String evaluationResultId;
     private String evaluationSnapshotId;
-    /** Tenant boundary captured when the execution is created. */
-    private String tenantId;
+    /** Account owner captured when the execution is created. */
     private String executionType;
     private String parentExecutionId;
     private String traceId;

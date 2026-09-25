@@ -86,6 +86,7 @@ public class AgentToolBindingController {
     @PostMapping("/{agentId}/tools/list")
     public WebResponse<List<AgentToolBindingVo>> list(@PathVariable @NotBlank String agentId,
                                                         @RequestBody(required = false) ToolBindingList query) {
+        requireAgentOwner(agentId);
         ToolBindingList request = query == null ? new ToolBindingList() : query;
         long current = request.getCurrent() == null ? 1L : request.getCurrent();
         long pageSize = request.getPageSize() == null ? 12L : request.getPageSize();
@@ -93,7 +94,8 @@ public class AgentToolBindingController {
         if (request.getKeyword() != null && !request.getKeyword().trim().isEmpty()) {
             matchingToolIds = agentToolService.list(Wrappers.lambdaQuery(AgentTool.class)
                     .and(wrapper -> wrapper.like(AgentTool::getName, request.getKeyword())
-                            .or().like(AgentTool::getCode, request.getKeyword())))
+                            .or().like(AgentTool::getCode, request.getKeyword()))
+                    .eq(StringUtils.isNotBlank(currentDataOwnerId()), AgentTool::getCreatedBy, currentDataOwnerId()))
                     .stream().map(AgentTool::getId).collect(Collectors.toList());
             if (matchingToolIds.isEmpty()) {
                 return WebResponse.Page(Collections.emptyList(), 0L);
@@ -102,7 +104,7 @@ public class AgentToolBindingController {
         Page<AgentToolBinding> page = agentToolBindingService.page(new Page<>(current, pageSize),
                 Wrappers.lambdaQuery(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
-                        .eq(CurrentUser.getUser() != null && CurrentUser.getUser().get("tenantId") != null, AgentToolBinding::getTenantId, CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId"))
+                        .eq(StringUtils.isNotBlank(currentDataOwnerId()), AgentToolBinding::getCreatedBy, currentDataOwnerId())
                         .in(!matchingToolIds.isEmpty(), AgentToolBinding::getToolId, matchingToolIds)
                         .eq(AgentToolBinding::getDeleted, false)
                         .orderByAsc(AgentToolBinding::getPriority));
@@ -113,7 +115,7 @@ public class AgentToolBindingController {
                 .filter(tool -> tool != null && tool.getMcpServerId() != null).map(AgentTool::getMcpServerId)
                 .distinct().collect(Collectors.toList());
         Map<String, AgentMcpServer> servers = serverIds.isEmpty() ? Collections.emptyMap() : agentMcpServerService.listByIds(serverIds).stream()
-                .filter(item -> StringUtils.isBlank(currentTenantId()) || currentTenantId().equals(item.getTenantId()))
+                .filter(item -> StringUtils.isBlank(currentDataOwnerId()) || currentDataOwnerId().equals(item.getCreatedBy()))
                 .collect(Collectors.toMap(AgentMcpServer::getId, item -> item, (left, right) -> left));
         List<AgentToolBindingVo> vos = page.getRecords().stream().map(item -> {
             AgentToolBindingVo vo = new AgentToolBindingVo();
@@ -138,6 +140,7 @@ public class AgentToolBindingController {
     @ApiOperation("查询 Agent 可绑定工具")
     @PostMapping("/{agentId}/tools/available")
     public WebResponse<List<AgentToolVo>> available(@PathVariable @NotBlank String agentId, @RequestBody AvailableToolList query) {
+        requireAgentOwner(agentId);
         long current = query.getCurrent() == null ? 1L : query.getCurrent();
         long pageSize = query.getPageSize() == null ? 12L : query.getPageSize();
         List<String> boundIds = agentToolBindingService.list(Wrappers.lambdaQuery(AgentToolBinding.class)
@@ -149,6 +152,7 @@ public class AgentToolBindingController {
                 .like(query.getCode() != null && !query.getCode().trim().isEmpty(), AgentTool::getCode, query.getCode())
                 .like(query.getDescription() != null && !query.getDescription().trim().isEmpty(), AgentTool::getDescription, query.getDescription())
                 .eq(query.getToolType() != null && !query.getToolType().trim().isEmpty(), AgentTool::getToolType, query.getToolType())
+                .eq(StringUtils.isNotBlank(currentDataOwnerId()), AgentTool::getCreatedBy, currentDataOwnerId())
                 .eq(AgentTool::getStatus, 1).eq(AgentTool::getDeleted, false).orderByDesc(AgentTool::getCreatedAt));
         List<AgentToolVo> records = page.getRecords().stream().map(tool -> {
             AgentToolVo vo = new AgentToolVo();
@@ -180,10 +184,12 @@ public class AgentToolBindingController {
     @Transactional(rollbackFor = Exception.class)
     @PostMapping("/{agentId}/tools")
     public WebResponse<Void> bind(@PathVariable @NotBlank String agentId, @RequestBody AgentToolBindingDto dto) {
+        requireAgentOwner(agentId);
         assertAgentConfigurationMutable(agentId);
         if (dto == null || (agentToolService.getById(dto.getToolId()) == null && toolRegistry.getTool(dto.getToolId()) == null)) {
             return WebResponse.Error(404, I18nUtils.getMessage("agent.tool.not.found"), null);
         }
+        if (agentToolService.getById(dto.getToolId()) != null) requireToolOwner(dto.getToolId());
         if (!agentToolBindingService.list(
                 Wrappers.lambdaQuery(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
@@ -194,7 +200,6 @@ public class AgentToolBindingController {
         }
         AgentToolBinding binding = new AgentToolBinding();
         binding.setAgentDefinitionId(agentId);
-        binding.setTenantId(currentTenantId());
         binding.setToolId(dto.getToolId());
         binding.setPriority(dto.getPriority());
         binding.setStatus(dto.getStatus() != null ? dto.getStatus() : 1);
@@ -209,8 +214,25 @@ public class AgentToolBindingController {
                 || query.getToolType().equals(tool.getToolType()));
     }
 
-    private String currentTenantId() {
-        return CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+    private String currentDataOwnerId() {
+        return CurrentUser.dataOwnerId();
+    }
+
+    private void requireAgentOwner(String agentId) {
+        if (agentDefinitionService == null) return;
+        AgentDefinition agent = agentDefinitionService.getById(agentId);
+        if (agent == null || Boolean.TRUE.equals(agent.getDeleted())
+                || (StringUtils.isNotBlank(currentDataOwnerId()) && !StringUtils.equals(currentDataOwnerId(), agent.getCreatedBy()))) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.definition.not.found"));
+        }
+    }
+
+    private void requireToolOwner(String toolId) {
+        AgentTool tool = agentToolService.getById(toolId);
+        if (tool == null || Boolean.TRUE.equals(tool.getDeleted())
+                || (StringUtils.isNotBlank(currentDataOwnerId()) && !StringUtils.equals(currentDataOwnerId(), tool.getCreatedBy()))) {
+            throw new ServerException(404, I18nUtils.getMessage("agent.tool.not.found"));
+        }
     }
 
     private void assertAgentConfigurationMutable(String agentId) {
@@ -237,6 +259,7 @@ public class AgentToolBindingController {
     @Transactional(rollbackFor = Exception.class)
     @DeleteMapping("/{agentId}/tools/{toolId}")
     public WebResponse<Void> unbind(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String toolId) {
+        requireAgentOwner(agentId);
         assertAgentConfigurationMutable(agentId);
         boolean removed = agentToolBindingService.remove(
                 Wrappers.lambdaUpdate(AgentToolBinding.class)
@@ -258,6 +281,7 @@ public class AgentToolBindingController {
     public WebResponse<Void> updatePriority(@PathVariable @NotBlank String agentId,
                                             @PathVariable @NotBlank String toolId,
                                             @RequestBody AgentToolBindingDto dto) {
+        requireAgentOwner(agentId);
         boolean updated = agentToolBindingService.update(
                 Wrappers.lambdaUpdate(AgentToolBinding.class)
                         .eq(AgentToolBinding::getAgentDefinitionId, agentId)
@@ -271,6 +295,7 @@ public class AgentToolBindingController {
     @PutMapping("/{agentId}/tools/{toolId}/status")
     public WebResponse<Void> updateStatus(@PathVariable @NotBlank String agentId, @PathVariable @NotBlank String toolId,
                                           @RequestBody AgentToolBindingDto dto) {
+        requireAgentOwner(agentId);
         boolean updated = agentToolBindingService.update(Wrappers.lambdaUpdate(AgentToolBinding.class)
                 .eq(AgentToolBinding::getAgentDefinitionId, agentId).eq(AgentToolBinding::getToolId, toolId)
                 .set(AgentToolBinding::getStatus, dto.getStatus()));

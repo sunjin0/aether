@@ -10,6 +10,7 @@ public final class MemberRequests {
     @Data @ApiModel("会员列表请求") public static class ListRequest {
         @ApiModelProperty(value = "页码", required = true, example = "1") private Long current;
         @ApiModelProperty(value = "每页数量", required = true, example = "20") private Long pageSize;
+        @ApiModelProperty(value = "创建账号 ID，仅管理员可用") private String creatorUserId;
     }
     @Data @ApiModel("会员保存请求") public static class SaveRequest {
         @ApiModelProperty(value = "会员 ID", example = "1") private String id;

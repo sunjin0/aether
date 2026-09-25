@@ -16,6 +16,8 @@ public final class AgentControllerRequests {
         @ApiModelProperty("页码") private Long current;
         @ApiModelProperty("每页数量") private Long pageSize;
         private String name; private String code; private Integer status; private String modelId; private String applicationId;
+        /** 管理员按创建账号精确筛选。普通用户传入其他账号会被拒绝。 */
+        private String creatorUserId;
     }
     @Data @ApiModel("状态更新请求") public static class Status { @ApiModelProperty("状态") private Integer status; }
     @Data @ApiModel("会话列表请求") public static class ConversationList {
@@ -24,10 +26,11 @@ public final class AgentControllerRequests {
         private String source;
         /** 会话管理页需要工作流节点会话；对话调试列表保持默认排除。 */
         private Boolean includeWorkflow;
+        @ApiModelProperty("创建账号 ID，仅管理员可用") private String creatorUserId;
     }
     @Data @ApiModel("工具审批策略请求") public static class ToolApprovalPolicy { private String toolApprovalPolicy; }
     @Data @ApiModel("智能体运行列表请求") public static class RunList {
-        private Long current; private Long pageSize; private String agentDefinitionId; private String conversationId; private String userId; private Integer status; private Long startTime; private Long endTime;
+        private Long current; private Long pageSize; private String agentDefinitionId; private String conversationId; private String userId; private String creatorUserId; private Integer status; private Long startTime; private Long endTime;
     }
     @Data @ApiModel("知识库绑定列表请求") public static class KnowledgeBindingList {
         private Long current; private Long pageSize; private String agentDefinitionId; private String knowledgeBaseId; private Integer status;
@@ -37,6 +40,7 @@ public final class AgentControllerRequests {
     }
     @Data @ApiModel("MCP 服务器列表请求") public static class McpServerList {
         private Long current; private Long pageSize; private String name; private String code; private String transport; private Integer status;
+        @ApiModelProperty("创建账号 ID，仅管理员可用") private String creatorUserId;
     }
     @Data @ApiModel("导入 MCP 工具请求") public static class McpToolImport { private List<String> toolNames; }
     @Data @ApiModel("任务反馈请求") public static class TaskFeedback { private Object rating; private Object note; }
@@ -50,6 +54,7 @@ public final class AgentControllerRequests {
     }
     @Data @ApiModel("技能列表请求") public static class SkillList {
         private Long current; private Long pageSize; private String name; private String code; private String category; private Integer status;
+        @ApiModelProperty("创建账号 ID，仅管理员可用") private String creatorUserId;
     }
     @Data @ApiModel("可用技能列表请求") public static class AvailableSkillList {
         private Long current; private Long pageSize; private String name; private String code; private String description; private String category;
@@ -61,6 +66,7 @@ public final class AgentControllerRequests {
     }
     @Data @ApiModel("工具列表请求") public static class ToolList {
         private Long current; private Long pageSize; private String name; private String code; private String toolType; private String mcpServerId; private Integer status;
+        @ApiModelProperty("创建账号 ID，仅管理员可用") private String creatorUserId;
     }
     @Data @ApiModel("刷新工具定义请求") public static class ToolDefinitionRefresh { private List<String> toolIds; }
     @Data @ApiModel("工具测试请求") public static class ToolTest {
@@ -69,16 +75,18 @@ public final class AgentControllerRequests {
     }
     @Data @ApiModel("工具路由配置请求") public static class ToolRoutingConfig { private String embeddingModelId; private Integer topK; }
     @Data @ApiModel("工具调用日志列表请求") public static class ToolCallLogList {
-        private Long current; private Long pageSize; private String runId; private String toolId; private String agentDefinitionId; private Integer status;
-    }
+          private Long current; private Long pageSize; private String runId; private String toolId; private String agentDefinitionId; private Integer status;
+          @ApiModelProperty("创建账号 ID，仅管理员可用") private String creatorUserId;
+      }
     @Data @ApiModel("模型供应商列表请求") public static class ModelProviderList {
         private Long current; private Long pageSize; private String name; private String type; private Integer status;
+        @ApiModelProperty("创建账号 ID，仅管理员可用") private String creatorUserId;
     }
     @Data @ApiModel("模型目录请求") public static class ModelCatalogRequest {
         private String providerId; private String name; private String capabilities; private Integer contextWindow; private String endpointOverride; private Integer status; private String remark;
     }
     @Data @ApiModel("批量模型目录请求") public static class ModelCatalogBatch { private List<ModelCatalogRequest> models; }
-    @Data @ApiModel("智能体应用列表请求") public static class ApplicationList { private Long current; private Long pageSize; private String name; private String code; private Integer status; }
+    @Data @ApiModel("智能体应用列表请求") public static class ApplicationList { private Long current; private Long pageSize; private String name; private String code; private Integer status; @ApiModelProperty("创建账号 ID，仅管理员可用") private String creatorUserId; }
     @Data @ApiModel("业务智能体异步运行请求") public static class BusinessRun {
         @ApiModelProperty(required = true) private String message;
         private String conversationId; private String idempotencyKey; private Map<String, Object> variables; private Map<String, Object> metadata;

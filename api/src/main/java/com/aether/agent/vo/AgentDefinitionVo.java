@@ -1,6 +1,6 @@
 package com.aether.agent.vo;
 
-import com.aether.entity.BaseEntity;
+import com.aether.entity.AccountOwnedEntity;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -13,7 +13,7 @@ import java.util.List;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-public class AgentDefinitionVo extends BaseEntity {
+public class AgentDefinitionVo extends AccountOwnedEntity {
 
     @ApiModelProperty(value = "所属业务应用空间")
     private String applicationId;
@@ -57,9 +57,6 @@ public class AgentDefinitionVo extends BaseEntity {
 
     @ApiModelProperty(value = "标准 Agent 推理策略：DIRECT 或 REACT")
     private String reasoningStrategy;
-
-    @ApiModelProperty(value = "访问类型")
-    private String accessType;
 
     @ApiModelProperty(value = "排序号")
     private Integer sort;

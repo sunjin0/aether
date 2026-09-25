@@ -44,11 +44,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
-        String tenant = CurrentUser.getUser() == null ? "anonymous" : CurrentUser.getUser().get("tenantId");
-        if (tenant == null || tenant.trim().isEmpty()) tenant = "public";
+        String owner = CurrentUser.getUser() == null ? "anonymous" : CurrentUser.getUser().get("userId");
+        if (owner == null || owner.trim().isEmpty()) owner = "public";
         String client = request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
         String bucket = String.valueOf(System.currentTimeMillis() / (windowSeconds * 1000L));
-        String key = "aether:rate:" + safe(tenant) + ":" + safe(client) + ":" + safe(request.getRequestURI()) + ":" + bucket;
+        String key = "aether:rate:" + safe(owner) + ":" + safe(client) + ":" + safe(request.getRequestURI()) + ":" + bucket;
         Long count;
         try {
             count = redis.opsForValue().increment(key);
