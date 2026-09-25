@@ -18,6 +18,8 @@ public class ApiSecurityConfiguration {
     @Bean
     public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http) throws Exception {
         http.csrf().disable()
+                .cors()
+                .and()
                 .httpBasic().disable()
                 .formLogin().disable()
                 .logout().disable()
