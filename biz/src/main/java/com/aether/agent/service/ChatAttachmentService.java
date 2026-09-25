@@ -104,6 +104,32 @@ public class ChatAttachmentService {
     }
 
     /**
+     * 读取聊天附件原始字节，供业务前端回显已上传的文件。
+     *
+     * <p>objectKey 是客户端传回来的值，因此这里沿用 {@link #resolveNativeFiles} 的同一道前缀校验：
+     * 只允许落在本租户的 {@code chat/} 前缀下，防止拿它当任意对象存储的读取口子。
+     * 聊天附件没有落库的归属台账（它只随一次对话请求存在），所以前缀是当前可用的边界。</p>
+     */
+    public byte[] readOwnedAttachment(String objectKey) {
+        String key = StringUtils.trimToNull(objectKey);
+        if (key == null) throw new ServerException(422, I18nUtils.getMessage("agent.chat.attachment.required"));
+        String tenantId = CurrentUser.getUser() == null ? null : CurrentUser.getUser().get("tenantId");
+        String allowedPrefix = "chat/" + (StringUtils.isBlank(tenantId) ? "" : tenantId + "/");
+        // 只看前缀还不够："chat/tenant-1/../tenant-2/x" 也是以它开头的，必须把上跳段一并挡掉。
+        if (!key.startsWith(allowedPrefix) || hasTraversalSegment(key))
+            throw new ServerException(404, I18nUtils.getMessage("agent.chat.attachment.not-found"));
+        return objectStorageService.getObject(bucket, key);
+    }
+
+    /** 对象键里出现 "." / ".." 段就说明调用方在试图越出自己那一层目录。 */
+    private boolean hasTraversalSegment(String key) {
+        for (String segment : key.split("/")) {
+            if (".".equals(segment) || "..".equals(segment)) return true;
+        }
+        return false;
+    }
+
+    /**
      * 将客户端在上传接口获得的附件元数据还原为模型原生文件输入。
      * objectKey 只由服务端用于签发短时 URL，客户端不能注入任意外部链接。
      */

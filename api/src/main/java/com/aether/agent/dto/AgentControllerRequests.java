@@ -88,7 +88,18 @@ public final class AgentControllerRequests {
         private String conversationId; private String idempotencyKey; private Map<String, Object> variables; private Map<String, Object> metadata;
     }
     @Data @ApiModel("业务智能体流式请求") public static class BusinessStream {
-        @ApiModelProperty(required = true) private String message;
+        @ApiModelProperty("用户消息；提交交互回答时可省略") private String message;
         private String conversationId;
+        /** 待回答的交互消息 ID。 */
+        private String parentMessageId;
+        /** 工具审批或人工提问的结构化回答。 */
+        private Map<String, Object> answer;
+        private Boolean interactive;
+        private String toolApprovalPolicy;
+        private Boolean thinking;
+        private String reasoningEffort;
+        private String retrievalMode;
+        private String attachmentContent;
+        private String attachments;
     }
 }

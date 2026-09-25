@@ -2192,8 +2192,24 @@ SkillRuntimeContext skillContext = resolveSkillContext(agent, dto, effectiveCont
         }
 
         private void status(String stage) {
-            if (callback != null) callback.onStatus(stage, null);
+            if (callback != null) callback.onStatus(stage, statusMessage(stage));
+            // 落库的那份只带机器可读的 stage：台账是历史数据，把当时的语言固化进去，
+            // 之后换个语言重放就对不上了。本地化文案只走实时帧。
             record("chat.status." + stage, progressData("stage", stage));
+        }
+
+        /**
+         * 阶段文案按当前请求的语言解析。
+         * <p>Front 是给外部消费方用的接口，拿不到前端那张「事件类型 → 文案」的映射表，
+         * 只下发 stage 会让 generating 这样的英文枚举直接出现在界面上。</p>
+         */
+        private String statusMessage(String stage) {
+            try {
+                return StringUtils.defaultIfBlank(I18nUtils.getMessage("chat.status." + stage, null, stage), stage);
+            } catch (Exception ignored) {
+                // 文案缺失不能影响回答本身。
+                return stage;
+            }
         }
 
         private void attachRun(String value) {

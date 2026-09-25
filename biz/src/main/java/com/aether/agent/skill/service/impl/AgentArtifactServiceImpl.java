@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -55,12 +56,22 @@ public class AgentArtifactServiceImpl extends ServiceImpl<AgentArtifactMapper, A
      */
     @Override
     public Page<AgentArtifactVo> pageOwned(String userId, AgentArtifactQueryDto query) {
+        return pageOwned(userId, null, query);
+    }
+
+    /**
+     * 分页查询Owned，并在归属用户之外再按允许的智能体定义收敛。
+     */
+    @Override
+    public Page<AgentArtifactVo> pageOwned(String userId, Collection<String> agentDefinitionIds, AgentArtifactQueryDto query) {
         long current = query.getCurrent() == null || query.getCurrent() < 1 ? 1 : query.getCurrent();
         long pageSize = query.getPageSize() == null ? 24 : Math.min(Math.max(query.getPageSize(), 1), 100);
         boolean recycled = Boolean.TRUE.equals(query.getRecycled());
         String extension = StringUtils.isNotBlank(query.getExtension()) ? normalizedExtension(query.getExtension()) : null;
+        boolean restrictAgents = agentDefinitionIds != null && !agentDefinitionIds.isEmpty();
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AgentArtifact> ownedQuery = Wrappers.lambdaQuery(AgentArtifact.class)
                 .eq(AgentArtifact::getUserId, userId)
+                .in(restrictAgents, AgentArtifact::getAgentDefinitionId, agentDefinitionIds)
                 .eq(StringUtils.isNotBlank(query.getAgentDefinitionId()), AgentArtifact::getAgentDefinitionId, query.getAgentDefinitionId())
                 .like(StringUtils.isNotBlank(query.getFileName()), AgentArtifact::getFileName, StringUtils.trim(query.getFileName()))
                 .like(StringUtils.isNotBlank(extension), AgentArtifact::getFileName, extension)
