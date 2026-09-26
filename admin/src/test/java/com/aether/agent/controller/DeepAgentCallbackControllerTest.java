@@ -1,8 +1,10 @@
 package com.aether.agent.controller;
 
 import com.aether.agent.dto.DeepAgentConfig;
+import com.aether.agent.entity.AgentDefinition;
 import com.aether.agent.entity.AgentMessage;
 import com.aether.agent.entity.AgentRun;
+import com.aether.agent.entity.ModelProvider;
 import com.aether.agent.model.ModelStreamResponse;
 import com.aether.agent.service.AgentStreamCallback;
 import com.aether.agent.service.AgentMessageService;
@@ -13,6 +15,7 @@ import com.aether.agent.service.ModelCatalogService;
 import com.aether.agent.service.ModelProviderService;
 import com.aether.agent.runtime.DeepAgentCallbackRegistry;
 import com.aether.agent.runtime.DeepRunEventHub;
+import com.aether.utils.AesUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -260,6 +263,39 @@ class DeepAgentCallbackControllerTest {
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * 处理modelConfig优先使用目录模型而不是旧的本地模型字段。
+     */
+    @Test
+    void modelConfigPrefersCatalogModelOverLegacyModelFields() throws Exception {
+        when(config.getKeyId()).thenReturn("key-1");
+        when(config.getSharedSecret()).thenReturn("test-secret");
+        AgentDefinition agent = new AgentDefinition();
+        agent.setId("agent-1");
+        agent.setModelId("catalog-1");
+        agent.setModelProviderId("legacy-provider");
+        agent.setModel("local-model");
+        when(agentDefinitionService.getById("agent-1")).thenReturn(agent);
+        ModelProvider provider = new ModelProvider()
+                .setDefaultModel("qwen-plus")
+                .setApiBaseUrl("https://dashscope.example/v1")
+                .setApiKey(AesUtil.encrypt("provider-key"));
+        when(modelCatalogService.resolveProvider("catalog-1", "CHAT,MULTIMODAL")).thenReturn(provider);
+
+        String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Aether-Key-Id", "key-1");
+        request.addHeader("X-Aether-Timestamp", timestamp);
+        request.addHeader("X-Aether-Signature", signature("test-secret", timestamp + "."));
+
+        ResponseEntity<Map<String, Object>> response = controller().modelConfig("agent-1", request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("qwen-plus", response.getBody().get("model"));
+        assertEquals("https://dashscope.example/v1", response.getBody().get("baseUrl"));
+        verify(modelProviderService, never()).getById("legacy-provider");
     }
 
     /**

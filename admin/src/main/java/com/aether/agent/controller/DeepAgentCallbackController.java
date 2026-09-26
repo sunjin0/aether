@@ -304,20 +304,21 @@ public class DeepAgentCallbackController {
             if (agent == null || Boolean.TRUE.equals(agent.getDeleted())) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
-            // 优先按直接绑定的 provider；否则按目录模型（modelId）解析，与标准 Agent 一致。
+            // 以模型目录（modelId）为最终配置来源；modelProviderId/model 仅兼容旧数据。
+            // 这样即使旧字段仍残留本地模型，也不会覆盖页面当前选择的目录模型。
             ModelProvider provider = null;
-            if (StringUtils.isNotBlank(agent.getModelProviderId())) {
-                provider = modelProviderService.getById(agent.getModelProviderId());
-            }
-            if ((provider == null || Boolean.TRUE.equals(provider.getDeleted()))
-                    && StringUtils.isNotBlank(agent.getModelId()) && modelCatalogService != null) {
+            boolean catalogModel = StringUtils.isNotBlank(agent.getModelId()) && modelCatalogService != null;
+            if (catalogModel) {
                 provider = modelCatalogService.resolveProvider(agent.getModelId(), "CHAT,MULTIMODAL");
+            } else if (StringUtils.isNotBlank(agent.getModelProviderId())) {
+                provider = modelProviderService.getById(agent.getModelProviderId());
             }
             if (provider == null || Boolean.TRUE.equals(provider.getDeleted()) || StringUtils.isBlank(provider.getApiKey())) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
             Map<String, Object> result = new LinkedHashMap<>();
-            result.put("model", StringUtils.defaultIfBlank(agent.getModel(), provider.getDefaultModel()));
+            String model = catalogModel ? provider.getDefaultModel() : agent.getModel();
+            result.put("model", StringUtils.defaultIfBlank(model, provider.getDefaultModel()));
             result.put("baseUrl", provider.getApiBaseUrl());
             result.put("apiKey", AesUtil.decrypt(provider.getApiKey()));
             return ResponseEntity.ok(result);

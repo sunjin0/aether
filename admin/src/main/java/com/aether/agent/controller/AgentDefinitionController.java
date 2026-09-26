@@ -373,15 +373,18 @@ public class AgentDefinitionController {
         if (StringUtils.isNotBlank(dto.getContextCompressionModelId())) {
             modelCatalogService.requireAvailable(dto.getContextCompressionModelId(), "CHAT,MULTIMODAL");
         }
-        // Deep Agent 的推理模型由 Deep Agent 运行服务独立管理，不使用 Agent 级模型目录。
+        // Deep 与 Standard 都以模型目录为唯一选择来源；同步旧字段供历史运行和内部兼容接口使用。
+        if (StringUtils.isNotBlank(dto.getModelId())) {
+            com.aether.agent.entity.ModelCatalog catalog = modelCatalogService.requireAvailable(dto.getModelId(), "CHAT,MULTIMODAL");
+            dto.setModel(catalog.getName());
+            dto.setModelProviderId(catalog.getProviderId());
+            return;
+        }
+        // 兼容仅提交旧 provider/model 字段的历史调用方。
         if ("DEEP".equalsIgnoreCase(StringUtils.trim(dto.getExecutionMode()))) {
             return;
         }
-        if (StringUtils.isBlank(dto.getModelId())) {
-            throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
-        }
-        com.aether.agent.entity.ModelCatalog catalog = modelCatalogService.requireAvailable(dto.getModelId(), "CHAT,MULTIMODAL");
-        dto.setModel(catalog.getName());
+        throw new ServerException(400, I18nUtils.getMessage("agent.model.catalog.required"));
     }
 
     /**
