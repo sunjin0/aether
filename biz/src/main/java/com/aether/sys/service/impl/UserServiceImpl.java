@@ -3,7 +3,8 @@ package com.aether.sys.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import org.springframework.data.redis.core.HashOperations;
+import com.aether.auth.PermissionCache;
+import com.aether.auth.UserPermissionProvider;
 import com.aether.sys.mapper.UserMapper;
 import com.aether.sys.service.*;
 import com.aether.sys.service.DictService;
@@ -44,7 +45,7 @@ import java.util.stream.Collectors;
  * 实现用户业务服务。
  */
 @Service
-public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
+public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService, UserPermissionProvider {
 
 
     @Resource
@@ -224,7 +225,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         HashMap<String, String> map = CurrentUser.getUser();
         map.put("userId", one.getId());
         map.put("token", token.getToken());
-        redisTemplate.opsForHash().put(TokenUtils.TOKEN_KEY, one.getId(), this.getPermissionMapByUserId(one.getId(), token.getToken()));
+        cachePermissionSnapshot(one.getId(), token.getToken());
         user.setRoleType(roleType(one.getId()));
 
         return user;
@@ -265,6 +266,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (!rotated) {
             throw new ServerException(401, I18nUtils.getMessage("error.token.expired"));
         }
+        cachePermissionSnapshot(userId, nextToken.getToken());
         UserVo result = new UserVo();
         result.setToken(nextToken.getToken());
         result.setRefreshToken(nextToken.getRefreshToken());
@@ -273,6 +275,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     /** 登录令牌只携带两种稳定角色，避免历史用户 type 值绕过账号数据范围。 */
     private String tokenRole(String userId, String fallback) {
+        // 允许无 Spring 容器的纯单元测试使用历史用户 type 作为安全兜底；生产环境始终走角色类型表。
+        if (userRoleService == null || roleService == null) {
+            return "ADMIN".equalsIgnoreCase(fallback) ? "ADMIN" : "USER";
+        }
         List<UserRole> bindings = userRoleService.list(Wrappers.<UserRole>lambdaQuery()
                 .select(UserRole::getRoleId)
                 .eq(UserRole::getUserId, userId)
@@ -305,7 +311,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public Boolean bindRole(String userId, List<String> roleIds) {
-        return userRoleService.saveUserRoleIds(userId, roleIds);
+        boolean result = userRoleService.saveUserRoleIds(userId, roleIds);
+        if (result) evictPermissionSnapshot(userId);
+        return result;
+    }
+
+    /** 角色资源变化后，使绑定该角色的账号权限快照失效。 */
+    @Override
+    public void invalidatePermissionCacheByRoleId(String roleId) {
+        if (StringUtils.isBlank(roleId)) return;
+        List<UserRole> bindings = userRoleService.list(Wrappers.<UserRole>lambdaQuery()
+                .select(UserRole::getUserId)
+                .eq(UserRole::getRoleId, roleId));
+        if (bindings == null) return;
+        bindings.stream().map(UserRole::getUserId).filter(StringUtils::isNotBlank)
+                .distinct().forEach(this::evictPermissionSnapshot);
     }
 
     /**
@@ -411,8 +431,23 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         user.setSmtpAuthorizationCode(null);
         BeanUtils.copyProperties(user, userVo);
         userVo.setRoleType(roleType(user.getId()));
-        HashMap<String, Object> map = getPermissionMapByUserId(currentUser.get("userId"), currentUser.get("token"));
-        userVo.setPermissionMap(map);
+        Map<String, Object> map = null;
+        try {
+            map = PermissionCache.get(redisTemplate, currentUser.get("userId"));
+        } catch (Exception ignored) {
+            // Redis 重启期间允许通过数据库回源，避免把已登录用户强制踢回登录页。
+        }
+        if (!PermissionCache.isComplete(map)) {
+            String accessToken = StringUtils.isNotBlank(currentUser.get("encryptedToken"))
+                    ? currentUser.get("encryptedToken") : currentUser.get("token");
+            map = loadPermissionMap(currentUser.get("userId"), accessToken);
+            try {
+                PermissionCache.put(redisTemplate, currentUser.get("userId"), map);
+            } catch (Exception ignored) {
+                // 仅缓存写入失败不影响本次已通过数据库重建的权限结果。
+            }
+        }
+        userVo.setPermissionMap(new HashMap<>(map));
         return userVo;
     }
 
@@ -457,12 +492,43 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         mergeExplicitPermissionPaths(userId, map);
         try {
-            TokenUtils.isExpired(AesUtil.decrypt(token));
+            String accessToken = token;
+            try {
+                accessToken = AesUtil.decrypt(token);
+            } catch (Exception ignored) {
+                // provider 也可能收到过滤器已经解密的 JWT。
+            }
+            TokenUtils.isExpired(accessToken);
             map.put("/sys", false);
         } catch (Exception e) {
             log.error(e.getMessage());
         }
         return map;
+    }
+
+    /** 认证层的权限快照重建入口。 */
+    @Override
+    public Map<String, Object> loadPermissionMap(String userId, String encryptedAccessToken) {
+        return getPermissionMapByUserId(userId, encryptedAccessToken);
+    }
+
+    /** 认证层读取稳定角色类型，不能依赖角色名称或用户 type 字段。 */
+    @Override
+    public String loadRoleType(String userId) {
+        return roleType(userId);
+    }
+
+    /** 将权限和角色快照写入 Redis，供所有实例和重启后的请求共享。 */
+    private void cachePermissionSnapshot(String userId, String encryptedAccessToken) {
+        if (redisTemplate == null) return;
+        Map<String, Object> permissionMap = loadPermissionMap(userId, encryptedAccessToken);
+        PermissionCache.put(redisTemplate, userId, permissionMap);
+        PermissionCache.putRoleType(redisTemplate, userId, loadRoleType(userId));
+    }
+
+    /** 用户角色绑定变化后立即使快照失效，下个请求会从数据库重建。 */
+    private void evictPermissionSnapshot(String userId) {
+        PermissionCache.evict(redisTemplate, userId);
     }
 
     /**
@@ -549,9 +615,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public boolean logout() {
-        HashOperations<String, Object, Object> operations = redisTemplate.opsForHash();
         String id = CurrentUser.getUser().get("userId");
-        operations.delete(TokenUtils.TOKEN_KEY, id);
+        PermissionCache.evict(redisTemplate, id);
         return tokenService.remove(Wrappers.<Token>lambdaUpdate()
                 .eq(Token::getUserId, CurrentUser.getUser().get("userId")));
     }

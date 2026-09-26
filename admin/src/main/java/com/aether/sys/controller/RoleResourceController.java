@@ -46,6 +46,8 @@ public class RoleResourceController {
     private RoleResourceService roleResourceService;
     @Resource
     private RoleService roleService;
+    @Resource
+    private UserService userService;
 
     /**
      * 获取权限按角色Id。
@@ -89,6 +91,7 @@ public class RoleResourceController {
         }).collect(Collectors.toList());
 
         boolean result = roleResourceList.isEmpty() || roleResourceService.saveBatch(roleResourceList);
+        if (result) userService.invalidatePermissionCacheByRoleId(roleResourceVo.getRoleId());
         return WebResponse.OK(result ? I18nUtils.getMessage("system.authorize.success") : I18nUtils.getMessage("system.authorize.fail"));
     }
 

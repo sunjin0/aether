@@ -3,6 +3,8 @@ package com.aether.interceptor;
 import com.alibaba.fastjson2.JSON;
 import com.aether.entity.WebResponse;
 import com.aether.auth.ServiceTokenVerifier;
+import com.aether.auth.PermissionCache;
+import com.aether.auth.UserPermissionProvider;
 import com.aether.auth.UserTokenVerifier;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
@@ -19,6 +21,8 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import javax.servlet.FilterChain;
 import javax.servlet.ServletException;
@@ -26,6 +30,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -49,6 +54,13 @@ public class GlobalFilter extends OncePerRequestFilter {
     private final ObjectProvider<ServiceTokenVerifier> serviceTokenVerifierProvider;
     private final ObjectProvider<UserTokenVerifier> userTokenVerifierProvider;
     private final ObjectProvider<MeterRegistry> meterRegistryProvider;
+
+    /** Redis 是跨实例、跨重启的权限快照来源。 */
+    @Autowired(required = false)
+    private RedisTemplate<String, Object> redisTemplate;
+    /** biz 模块提供数据库回源能力，common 不反向依赖 biz。 */
+    @Autowired
+    private ObjectProvider<UserPermissionProvider> permissionProvider;
 
     /**
      * 创建 {@code GlobalFilter} 实例。
@@ -128,6 +140,7 @@ public class GlobalFilter extends OncePerRequestFilter {
                         payload.put("principalId", principalId);
                     }
                     payload.put("userId", userId);
+                    payload.put("encryptedToken", encryptedToken);
                     String role = TokenUtils.getClaim(token, "role");
                     if (role != null && !role.isEmpty()) payload.put("role", role);
                     copyContextHeader(request, payload, "X-Organization-Id", "organizationId");
@@ -141,6 +154,10 @@ public class GlobalFilter extends OncePerRequestFilter {
                     return;
                 }
             }
+
+            // 先设置请求上下文，再从 Redis 恢复权限；缓存缺失时只回源一次数据库并重新写入 Redis。
+            CurrentUser.set(payload);
+            restorePermissionContext(payload);
 
             // 设置请求开始时间
             payload.put("startTime", String.valueOf(startTime));
@@ -180,6 +197,50 @@ public class GlobalFilter extends OncePerRequestFilter {
             CurrentUser.remove();
             MDC.remove("traceId");
             MDC.remove("spanId");
+        }
+    }
+
+    /**
+     * 从共享 Redis 恢复权限和角色上下文。服务重启不会清空 Redis，原有 access token
+     * 继续通过数据库会话校验，权限也不再依赖进程内存。
+     */
+    private void restorePermissionContext(HashMap<String, String> payload) {
+        String userId = payload.get("userId");
+        if (userId == null || userId.trim().isEmpty() || payload.get("serviceAccountId") != null) return;
+
+        Map<String, Object> permissionMap = null;
+        try {
+            permissionMap = PermissionCache.get(redisTemplate, userId);
+        } catch (Exception e) {
+            log.warn("读取用户权限缓存失败，userId:{}，将尝试数据库回源", userId);
+        }
+
+        UserPermissionProvider provider = permissionProvider == null ? null : permissionProvider.getIfAvailable();
+        if (!PermissionCache.isComplete(permissionMap) && provider != null) {
+            try {
+                permissionMap = provider.loadPermissionMap(userId, payload.get("encryptedToken"));
+                PermissionCache.put(redisTemplate, userId, permissionMap);
+            } catch (Exception e) {
+                log.warn("重建用户权限缓存失败，userId:{}", userId, e);
+            }
+        }
+
+        String roleType = null;
+        try {
+            roleType = PermissionCache.getRoleType(redisTemplate, userId);
+        } catch (Exception e) {
+            log.warn("读取用户角色缓存失败，userId:{}", userId);
+        }
+        if ((roleType == null || roleType.trim().isEmpty()) && provider != null) {
+            try {
+                roleType = provider.loadRoleType(userId);
+                PermissionCache.putRoleType(redisTemplate, userId, roleType);
+            } catch (Exception e) {
+                log.warn("重建用户角色缓存失败，userId:{}", userId, e);
+            }
+        }
+        if (roleType != null && !roleType.trim().isEmpty()) {
+            payload.put("role", roleType.toUpperCase());
         }
     }
 

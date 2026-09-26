@@ -3,7 +3,8 @@ package com.aether.permission;
 import com.aether.exception.ServerException;
 import com.aether.i18n.I18nUtils;
 import com.aether.local.CurrentUser;
-import com.aether.utils.TokenUtils;
+import com.aether.auth.PermissionCache;
+import com.aether.auth.UserPermissionProvider;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
@@ -11,13 +12,14 @@ import org.aspectj.lang.annotation.Pointcut;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.core.annotation.AnnotationUtils;
-import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.Map;
 
 /** 基于平台角色资源的权限切面。 */
 @Component
@@ -25,6 +27,9 @@ import java.util.HashMap;
 public class PermissionAspect {
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private org.springframework.beans.factory.ObjectProvider<UserPermissionProvider> permissionProvider;
 
     @Pointcut("@within(com.aether.permission.Permission) || @annotation(com.aether.permission.Permission)")
     public void pointcut() {
@@ -59,13 +64,30 @@ public class PermissionAspect {
         if (user == null || user.get("userId") == null) {
             throw new ServerException(401, I18nUtils.getMessage("auth.error.no.permission"));
         }
-        HashOperations<String, Object, Object> operations = redisTemplate.opsForHash();
-        Object permissionMap = operations.get(TokenUtils.TOKEN_KEY, user.get("userId"));
-        if (permissionMap instanceof HashMap) {
-            HashMap<String, Object> map = (HashMap<String, Object>) permissionMap;
-            Boolean permission = (Boolean) map.get(annotation.path());
-            if (permission != null && annotation.type() == Permission.Type.Read) return;
-            if (permission != null && annotation.type() == Permission.Type.Write && permission) return;
+        Map<String, Object> map = null;
+        try {
+            map = PermissionCache.get(redisTemplate, user.get("userId"));
+        } catch (Exception ignored) {
+            // Redis 短暂不可用时仍尝试通过业务持久化层重建快照，最终按权限失败关闭。
+        }
+        if (!PermissionCache.isComplete(map) && permissionProvider != null) {
+            UserPermissionProvider provider = permissionProvider.getIfAvailable();
+            if (provider != null) {
+                try {
+                    map = provider.loadPermissionMap(user.get("userId"), user.get("encryptedToken"));
+                    PermissionCache.put(redisTemplate, user.get("userId"), map);
+                } catch (Exception ignored) {
+                    // 下面统一返回 403，避免异常细节泄漏给客户端。
+                }
+            }
+        }
+        if (map != null) {
+            Object value = map.get(annotation.path());
+            boolean permission = value instanceof Boolean
+                    ? (Boolean) value
+                    : Boolean.parseBoolean(String.valueOf(value));
+            if (value != null && annotation.type() == Permission.Type.Read) return;
+            if (value != null && annotation.type() == Permission.Type.Write && permission) return;
         }
         throw new ServerException(403, I18nUtils.getMessage("auth.error.no.permission"));
     }

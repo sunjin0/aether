@@ -129,6 +129,9 @@ public interface UserService extends IService<User> {
     @PostMapping(value = "/bindRole")
     Boolean bindRole(String userId, List<String> roleIds);
 
+    /** 角色资源变化后，使绑定该角色的账号权限快照失效。 */
+    void invalidatePermissionCacheByRoleId(String roleId);
+
     /**
      * 获取路由器
      *
